@@ -96,7 +96,7 @@ function executeBuiltInTool(
         },
         iteration: 0,
         currentModel: {} as never,
-        hasExecutedBuiltInTool: vi.fn(() => false),
+
         sessionId: null,
         toolCallMessageId: null,
         emitToolEvent: vi.fn(),
@@ -210,7 +210,7 @@ describe('user runs a built-in tool', () => {
             },
             iteration: 0,
             currentModel: {} as never,
-            hasExecutedBuiltInTool: vi.fn(() => false),
+
             sessionId: null,
             toolCallMessageId: null,
             emitToolEvent,
@@ -286,7 +286,7 @@ describe('user runs a built-in tool', () => {
             },
             iteration: 0,
             currentModel: {} as never,
-            hasExecutedBuiltInTool: vi.fn(() => false),
+
             sessionId: null,
             toolCallMessageId: null,
             emitToolEvent,

@@ -4,7 +4,7 @@
  * Widget 主题契约守卫。
  *
  * `show-widget` 工具让模型按一套固定变量名生成 HTML（见
- * prompts/show-widget/core_design_system.md）。这套变量曾经有 20 个在
+ * prompts/skills/widget/SKILL.md）。这套变量曾经有 20 个在
  * `@theme` 里根本不存在，全靠 runtimeConstants.ts 的硬编码兜底，于是 widget 和
  * 宿主界面成了两套设计语言：
  *

@@ -27,7 +27,21 @@
                 </span>
                 <span v-else class="tool-call-log-verb">{{ builtinVerbText }}</span>
                 <span
-                    v-if="builtinSummaryText"
+                    v-if="activatedSkillName"
+                    data-slot="tool-call-activated-skill"
+                    class="tool-call-log-content ml-1 inline-flex max-w-full items-baseline gap-1 align-baseline text-sm"
+                >
+                    <AppIcon
+                        name="skill"
+                        class="h-3.5 w-3.5 shrink-0 self-center"
+                        aria-hidden="true"
+                    />
+                    <span class="min-w-0 break-words" data-no-i18n="true" translate="no">
+                        {{ activatedSkillName }}
+                    </span>
+                </span>
+                <span
+                    v-else-if="builtinSummaryText"
                     class="tool-call-log-content"
                     :data-no-i18n="isBuiltinSummaryPayload ? 'true' : undefined"
                     :translate="isBuiltinSummaryPayload ? 'no' : undefined"
@@ -175,6 +189,14 @@
         }
 
         return BUILTIN_CARD_COMPONENTS[builtinToolToken.value] ?? null;
+    });
+    const activatedSkillName = computed(() => {
+        if (!isBuiltinTool.value || builtinToolToken.value !== 'activateskill') return null;
+        const args = props.toolCall.arguments;
+        if (typeof args?.name === 'string' && args.name.trim()) return args.name.trim();
+        if (typeof args?.path !== 'string') return null;
+        const segments = args.path.replace(/\\/g, '/').split('/').filter(Boolean);
+        return segments.length > 1 ? segments[segments.length - 2] : null;
     });
     /**
      * WebSearch 的渲染状态。

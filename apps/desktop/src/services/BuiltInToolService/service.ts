@@ -38,6 +38,7 @@ import type {
 
 const BUILT_IN_TOOL_PREFIX = 'builtin__';
 const BUILT_IN_TOOL_SEED_RISK_LEVELS: Record<BuiltInToolId, 'low' | 'medium' | 'high'> = {
+    activate_skill: 'medium',
     bash: 'high',
     file_search: 'low',
     read: 'medium',
@@ -59,7 +60,6 @@ interface BuiltInToolExecutionOptions {
     toolArgs: Record<string, unknown>;
     iteration: number;
     currentModel: ModelWithProvider;
-    hasExecutedBuiltInTool: (toolId: BuiltInToolId) => boolean;
     signal?: AbortSignal;
     sessionId: number | null;
     toolCallMessageId: number | null;
@@ -76,6 +76,7 @@ interface BuiltInToolExecutionResponse {
     toolCall: AiToolCall;
     builtInToolId: BuiltInToolId;
     result: string;
+    persistedResult?: string;
     isError: boolean;
     toolLogId: number | null;
     toolLogKind: ToolLogKind;
@@ -317,7 +318,6 @@ class BuiltInToolService {
             currentModel: options.currentModel,
             signal: options.signal,
             emitToolEvent: options.emitToolEvent,
-            hasExecutedBuiltInTool: options.hasExecutedBuiltInTool,
             requestUserQuestions: options.requestUserQuestions,
             requestedTimeoutMs: options.requestedTimeoutMs,
         };
@@ -526,11 +526,12 @@ class BuiltInToolService {
         }
 
         const durationMs = Date.now() - callStartTime;
+        const persistedResult = toolResult.persistedResult ?? toolResult.result;
         // 同步结果
         options.emitToolEvent({
             type: 'call_end',
             callId: options.toolCall.id,
-            result: toolResult.result,
+            result: persistedResult,
             isError: toolResult.isError,
             durationMs,
             finalStatus: toolResult.status === 'success' ? 'completed' : 'error',
@@ -540,7 +541,7 @@ class BuiltInToolService {
 
         if (toolLogId !== null)
             await updateBuiltInToolLogById(toolLogId, {
-                output: serializeAuditPayload(toolResult.result),
+                output: serializeAuditPayload(persistedResult),
                 // 语义和结构化载荷会读回来重建工具卡片，不是审计字段：脱敏会改掉来源链接，
                 // 截断会破坏 JSON 契约，所以这两列保持原样。
                 conversation_semantic_json: toolResult.conversationSemantic
@@ -558,7 +559,7 @@ class BuiltInToolService {
                           : 'error',
                 duration_ms: durationMs,
                 error_message: toolResult.isError
-                    ? serializeAuditPayload(toolResult.errorMessage ?? toolResult.result)
+                    ? serializeAuditPayload(toolResult.errorMessage ?? persistedResult)
                     : null,
             }).catch((error) => {
                 log.error('[BuiltInToolService] Failed to update built-in tool log:', error);
@@ -568,6 +569,7 @@ class BuiltInToolService {
             toolCall: options.toolCall,
             builtInToolId: resolved.tool.id,
             result: toolResult.result,
+            persistedResult,
             isError: toolResult.isError,
             toolLogId,
             toolLogKind: 'builtin',

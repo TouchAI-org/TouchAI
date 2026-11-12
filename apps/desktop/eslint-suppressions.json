@@ -296,7 +296,7 @@
     },
     "src/views/SettingsView/components/AiServices/components/BadgedLogo.vue": {
         "vue/no-restricted-class": {
-            "count": 5
+            "count": 2
         }
     },
     "src/views/SettingsView/components/AiServices/components/ModelCard.vue": {

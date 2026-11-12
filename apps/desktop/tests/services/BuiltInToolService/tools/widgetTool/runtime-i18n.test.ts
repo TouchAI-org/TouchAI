@@ -1,13 +1,13 @@
+import {
+    createWidgetRenderer,
+    mockWidgetScriptResource,
+    widgetDocument,
+    widgetWindow,
+} from '@tests/utils/widgetFrame';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import {
-    createShowWidgetBaseStyles,
-    createWidgetRenderer,
-} from '@/services/BuiltInToolService/tools/widgetTool/showWidget/runtime';
+import { createShowWidgetBaseStyles } from '@/services/BuiltInToolService/tools/widgetTool/showWidget/runtime';
 import { log } from '@/services/ObservabilityService';
-
-const nativeReplaceChild = Node.prototype.replaceChild;
-const nativeAppendChild = Node.prototype.appendChild;
 
 async function waitForWidgetRender(): Promise<void> {
     for (let attempt = 0; attempt < 20; attempt += 1) {
@@ -22,67 +22,27 @@ async function waitForCondition(condition: () => boolean): Promise<void> {
 }
 
 function installExternalScriptLoadMock(): void {
-    const scheduleMockScriptLoad = (node: Node): void => {
-        if (!(node instanceof HTMLScriptElement) || !node.src) {
-            return;
+    mockWidgetScriptResource((url, target) => {
+        if (url.includes('chart.umd.js')) {
+            Object.assign(target, {
+                Chart: function Chart() {
+                    Reflect.set(target, '__touchaiChartConstructed', true);
+                },
+            });
         }
-
-        window.setTimeout(() => {
-            if (node.src.includes('chart.umd.js')) {
-                (window as Window & { Chart?: unknown }).Chart = function Chart() {
-                    (
-                        window as Window & { __touchaiChartConstructed?: boolean }
-                    ).__touchaiChartConstructed = true;
-                };
-            }
-            node.dispatchEvent(new Event('load'));
-        }, 0);
-    };
-
-    vi.spyOn(Node.prototype, 'replaceChild').mockImplementation(function (
-        this: Node,
-        newChild: Node,
-        oldChild: Node
-    ) {
-        const isScriptReplacement =
-            newChild instanceof HTMLScriptElement && oldChild instanceof HTMLScriptElement;
-
-        const replacedNode = nativeReplaceChild.call(this, newChild, oldChild);
-
-        if (!isScriptReplacement) {
-            return replacedNode;
-        }
-
-        scheduleMockScriptLoad(newChild);
-
-        return replacedNode;
-    } as typeof Node.prototype.replaceChild);
-
-    vi.spyOn(Node.prototype, 'appendChild').mockImplementation(function (
-        this: Node,
-        newChild: Node
-    ) {
-        const appendedNode = nativeAppendChild.call(this, newChild);
-        scheduleMockScriptLoad(newChild);
-        return appendedNode;
-    } as typeof Node.prototype.appendChild);
+    });
 }
 
 describe('user views an interactive widget in the conversation', () => {
     afterEach(() => {
         vi.restoreAllMocks();
-        Node.prototype.replaceChild = nativeReplaceChild;
-        Node.prototype.appendChild = nativeAppendChild;
         document.body.innerHTML = '';
         delete document.body.dataset.widgetBody;
         delete document.body.dataset.thisDocumentBody;
         delete document.documentElement.dataset.widgetDocumentElement;
-        delete (window as Window & { __touchaiWidgetInitRan?: boolean }).__touchaiWidgetInitRan;
         delete (window as Window & { sendPrompt?: unknown }).sendPrompt;
         delete (window as Window & { openLink?: unknown }).openLink;
         delete (window as Window & { Chart?: unknown }).Chart;
-        delete (window as Window & { __touchaiChartConstructed?: boolean })
-            .__touchaiChartConstructed;
     });
 
     it('user sees the widget host and root left out of global DOM localization', () => {
@@ -90,7 +50,7 @@ describe('user views an interactive widget in the conversation', () => {
         document.body.appendChild(host);
 
         const renderer = createWidgetRenderer(host);
-        const root = host.querySelector('[data-touchai-widget-root="true"]');
+        const root = widgetDocument(host).querySelector('[data-touchai-widget-root="true"]');
 
         expect(host.getAttribute('data-no-i18n')).toBe('true');
         expect(host.getAttribute('translate')).toBe('no');
@@ -121,15 +81,20 @@ describe('user views an interactive widget in the conversation', () => {
 
         await waitForCondition(
             () =>
-                (window as Window & { __touchaiWidgetInitRan?: boolean }).__touchaiWidgetInitRan ===
-                    true &&
-                host.querySelector('#chart-probe')?.getAttribute('data-initialized') === 'true'
+                (widgetWindow(host) as Window & { __touchaiWidgetInitRan?: boolean })
+                    .__touchaiWidgetInitRan === true &&
+                widgetDocument(host)
+                    .querySelector('#chart-probe')
+                    ?.getAttribute('data-initialized') === 'true'
         );
 
         expect(
-            (window as Window & { __touchaiWidgetInitRan?: boolean }).__touchaiWidgetInitRan
+            (widgetWindow(host) as Window & { __touchaiWidgetInitRan?: boolean })
+                .__touchaiWidgetInitRan
         ).toBe(true);
-        expect(host.querySelector('#chart-probe')?.getAttribute('data-initialized')).toBe('true');
+        expect(
+            widgetDocument(host).querySelector('#chart-probe')?.getAttribute('data-initialized')
+        ).toBe('true');
 
         renderer.destroy();
     });
@@ -154,14 +119,16 @@ describe('user views an interactive widget in the conversation', () => {
 
         await waitForCondition(
             () =>
-                host
+                widgetDocument(host)
                     .querySelector('style:not([data-touchai-widget-base-style])')
                     ?.textContent?.includes('.route-card') === true &&
-                host.querySelector<HTMLElement>('.route-card') !== null
+                widgetDocument(host).querySelector<HTMLElement>('.route-card') !== null
         );
 
-        const style = host.querySelector('style:not([data-touchai-widget-base-style])');
-        const card = host.querySelector<HTMLElement>('.route-card');
+        const style = widgetDocument(host).querySelector(
+            'style:not([data-touchai-widget-base-style])'
+        );
+        const card = widgetDocument(host).querySelector<HTMLElement>('.route-card');
 
         expect(style?.textContent).toContain('.route-card');
         expect(style?.textContent).toContain('[data-touchai-widget-host=');
@@ -193,15 +160,17 @@ describe('user views an interactive widget in the conversation', () => {
 
         await waitForCondition(
             () =>
-                host.querySelector<HTMLElement>('.head-style-card')?.textContent ===
+                widgetDocument(host).querySelector<HTMLElement>('.head-style-card')?.textContent ===
                     'Head styled content' &&
-                host
+                widgetDocument(host)
                     .querySelector('style:not([data-touchai-widget-base-style])')
                     ?.textContent?.includes('.head-style-card') === true
         );
 
-        const style = host.querySelector('style:not([data-touchai-widget-base-style])');
-        const card = host.querySelector<HTMLElement>('.head-style-card');
+        const style = widgetDocument(host).querySelector(
+            'style:not([data-touchai-widget-base-style])'
+        );
+        const card = widgetDocument(host).querySelector<HTMLElement>('.head-style-card');
 
         expect(card?.textContent).toBe('Head styled content');
         expect(style?.textContent).toContain('.head-style-card');
@@ -225,7 +194,9 @@ describe('user views an interactive widget in the conversation', () => {
         document.body.appendChild(host);
 
         const renderer = createWidgetRenderer(host);
-        const root = host.querySelector<HTMLElement>('[data-touchai-widget-root="true"]');
+        const root = widgetDocument(host).querySelector<HTMLElement>(
+            '[data-touchai-widget-root="true"]'
+        );
 
         expect(css).toContain('max-width: 680px');
         expect(css).toContain('margin-left: auto');
@@ -234,8 +205,8 @@ describe('user views an interactive widget in the conversation', () => {
         expect(host.style.maxWidth).toBe('680px');
         expect(host.style.marginLeft).toBe('auto');
         expect(host.style.marginRight).toBe('auto');
-        expect(root?.style.width).toBe('100%');
-        expect(root?.style.maxWidth).toBe('100%');
+        expect(widgetWindow(host).getComputedStyle(root!).width).toBe('100%');
+        expect(widgetWindow(host).getComputedStyle(root!).maxWidth).toBe('100%');
 
         renderer.destroy();
     });
@@ -265,17 +236,19 @@ describe('user views an interactive widget in the conversation', () => {
 
         await waitForWidgetRender();
 
-        host.querySelector('button')?.dispatchEvent(
-            new MouseEvent('click', { bubbles: true, cancelable: true })
-        );
-        host.querySelector('#legacy-node')?.dispatchEvent(
-            new MouseEvent('click', { bubbles: true, cancelable: true })
-        );
+        widgetDocument(host)
+            .querySelector('button')
+            ?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        widgetDocument(host)
+            .querySelector('#legacy-node')
+            ?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 
         expect(sendPrompt).toHaveBeenCalledTimes(2);
         expect(sendPrompt).toHaveBeenNthCalledWith(1, 'Compare one more scenario');
         expect(sendPrompt).toHaveBeenNthCalledWith(2, 'Tell me more about this stop');
-        expect(host.querySelector('#legacy-node')?.getAttribute('onclick')).toBeNull();
+        expect(
+            widgetDocument(host).querySelector('#legacy-node')?.getAttribute('onclick')
+        ).toBeNull();
 
         renderer.destroy();
     });
@@ -301,12 +274,12 @@ describe('user views an interactive widget in the conversation', () => {
 
         await waitForWidgetRender();
 
-        host.querySelector('button')?.dispatchEvent(
-            new MouseEvent('click', { bubbles: true, cancelable: true })
-        );
-        host.querySelector('#unsafe-link')?.dispatchEvent(
-            new MouseEvent('click', { bubbles: true, cancelable: true })
-        );
+        widgetDocument(host)
+            .querySelector('button')
+            ?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        widgetDocument(host)
+            .querySelector('#unsafe-link')
+            ?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 
         expect(openLink).toHaveBeenCalledOnce();
         expect(openLink).toHaveBeenCalledWith('https://example.com/report');
@@ -314,7 +287,7 @@ describe('user views an interactive widget in the conversation', () => {
         renderer.destroy();
     });
 
-    it('user sees relative anchor links left for the host router', async () => {
+    it('user cannot navigate the application through a relative widget link', async () => {
         const openLink = vi.fn();
         (window as Window & { openLink?: (url: string) => void }).openLink = openLink;
 
@@ -333,15 +306,15 @@ describe('user views an interactive widget in the conversation', () => {
         await waitForWidgetRender();
 
         let wasPreventedByWidget = true;
-        host.addEventListener('click', (event) => {
+        widgetDocument(host).addEventListener('click', (event) => {
             wasPreventedByWidget = event.defaultPrevented;
             event.preventDefault();
         });
 
         const clickEvent = new MouseEvent('click', { bubbles: true, cancelable: true });
-        host.querySelector('#internal-link')?.dispatchEvent(clickEvent);
+        widgetDocument(host).querySelector('#internal-link')?.dispatchEvent(clickEvent);
 
-        expect(wasPreventedByWidget).toBe(false);
+        expect(wasPreventedByWidget).toBe(true);
         expect(openLink).not.toHaveBeenCalled();
 
         renderer.destroy();
@@ -363,9 +336,9 @@ describe('user views an interactive widget in the conversation', () => {
 
         await waitForWidgetRender();
 
-        host.querySelector('#external-link')?.dispatchEvent(
-            new MouseEvent('click', { bubbles: true, cancelable: true })
-        );
+        widgetDocument(host)
+            .querySelector('#external-link')
+            ?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 
         expect(open).toHaveBeenCalledWith(
             'https://example.com/report',
@@ -399,11 +372,11 @@ describe('user views an interactive widget in the conversation', () => {
 
         await waitForWidgetRender();
 
-        host.querySelector('#increment')?.dispatchEvent(
-            new MouseEvent('click', { bubbles: true, cancelable: true })
-        );
+        widgetDocument(host)
+            .querySelector('#increment')
+            ?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 
-        expect(host.querySelector('#count')?.textContent).toBe('1');
+        expect(widgetDocument(host).querySelector('#count')?.textContent).toBe('1');
 
         renderer.destroy();
     });
@@ -433,16 +406,14 @@ describe('user views an interactive widget in the conversation', () => {
 
         await waitForWidgetRender();
 
-        const root = host.querySelector<HTMLElement>('[data-touchai-widget-root="true"]');
-
         expect(document.body.dataset.widgetBody).toBeUndefined();
         expect(document.documentElement.dataset.widgetDocumentElement).toBeUndefined();
         expect(document.body.dataset.thisDocumentBody).toBeUndefined();
         expect(document.body.querySelector(':scope > #body-child')).toBeNull();
-        expect(root?.dataset.widgetBody).toBe('scoped');
-        expect(root?.dataset.widgetDocumentElement).toBe('scoped');
-        expect(root?.dataset.thisDocumentBody).toBe('scoped');
-        expect(root?.querySelector('#body-child')).not.toBeNull();
+        expect(widgetDocument(host).body.dataset.widgetBody).toBe('scoped');
+        expect(widgetDocument(host).documentElement.dataset.widgetDocumentElement).toBe('scoped');
+        expect(widgetDocument(host).body.dataset.thisDocumentBody).toBe('scoped');
+        expect(widgetDocument(host).body.querySelector('#body-child')).not.toBeNull();
 
         renderer.destroy();
     });
@@ -483,8 +454,8 @@ describe('user views an interactive widget in the conversation', () => {
 
         await waitForWidgetRender();
 
-        expect(host.querySelector('#result')?.textContent).toBe('4');
-        expect(host.querySelector('#steps')?.textContent).toBe('done');
+        expect(widgetDocument(host).querySelector('#result')?.textContent).toBe('4');
+        expect(widgetDocument(host).querySelector('#steps')?.textContent).toBe('done');
 
         renderer.destroy();
     });
@@ -513,7 +484,9 @@ describe('user views an interactive widget in the conversation', () => {
             phase: 'ready',
             html: duplicateIdHtml,
         });
-        await waitForCondition(() => firstHost.querySelector('[id="st"]')?.textContent === 'idle');
+        await waitForCondition(
+            () => widgetDocument(firstHost).querySelector('[id="st"]')?.textContent === 'idle'
+        );
 
         secondRenderer.render({
             widgetId: 'second-duplicate-id-widget',
@@ -525,16 +498,16 @@ describe('user views an interactive widget in the conversation', () => {
 
         await waitForCondition(
             () =>
-                firstHost.querySelector('[id="st"]')?.textContent === 'idle' &&
-                secondHost.querySelector('[id="st"]')?.textContent === 'idle'
+                widgetDocument(firstHost).querySelector('[id="st"]')?.textContent === 'idle' &&
+                widgetDocument(secondHost).querySelector('[id="st"]')?.textContent === 'idle'
         );
 
-        secondHost
+        widgetDocument(secondHost)
             .querySelector('[id="btn-s"]')
             ?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 
-        expect(firstHost.querySelector('[id="st"]')?.textContent).toBe('idle');
-        expect(secondHost.querySelector('[id="st"]')?.textContent).toBe('clicked');
+        expect(widgetDocument(firstHost).querySelector('[id="st"]')?.textContent).toBe('idle');
+        expect(widgetDocument(secondHost).querySelector('[id="st"]')?.textContent).toBe('clicked');
 
         firstRenderer.destroy();
         secondRenderer.destroy();
@@ -597,7 +570,7 @@ describe('user views an interactive widget in the conversation', () => {
             html: sampleStyleHtml,
         });
         await waitForCondition(
-            () => firstHost.querySelector('[id="rem"]')?.textContent === '41 cents'
+            () => widgetDocument(firstHost).querySelector('[id="rem"]')?.textContent === '41 cents'
         );
 
         secondRenderer.render({
@@ -609,22 +582,26 @@ describe('user views an interactive widget in the conversation', () => {
         });
         await waitForCondition(
             () =>
-                firstHost.querySelector('[id="rem"]')?.textContent === '41 cents' &&
-                secondHost.querySelector('[id="rem"]')?.textContent === '41 cents'
+                widgetDocument(firstHost).querySelector('[id="rem"]')?.textContent === '41 cents' &&
+                widgetDocument(secondHost).querySelector('[id="rem"]')?.textContent === '41 cents'
         );
 
-        secondHost
+        widgetDocument(secondHost)
             .querySelector('[id="btn-s"]')
             ?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 
         await waitForCondition(
-            () => secondHost.querySelector('[id="rem"]')?.textContent === '16 cents'
+            () => widgetDocument(secondHost).querySelector('[id="rem"]')?.textContent === '16 cents'
         );
 
-        expect(firstHost.querySelector('[id="st"]')?.textContent).toBe('idle');
-        expect(firstHost.querySelector('[id="rem"]')?.textContent).toBe('41 cents');
-        expect(secondHost.querySelector('[id="st"]')?.textContent).toBe('remaining 16');
-        expect(secondHost.querySelector('[id="rem"]')?.textContent).toBe('16 cents');
+        expect(widgetDocument(firstHost).querySelector('[id="st"]')?.textContent).toBe('idle');
+        expect(widgetDocument(firstHost).querySelector('[id="rem"]')?.textContent).toBe('41 cents');
+        expect(widgetDocument(secondHost).querySelector('[id="st"]')?.textContent).toBe(
+            'remaining 16'
+        );
+        expect(widgetDocument(secondHost).querySelector('[id="rem"]')?.textContent).toBe(
+            '16 cents'
+        );
 
         firstRenderer.destroy();
         secondRenderer.destroy();
@@ -674,24 +651,28 @@ describe('user views an interactive widget in the conversation', () => {
 
         await waitForWidgetRender();
 
-        const button = host.querySelector('[id="btn-step"]');
+        const button = widgetDocument(host).querySelector('[id="btn-step"]');
         expect(button).not.toBeNull();
         expect(consoleError).not.toHaveBeenCalled();
-        expect(host.querySelector<HTMLElement>('[id="explanation"]')?.dataset.scriptRan).toBe(
-            'true'
-        );
-        expect(host.querySelector<HTMLElement>('[id="btn-step"]')?.dataset.bound).toBe('true');
+        expect(
+            widgetDocument(host).querySelector<HTMLElement>('[id="explanation"]')?.dataset.scriptRan
+        ).toBe('true');
+        expect(
+            widgetDocument(host).querySelector<HTMLElement>('[id="btn-step"]')?.dataset.bound
+        ).toBe('true');
 
         button?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 
         expect(consoleError).not.toHaveBeenCalled();
 
         await waitForCondition(
-            () => host.querySelector('[id="explanation"]')?.textContent === 'picked 25'
+            () =>
+                widgetDocument(host).querySelector('[id="explanation"]')?.textContent ===
+                'picked 25'
         );
 
-        expect(host.querySelector('[id="step-area"] rect')).not.toBeNull();
-        expect(host.querySelector('[id="step-area"] text')?.textContent).toBe('25');
+        expect(widgetDocument(host).querySelector('[id="step-area"] rect')).not.toBeNull();
+        expect(widgetDocument(host).querySelector('[id="step-area"] text')?.textContent).toBe('25');
 
         renderer.destroy();
     });
@@ -809,40 +790,48 @@ describe('user views an interactive widget in the conversation', () => {
             ].join(''),
         });
 
-        await waitForCondition(() => host.querySelectorAll('[id="denom-row"] rect').length === 4);
+        await waitForCondition(
+            () => widgetDocument(host).querySelectorAll('[id="denom-row"] rect').length === 4
+        );
 
         expect(consoleError).not.toHaveBeenCalled();
-        expect(host.querySelector('[id="explanation"]')?.textContent).toContain('Target 41');
-
-        host.querySelector('[id="btn-step"]')?.dispatchEvent(
-            new MouseEvent('click', { bubbles: true, cancelable: true })
+        expect(widgetDocument(host).querySelector('[id="explanation"]')?.textContent).toContain(
+            'Target 41'
         );
+
+        widgetDocument(host)
+            .querySelector('[id="btn-step"]')
+            ?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
         await waitForCondition(
             () =>
-                host.querySelector('[id="explanation"]')?.textContent ===
+                widgetDocument(host).querySelector('[id="explanation"]')?.textContent ===
                 'Picked 1, total 25, remaining 16.'
         );
-        expect(host.querySelector('[id="step-area"] rect')).not.toBeNull();
-        expect(host.querySelector('[id="step-area"] text')?.textContent).toBe('25c');
+        expect(widgetDocument(host).querySelector('[id="step-area"] rect')).not.toBeNull();
+        expect(widgetDocument(host).querySelector('[id="step-area"] text')?.textContent).toBe(
+            '25c'
+        );
 
-        const slider = host.querySelector<HTMLInputElement>('[id="amount-slider"]');
+        const slider = widgetDocument(host).querySelector<HTMLInputElement>('[id="amount-slider"]');
         expect(slider).not.toBeNull();
         slider!.value = '30';
         slider!.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
-        expect(host.querySelector('[id="amount-display"]')?.textContent).toBe('30');
-        expect(host.querySelector('[id="step-area"] rect')).toBeNull();
-        expect(host.querySelector('[id="explanation"]')?.textContent).toContain('Target 30');
-
-        host.querySelector('[id="btn-auto"]')?.dispatchEvent(
-            new MouseEvent('click', { bubbles: true, cancelable: true })
+        expect(widgetDocument(host).querySelector('[id="amount-display"]')?.textContent).toBe('30');
+        expect(widgetDocument(host).querySelector('[id="step-area"] rect')).toBeNull();
+        expect(widgetDocument(host).querySelector('[id="explanation"]')?.textContent).toContain(
+            'Target 30'
         );
+
+        widgetDocument(host)
+            .querySelector('[id="btn-auto"]')
+            ?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
         await new Promise((resolve) => window.setTimeout(resolve, 550));
-        expect(host.querySelector('[id="explanation"]')?.textContent).toBe(
+        expect(widgetDocument(host).querySelector('[id="explanation"]')?.textContent).toBe(
             'Picked 1, total 25, remaining 5.'
         );
-        host.querySelector('[id="btn-auto"]')?.dispatchEvent(
-            new MouseEvent('click', { bubbles: true, cancelable: true })
-        );
+        widgetDocument(host)
+            .querySelector('[id="btn-auto"]')
+            ?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 
         expect(consoleError).not.toHaveBeenCalled();
 
@@ -869,7 +858,8 @@ describe('user views an interactive widget in the conversation', () => {
         await waitForWidgetRender();
 
         expect(
-            (window as Window & { __touchaiWidgetInitRan?: boolean }).__touchaiWidgetInitRan
+            (widgetWindow(host) as Window & { __touchaiWidgetInitRan?: boolean })
+                .__touchaiWidgetInitRan
         ).toBeUndefined();
 
         renderer.destroy();
@@ -877,16 +867,7 @@ describe('user views an interactive widget in the conversation', () => {
 
     it('user does not see unsafe external widget scripts loaded', async () => {
         const appendedScriptUrls: string[] = [];
-        vi.spyOn(Node.prototype, 'appendChild').mockImplementation(function (
-            this: Node,
-            newChild: Node
-        ) {
-            if (newChild instanceof HTMLScriptElement) {
-                appendedScriptUrls.push(newChild.src);
-            }
-
-            return nativeAppendChild.call(this, newChild);
-        } as typeof Node.prototype.appendChild);
+        mockWidgetScriptResource((url) => appendedScriptUrls.push(url));
 
         const host = document.createElement('div');
         document.body.appendChild(host);
@@ -913,9 +894,10 @@ describe('user views an interactive widget in the conversation', () => {
 
         expect(appendedScriptUrls).toEqual([]);
         expect(
-            (window as Window & { __touchaiWidgetInitRan?: boolean }).__touchaiWidgetInitRan
+            (widgetWindow(host) as Window & { __touchaiWidgetInitRan?: boolean })
+                .__touchaiWidgetInitRan
         ).toBeUndefined();
-        expect(host.querySelector('#result')?.textContent).toBe('safe inline ran');
+        expect(widgetDocument(host).querySelector('#result')?.textContent).toBe('safe inline ran');
 
         renderer.destroy();
     });
@@ -946,7 +928,8 @@ describe('user views an interactive widget in the conversation', () => {
         await waitForWidgetRender();
 
         expect(
-            (window as Window & { __touchaiChartConstructed?: boolean }).__touchaiChartConstructed
+            (widgetWindow(host) as Window & { __touchaiChartConstructed?: boolean })
+                .__touchaiChartConstructed
         ).toBe(true);
 
         renderer.destroy();

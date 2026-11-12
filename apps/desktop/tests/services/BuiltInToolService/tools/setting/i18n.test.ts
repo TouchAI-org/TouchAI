@@ -93,7 +93,6 @@ function createExecutionContext(): Parameters<typeof executeSettingTool>[2] {
         signal: new AbortController().signal,
         callId: 'setting-call',
         iteration: 1,
-        hasExecutedBuiltInTool: vi.fn(() => false),
     };
 }
 

@@ -24,7 +24,6 @@ function createExecutionContext(): Parameters<typeof executeWebSearchTool>[2] {
         signal: new AbortController().signal,
         callId: 'web-search-call',
         iteration: 1,
-        hasExecutedBuiltInTool: vi.fn(() => false),
     };
 }
 

@@ -26,12 +26,14 @@
      *
      * tag 族缺了 min-w-0 / break-words / max-w-* 会在窄卡片里溢出，
      * 所以用 variant 区分「基础类」，而不是只区分颜色。
+     * source 复用服务商来源标签的白底、细边框与阴影，供服务商等来源标记使用。
      */
     const badgeVariants = cva('', {
         variants: {
             variant: {
                 toggle: 'rounded px-1.5 py-0.5 text-xs font-medium transition-colors',
                 tag: 'inline-flex min-w-0 items-center rounded text-center font-medium break-words whitespace-normal',
+                source: 'inline-flex min-w-max items-center rounded border border-badge-border bg-badge-surface px-1 py-0.5 text-3xs leading-none whitespace-nowrap text-badge-foreground shadow-sm',
             },
             size: {
                 sm: 'max-w-[5.75rem] px-1 py-0.5 text-2xs leading-tight',
@@ -97,6 +99,7 @@
     };
 
     const toneClass = computed(() => {
+        if (props.variant === 'source') return '';
         // toggle 族关闭态固定用 neutral
         if (props.variant === 'toggle' && !props.active) {
             const off = TONE_CLASSES.neutral;

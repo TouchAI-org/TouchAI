@@ -1,6 +1,7 @@
 <!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
+    import { Badge } from '@components/ui/badge';
     import { computed } from 'vue';
 
     import { t } from '@/i18n';
@@ -57,12 +58,13 @@
             {{ name.charAt(0) }}
         </div>
 
-        <span
+        <Badge
             v-if="showBadge"
             data-testid="provider-built-in-badge"
-            class="absolute top-0 right-0 min-w-max translate-x-1/2 -translate-y-1/2 rounded border border-neutral-300 bg-white px-1 py-0.5 text-3xs leading-none whitespace-nowrap text-neutral-600 shadow-sm"
+            variant="source"
+            class="absolute top-0 right-0 translate-x-1/2 -translate-y-1/2"
         >
             {{ t('common.builtIn') }}
-        </span>
+        </Badge>
     </div>
 </template>

@@ -116,6 +116,7 @@ const BUILT_IN_TOOL_EMPTY_CONFIG_IDS = new Set([
     'show_widget',
     'visualize_read_me',
     'ask_user_question',
+    'activate_skill',
 ]);
 
 const BUILT_IN_TOOL_HIDDEN_IN_SETTINGS_IDS = new Set(['web_search', 'visualize_read_me']);
@@ -164,6 +165,10 @@ export function getBuiltInToolSummary(toolId: string, description?: string | nul
 
     if (toolId === 'ask_user_question') {
         return t('settings.builtInTools.summary.askUserQuestion');
+    }
+
+    if (toolId === 'activate_skill') {
+        return t('settings.builtInTools.summary.activateSkill');
     }
 
     return description?.trim() || t('settings.builtInTools.summary.fallback');

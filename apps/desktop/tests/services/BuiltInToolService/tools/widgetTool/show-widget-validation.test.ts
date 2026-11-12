@@ -8,11 +8,62 @@ function createContext(): BaseBuiltInToolExecutionContext {
         callId: 'call-1',
         iteration: 1,
         emitToolEvent: vi.fn(),
-        hasExecutedBuiltInTool: (toolId) => toolId === 'visualize_read_me',
     };
 }
 
 describe('user asks for a widget and gets a visible one', () => {
+    it('user sees optional title and description preserved in the widget event', async () => {
+        const context = createContext();
+
+        await expect(
+            executeShowWidgetTool(
+                {
+                    is_read_widget_skill: true,
+                    widget_code: '<section>content</section>',
+                    title: 'Revenue',
+                    description: 'Weekly revenue trend',
+                },
+                {},
+                context
+            )
+        ).resolves.toMatchObject({ status: 'success' });
+        expect(context.emitToolEvent).toHaveBeenCalledWith({
+            type: 'widget_upsert',
+            callId: 'call-1',
+            widgetId: 'call-1',
+            title: 'Revenue',
+            description: 'Weekly revenue trend',
+            html: '<section>content</section>',
+            mode: 'render',
+            phase: 'ready',
+        });
+    });
+
+    it.each([
+        ['title', 42],
+        ['title', null],
+        ['description', 42],
+        ['description', null],
+    ])(
+        'user sees an invalid %s value rejected without emitting a widget event',
+        async (field, value) => {
+            const context = createContext();
+
+            await expect(
+                executeShowWidgetTool(
+                    {
+                        is_read_widget_skill: true,
+                        widget_code: '<section>content</section>',
+                        [field]: value,
+                    },
+                    {},
+                    context
+                )
+            ).rejects.toThrow(`"${field}"`);
+            expect(context.emitToolEvent).not.toHaveBeenCalled();
+        }
+    );
+
     it.each([
         ['style', '<style>.root{display:grid}</style><section class="root">content</section>'],
         ['script', '<script>window.__probe = true</script><section>content</section>'],
@@ -36,7 +87,7 @@ describe('user asks for a widget and gets a visible one', () => {
             await expect(
                 executeShowWidgetTool(
                     {
-                        i_have_seen_read_me: true,
+                        is_read_widget_skill: true,
                         widget_code: widgetCode,
                     },
                     {},
@@ -50,7 +101,7 @@ describe('user asks for a widget and gets a visible one', () => {
         await expect(
             executeShowWidgetTool(
                 {
-                    i_have_seen_read_me: true,
+                    is_read_widget_skill: true,
                     widget_code: '<!--<style>.ignored{}</style>--><section>content</section>',
                 },
                 {},
@@ -69,7 +120,7 @@ describe('user asks for a widget and gets a visible one', () => {
         await expect(
             executeShowWidgetTool(
                 {
-                    i_have_seen_read_me: true,
+                    is_read_widget_skill: true,
                     widget_code: widgetCode,
                 },
                 {},
@@ -101,7 +152,7 @@ describe('user asks for a widget and gets a visible one', () => {
             await expect(
                 executeShowWidgetTool(
                     {
-                        i_have_seen_read_me: true,
+                        is_read_widget_skill: true,
                         widget_code: widgetCode,
                     },
                     {},

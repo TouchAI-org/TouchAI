@@ -80,6 +80,7 @@ import {
 import type { AiToolCall } from '../contracts/tooling';
 import type { AttemptCheckpoint } from '../execution/executor';
 import { canonicalJson } from '../infrastructure/providers/ai-sdk/cache';
+import { serializePromptSnapshot } from '../prompt/serialization';
 import type { PromptSnapshot } from '../prompt/types';
 import type { TaskExecutionMode } from '../task/types';
 
@@ -1279,7 +1280,7 @@ export class PersistenceProjector {
                 model_id: this.model.id,
                 task_id: this.taskId,
                 execution_mode: this.executionMode,
-                prompt_snapshot_json: JSON.stringify(this.promptSnapshot),
+                prompt_snapshot_json: serializePromptSnapshot(this.promptSnapshot),
                 prompt_message_id: promptMessageId ?? this.userMessageId,
                 response_message_id: null,
                 status: 'streaming',

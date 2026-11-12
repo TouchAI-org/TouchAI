@@ -71,6 +71,7 @@
         'mcp-tools',
         () => import('./components/McpTools/index.vue')
     );
+    const SkillsView = defineSectionView('skills', () => import('./components/Skills/index.vue'));
     const DataManagementView = defineSectionView(
         'data-management',
         () => import('./components/DataManagement/index.vue')
@@ -116,6 +117,9 @@
         'mcp-tools': {
             component: McpToolsView,
         },
+        skills: {
+            component: SkillsView,
+        },
         'data-management': {
             component: DataManagementView,
             scrollable: true,
@@ -141,6 +145,7 @@
         'SettingsSearchSection',
         'SettingsBrowserSection',
         'SettingsMcpToolsSection',
+        'SettingsSkillsSection',
         'SettingsDataManagementSection',
     ];
     let preloadFrame: number | null = null;

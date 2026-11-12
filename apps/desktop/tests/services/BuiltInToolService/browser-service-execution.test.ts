@@ -73,7 +73,7 @@ describe('user runs a browser tool', () => {
             toolArgs: { ref: 'submit-button', navigationToken: 'obs-1' },
             iteration: 1,
             currentModel,
-            hasExecutedBuiltInTool: vi.fn(() => false),
+
             sessionId: 1,
             toolCallMessageId: 2,
             requestToolApproval,

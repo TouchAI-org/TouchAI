@@ -55,6 +55,8 @@ export interface SummaryResult {
 
 interface PrepareOptions {
     request: AiRequestOptions;
+    /** Budget transient instructions without copying them into durable summaries. */
+    projectForTransport?: (message: AiMessage) => AiMessage;
     contextLimit: number | null;
     outputLimit: number | null;
     preserveSummaryOutputBudget?: boolean;
@@ -212,8 +214,11 @@ export class ContextWindow {
             summaryMessage(text),
             ...request.messages.slice(covered),
         ];
+        const projectForTransport = options.projectForTransport ?? ((message) => message);
+        const estimateTransport = (messages: AiMessage[]) =>
+            this.estimate(request, messages.map(projectForTransport));
         let messages = request.messages;
-        let estimatedTokens = this.estimate(request, messages);
+        let estimatedTokens = estimateTransport(messages);
         checkCancellation(request.signal);
         if (estimatedTokens <= inputBudget) {
             if (retainedSummary)
@@ -231,18 +236,28 @@ export class ContextWindow {
         );
         const tailBudget = Math.min(20_000, inputBudget * 0.3);
         const cumulative = [0];
-        for (const message of request.messages)
+        const transportCumulative = [0];
+        for (const message of request.messages) {
             cumulative.push(cumulative[cumulative.length - 1]! + this.messageTokens(message));
+            transportCumulative.push(
+                transportCumulative[transportCumulative.length - 1]! +
+                    this.messageTokens(projectForTransport(message))
+            );
+        }
         const scale = this.scales.get(key) ?? 1.25;
         const rangeTokens = (start: number, end: number) =>
             (cumulative[end]! - cumulative[start]!) * scale;
         const cut =
-            boundaries.find((index) => rangeTokens(index, request.messages.length) <= tailBudget) ??
-            boundaries[boundaries.length - 1];
+            boundaries.find(
+                (index) =>
+                    (transportCumulative[request.messages.length]! - transportCumulative[index]!) *
+                        scale <=
+                    tailBudget
+            ) ?? boundaries[boundaries.length - 1];
         if (!cut) throw new AiError(AiErrorCode.CONTEXT_TOO_LARGE);
         // Keep the newest complete exchange available verbatim.
         const minimum = project(cut, '');
-        if (this.estimate(request, minimum) >= inputBudget)
+        if (estimateTransport(minimum) >= inputBudget)
             throw new AiError(AiErrorCode.CONTEXT_TOO_LARGE);
 
         const compactionId = crypto.randomUUID();
@@ -329,7 +344,7 @@ export class ContextWindow {
                 covered = batchEnd;
             }
             messages = project(covered, text);
-            const after = this.estimate(request, messages);
+            const after = estimateTransport(messages);
             if (after >= estimatedTokens || after > inputBudget)
                 throw new AiError(AiErrorCode.CONTEXT_COMPACTION_FAILED);
             const checkpoint: ContextSummary = {

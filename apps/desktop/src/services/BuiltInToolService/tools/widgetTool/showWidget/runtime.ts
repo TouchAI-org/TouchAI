@@ -1,8 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { log } from '@services/ObservabilityService';
 import DOMPurify from 'dompurify';
-import type morphdom from 'morphdom';
 
 import { tt } from '@/i18n';
 
@@ -14,15 +12,9 @@ import {
     SHOW_WIDGET_MAX_WIDTH_PX,
     SHOW_WIDGET_THEME_FALLBACKS,
 } from './runtimeConstants';
+import { createWidgetSandboxDocument } from './sandbox';
 
-/**
- * ShowWidget 在回答流里直接渲染原生 DOM 片段。
- *
- * 这个版本刻意保持轻量：
- * - 依赖 morphdom 做增量更新
- * - 支持流式草稿、主题变量和脚本执行
- * - 用最小布局保护避免 widget 破坏消息区宽度
- */
+/** Generated code runs only inside an opaque-origin sandboxed frame. */
 
 export { SHOW_WIDGET_ALLOWED_RESOURCE_HOSTS, SHOW_WIDGET_TOOL_NAME } from './runtimeConstants';
 
@@ -52,8 +44,6 @@ export interface WidgetRenderer {
     destroy(): void;
 }
 
-type MorphdomFunction = typeof morphdom;
-const SHOW_WIDGET_EXTERNAL_SCRIPT_TIMEOUT_MS = 8000;
 const SHOW_WIDGET_CLASSIC_SCRIPT_TYPES = new Set([
     '',
     'application/ecmascript',
@@ -80,194 +70,10 @@ interface WidgetScriptSnapshot {
 
 interface ShowWidgetRendererState {
     destroyed: boolean;
-    lastExecutedHtml: string;
-    morphdomImpl: MorphdomFunction | null;
-    morphdomPromise: Promise<MorphdomFunction> | null;
     pendingPayload: ShowWidgetRenderPayload | null;
     applyTimer: number | null;
     lastDraftAppliedAt: number;
     hasAppliedMeaningfulDraft: boolean;
-    scriptRunToken: number;
-    resourceScope: WidgetResourceScope;
-}
-
-/**
- * Widget 生成脚本的资源作用域。
- *
- * 脚本使用真实 timer / rAF / 事件监听与 observer；宿主 DOM 被移除时它们不会自动停止。
- * 作用域统一登记这些资源，并在 destroy 时释放，避免已卸载 widget 持续占用主线程。
- */
-interface WidgetResourceScope {
-    setTimeout: (handler: TimerHandler, timeout?: number, ...args: unknown[]) => number;
-    clearTimeout: (handle?: number) => void;
-    setInterval: (handler: TimerHandler, timeout?: number, ...args: unknown[]) => number;
-    clearInterval: (handle?: number) => void;
-    requestAnimationFrame: (callback: FrameRequestCallback) => number;
-    cancelAnimationFrame: (handle: number) => void;
-    addEventListener: (
-        target: EventTarget,
-        type: string,
-        handler: EventListenerOrEventListenerObject | null,
-        options?: AddEventListenerOptions | boolean
-    ) => void;
-    removeEventListener: (
-        target: EventTarget,
-        type: string,
-        handler: EventListenerOrEventListenerObject | null,
-        options?: EventListenerOptions | boolean
-    ) => void;
-    ResizeObserver: typeof ResizeObserver;
-    MutationObserver: typeof MutationObserver;
-    dispose: () => void;
-}
-
-function createWidgetResourceScope(): WidgetResourceScope {
-    const timers = new Set<number>();
-    const frames = new Set<number>();
-    const trackedListeners: Array<{
-        target: EventTarget;
-        type: string;
-        handler: EventListenerOrEventListenerObject | null;
-        options?: AddEventListenerOptions | boolean;
-    }> = [];
-    const observers = new Set<{ disconnect: () => void }>();
-    let disposed = false;
-
-    function invokeHandler(handler: TimerHandler, args: unknown[]): void {
-        if (typeof handler === 'function') {
-            handler(...(args as never[]));
-            return;
-        }
-        // 字符串形式的 TimerHandler 极少出现，但 setTimeout 规范允许。
-        // 必须走登记过的定时器：未登记的定时器不会被 dispose 清掉，
-        // widget 卸载后脚本还会再跑一次（表现为“销毁后仍有事件”）。
-        const handle = window.setTimeout(() => {
-            timers.delete(handle);
-            if (disposed) {
-                return;
-            }
-            window.eval(String(handler));
-        }, 0);
-        timers.add(handle);
-    }
-
-    function trackObserver<T extends { disconnect: () => void }>(instance: T): T {
-        observers.add(instance);
-        return instance;
-    }
-
-    const ScopedResizeObserver = function (
-        this: unknown,
-        callback: ResizeObserverCallback
-    ): ResizeObserver {
-        return trackObserver(new window.ResizeObserver(callback));
-    } as unknown as typeof ResizeObserver;
-
-    const ScopedMutationObserver = function (
-        this: unknown,
-        callback: MutationCallback
-    ): MutationObserver {
-        return trackObserver(new window.MutationObserver(callback));
-    } as unknown as typeof MutationObserver;
-
-    return {
-        setTimeout(handler, timeout, ...args) {
-            if (disposed) {
-                return 0;
-            }
-            const handle = window.setTimeout(() => {
-                timers.delete(handle);
-                invokeHandler(handler, args);
-            }, timeout);
-            timers.add(handle);
-            return handle;
-        },
-        clearTimeout(handle) {
-            if (handle === undefined) {
-                return;
-            }
-            timers.delete(handle);
-            window.clearTimeout(handle);
-        },
-        setInterval(handler, timeout, ...args) {
-            if (disposed) {
-                return 0;
-            }
-            const handle = window.setInterval(() => {
-                invokeHandler(handler, args);
-            }, timeout);
-            timers.add(handle);
-            return handle;
-        },
-        clearInterval(handle) {
-            if (handle === undefined) {
-                return;
-            }
-            timers.delete(handle);
-            window.clearInterval(handle);
-        },
-        requestAnimationFrame(callback) {
-            if (disposed) {
-                return 0;
-            }
-            const handle = window.requestAnimationFrame((time) => {
-                frames.delete(handle);
-                callback(time);
-            });
-            frames.add(handle);
-            return handle;
-        },
-        cancelAnimationFrame(handle) {
-            frames.delete(handle);
-            window.cancelAnimationFrame(handle);
-        },
-        addEventListener(target, type, handler, options) {
-            if (disposed) {
-                return;
-            }
-            trackedListeners.push({ target, type, handler, options });
-            target.addEventListener(type, handler, options);
-        },
-        removeEventListener(target, type, handler, options) {
-            const index = trackedListeners.findIndex(
-                (entry) =>
-                    entry.target === target && entry.type === type && entry.handler === handler
-            );
-            if (index >= 0) {
-                trackedListeners.splice(index, 1);
-            }
-            target.removeEventListener(type, handler, options);
-        },
-        ResizeObserver: ScopedResizeObserver,
-        MutationObserver: ScopedMutationObserver,
-        dispose() {
-            disposed = true;
-
-            for (const handle of timers) {
-                window.clearTimeout(handle);
-                window.clearInterval(handle);
-            }
-            timers.clear();
-
-            for (const handle of frames) {
-                window.cancelAnimationFrame(handle);
-            }
-            frames.clear();
-
-            for (const entry of trackedListeners.splice(0)) {
-                entry.target.removeEventListener(entry.type, entry.handler, entry.options);
-            }
-
-            for (const observer of observers) {
-                try {
-                    observer.disconnect();
-                } catch {
-                    // observer 可能已自行断开。
-                }
-            }
-            observers.clear();
-        },
-    };
 }
 
 interface ShowWidgetTypographySource {
@@ -288,8 +94,6 @@ declare global {
         openLink?: (url: string) => void;
     }
 }
-
-let morphdomLoader: Promise<MorphdomFunction> | null = null;
 
 /**
  * 增量预览依赖 provider 的 partial JSON。
@@ -462,14 +266,6 @@ function isShowWidgetScriptUrlAllowed(scriptUrl: string): boolean {
     } catch {
         return false;
     }
-}
-
-function loadMorphdom(): Promise<MorphdomFunction> {
-    if (!morphdomLoader) {
-        morphdomLoader = import('morphdom').then((module) => module.default);
-    }
-
-    return morphdomLoader;
 }
 
 function buildColorRampCss(hostSelector: string): string {
@@ -1110,283 +906,6 @@ function hasMeaningfulContent(fragment: DocumentFragment): boolean {
     return false;
 }
 
-function getNodeKey(node: Node): string | null {
-    if (!(node instanceof Element)) {
-        return null;
-    }
-
-    return node.getAttribute('data-widget-key') || node.id || null;
-}
-
-function applyNodeAddedAnimation(node: Node): void {
-    if (!(node instanceof HTMLElement || node instanceof SVGElement)) {
-        return;
-    }
-
-    const tagName = node.tagName.toUpperCase();
-    if (['SCRIPT', 'STYLE', 'META', 'LINK'].includes(tagName)) {
-        return;
-    }
-
-    node.setAttribute('data-touchai-widget-added', 'true');
-    node.addEventListener(
-        'animationend',
-        () => {
-            node.removeAttribute('data-touchai-widget-added');
-        },
-        { once: true }
-    );
-}
-
-function copyScriptSnapshotAttributes(
-    source: WidgetScriptSnapshot,
-    target: HTMLScriptElement
-): void {
-    for (const attribute of source.attributes) {
-        if (attribute.name === 'src') {
-            continue;
-        }
-
-        target.setAttribute(attribute.name, attribute.value);
-    }
-
-    if (source.src) {
-        target.async = false;
-        target.src = source.src;
-    } else {
-        target.textContent = source.source;
-    }
-}
-
-function appendExternalScript(node: HTMLScriptElement, root: HTMLElement): Promise<void> {
-    return new Promise<void>((resolve) => {
-        const timeoutId = window.setTimeout(settle, SHOW_WIDGET_EXTERNAL_SCRIPT_TIMEOUT_MS);
-
-        function settle(): void {
-            window.clearTimeout(timeoutId);
-            node.removeEventListener('load', settle);
-            node.removeEventListener('error', settle);
-            resolve();
-        }
-
-        node.addEventListener('load', settle);
-        node.addEventListener('error', settle);
-        root.appendChild(node);
-    });
-}
-
-function isClassicInlineScript(script: WidgetScriptSnapshot): boolean {
-    if (script.src) {
-        return false;
-    }
-
-    return SHOW_WIDGET_CLASSIC_SCRIPT_TYPES.has(script.type);
-}
-
-function escapeWidgetDocumentIdSelectorValue(value: string): string {
-    return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-}
-
-function createWidgetScopedDocument(root: HTMLElement): Document {
-    return new Proxy(document, {
-        get(target, property, receiver) {
-            if (property === 'body' || property === 'documentElement') {
-                return root;
-            }
-
-            if (property === 'children') {
-                return root.children;
-            }
-
-            if (property === 'childNodes') {
-                return root.childNodes;
-            }
-
-            if (property === 'firstElementChild') {
-                return root.firstElementChild;
-            }
-
-            if (property === 'firstChild') {
-                return root.firstChild;
-            }
-
-            if (property === 'activeElement') {
-                return root.contains(document.activeElement) ? document.activeElement : null;
-            }
-
-            if (property === 'getElementById') {
-                return (elementId: string) =>
-                    root.querySelector(`[id="${escapeWidgetDocumentIdSelectorValue(elementId)}"]`);
-            }
-
-            if (property === 'querySelector') {
-                return root.querySelector.bind(root);
-            }
-
-            if (property === 'querySelectorAll') {
-                return root.querySelectorAll.bind(root);
-            }
-
-            if (property === 'getElementsByClassName') {
-                return root.getElementsByClassName.bind(root);
-            }
-
-            if (property === 'getElementsByTagName') {
-                return root.getElementsByTagName.bind(root);
-            }
-
-            const value = Reflect.get(target, property, receiver);
-            return typeof value === 'function' ? value.bind(target) : value;
-        },
-    }) as Document;
-}
-
-function createWidgetScopedWindow(
-    scopedDocument: Document,
-    scope: WidgetResourceScope
-): Window & typeof globalThis {
-    return new Proxy(window, {
-        get(target, property, receiver) {
-            if (property === 'document') {
-                return scopedDocument;
-            }
-
-            // Widget 脚本通过 window.xxx 访问的定时器、监听与 observer 也要纳入作用域回收。
-            if (property === 'setTimeout') {
-                return scope.setTimeout;
-            }
-            if (property === 'clearTimeout') {
-                return scope.clearTimeout;
-            }
-            if (property === 'setInterval') {
-                return scope.setInterval;
-            }
-            if (property === 'clearInterval') {
-                return scope.clearInterval;
-            }
-            if (property === 'requestAnimationFrame') {
-                return scope.requestAnimationFrame;
-            }
-            if (property === 'cancelAnimationFrame') {
-                return scope.cancelAnimationFrame;
-            }
-            if (property === 'addEventListener') {
-                return (
-                    type: string,
-                    handler: EventListenerOrEventListenerObject | null,
-                    options?: AddEventListenerOptions | boolean
-                ) => scope.addEventListener(target, type, handler, options);
-            }
-            if (property === 'removeEventListener') {
-                return (
-                    type: string,
-                    handler: EventListenerOrEventListenerObject | null,
-                    options?: EventListenerOptions | boolean
-                ) => scope.removeEventListener(target, type, handler, options);
-            }
-            if (property === 'ResizeObserver') {
-                return scope.ResizeObserver;
-            }
-            if (property === 'MutationObserver') {
-                return scope.MutationObserver;
-            }
-
-            const value = Reflect.get(target, property, receiver);
-            return typeof value === 'function' ? value.bind(target) : value;
-        },
-        set(target, property, value, receiver) {
-            return Reflect.set(target, property, value, receiver);
-        },
-    });
-}
-
-function executeInlineWidgetScript(
-    source: string,
-    root: HTMLElement,
-    scope: WidgetResourceScope
-): void {
-    if (!source.trim()) {
-        return;
-    }
-
-    try {
-        const scopedDocument = createWidgetScopedDocument(root);
-        const scopedWindow = createWidgetScopedWindow(scopedDocument, scope);
-        // 裸标识符（setInterval 等）不会经过 window 代理，必须作为函数参数注入。
-        const execute = window.Function(
-            'window',
-            'document',
-            'setTimeout',
-            'clearTimeout',
-            'setInterval',
-            'clearInterval',
-            'requestAnimationFrame',
-            'cancelAnimationFrame',
-            'ResizeObserver',
-            'MutationObserver',
-            `${source}\n//# sourceURL=touchai-widget-inline.js`
-        );
-        execute.call(
-            scopedWindow,
-            scopedWindow,
-            scopedDocument,
-            scope.setTimeout,
-            scope.clearTimeout,
-            scope.setInterval,
-            scope.clearInterval,
-            scope.requestAnimationFrame,
-            scope.cancelAnimationFrame,
-            scope.ResizeObserver,
-            scope.MutationObserver
-        );
-    } catch (error) {
-        log.error('[ShowWidget] Failed to execute inline script:', error);
-    }
-}
-
-/**
- * 外部脚本走浏览器加载流程，inline classic script 由 runtime 显式执行一次。
- *
- * 部分 WebView/测试环境不会稳定执行动态插入的 inline script，因此这里直接用当前
- * window realm 执行原始脚本文本；外部脚本仍按 CDN 白名单加载并等待完成。
- */
-async function runInlineScripts(
-    root: HTMLElement,
-    htmlSignature: string,
-    scripts: WidgetScriptSnapshot[],
-    state: ShowWidgetRendererState
-): Promise<void> {
-    if (htmlSignature === state.lastExecutedHtml) {
-        return;
-    }
-
-    state.lastExecutedHtml = htmlSignature;
-    const runToken = ++state.scriptRunToken;
-
-    for (const script of scripts) {
-        if (state.destroyed || runToken !== state.scriptRunToken) {
-            return;
-        }
-
-        if (script.src && !isShowWidgetScriptUrlAllowed(script.src)) {
-            continue;
-        }
-
-        if (script.src) {
-            const newNode = document.createElement('script');
-            copyScriptSnapshotAttributes(script, newNode);
-            await appendExternalScript(newNode, root);
-            continue;
-        }
-
-        if (!isClassicInlineScript(script)) {
-            continue;
-        }
-
-        executeInlineWidgetScript(script.source, root, state.resourceScope);
-    }
-}
-
 function applyShowWidgetLayoutGuards(hostElement: HTMLElement, widgetRoot: HTMLElement): void {
     hostElement.style.width = '100%';
     hostElement.style.maxWidth = `${SHOW_WIDGET_MAX_WIDTH_PX}px`;
@@ -1457,57 +976,6 @@ function sendShowWidgetPrompt(prompt: string): void {
     window.sendPrompt(prompt);
 }
 
-function morphWidgetRoot(
-    root: HTMLElement,
-    nextRoot: HTMLElement,
-    morphdomImpl: MorphdomFunction
-): void {
-    morphdomImpl(root, nextRoot, {
-        childrenOnly: true,
-        getNodeKey,
-        onBeforeElUpdated(fromEl, toEl) {
-            return !fromEl.isEqualNode(toEl);
-        },
-        onNodeAdded(node) {
-            applyNodeAddedAnimation(node);
-        },
-    });
-}
-
-async function applyDocumentHtml(
-    hostElement: HTMLElement,
-    root: HTMLElement,
-    rawHtml: string,
-    phase: ShowWidgetPhase,
-    state: ShowWidgetRendererState
-): Promise<boolean> {
-    const morphdomImpl = state.morphdomImpl;
-    if (!morphdomImpl) {
-        return false;
-    }
-
-    const parsedTree = parseRenderTree(
-        rawHtml,
-        `[data-touchai-widget-host="${hostElement.dataset.touchaiWidgetHost}"]`,
-        phase
-    );
-    if (phase !== 'ready' && !hasMeaningfulContent(parsedTree.fragment)) {
-        return false;
-    }
-
-    const nextRoot = document.createElement('div');
-    nextRoot.appendChild(parsedTree.fragment);
-    morphWidgetRoot(root, nextRoot, morphdomImpl);
-    applyShowWidgetLayoutGuards(hostElement, root);
-
-    if (phase === 'ready') {
-        await runInlineScripts(root, rawHtml || '', parsedTree.scripts, state);
-        applyShowWidgetLayoutGuards(hostElement, root);
-    }
-
-    return true;
-}
-
 function clearApplyTimer(state: ShowWidgetRendererState): void {
     if (state.applyTimer !== null) {
         window.clearTimeout(state.applyTimer);
@@ -1515,184 +983,151 @@ function clearApplyTimer(state: ShowWidgetRendererState): void {
     }
 }
 
-/**
- * 创建会话内 widget 的内联渲染器。
- *
- * @param hostElement 实际承载 widget 的宿主节点。
- * @returns 负责渲染/销毁 widget 的轻量 renderer。
- */
 export function createWidgetRenderer(hostElement: HTMLElement): WidgetRenderer {
     const scopeId = `touchai-widget-${crypto.randomUUID()}`;
     const hostSelector = `[data-touchai-widget-host="${scopeId}"]`;
     const state: ShowWidgetRendererState = {
         destroyed: false,
-        lastExecutedHtml: '',
-        morphdomImpl: null,
-        morphdomPromise: null,
         pendingPayload: null,
         applyTimer: null,
         lastDraftAppliedAt: 0,
         hasAppliedMeaningfulDraft: false,
-        scriptRunToken: 0,
-        resourceScope: createWidgetResourceScope(),
     };
-
+    let frameReady = false;
+    let lastPayload: ShowWidgetRenderPayload | null = null;
+    const frame = document.createElement('iframe');
+    frame.setAttribute('sandbox', 'allow-scripts');
+    frame.setAttribute('referrerpolicy', 'no-referrer');
+    frame.setAttribute('data-touchai-widget-frame', 'true');
+    frame.style.border = '0';
+    frame.style.display = 'block';
+    frame.style.height = '24px';
+    frame.style.background = 'transparent';
     hostElement.dataset.touchaiWidgetHost = scopeId;
+    hostElement.dataset.widgetPhase = 'draft';
     hostElement.setAttribute('data-no-i18n', 'true');
     hostElement.setAttribute('translate', 'no');
-    hostElement.dataset.widgetPhase = 'draft';
     ensureShowWidgetThemeVariables(hostElement);
+    const theme = Object.keys(SHOW_WIDGET_THEME_FALLBACKS)
+        .map((name) => `${name}: ${hostElement.style.getPropertyValue(name)};`)
+        .join('');
+    frame.srcdoc = createWidgetSandboxDocument(
+        scopeId,
+        `:root{${theme}}${createShowWidgetBaseStyles(hostSelector)}`
+    );
+    hostElement.replaceChildren(frame);
+    applyShowWidgetLayoutGuards(hostElement, frame);
 
-    const baseStyleElement = document.createElement('style');
-    baseStyleElement.setAttribute('data-touchai-widget-base-style', 'true');
-    baseStyleElement.textContent = createShowWidgetBaseStyles(hostSelector);
+    function applyPayload(payload: ShowWidgetRenderPayload): boolean {
+        const tree = parseRenderTree(payload.html, hostSelector, payload.phase);
+        if (payload.phase === 'draft' && !hasMeaningfulContent(tree.fragment)) return false;
+        const root = document.createElement('div');
+        root.append(tree.fragment);
+        applyShowWidgetLayoutGuards(hostElement, root);
+        const scripts =
+            payload.phase === 'ready'
+                ? tree.scripts.filter((script) =>
+                      script.src
+                          ? isShowWidgetScriptUrlAllowed(script.src)
+                          : SHOW_WIDGET_CLASSIC_SCRIPT_TYPES.has(script.type)
+                  )
+                : [];
+        frame.contentWindow?.postMessage(
+            {
+                type: 'render',
+                scopeId,
+                phase: payload.phase,
+                html: root.innerHTML,
+                scripts,
+                signature: payload.html,
+            },
+            '*'
+        );
+        return true;
+    }
 
-    const widgetRoot = document.createElement('div');
-    widgetRoot.setAttribute('data-touchai-widget-root', 'true');
-    widgetRoot.setAttribute('data-no-i18n', 'true');
-    widgetRoot.setAttribute('translate', 'no');
-    hostElement.replaceChildren(baseStyleElement, widgetRoot);
-    applyShowWidgetLayoutGuards(hostElement, widgetRoot);
-
-    const flushPendingPayload = (): void => {
-        if (state.destroyed || !state.pendingPayload) {
-            return;
-        }
-
-        if (!state.morphdomImpl) {
-            ensureMorphdomReady();
-            return;
-        }
-
+    function flushPendingPayload() {
+        if (state.destroyed || !frameReady || !state.pendingPayload) return;
         const payload = state.pendingPayload;
         state.pendingPayload = null;
-        void applyDocumentHtml(hostElement, widgetRoot, payload.html, payload.phase, state).then(
-            (didApply) => {
-                if (payload.phase === 'draft' && didApply) {
-                    state.lastDraftAppliedAt = Date.now();
-                    state.hasAppliedMeaningfulDraft = true;
-                }
-            }
-        );
-    };
-
-    const ensureMorphdomReady = (): void => {
-        if (state.morphdomImpl || state.morphdomPromise || state.destroyed) {
-            return;
+        if (applyPayload(payload) && payload.phase === 'draft') {
+            state.lastDraftAppliedAt = Date.now();
+            state.hasAppliedMeaningfulDraft = true;
         }
-
-        state.morphdomPromise = loadMorphdom()
-            .then((loadedMorphdom) => {
-                if (state.destroyed) {
-                    return loadedMorphdom;
-                }
-
-                state.morphdomImpl = loadedMorphdom;
-                state.morphdomPromise = null;
-                const shouldFlushImmediately =
-                    state.pendingPayload?.phase === 'ready' || state.applyTimer === null;
-                if (shouldFlushImmediately) {
-                    flushPendingPayload();
-                }
-                return loadedMorphdom;
-            })
-            .catch((error) => {
-                state.morphdomPromise = null;
-                log.error('[ShowWidget] Failed to load morphdom:', error);
-                throw error;
-            });
-    };
-
-    const schedulePayloadFlush = (payload: ShowWidgetRenderPayload): void => {
-        state.pendingPayload = payload;
-        ensureMorphdomReady();
-
-        if (payload.phase === 'ready') {
-            clearApplyTimer(state);
-            flushPendingPayload();
+    }
+    function handleLoad() {
+        if (state.destroyed) return;
+        frameReady = true;
+        state.pendingPayload = lastPayload;
+        clearApplyTimer(state);
+        flushPendingPayload();
+    }
+    function handleMessage(event: MessageEvent) {
+        if (
+            state.destroyed ||
+            event.source !== frame.contentWindow ||
+            !event.data ||
+            typeof event.data !== 'object'
+        )
             return;
+        const data = event.data as Record<string, unknown>;
+        if (data.source !== 'touchai-show-widget' || data.scopeId !== scopeId) return;
+        if (
+            data.type === 'resize' &&
+            typeof data.height === 'number' &&
+            Number.isFinite(data.height)
+        ) {
+            frame.style.height = `${Math.max(24, Math.min(2400, Math.ceil(data.height)))}px`;
+        } else if (
+            data.type === 'sendPrompt' &&
+            typeof data.text === 'string' &&
+            data.text.length <= 20_000
+        ) {
+            sendShowWidgetPrompt(data.text);
+        } else if (
+            data.type === 'openLink' &&
+            typeof data.url === 'string' &&
+            data.url.length <= 4096
+        ) {
+            openShowWidgetLink(data.url);
         }
-
-        // 首个真正有内容的草稿直接落地，确保用户尽快看到结构骨架。
-        if (!state.hasAppliedMeaningfulDraft && payload.html.trim()) {
-            clearApplyTimer(state);
-            flushPendingPayload();
-            return;
-        }
-
-        if (state.applyTimer !== null) {
-            return;
-        }
-
-        const elapsed = state.lastDraftAppliedAt > 0 ? Date.now() - state.lastDraftAppliedAt : 0;
-        const delay = Math.max(0, SHOW_WIDGET_DRAFT_MIN_INTERVAL_MS - elapsed);
-
-        state.applyTimer = window.setTimeout(() => {
-            state.applyTimer = null;
-            flushPendingPayload();
-        }, delay);
-    };
-
-    ensureMorphdomReady();
-
-    const handleHostClick = (event: MouseEvent): void => {
-        const target = event.target instanceof Element ? event.target : null;
-        const promptElement = target?.closest('[data-send-prompt]');
-        const prompt = promptElement?.getAttribute('data-send-prompt')?.trim();
-
-        if (prompt) {
-            event.preventDefault();
-            event.stopPropagation();
-            sendShowWidgetPrompt(prompt);
-            return;
-        }
-
-        const actionLinkElement = target?.closest('[data-open-link]');
-        const actionHref = actionLinkElement?.getAttribute('data-open-link')?.trim();
-        if (actionHref) {
-            event.preventDefault();
-            event.stopPropagation();
-            openShowWidgetLink(actionHref);
-            return;
-        }
-
-        const anchor = target?.closest('a');
-        const href = anchor?.getAttribute('href')?.trim();
-        if (!href || href === '#' || href.startsWith('#')) {
-            return;
-        }
-
-        const externalHref = normalizeShowWidgetExternalUrl(href);
-        if (!externalHref) {
-            return;
-        }
-
-        event.preventDefault();
-        event.stopPropagation();
-        openShowWidgetLink(externalHref);
-    };
-
-    hostElement.addEventListener('click', handleHostClick, true);
-
+    }
+    frame.addEventListener('load', handleLoad);
+    window.addEventListener('message', handleMessage);
     return {
         render(payload) {
+            if (state.destroyed) return;
             hostElement.dataset.widgetPhase = payload.phase;
             hostElement.dataset.widgetId = payload.widgetId;
             hostElement.title = payload.title;
-            hostElement.setAttribute(
-                'aria-label',
-                payload.title || payload.description || 'ShowWidget'
-            );
-            applyShowWidgetLayoutGuards(hostElement, widgetRoot);
-            schedulePayloadFlush(payload);
+            const title = payload.title || payload.description || 'ShowWidget';
+            hostElement.setAttribute('aria-label', title);
+            frame.title = title;
+            lastPayload = payload;
+            state.pendingPayload = payload;
+            if (payload.phase === 'ready' || !state.hasAppliedMeaningfulDraft) {
+                clearApplyTimer(state);
+                flushPendingPayload();
+            } else if (state.applyTimer === null) {
+                const delay = Math.max(
+                    0,
+                    SHOW_WIDGET_DRAFT_MIN_INTERVAL_MS - (Date.now() - state.lastDraftAppliedAt)
+                );
+                state.applyTimer = window.setTimeout(() => {
+                    state.applyTimer = null;
+                    flushPendingPayload();
+                }, delay);
+            }
         },
         destroy() {
             state.destroyed = true;
-            state.scriptRunToken += 1;
+            state.pendingPayload = null;
+            lastPayload = null;
             clearApplyTimer(state);
-            // 脚本创建的 timer / rAF / 监听 / observer 不会随 DOM 移除而停止。
-            state.resourceScope.dispose();
-            hostElement.removeEventListener('click', handleHostClick, true);
+            frame.removeEventListener('load', handleLoad);
+            window.removeEventListener('message', handleMessage);
+            // Removing the iframe also tears down timers, frames, observers, and
+            // listeners created by generated code in its isolated realm.
             hostElement.replaceChildren();
             delete hostElement.dataset.touchaiWidgetHost;
             delete hostElement.dataset.widgetPhase;

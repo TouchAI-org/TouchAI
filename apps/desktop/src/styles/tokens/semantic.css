@@ -13,6 +13,9 @@
  */
 
 @theme {
+    --color-skill-start: var(--color-logo-blue-start);
+    --color-skill-end: var(--color-logo-blue-end);
+    --color-skill-reference: var(--color-secondary-500);
     /* ── Canvas ──────────────────────────────────────────────────────────── */
     /*
      * The window background. `background-primary` is the historical name and is
@@ -42,6 +45,7 @@
     --color-surface-active: var(--color-ui-600);
     --color-surface-active-strong: var(--color-ui-800);
     --color-surface-selected: var(--color-ui-700);
+    --color-settings-surface: var(--color-white);
 
     /*
      * `card`, `hover` and `active` were used in templates while no `@theme` entry
@@ -62,6 +66,7 @@
     --color-text-primary: #4a4039;
     --color-text-secondary: #6b5f54;
     --color-text-tertiary: #968b7d;
+    --color-settings-text: var(--color-neutral-950);
 
     /* ── Borders ─────────────────────────────────────────────────────────── */
 
@@ -130,6 +135,12 @@
 
     --color-selection-bg: var(--color-primary-100);
     --color-selection-outline: var(--color-primary-300);
+    --color-search-hover: var(--color-ui-100);
+    --color-search-text: var(--color-gray-800);
+    --color-search-border: var(--color-gray-200);
+    --color-badge-surface: var(--color-white);
+    --color-badge-border: var(--color-neutral-300);
+    --color-badge-foreground: var(--color-neutral-600);
     --color-scrollbar-thumb: rgba(156, 163, 175, 0.4);
     --color-scrollbar-thumb-hover: rgba(156, 163, 175, 0.6);
     --color-overlay-fade: rgba(255, 255, 255, 0.95);
@@ -148,8 +159,8 @@
      * ── Widget contract ───────────────────────────────────────────────────
      *
      * The `show-widget` tool asks the model to style generated HTML against a
-     * fixed set of variables (documented in prompts/show-widget/
-     * core_design_system.md). Twenty of them did not exist here, so the runtime
+     * fixed set of variables (documented in prompts/skills/widget/SKILL.md).
+     * Twenty of them did not exist here, so the runtime
      * papered over the gap with hardcoded fallbacks in runtimeConstants.ts:
      * a second text colour (#2c2c2a against the app's #4a4039), a different
      * radius scale (8px where the app uses 10px), and a duplicate mono stack.

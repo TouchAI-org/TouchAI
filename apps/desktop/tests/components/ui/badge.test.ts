@@ -18,6 +18,9 @@ const mountBadge = (props: Record<string, unknown> = {}, as = 'span') =>
     });
 
 describe('user sees a badge', () => {
+    it('user sees a source label with the shared provider presentation', () => {
+        expect(mountBadge({ variant: 'source' }).classes().sort()).toMatchSnapshot();
+    });
     describe('user sees a capability chip', () => {
         it('user sees the enabled capability chip in blue', () => {
             const classes = mountBadge({ variant: 'toggle', tone: 'blue', active: true }, 'button')

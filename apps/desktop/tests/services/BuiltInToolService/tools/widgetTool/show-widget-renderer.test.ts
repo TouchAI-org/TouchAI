@@ -1,8 +1,8 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
+import { createWidgetRenderer, widgetDocument, widgetWindow } from '@tests/utils/widgetFrame';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createWidgetRenderer } from '@/services/BuiltInToolService/tools/widgetTool/showWidget/runtime';
 import {
     SHOW_WIDGET_DRAFT_MIN_INTERVAL_MS,
     SHOW_WIDGET_THEME_FALLBACKS,
@@ -28,13 +28,13 @@ function mountHost(): HTMLElement {
 }
 
 function widgetRoot(host: HTMLElement): HTMLElement {
-    return host.querySelector<HTMLElement>('[data-touchai-widget-root="true"]')!;
+    return widgetDocument(host).querySelector<HTMLElement>('[data-touchai-widget-root="true"]')!;
 }
 
 function renderedStyles(host: HTMLElement): string[] {
-    return Array.from(host.querySelectorAll('style:not([data-touchai-widget-base-style])')).map(
-        (style) => style.textContent ?? ''
-    );
+    return Array.from(
+        widgetDocument(host).querySelectorAll('style:not([data-touchai-widget-base-style])')
+    ).map((style) => style.textContent ?? '');
 }
 
 function renderReady(
@@ -96,7 +96,7 @@ describe('user reads a widget the model wrote', () => {
             ].join('\n')
         );
 
-        await waitForCondition(() => host.querySelector('.card') !== null);
+        await waitForCondition(() => widgetDocument(host).querySelector('.card') !== null);
 
         const [styleText] = renderedStyles(host);
         expect(styleText).toBeDefined();
@@ -133,10 +133,19 @@ describe('user reads a widget the model wrote', () => {
 
         renderDraft(renderer, '<div>skeleton</div><style>.half{color:red}');
 
-        await waitForCondition(() => host.textContent?.includes('skeleton') === true);
+        await waitForCondition(
+            () =>
+                widgetDocument(host)
+                    .querySelector('[data-touchai-widget-root]')
+                    ?.textContent?.includes('skeleton') === true
+        );
 
-        expect(host.textContent).toContain('skeleton');
-        expect(host.textContent).not.toContain('.half');
+        expect(
+            widgetDocument(host).querySelector('[data-touchai-widget-root]')?.textContent
+        ).toContain('skeleton');
+        expect(
+            widgetDocument(host).querySelector('[data-touchai-widget-root]')?.textContent
+        ).not.toContain('.half');
         expect(renderedStyles(host)).toEqual([]);
 
         renderer.destroy();
@@ -148,11 +157,22 @@ describe('user reads a widget the model wrote', () => {
 
         renderDraft(renderer, '<div>skeleton</div><script>window.__halfWritten = true');
 
-        await waitForCondition(() => host.textContent?.includes('skeleton') === true);
+        await waitForCondition(
+            () =>
+                widgetDocument(host)
+                    .querySelector('[data-touchai-widget-root]')
+                    ?.textContent?.includes('skeleton') === true
+        );
 
-        expect(host.textContent).toContain('skeleton');
-        expect(host.textContent).not.toContain('__halfWritten');
-        expect((window as Window & { __halfWritten?: boolean }).__halfWritten).toBeUndefined();
+        expect(
+            widgetDocument(host).querySelector('[data-touchai-widget-root]')?.textContent
+        ).toContain('skeleton');
+        expect(
+            widgetDocument(host).querySelector('[data-touchai-widget-root]')?.textContent
+        ).not.toContain('__halfWritten');
+        expect(
+            (widgetWindow(host) as Window & { __halfWritten?: boolean }).__halfWritten
+        ).toBeUndefined();
 
         renderer.destroy();
     });
@@ -163,9 +183,16 @@ describe('user reads a widget the model wrote', () => {
 
         renderReady(renderer, '<p>Finished</p><style>.broken{color:red');
 
-        await waitForCondition(() => host.textContent?.includes('Finished') === true);
+        await waitForCondition(
+            () =>
+                widgetDocument(host)
+                    .querySelector('[data-touchai-widget-root]')
+                    ?.textContent?.includes('Finished') === true
+        );
 
-        expect(host.textContent).toContain('Finished');
+        expect(
+            widgetDocument(host).querySelector('[data-touchai-widget-root]')?.textContent
+        ).toContain('Finished');
         expect(renderedStyles(host)).toEqual(['']);
 
         renderer.destroy();
@@ -210,11 +237,11 @@ describe('user reads a widget the model wrote', () => {
             ].join('')
         );
 
-        await waitForCondition(() => host.querySelector('img') !== null);
+        await waitForCondition(() => widgetDocument(host).querySelector('img') !== null);
 
-        const image = host.querySelector<HTMLElement>('img')!;
-        const canvas = host.querySelector<HTMLElement>('canvas')!;
-        const svg = host.querySelector<HTMLElement>('svg')!;
+        const image = widgetDocument(host).querySelector<HTMLElement>('img')!;
+        const canvas = widgetDocument(host).querySelector<HTMLElement>('canvas')!;
+        const svg = widgetDocument(host).querySelector<HTMLElement>('svg')!;
 
         expect(image.style.maxWidth).toBe('100%');
         expect(canvas.style.maxWidth).toBe('100%');
@@ -236,7 +263,7 @@ describe('user watches a widget draft while the tool is still writing', () => {
         renderDraft(renderer, '<div id="skeleton">Loading chart</div>');
 
         await waitForCondition(
-            () => host.querySelector('#skeleton')?.textContent === 'Loading chart'
+            () => widgetDocument(host).querySelector('#skeleton')?.textContent === 'Loading chart'
         );
 
         expect(widgetRoot(host).querySelector('#skeleton')).not.toBeNull();
@@ -249,18 +276,22 @@ describe('user watches a widget draft while the tool is still writing', () => {
         const renderer = createWidgetRenderer(host);
 
         renderDraft(renderer, '<div id="probe">first</div>');
-        await waitForCondition(() => host.querySelector('#probe')?.textContent === 'first');
+        await waitForCondition(
+            () => widgetDocument(host).querySelector('#probe')?.textContent === 'first'
+        );
 
         // Streaming sends far more drafts than a frame can show; drawing each one would make the
         // widget flicker and burn the message column's layout.
         renderDraft(renderer, '<div id="probe">second</div>');
         renderDraft(renderer, '<div id="probe">third</div>');
 
-        expect(host.querySelector('#probe')?.textContent).toBe('first');
+        expect(widgetDocument(host).querySelector('#probe')?.textContent).toBe('first');
 
-        await waitForCondition(() => host.querySelector('#probe')?.textContent === 'third');
-        expect(host.querySelector('#probe')?.textContent).toBe('third');
-        expect(host.querySelectorAll('#probe')).toHaveLength(1);
+        await waitForCondition(
+            () => widgetDocument(host).querySelector('#probe')?.textContent === 'third'
+        );
+        expect(widgetDocument(host).querySelector('#probe')?.textContent).toBe('third');
+        expect(widgetDocument(host).querySelectorAll('#probe')).toHaveLength(1);
 
         renderer.destroy();
     });
@@ -271,12 +302,17 @@ describe('user watches a widget draft while the tool is still writing', () => {
 
         renderDraft(renderer, '<script>window.__draftScriptRan = true</script><p>loading</p>');
 
-        await waitForCondition(() => host.textContent?.includes('loading') === true);
+        await waitForCondition(
+            () =>
+                widgetDocument(host)
+                    .querySelector('[data-touchai-widget-root]')
+                    ?.textContent?.includes('loading') === true
+        );
 
         // A draft is a preview of markup, not a program: running the model's script on every
         // streamed chunk would re-run its side effects dozens of times.
         expect(
-            (window as Window & { __draftScriptRan?: boolean }).__draftScriptRan
+            (widgetWindow(host) as Window & { __draftScriptRan?: boolean }).__draftScriptRan
         ).toBeUndefined();
         expect(widgetRoot(host).textContent).toBe('loading');
 
@@ -288,14 +324,16 @@ describe('user watches a widget draft while the tool is still writing', () => {
         const renderer = createWidgetRenderer(host);
 
         renderDraft(renderer, '<div id="probe">first</div>');
-        await waitForCondition(() => host.querySelector('#probe')?.textContent === 'first');
+        await waitForCondition(
+            () => widgetDocument(host).querySelector('#probe')?.textContent === 'first'
+        );
 
         renderDraft(renderer, '<div id="probe">second</div>');
         await new Promise((resolve) =>
             window.setTimeout(resolve, SHOW_WIDGET_DRAFT_MIN_INTERVAL_MS + 50)
         );
 
-        expect(host.querySelector('#probe')?.textContent).toBe('second');
+        expect(widgetDocument(host).querySelector('#probe')?.textContent).toBe('second');
 
         renderer.destroy();
     });
@@ -311,20 +349,22 @@ describe('user gets a finished widget updated in place', () => {
         const renderer = createWidgetRenderer(host);
 
         renderDraft(renderer, '<div id="keep">stable</div><p id="change">draft text</p>');
-        await waitForCondition(() => host.querySelector('#keep') !== null);
+        await waitForCondition(() => widgetDocument(host).querySelector('#keep') !== null);
 
-        const keptNode = host.querySelector('#keep');
-        const changedNode = host.querySelector('#change');
+        const keptNode = widgetDocument(host).querySelector('#keep');
+        const changedNode = widgetDocument(host).querySelector('#change');
 
         renderReady(renderer, '<div id="keep">stable</div><p id="change">final text</p>');
 
-        await waitForCondition(() => host.querySelector('#change')?.textContent === 'final text');
+        await waitForCondition(
+            () => widgetDocument(host).querySelector('#change')?.textContent === 'final text'
+        );
 
         // Reusing the nodes keeps scroll position, focus and any running animation intact.
-        expect(host.querySelector('#keep')).toBe(keptNode);
-        expect(host.querySelector('#change')).toBe(changedNode);
-        expect(host.querySelectorAll('#keep')).toHaveLength(1);
-        expect(host.querySelector('#keep')?.textContent).toBe('stable');
+        expect(widgetDocument(host).querySelector('#keep')).toBe(keptNode);
+        expect(widgetDocument(host).querySelector('#change')).toBe(changedNode);
+        expect(widgetDocument(host).querySelectorAll('#keep')).toHaveLength(1);
+        expect(widgetDocument(host).querySelector('#keep')?.textContent).toBe('stable');
 
         renderer.destroy();
     });
@@ -336,10 +376,13 @@ describe('user gets a finished widget updated in place', () => {
         renderReady(renderer, '<section id="card">Card</section>');
 
         await waitForCondition(
-            () => host.querySelector('#card')?.getAttribute('data-touchai-widget-added') === 'true'
+            () =>
+                widgetDocument(host)
+                    .querySelector('#card')
+                    ?.getAttribute('data-touchai-widget-added') === 'true'
         );
 
-        const card = host.querySelector('#card')!;
+        const card = widgetDocument(host).querySelector('#card')!;
         card.dispatchEvent(new Event('animationend'));
 
         expect(card.getAttribute('data-touchai-widget-added')).toBeNull();
@@ -351,8 +394,6 @@ describe('user gets a finished widget updated in place', () => {
 describe('user gets widget scripts run safely', () => {
     afterEach(() => {
         document.body.innerHTML = '';
-        delete (window as Window & { __runs?: number }).__runs;
-        delete (window as Window & { __afterFailure?: boolean }).__afterFailure;
     });
 
     it('user does not get the same widget script run twice when the widget re-renders', async () => {
@@ -366,15 +407,17 @@ describe('user gets widget scripts run safely', () => {
         ].join('');
 
         renderReady(renderer, html);
-        await waitForCondition(() => (window as Window & { __runs?: number }).__runs === 1);
+        await waitForCondition(
+            () => (widgetWindow(host) as Window & { __runs?: number }).__runs === 1
+        );
 
         renderReady(renderer, html);
         await new Promise((resolve) => window.setTimeout(resolve, 50));
 
         // A widget that appends a row on every run would duplicate its whole UI on re-render.
-        expect((window as Window & { __runs?: number }).__runs).toBe(1);
-        expect(host.querySelector('#count')?.textContent).toBe('static');
-        expect(host.querySelectorAll('#count')).toHaveLength(1);
+        expect((widgetWindow(host) as Window & { __runs?: number }).__runs).toBe(1);
+        expect(widgetDocument(host).querySelector('#count')?.textContent).toBe('static');
+        expect(widgetDocument(host).querySelectorAll('#count')).toHaveLength(1);
 
         renderer.destroy();
     });
@@ -396,10 +439,14 @@ describe('user gets widget scripts run safely', () => {
             ].join('')
         );
 
-        await waitForCondition(() => host.querySelector('#result')?.textContent === 'ready');
+        await waitForCondition(
+            () => widgetDocument(host).querySelector('#result')?.textContent === 'ready'
+        );
 
-        expect((window as Window & { __afterFailure?: boolean }).__afterFailure).toBe(true);
-        expect(host.querySelector('#result')?.textContent).toBe('ready');
+        expect((widgetWindow(host) as Window & { __afterFailure?: boolean }).__afterFailure).toBe(
+            true
+        );
+        expect(widgetDocument(host).querySelector('#result')?.textContent).toBe('ready');
 
         consoleError.mockRestore();
         renderer.destroy();
@@ -412,9 +459,9 @@ describe('user gets widget scripts run safely', () => {
 
         renderReady(renderer, '<div id="content">visible</div><script></script>');
 
-        await waitForCondition(() => host.querySelector('#content') !== null);
+        await waitForCondition(() => widgetDocument(host).querySelector('#content') !== null);
 
-        expect(host.querySelector('#content')?.textContent).toBe('visible');
+        expect(widgetDocument(host).querySelector('#content')?.textContent).toBe('visible');
         expect(consoleError).not.toHaveBeenCalled();
 
         consoleError.mockRestore();
@@ -449,13 +496,13 @@ describe('user clicks an action inside a widget', () => {
             ].join('')
         );
 
-        await waitForCondition(() => host.querySelector('#prompt') !== null);
+        await waitForCondition(() => widgetDocument(host).querySelector('#prompt') !== null);
 
-        const promptButton = host.querySelector('#prompt')!;
-        const escapedButton = host.querySelector('#escaped')!;
-        const linkButton = host.querySelector('#link')!;
-        const unsupportedButton = host.querySelector('#unsupported')!;
-        const blankButton = host.querySelector('#blank')!;
+        const promptButton = widgetDocument(host).querySelector('#prompt')!;
+        const escapedButton = widgetDocument(host).querySelector('#escaped')!;
+        const linkButton = widgetDocument(host).querySelector('#link')!;
+        const unsupportedButton = widgetDocument(host).querySelector('#unsupported')!;
+        const blankButton = widgetDocument(host).querySelector('#blank')!;
 
         // The raw handler is gone: only the runtime's own data attributes survive.
         expect(promptButton.getAttribute('onclick')).toBeNull();
@@ -491,13 +538,15 @@ describe('user clicks an action inside a widget', () => {
             '<button id="prompt" type="button" data-send-prompt="go on">Go</button>'
         );
 
-        await waitForCondition(() => host.querySelector('#prompt') !== null);
+        await waitForCondition(() => widgetDocument(host).querySelector('#prompt') !== null);
 
         const event = new MouseEvent('click', { bubbles: true, cancelable: true });
 
         // Without a host callback the action must stay inert rather than throw, and it must still
         // consume the click so the widget never navigates the app itself.
-        expect(() => host.querySelector('#prompt')!.dispatchEvent(event)).not.toThrow();
+        expect(() =>
+            widgetDocument(host).querySelector('#prompt')!.dispatchEvent(event)
+        ).not.toThrow();
         expect(event.defaultPrevented).toBe(true);
 
         renderer.destroy();
@@ -510,11 +559,11 @@ describe('user clicks an action inside a widget', () => {
 
         renderReady(renderer, '<a id="broken" href="//[invalid">Broken link</a>');
 
-        await waitForCondition(() => host.querySelector('#broken') !== null);
+        await waitForCondition(() => widgetDocument(host).querySelector('#broken') !== null);
 
-        host.querySelector('#broken')!.dispatchEvent(
-            new MouseEvent('click', { bubbles: true, cancelable: true })
-        );
+        widgetDocument(host)
+            .querySelector('#broken')!
+            .dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 
         expect(open).not.toHaveBeenCalled();
 
@@ -534,7 +583,7 @@ describe('user leaves a widget behind', () => {
         const renderer = createWidgetRenderer(host);
 
         renderReady(renderer, '<div id="content">chart</div>', { title: 'Revenue chart' });
-        await waitForCondition(() => host.querySelector('#content') !== null);
+        await waitForCondition(() => widgetDocument(host).querySelector('#content') !== null);
 
         renderer.destroy();
 
@@ -557,7 +606,7 @@ describe('user leaves a widget behind', () => {
             renderer,
             '<button id="prompt" type="button" data-send-prompt="go on">Go</button>'
         );
-        await waitForCondition(() => host.querySelector('#prompt') !== null);
+        await waitForCondition(() => widgetDocument(host).querySelector('#prompt') !== null);
 
         renderer.destroy();
 
@@ -574,7 +623,9 @@ describe('user leaves a widget behind', () => {
         const renderer = createWidgetRenderer(host);
 
         renderDraft(renderer, '<div id="probe">first</div>');
-        await waitForCondition(() => host.querySelector('#probe')?.textContent === 'first');
+        await waitForCondition(
+            () => widgetDocument(host).querySelector('#probe')?.textContent === 'first'
+        );
 
         renderDraft(renderer, '<div id="probe">second</div>');
         renderer.destroy();
@@ -598,20 +649,24 @@ describe('user gets the widget updated when the finished version replaces a draf
         const renderer = createWidgetRenderer(host);
 
         renderDraft(renderer, '<p id="probe">draft</p>');
-        await waitForCondition(() => host.querySelector('#probe')?.textContent === 'draft');
+        await waitForCondition(
+            () => widgetDocument(host).querySelector('#probe')?.textContent === 'draft'
+        );
 
         // The next draft is inside the throttle window, so it is queued rather than drawn.
         renderDraft(renderer, '<p id="probe">stale draft</p>');
         renderReady(renderer, '<p id="probe">final</p>');
 
-        await waitForCondition(() => host.querySelector('#probe')?.textContent === 'final');
+        await waitForCondition(
+            () => widgetDocument(host).querySelector('#probe')?.textContent === 'final'
+        );
 
         await new Promise((resolve) =>
             window.setTimeout(resolve, SHOW_WIDGET_DRAFT_MIN_INTERVAL_MS + 50)
         );
 
         // A queued draft must never overwrite the finished widget with older markup.
-        expect(host.querySelector('#probe')?.textContent).toBe('final');
+        expect(widgetDocument(host).querySelector('#probe')?.textContent).toBe('final');
 
         renderer.destroy();
     });
@@ -628,10 +683,12 @@ describe('user gets the widget updated when the finished version replaces a draf
             ].join('')
         );
 
-        await waitForCondition(() => host.querySelectorAll('[data-widget-key]').length === 2);
+        await waitForCondition(
+            () => widgetDocument(host).querySelectorAll('[data-widget-key]').length === 2
+        );
 
-        const firstRow = host.querySelector('[data-widget-key="first"]');
-        const secondRow = host.querySelector('[data-widget-key="second"]');
+        const firstRow = widgetDocument(host).querySelector('[data-widget-key="first"]');
+        const secondRow = widgetDocument(host).querySelector('[data-widget-key="second"]');
 
         renderReady(
             renderer,
@@ -649,8 +706,8 @@ describe('user gets the widget updated when the finished version replaces a draf
 
         // Rebuilding rows would restart their CSS transitions and drop any listener the widget
         // script attached, so the same nodes have to be moved.
-        expect(host.querySelector('[data-widget-key="first"]')).toBe(firstRow);
-        expect(host.querySelector('[data-widget-key="second"]')).toBe(secondRow);
+        expect(widgetDocument(host).querySelector('[data-widget-key="first"]')).toBe(firstRow);
+        expect(widgetDocument(host).querySelector('[data-widget-key="second"]')).toBe(secondRow);
 
         renderer.destroy();
     });
@@ -661,10 +718,12 @@ describe('user gets the widget updated when the finished version replaces a draf
 
         renderReady(renderer, '<style>.card{color:red}</style><div class="card">Card</div>');
 
-        await waitForCondition(() => host.querySelector('.card') !== null);
+        await waitForCondition(() => widgetDocument(host).querySelector('.card') !== null);
 
-        const widgetStyle = host.querySelector('style:not([data-touchai-widget-base-style])')!;
-        const card = host.querySelector('.card')!;
+        const widgetStyle = widgetDocument(host).querySelector(
+            'style:not([data-touchai-widget-base-style])'
+        )!;
+        const card = widgetDocument(host).querySelector('.card')!;
 
         expect(card.getAttribute('data-touchai-widget-added')).toBe('true');
         expect(widgetStyle.getAttribute('data-touchai-widget-added')).toBeNull();
@@ -676,7 +735,6 @@ describe('user gets the widget updated when the finished version replaces a draf
 describe('user gets a widget script that sees only its own widget', () => {
     afterEach(() => {
         document.body.innerHTML = '';
-        delete (window as Window & { __probe?: unknown }).__probe;
     });
 
     it('user gets the document lookup methods limited to the widget content', async () => {
@@ -708,18 +766,20 @@ describe('user gets a widget script that sees only its own widget', () => {
         );
 
         await waitForCondition(
-            () => (window as Window & { __probe?: unknown }).__probe !== undefined
+            () => (widgetWindow(host) as Window & { __probe?: unknown }).__probe !== undefined
         );
 
         // A widget that counted the app's own nodes would render the wrong data, and one that
         // could reach outside its root could read the whole conversation.
-        expect((window as Window & { __probe?: Record<string, unknown> }).__probe).toEqual({
+        expect(
+            (widgetWindow(host) as Window & { __probe?: Record<string, unknown> }).__probe
+        ).toEqual({
             byClass: 2,
-            byTag: 2,
-            children: 2,
+            byTag: 4,
+            children: 1,
             childNodes: 2,
-            firstElement: 'dup',
-            firstChild: 'DIV',
+            firstElement: '',
+            firstChild: 'html',
             outsideId: null,
         });
 
@@ -740,9 +800,11 @@ describe('user gets a widget script that sees only its own widget', () => {
             ].join('')
         );
 
-        await waitForCondition(() => host.querySelector('[data-hit="yes"]') !== null);
+        await waitForCondition(
+            () => widgetDocument(host).querySelector('[data-hit="yes"]') !== null
+        );
 
-        expect(host.querySelector('[data-hit="yes"]')?.textContent).toBe('Row one');
+        expect(widgetDocument(host).querySelector('[data-hit="yes"]')?.textContent).toBe('Row one');
 
         renderer.destroy();
     });
@@ -767,13 +829,15 @@ describe('user gets a widget script that sees only its own widget', () => {
         );
 
         await waitForCondition(
-            () => (window as Window & { __probe?: unknown }).__probe !== undefined
+            () => (widgetWindow(host) as Window & { __probe?: unknown }).__probe !== undefined
         );
 
-        expect((window as Window & { __probe?: unknown }).__probe).toBe('widget-input');
+        expect((widgetWindow(host) as Window & { __probe?: unknown }).__probe).toBe('widget-input');
 
         outsideInput.focus();
-        expect(host.querySelector<HTMLInputElement>('#widget-input')).not.toBeNull();
+        expect(
+            widgetDocument(host).querySelector<HTMLInputElement>('#widget-input')
+        ).not.toBeNull();
 
         renderer.destroy();
     });
@@ -852,7 +916,7 @@ describe('user clicks a link inside a widget', () => {
         delete (window as Window & { openLink?: unknown }).openLink;
     });
 
-    it('user gets a non-web link in a widget left alone', async () => {
+    it('user cannot navigate the application through a non-web widget link', async () => {
         const openLink = vi.fn();
         (window as Window & { openLink?: (url: string) => void }).openLink = openLink;
 
@@ -861,13 +925,13 @@ describe('user clicks a link inside a widget', () => {
 
         renderReady(renderer, '<a id="mail" href="mailto:team@example.com">Mail us</a>');
 
-        await waitForCondition(() => host.querySelector('#mail') !== null);
+        await waitForCondition(() => widgetDocument(host).querySelector('#mail') !== null);
 
         const event = new MouseEvent('click', { bubbles: true, cancelable: true });
-        host.querySelector('#mail')!.dispatchEvent(event);
+        widgetDocument(host).querySelector('#mail')!.dispatchEvent(event);
 
         expect(openLink).not.toHaveBeenCalled();
-        expect(event.defaultPrevented).toBe(false);
+        expect(event.defaultPrevented).toBe(true);
 
         renderer.destroy();
     });
@@ -881,11 +945,11 @@ describe('user clicks a link inside a widget', () => {
 
         renderReady(renderer, '<a id="proto" href="//example.com/report">Report</a>');
 
-        await waitForCondition(() => host.querySelector('#proto') !== null);
+        await waitForCondition(() => widgetDocument(host).querySelector('#proto') !== null);
 
-        host.querySelector('#proto')!.dispatchEvent(
-            new MouseEvent('click', { bubbles: true, cancelable: true })
-        );
+        widgetDocument(host)
+            .querySelector('#proto')!
+            .dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 
         expect(openLink).toHaveBeenCalledWith(`${window.location.protocol}//example.com/report`);
 
@@ -901,10 +965,10 @@ describe('user clicks a link inside a widget', () => {
 
         renderReady(renderer, '<a id="anchor" href="#details">Details</a>');
 
-        await waitForCondition(() => host.querySelector('#anchor') !== null);
+        await waitForCondition(() => widgetDocument(host).querySelector('#anchor') !== null);
 
         const event = new MouseEvent('click', { bubbles: true, cancelable: true });
-        host.querySelector('#anchor')!.dispatchEvent(event);
+        widgetDocument(host).querySelector('#anchor')!.dispatchEvent(event);
 
         expect(openLink).not.toHaveBeenCalled();
         expect(event.defaultPrevented).toBe(false);

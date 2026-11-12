@@ -37,7 +37,7 @@ describe('user reads file search results in their own language', () => {
             {},
             {
                 callId: 'call-1',
-                hasExecutedBuiltInTool: () => false,
+
                 iteration: 1,
             }
         );
@@ -63,7 +63,7 @@ describe('user reads file search results in their own language', () => {
             {},
             {
                 callId: 'call-1',
-                hasExecutedBuiltInTool: () => false,
+
                 iteration: 1,
             }
         );
@@ -84,7 +84,7 @@ describe('user reads file search results in their own language', () => {
             {},
             {
                 callId: 'call-2',
-                hasExecutedBuiltInTool: () => false,
+
                 iteration: 1,
             }
         );

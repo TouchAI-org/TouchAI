@@ -42,7 +42,7 @@ function fakeContext(
         callId: 'call-1',
         signal: undefined,
         iteration: 0,
-        hasExecutedBuiltInTool: () => false,
+
         ...overrides,
     };
 }

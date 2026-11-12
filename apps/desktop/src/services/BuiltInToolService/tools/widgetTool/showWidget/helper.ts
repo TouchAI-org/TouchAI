@@ -12,7 +12,6 @@ import { parseToolArguments } from '../../../utils/toolSchema';
 import { MAX_WIDGET_HTML_CHARS, SHOW_WIDGET_TOOL_NAME, showWidgetRawArgsSchema } from './constants';
 
 interface ShowWidgetArgs {
-    iHaveSeenReadMe: boolean;
     mode: ShowWidgetMode;
     widgetId: string;
     title: string;
@@ -63,19 +62,11 @@ export function parseShowWidgetArgs(
 ): ShowWidgetArgs {
     const parsedArgs = parseToolArguments(SHOW_WIDGET_TOOL_NAME, showWidgetRawArgsSchema, args);
     const mode = parsedArgs.mode ?? 'render';
-    const iHaveSeenReadMe =
-        parsedArgs.i_have_seen_read_me === true || parsedArgs.iHaveSeenReadMe === true;
     const widgetId = parsedArgs.widgetId || (mode === 'render' ? context.callId : '');
     const title = parsedArgs.title || widgetId || 'ShowWidget';
     const description =
         parsedArgs.description || 'Inline generative artifact rendered in the answer.';
     const html = parsedArgs.widget_code || parsedArgs.html || '';
-
-    if (!iHaveSeenReadMe) {
-        throw new Error(
-            'ShowWidget requires i_have_seen_read_me=true. Call builtin__visualize_read_me first and follow the loaded guideline before trying again.'
-        );
-    }
 
     if (!widgetId) {
         throw new Error(
@@ -98,7 +89,6 @@ export function parseShowWidgetArgs(
     }
 
     return {
-        iHaveSeenReadMe,
         mode,
         widgetId,
         title,

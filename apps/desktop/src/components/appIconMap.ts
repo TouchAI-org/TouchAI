@@ -4,6 +4,7 @@ import IconArrowDown from '~icons/lucide/arrow-down';
 import IconArrowLeft from '~icons/lucide/arrow-left';
 import IconArrowRight from '~icons/lucide/arrow-right';
 import IconBlocks from '~icons/lucide/blocks';
+import IconSkill from '~icons/lucide/box';
 import IconBoxes from '~icons/lucide/boxes';
 import IconBriefcase from '~icons/lucide/briefcase';
 import IconBug from '~icons/lucide/bug';
@@ -97,6 +98,7 @@ export const appIconMap = {
     refresh: IconRefresh,
     search: IconSearch,
     settings: IconCog,
+    skill: IconSkill,
     stop: IconStop,
     terminal: IconTerminal,
     tool: IconBriefcase,

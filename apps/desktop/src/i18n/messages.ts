@@ -1,7 +1,9 @@
 import type { AppLocale } from './locales';
+import { skillsMessagesEnUS, skillsMessagesZhCN } from './skillsMessages';
 import { usageMessagesEnUS, usageMessagesZhCN } from './usageMessages';
 
 const zhCNMessages = {
+    ...skillsMessagesZhCN,
     ...usageMessagesZhCN,
     'common.settings': '设置',
     'common.saved': '保存成功',
@@ -600,6 +602,7 @@ const zhCNMessages = {
     'settings.builtInTools.summary.showWidget': '聊天内联可交互可视化',
     'settings.builtInTools.summary.visualizeReadMe': '读取 ShowWidget 规范',
     'settings.builtInTools.summary.askUserQuestion': '向用户提出结构化问题',
+    'settings.builtInTools.summary.activateSkill': '读取本机技能',
     'settings.builtInTools.summary.fallback': '暂无描述',
     'builtInTools.presentation.pendingApproval': '等待批准',
     'builtInTools.presentation.process.executing': '正在处理',
@@ -1034,6 +1037,7 @@ const zhCNMessages = {
 } as const;
 
 const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
+    ...skillsMessagesEnUS,
     ...usageMessagesEnUS,
     'common.settings': 'Settings',
     'common.saved': 'Saved',
@@ -1696,6 +1700,7 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.builtInTools.summary.showWidget': 'Inline interactive visualization in chat',
     'settings.builtInTools.summary.visualizeReadMe': 'Read the ShowWidget specification',
     'settings.builtInTools.summary.askUserQuestion': 'Ask the user structured questions',
+    'settings.builtInTools.summary.activateSkill': 'Read local skills',
     'settings.builtInTools.summary.fallback': 'No description',
     'builtInTools.presentation.pendingApproval': 'Pending',
     'builtInTools.presentation.process.executing': 'Processing',

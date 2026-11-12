@@ -11,7 +11,7 @@ import { ATTR } from '@services/ObservabilityService/attributes';
 import { serializeAuditPayload } from '@services/ObservabilityService/redact';
 import { withSpan } from '@services/ObservabilityService/tracing';
 
-import { tt } from '@/i18n';
+import { t, tt } from '@/i18n';
 import {
     type BuiltInToolControlSignal,
     type BuiltInToolId,
@@ -56,11 +56,14 @@ import { type AiProvider, parseProviderConfigJson } from '../infrastructure/prov
 import { createProviderFromRegistry } from '../infrastructure/providers/drivers';
 import type { ModelLanguageContext } from '../languageContext';
 import { PersistenceProjector } from '../outputs/persistence';
+import { MAX_SELECTED_SKILLS } from '../skills/activation';
 import { ContextWindow, type SummaryResult } from './context';
 import { snapshotAiMessages } from './messages';
 import type { TurnEvent } from './runtime';
+import { createPublicWidgetStream } from './widgetStream';
 
 const BUILT_IN_UPGRADE_TOOL_NAME = 'builtin__upgrade_model';
+const BUILT_IN_SKILL_TOOL_NAME = 'builtin__activate_skill';
 const MAX_REQUEST_MODEL_SWITCHES = 4;
 const MODEL_SWITCH_EXCLUDED_TOOL_NAMES = [BUILT_IN_UPGRADE_TOOL_NAME];
 const toolArgumentsSchema = z.record(z.string(), z.unknown());
@@ -128,6 +131,12 @@ export interface AttemptCheckpoint {
     outputParts: PersistedOutputPart[];
 }
 
+/** Lives for one logical request, including retries; never published or persisted. */
+export interface RequestPrivateState {
+    messageContents: Map<number, AiMessage['content']>;
+    skillActivationAttempts: number;
+}
+
 interface AttemptRuntime {
     promptCacheKey: string;
     nextAttachmentRequestIndex: number;
@@ -135,6 +144,8 @@ interface AttemptRuntime {
     provider: AiProvider;
     tools?: AiToolDefinition[];
     messages: AiMessage[];
+    privateMessageContents: Map<number, AiMessage['content']>;
+    privateState: RequestPrivateState;
     response: string;
     reasoning: string;
     iteration: number;
@@ -142,7 +153,8 @@ interface AttemptRuntime {
     modelLanguageContext: ModelLanguageContext;
     hasVisibleOutputSinceCheckpoint: boolean;
     hasToolActivitySinceCheckpoint: boolean;
-    executedBuiltInTools: Set<BuiltInToolId>;
+    /** Kept only to round-trip older persisted checkpoints. No execution gate reads it. */
+    legacyExecutedBuiltInToolIds: BuiltInToolId[];
     outputParts: PersistedOutputPart[];
     currentStepOutputParts: PersistedOutputPart[];
     currentStepReasoningStartedAt: number | null;
@@ -166,6 +178,7 @@ interface ToolExecutionResult {
     toolCall: AiToolCall;
     input?: string;
     result: string;
+    persistedResult?: string;
     isError: boolean;
     toolLogId: number | null;
     attachments?: AttachmentIndex[];
@@ -228,6 +241,7 @@ export interface RunAttemptOptions extends RequestExecutionCallbacks {
     startCheckpoint: AttemptCheckpoint;
     persister: PersistenceProjector;
     parentSpan?: Span;
+    privateState?: RequestPrivateState;
 }
 
 function isProviderErrorDetails(value: unknown): value is ProviderErrorDetails {
@@ -836,7 +850,8 @@ export class AiRequestExecutor {
 
     private async createAttemptRuntime(
         startCheckpoint: AttemptCheckpoint,
-        sessionId: number | null
+        sessionId: number | null,
+        privateState: RequestPrivateState
     ): Promise<AttemptRuntime> {
         const { activeModel, modelLanguageContext, modelSwitchCount } = startCheckpoint;
 
@@ -852,6 +867,8 @@ export class AiRequestExecutor {
                         : undefined,
             }),
             messages: snapshotAiMessages(startCheckpoint.messages),
+            privateMessageContents: new Map(privateState.messageContents),
+            privateState,
             response: startCheckpoint.response,
             reasoning: startCheckpoint.reasoning,
             iteration: startCheckpoint.iteration,
@@ -859,7 +876,7 @@ export class AiRequestExecutor {
             modelLanguageContext,
             hasVisibleOutputSinceCheckpoint: false,
             hasToolActivitySinceCheckpoint: false,
-            executedBuiltInTools: new Set(startCheckpoint.executedBuiltInToolIds),
+            legacyExecutedBuiltInToolIds: [...startCheckpoint.executedBuiltInToolIds],
             outputParts: normalizeOutputParts(startCheckpoint.outputParts),
             currentStepOutputParts: [],
             currentStepReasoningStartedAt: null,
@@ -882,7 +899,7 @@ export class AiRequestExecutor {
             iteration: runtime.iteration,
             modelSwitchCount: runtime.modelSwitchCount,
             modelLanguageContext: runtime.modelLanguageContext,
-            executedBuiltInToolIds: [...runtime.executedBuiltInTools],
+            executedBuiltInToolIds: [...runtime.legacyExecutedBuiltInToolIds],
             outputParts: normalizeOutputParts(runtime.outputParts),
         };
     }
@@ -892,6 +909,13 @@ export class AiRequestExecutor {
         runtime.hasVisibleOutputSinceCheckpoint = false;
         runtime.hasToolActivitySinceCheckpoint = false;
         return checkpoint;
+    }
+
+    private syncPrivateCheckpoint(runtime: AttemptRuntime): void {
+        runtime.privateState.messageContents.clear();
+        for (const [index, content] of runtime.privateMessageContents) {
+            runtime.privateState.messageContents.set(index, content);
+        }
     }
 
     private async consumeModelStep(
@@ -914,6 +938,22 @@ export class AiRequestExecutor {
         for (const message of runtime.messages) {
             if (message.contextSummary) await options.persister.validateContextSummary(message);
         }
+        const privateMessageContents = new WeakMap<AiMessage, AiMessage['content']>();
+        for (const [index, message] of runtime.messages.entries()) {
+            const content = runtime.privateMessageContents.get(index);
+            if (content !== undefined) privateMessageContents.set(message, content);
+        }
+        const transportMessages = new WeakMap<AiMessage, AiMessage>();
+        const projectForTransport = (message: AiMessage): AiMessage => {
+            const privateContent = privateMessageContents.get(message);
+            if (privateContent === undefined) return message;
+            let transport = transportMessages.get(message);
+            if (!transport) {
+                transport = snapshotAiMessages([{ ...message, content: privateContent }])[0]!;
+                transportMessages.set(message, transport);
+            }
+            return transport;
+        };
         const activeAttachments = runtime.messages.flatMap((message) =>
             Array.isArray(message.content)
                 ? message.content.filter((part) => part.type === 'image' || part.type === 'file')
@@ -949,6 +989,7 @@ export class AiRequestExecutor {
             runtime.activeModel.provider_driver === 'anthropic-compatible';
         const prepared = await this.contextWindow.prepare({
             request,
+            projectForTransport,
             contextLimit: runtime.activeModel.context_limit,
             outputLimit: runtime.activeModel.output_limit,
             preserveSummaryOutputBudget: preserveReasoningCache,
@@ -963,12 +1004,19 @@ export class AiRequestExecutor {
                 }),
         });
         if (prepared.messages.some((message) => message.contextSummary)) {
+            runtime.privateMessageContents.clear();
+            for (const [index, message] of prepared.messages.entries()) {
+                const privateContent = privateMessageContents.get(message);
+                if (privateContent !== undefined)
+                    runtime.privateMessageContents.set(index, privateContent);
+            }
             runtime.messages = snapshotAiMessages(prepared.messages);
+            this.syncPrivateCheckpoint(runtime);
             options.onContextPrepared();
         }
         const modelRequest = {
             ...request,
-            messages: prepared.messages,
+            messages: prepared.messages.map(projectForTransport),
             maxOutputTokens: prepared.maxOutputTokens,
             attachmentRequestIndex: runtime.nextAttachmentRequestIndex++,
         };
@@ -1079,6 +1127,7 @@ export class AiRequestExecutor {
         };
         let streamError: unknown;
         let streamFailed = false;
+        const projectPublicChunk = createPublicWidgetStream();
         try {
             for await (const chunk of runtime.provider.stream(modelRequest)) {
                 throwIfAborted(options.signal);
@@ -1128,7 +1177,7 @@ export class AiRequestExecutor {
                     finalUsage = chunk.usage;
                     usageReported = chunk.usageReported === true;
                 }
-                options.onChunk?.(chunk);
+                options.onChunk?.(await projectPublicChunk(chunk));
                 if (chunk.done) {
                     break;
                 }
@@ -1230,6 +1279,20 @@ export class AiRequestExecutor {
     ): Promise<ToolExecutionResult> {
         throwIfAborted(options.signal);
 
+        if (options.toolCall.name === BUILT_IN_SKILL_TOOL_NAME) {
+            if (runtime.privateState.skillActivationAttempts >= MAX_SELECTED_SKILLS) {
+                return this.rejectToolCall({
+                    ...options,
+                    iteration: runtime.iteration,
+                    sessionId: options.persister.getSessionId(),
+                    input: serializeAuditPayload(options.toolCall.arguments),
+                    result: t('skills.contextLimit', { count: MAX_SELECTED_SKILLS }),
+                    durationMs: 0,
+                });
+            }
+            runtime.privateState.skillActivationAttempts++;
+        }
+
         const parsedToolArguments = parseToolCallArguments(options.toolCall);
         if (!parsedToolArguments.ok) {
             // 参数解析失败是「结构化输出能力」的直接信号，计入 attempt 级计数。
@@ -1262,7 +1325,6 @@ export class AiRequestExecutor {
             toolArgs: sanitizedToolArgs,
             iteration: runtime.iteration,
             currentModel: runtime.activeModel,
-            hasExecutedBuiltInTool: (toolId) => runtime.executedBuiltInTools.has(toolId),
             signal: options.signal,
             toolCallMessageId: options.toolCallMessageId,
             sessionId: options.persister.getSessionId(),
@@ -1365,33 +1427,39 @@ export class AiRequestExecutor {
 
         for (const {
             toolCall,
-            builtInToolId,
             result,
+            persistedResult,
             isError,
             toolLogId,
             attachments,
         } of toolResults) {
             throwIfAttachmentsUnsupportedByModel(attachments, nextModel);
 
+            if (persistedResult !== undefined && persistedResult !== result) {
+                runtime.privateMessageContents.set(
+                    runtime.messages.length,
+                    await buildToolResultMessageContent(result, attachments)
+                );
+            }
             runtime.messages.push({
                 role: 'tool',
-                content: await buildToolResultMessageContent(result, attachments),
+                content: await buildToolResultMessageContent(
+                    persistedResult ?? result,
+                    attachments
+                ),
                 tool_call_id: toolCall.id,
                 name: toolCall.name,
                 isError,
             });
 
             await options.persister.persistToolResult({
-                result,
+                result: persistedResult ?? result,
                 toolCallId: toolCall.id,
                 toolCallPartId: toolLogId,
                 toolCallMessageId,
                 attachments,
             });
 
-            if (builtInToolId && !isError) {
-                runtime.executedBuiltInTools.add(builtInToolId);
-            }
             event('agent.tool.completed', {
                 [ATTR.toolCallId]: toolCall.id,
                 [ATTR.toolName]: toolCall.name,
@@ -1401,7 +1469,10 @@ export class AiRequestExecutor {
 
         const source = await options.persister.getContextMessageSource(toolCallMessageId, {
             outputParts: options.step.outputParts,
-            results: toolResults,
+            results: toolResults.map((result) => ({
+                ...result,
+                result: result.persistedResult ?? result.result,
+            })),
         });
         if (source) {
             const start = runtime.messages.length - options.step.toolCalls.length - 1;
@@ -1455,9 +1526,14 @@ export class AiRequestExecutor {
      * - turn 的最终落库状态
      */
     async runAttempt(options: RunAttemptOptions): Promise<AttemptExecutionResult> {
+        const privateState = options.privateState ?? {
+            messageContents: new Map<number, AiMessage['content']>(),
+            skillActivationAttempts: 0,
+        };
         const runtime = await this.createAttemptRuntime(
             options.startCheckpoint,
-            options.persister.getSessionId()
+            options.persister.getSessionId(),
+            privateState
         );
         // One mutable cursor releases archived payloads for all owners at each safe boundary.
         const resumeCheckpoint = options.startCheckpoint;
@@ -1533,6 +1609,7 @@ export class AiRequestExecutor {
 
                 runtime.iteration += 1;
                 Object.assign(resumeCheckpoint, this.commitCheckpoint(runtime));
+                this.syncPrivateCheckpoint(runtime);
                 await options.persister.persistCheckpoint(resumeCheckpoint).catch((error) => {
                     log.error('[AiRequestExecutor] Failed to persist checkpoint:', error);
                 });

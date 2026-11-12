@@ -4,12 +4,12 @@ Read this before any non-trivial change.
 
 ## Stack and layout
 
-| Area | Path | Stack |
-| --- | --- | --- |
-| Desktop app | `apps/desktop/` | Vue 3 + TypeScript + Tailwind + Vite |
-| Native shell | `apps/desktop/src-tauri/` | Rust + Tauri 2 |
-| Database | `apps/desktop/src/database/` | SQLite, Drizzle ORM over a Rust `sqlx` IPC runtime |
-| Official site | `apps/site/` | Astro + Starlight |
+| Area          | Path                         | Stack                                              |
+| ------------- | ---------------------------- | -------------------------------------------------- |
+| Desktop app   | `apps/desktop/`              | Vue 3 + TypeScript + Tailwind + Vite               |
+| Native shell  | `apps/desktop/src-tauri/`    | Rust + Tauri 2                                     |
+| Database      | `apps/desktop/src/database/` | SQLite, Drizzle ORM over a Rust `sqlx` IPC runtime |
+| Official site | `apps/site/`                 | Astro + Starlight                                  |
 
 ```text
 views / components
@@ -37,15 +37,15 @@ No implementation without an accepted RFC issue and explicit user direction: `Ag
 
 Read the owning code first and expect cross-window or cross-process consequences.
 
-| Surface | Path | Main risk |
-| --- | --- | --- |
-| Agent orchestration | `apps/desktop/src/services/AgentService/` | Message ordering, streaming, cancellation, tool loops, final vs intermediate state |
-| Built-in tools | `apps/desktop/src/services/BuiltInToolService/` | Sandbox escape, unbounded output, approval bypass, resource leaks |
-| Search overlays and events | `apps/desktop/src/views/SearchView/components/SearchOverlayHost/`, `services/EventService/` | Stale async results, duplicate listeners, focus restoration, open/close races |
-| Native bridge | `apps/desktop/src/services/NativeService/`, `apps/desktop/src-tauri/src/commands/` | TypeScript/Rust type drift, timeout and cancel semantics |
-| Multi-window shell | `apps/desktop/src-tauri/src/core/window/` | Window lifecycle, resize feedback loops, focus restoration, tray state |
-| Database runtime | `apps/desktop/src-tauri/src/core/database/`, `apps/desktop/src/database/` | Migration order, WAL/locking, transaction ownership, backup/import |
-| Attachments | `apps/desktop/src/services/AgentService/infrastructure/attachments/` | Draft state, cached copies, and database rows drifting apart; a failed read silently changing what the model sees |
+| Surface                    | Path                                                                                        | Main risk                                                                                                         |
+| -------------------------- | ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Agent orchestration        | `apps/desktop/src/services/AgentService/`                                                   | Message ordering, streaming, cancellation, tool loops, final vs intermediate state                                |
+| Built-in tools             | `apps/desktop/src/services/BuiltInToolService/`                                             | Sandbox escape, unbounded output, approval bypass, resource leaks                                                 |
+| Search overlays and events | `apps/desktop/src/views/SearchView/components/SearchOverlayHost/`, `services/EventService/` | Stale async results, duplicate listeners, focus restoration, open/close races                                     |
+| Native bridge              | `apps/desktop/src/services/NativeService/`, `apps/desktop/src-tauri/src/commands/`          | TypeScript/Rust type drift, timeout and cancel semantics                                                          |
+| Multi-window shell         | `apps/desktop/src-tauri/src/core/window/`                                                   | Window lifecycle, resize feedback loops, focus restoration, tray state                                            |
+| Database runtime           | `apps/desktop/src-tauri/src/core/database/`, `apps/desktop/src/database/`                   | Migration order, WAL/locking, transaction ownership, backup/import                                                |
+| Attachments                | `apps/desktop/src/services/AgentService/infrastructure/attachments/`                        | Draft state, cached copies, and database rows drifting apart; a failed read silently changing what the model sees |
 
 Window labels, event ordering, and session identity are cross-window contracts. Search overlays share the main Vue tree and its state; they have no standalone popup window or event transport. Duplicate listeners, stale IDs, and races are correctness bugs, not polish.
 
@@ -55,6 +55,6 @@ Window labels, event ordering, and session identity are cross-window contracts. 
 
 Owner pages for areas with their own invariants and contracts:
 
-| Area | Page | Read it when |
-| --- | --- | --- |
-| Product analytics | [analytics.md](analytics.md) | Touching the event registry, consent, the delivery queue, the sender, or export/import scrubbing |
+| Area               | Page                         | Read it when                                                                                     |
+| ------------------ | ---------------------------- | ------------------------------------------------------------------------------------------------ |
+| Product analytics  | [analytics.md](analytics.md) | Touching the event registry, consent, the delivery queue, the sender, or export/import scrubbing |

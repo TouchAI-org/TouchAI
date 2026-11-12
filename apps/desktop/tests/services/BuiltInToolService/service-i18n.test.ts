@@ -117,7 +117,7 @@ function createExecutionOptions(signal?: AbortSignal) {
         toolArgs: {},
         iteration: 1,
         currentModel,
-        hasExecutedBuiltInTool: vi.fn(() => false),
+
         signal,
         sessionId: 1,
         toolCallMessageId: 2,

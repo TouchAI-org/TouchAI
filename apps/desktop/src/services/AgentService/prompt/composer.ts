@@ -4,6 +4,7 @@ import {
     type AttachmentIndex,
     inspectAttachments,
 } from '@/services/AgentService/infrastructure/attachments';
+import { loadSelectedSkills, summarizeLoadedSkills } from '@/services/AgentService/skills';
 import type { InputHistorySnapshot } from '@/types/session';
 
 import {
@@ -34,6 +35,7 @@ const PROMPT_SOURCE_ORDER: PromptFragmentSource[] = [
     'session_memory',
     'mode',
     'feature',
+    'skill',
     'user_append',
 ];
 
@@ -49,6 +51,7 @@ interface ComposePromptSnapshotOptions {
     sessionMemory?: string[];
     mode?: string[];
     feature?: string[];
+    skillContext?: string[];
     userAppend?: string[];
 }
 
@@ -102,6 +105,7 @@ async function buildPromptAssembly(options: ComposePromptSnapshotOptions): Promi
             options.mode ?? (executionMode === 'background' ? [BACKGROUND_MODE_PROMPT] : [])
         ),
         feature: buildFragments('feature', options.feature ?? []),
+        skill: buildFragments('skill', options.skillContext ?? []),
         user_append: buildFragments('user_append', options.userAppend ?? []),
     };
 
@@ -111,6 +115,7 @@ async function buildPromptAssembly(options: ComposePromptSnapshotOptions): Promi
         fragments: PROMPT_SOURCE_ORDER.flatMap((source) => fragmentsBySource[source]),
         userPrompt: options.prompt,
         attachments: await summarizeAttachments(options.attachments ?? []),
+        skills: [],
     };
 }
 
@@ -120,9 +125,15 @@ async function buildPromptAssembly(options: ComposePromptSnapshotOptions): Promi
 export async function composePromptSnapshot(
     options: ComposePromptSnapshotOptions
 ): Promise<PromptSnapshot> {
-    const assembly = await buildPromptAssembly(options);
+    const loadedSkills = await loadSelectedSkills(options.inputSnapshot?.skills ?? [], 'user_tag');
+    const skills = summarizeLoadedSkills(loadedSkills);
+    const skillContextFragments = loadedSkills.map((skill) => skill.contextText);
+    const assembly = await buildPromptAssembly({
+        ...options,
+        skillContext: skillContextFragments,
+    });
 
-    return {
+    const snapshot = {
         id: crypto.randomUUID(),
         createdAt: new Date().toISOString(),
         executionMode: assembly.executionMode,
@@ -130,13 +141,17 @@ export async function composePromptSnapshot(
         fragments: assembly.fragments,
         userPrompt: assembly.userPrompt,
         attachments: assembly.attachments,
+        skills,
         systemPrompt: assembly.fragments
             .map((fragment) => fragment.content)
             .join('\n\n')
             .trim(),
-        ...(options.inputSnapshot?.editorDoc
+        ...(options.inputSnapshot?.editorDoc || options.inputSnapshot?.skills?.length
             ? {
                   inputSnapshot: {
+                      ...(options.inputSnapshot.skills?.length
+                          ? { skills: options.inputSnapshot.skills }
+                          : {}),
                       editorDoc: options.inputSnapshot.editorDoc,
                       ...(options.inputSnapshot.excludeFromHistory
                           ? { excludeFromHistory: true }
@@ -151,4 +166,6 @@ export async function composePromptSnapshot(
                 }
               : {}),
     };
+
+    return snapshot;
 }

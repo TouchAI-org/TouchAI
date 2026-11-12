@@ -59,7 +59,6 @@ function createContext(currentModel?: ModelWithProvider): BaseBuiltInToolExecuti
         callId: 'upgrade-call',
         iteration: 1,
         currentModel,
-        hasExecutedBuiltInTool: vi.fn(() => false),
     };
 }
 

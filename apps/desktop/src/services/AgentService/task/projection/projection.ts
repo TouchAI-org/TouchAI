@@ -96,6 +96,7 @@ export class SessionTaskProjection {
         const userInputSnapshot = createInputHistorySnapshot({
             text: prompt,
             attachments: snapshotAttachments,
+            skills: inputSnapshot?.skills ?? [],
             editorDoc: inputSnapshot?.editorDoc,
             excludeFromHistory: inputSnapshot?.excludeFromHistory,
         });
