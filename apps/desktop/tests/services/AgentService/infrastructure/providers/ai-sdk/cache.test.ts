@@ -5,7 +5,7 @@ import { AnthropicProviderAdapter } from '@/services/AgentService/infrastructure
 import { OpenAIProviderAdapter } from '@/services/AgentService/infrastructure/providers/adapters/openai';
 
 const { fetchMock } = vi.hoisted(() => ({ fetchMock: vi.fn() }));
-vi.mock('@services/HttpService', () => ({
+vi.mock('@/services/AgentService/infrastructure/providers/ai-sdk/tauriFetch', () => ({
     createTauriFetch: () => fetchMock,
 }));
 
