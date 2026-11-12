@@ -94,6 +94,7 @@ describe('user reviews cache writes and CI job scope', () => {
             'workflow-lint',
             'conventional-commits',
             'dependency-review',
+            'release-notes-check',
             'frontend-quality',
             'frontend-tests',
             'ci-tests',

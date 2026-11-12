@@ -805,6 +805,7 @@ describe('user runs every repository CI check and moved UI preview elsewhere', (
                 'workflow-lint',
                 'conventional-commits',
                 'dependency-review',
+                'release-notes-check',
                 'frontend-quality',
                 aggregateJobId,
                 'ci-tests',

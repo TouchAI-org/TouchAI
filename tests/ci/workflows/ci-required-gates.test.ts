@@ -28,6 +28,7 @@ const ciResultVariables = [
     'SITE_BUILD_RESULT',
     'RUST_CHECKS_RESULT',
     'BUILD_WINDOWS_RESULT',
+    'RELEASE_NOTES_RESULT',
 ] as const;
 
 const e2eResultVariables = ['CHANGES_RESULT', 'DESKTOP_E2E_RESULT'] as const;
@@ -48,6 +49,11 @@ const ciRequiredJobs = [
         name: 'workflow-lint',
         variable: 'WORKFLOW_LINT_RESULT',
         label: 'workflow validation',
+    },
+    {
+        name: 'release-notes-check',
+        variable: 'RELEASE_NOTES_RESULT',
+        label: 'release notes validation',
     },
     {
         name: 'frontend-quality',
@@ -79,6 +85,11 @@ const ciObservedJobs = [
         name: 'dependency-review',
         variable: 'DEPENDENCY_REVIEW_RESULT',
         label: 'Dependency Review',
+    },
+    {
+        name: 'release-notes-check',
+        variable: 'RELEASE_NOTES_RESULT',
+        label: 'release notes validation',
     },
     {
         name: 'frontend-quality',
@@ -242,6 +253,7 @@ function ciEnvironment(overrides: GateEnvironment = {}) {
             DOCS_ONLY: 'false',
             DESKTOP_CHANGED: 'false',
             SITE_CHANGED: 'false',
+            RELEASE_NOTES_CHANGED: 'false',
             ...Object.fromEntries(ciResultVariables.map((variable) => [variable, 'skipped'])),
         },
         overrides
@@ -264,6 +276,7 @@ function ciAllApplicableSuccess(overrides: GateEnvironment = {}) {
         DOCS_ONLY: 'false',
         DESKTOP_CHANGED: 'true',
         SITE_CHANGED: 'true',
+        RELEASE_NOTES_CHANGED: 'true',
         CHANGES_RESULT: 'success',
         WORKFLOW_LINT_RESULT: 'success',
         CONVENTIONAL_COMMITS_RESULT: 'success',
@@ -274,6 +287,7 @@ function ciAllApplicableSuccess(overrides: GateEnvironment = {}) {
         SITE_BUILD_RESULT: 'success',
         RUST_CHECKS_RESULT: 'success',
         BUILD_WINDOWS_RESULT: 'skipped',
+        RELEASE_NOTES_RESULT: 'success',
         ...overrides,
     });
 }
@@ -314,6 +328,42 @@ describe('user completes required CI validation', () => {
 
         expect(result.status).toBe(0);
         expect(result.output).not.toContain('One or more required CI jobs did not pass.');
+    });
+
+    it('user sees a release-notes-only pull request require its lightweight validator', () => {
+        const result = runCi(
+            ciEnvironment({
+                DOCS_ONLY: 'true',
+                DESKTOP_CHANGED: 'false',
+                SITE_CHANGED: 'false',
+                RELEASE_NOTES_CHANGED: 'true',
+                CHANGES_RESULT: 'success',
+                CONVENTIONAL_COMMITS_RESULT: 'success',
+                RELEASE_NOTES_RESULT: 'success',
+            })
+        );
+
+        expect(result.status).toBe(0);
+        expect(result.output).toContain('release-notes-check -> success');
+    });
+
+    it('user sees a release-notes-only pull request fail when its validator is skipped', () => {
+        const result = runCi(
+            ciEnvironment({
+                DOCS_ONLY: 'true',
+                DESKTOP_CHANGED: 'false',
+                SITE_CHANGED: 'false',
+                RELEASE_NOTES_CHANGED: 'true',
+                CHANGES_RESULT: 'success',
+                CONVENTIONAL_COMMITS_RESULT: 'success',
+                RELEASE_NOTES_RESULT: 'skipped',
+            })
+        );
+
+        expectGateFailure(result, [
+            'release-notes-check -> skipped',
+            'One or more required CI jobs did not pass.',
+        ]);
     });
 
     it('user sees site-only work require repository checks and the site build without desktop validation', () => {
@@ -614,6 +664,18 @@ describe('user cannot bypass required gates with malformed change classification
             value: 'invalid',
             state: 'invalid',
             classification: 'site classification',
+        },
+        {
+            output: 'release_notes_changed',
+            value: undefined,
+            state: 'missing',
+            classification: 'release notes classification',
+        },
+        {
+            output: 'release_notes_changed',
+            value: 'invalid',
+            state: 'invalid',
+            classification: 'release notes classification',
         },
     ])(
         'user sees CI fail when the $state $classification is not true or false',

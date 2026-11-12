@@ -26,6 +26,7 @@ jobs:
             docs_only: ${{ steps.classify.outputs.docs_only }}
             desktop_changed: ${{ steps.classify.outputs.desktop_changed }}
             site_changed: ${{ steps.classify.outputs.site_changed }}
+            release_notes_changed: ${{ steps.classify.outputs.release_notes_changed }}
         steps:
             - id: classify
               name: Detect docs-only pull requests
@@ -36,13 +37,20 @@ jobs:
                         core.setOutput('docs_only', 'false');
                         core.setOutput('desktop_changed', 'true');
                         core.setOutput('site_changed', 'true');
+                        core.setOutput('release_notes_changed', 'true');
                       };
 
-                      if (context.eventName !== 'pull_request' && context.eventName !== 'push') {
+                      if (
+                        context.eventName !== 'pull_request' &&
+                        context.eventName !== 'push' &&
+                        context.eventName !== 'merge_group'
+                      ) {
                         fullClassification();
                         return;
                       }
 
+                      const releaseNotesPattern =
+                        /^apps\/desktop\/release-notes\/[^/]+\.json$/;
                       const docsOnlyPatterns = [
                         /^docs\//,
                         /^[^/]+\.md$/,
@@ -59,6 +67,7 @@ jobs:
                         /^README\.md$/,
                         /^SECURITY\.md$/,
                         /^SUPPORT\.md$/,
+                        releaseNotesPattern,
                       ];
                       const desktopPatterns = [
                         /^apps\/desktop\//,
@@ -98,9 +107,18 @@ jobs:
                           pull_number: context.issue.number,
                           per_page: 100,
                         });
-                      } else if (context.eventName === 'push') {
-                        const before = context.payload.before;
-                        const after = context.payload.after;
+                      } else if (
+                        context.eventName === 'push' ||
+                        context.eventName === 'merge_group'
+                      ) {
+                        const before =
+                          context.eventName === 'merge_group'
+                            ? context.payload.merge_group?.base_sha
+                            : context.payload.before;
+                        const after =
+                          context.eventName === 'merge_group'
+                            ? context.payload.merge_group?.head_sha
+                            : context.payload.after;
 
                         if (!before || !after || /^0+$/.test(before)) {
                           fullClassification();
@@ -172,19 +190,30 @@ jobs:
                           docsOnlyPatterns.some((pattern) => pattern.test(filename))
                         );
                       const desktopChanged =
-                        filenames.some((filename) => desktopPatterns.some((pattern) => pattern.test(filename)));
+                        !docsOnly &&
+                        filenames.some((filename) =>
+                          desktopPatterns.some((pattern) => pattern.test(filename))
+                        );
                       const siteChanged =
                         filenames.some((filename) => sitePatterns.some((pattern) => pattern.test(filename)));
+                      const releaseNotesChanged = filenames.some((filename) =>
+                        releaseNotesPattern.test(filename)
+                      );
 
                       core.setOutput('docs_only', docsOnly ? 'true' : 'false');
                       core.setOutput('desktop_changed', desktopChanged ? 'true' : 'false');
                       core.setOutput('site_changed', siteChanged ? 'true' : 'false');
+                      core.setOutput(
+                        'release_notes_changed',
+                        releaseNotesChanged ? 'true' : 'false'
+                      );
 
             - name: Report classification
               run: |
                   echo "docs_only=${{ steps.classify.outputs.docs_only }}"
                   echo "desktop_changed=${{ steps.classify.outputs.desktop_changed }}"
                   echo "site_changed=${{ steps.classify.outputs.site_changed }}"
+                  echo "release_notes_changed=${{ steps.classify.outputs.release_notes_changed }}"
 
     # A workflow file that GitHub cannot parse never starts a job: the run fails in
     # zero seconds with an "Invalid workflow file" annotation and nothing to read. The
@@ -211,6 +240,22 @@ jobs:
 
             - name: Lint workflows
               run: ./actionlint
+
+    release-notes-check:
+        name: Release Notes
+        needs: changes
+        if: needs.changes.outputs.release_notes_changed == 'true'
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+              with:
+                  node-version: 22
+                  package-manager-cache: false
+
+            - name: Validate release notes
+              run: node apps/desktop/scripts/ci/validate-release-notes.mjs
 
     conventional-commits:
         name: Conventional Commits
@@ -632,6 +677,7 @@ jobs:
             - workflow-lint
             - conventional-commits
             - dependency-review
+            - release-notes-check
             - frontend-quality
             - frontend-tests
             - ci-tests
@@ -646,10 +692,12 @@ jobs:
                   DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
                   DESKTOP_CHANGED: ${{ needs.changes.outputs.desktop_changed }}
                   SITE_CHANGED: ${{ needs.changes.outputs.site_changed }}
+                  RELEASE_NOTES_CHANGED: ${{ needs.changes.outputs.release_notes_changed }}
                   CHANGES_RESULT: ${{ needs.changes.result }}
                   WORKFLOW_LINT_RESULT: ${{ needs['workflow-lint'].result }}
                   CONVENTIONAL_COMMITS_RESULT: ${{ needs['conventional-commits'].result }}
                   DEPENDENCY_REVIEW_RESULT: ${{ needs['dependency-review'].result }}
+                  RELEASE_NOTES_RESULT: ${{ needs['release-notes-check'].result }}
                   FRONTEND_QUALITY_RESULT: ${{ needs['frontend-quality'].result }}
                   FRONTEND_TESTS_RESULT: ${{ needs['frontend-tests'].result }}
                   CI_TESTS_RESULT: ${{ needs['ci-tests'].result }}
@@ -660,7 +708,7 @@ jobs:
                   if [ "$CHANGES_RESULT" = "success" ]; then
                     invalid=0
 
-                    for check in "docs_only:$DOCS_ONLY" "desktop_changed:$DESKTOP_CHANGED" "site_changed:$SITE_CHANGED"; do
+                    for check in "docs_only:$DOCS_ONLY" "desktop_changed:$DESKTOP_CHANGED" "site_changed:$SITE_CHANGED" "release_notes_changed:$RELEASE_NOTES_CHANGED"; do
                       name="${check%%:*}"
                       value="${check#*:}"
 
@@ -679,6 +727,10 @@ jobs:
                   required=()
 
                   required+=("changes:$CHANGES_RESULT")
+
+                  if [ "$RELEASE_NOTES_CHANGED" = "true" ]; then
+                    required+=("release-notes-check:$RELEASE_NOTES_RESULT")
+                  fi
 
                   if [ "$EVENT_NAME" = "pull_request" ]; then
                     required+=("conventional-commits:$CONVENTIONAL_COMMITS_RESULT")
@@ -713,6 +765,7 @@ jobs:
                     "workflow-lint:$WORKFLOW_LINT_RESULT"
                     "conventional-commits:$CONVENTIONAL_COMMITS_RESULT"
                     "dependency-review:$DEPENDENCY_REVIEW_RESULT"
+                    "release-notes-check:$RELEASE_NOTES_RESULT"
                     "frontend-quality:$FRONTEND_QUALITY_RESULT"
                     "frontend-tests:$FRONTEND_TESTS_RESULT"
                     "ci-tests:$CI_TESTS_RESULT"

@@ -10,6 +10,7 @@ const ciFallback = {
     docs_only: 'false',
     desktop_changed: 'true',
     site_changed: 'true',
+    release_notes_changed: 'true',
 };
 const e2eFallback = {
     docs_only: 'false',
@@ -22,6 +23,7 @@ const securityFallback = {
 const visualFallback = {
     ui_changed: 'true',
 };
+const releaseNotesFile = 'apps/desktop/release-notes/1.3.0-beta.3.json';
 
 function pullRequestOptions(files: unknown[], changedFiles: number | null = files.length) {
     const pullRequest: Record<string, unknown> = { number: pullNumber };
@@ -108,6 +110,7 @@ describe('user changes prose under the existing allowlist', () => {
                 docs_only: 'true',
                 desktop_changed: 'false',
                 site_changed: 'false',
+                release_notes_changed: 'false',
             });
             expect((await runClassifier('e2e-smoke.yml', options)).outputs).toEqual({
                 docs_only: 'true',
@@ -133,6 +136,7 @@ describe('user changes prose under the existing allowlist', () => {
             docs_only: 'true',
             desktop_changed: 'false',
             site_changed: 'false',
+            release_notes_changed: 'false',
         });
         expect((await runClassifier('e2e-smoke.yml', pushOptions(files))).outputs).toEqual({
             docs_only: 'true',
@@ -157,6 +161,7 @@ describe('user changes prose under the existing allowlist', () => {
             docs_only: 'false',
             desktop_changed: 'true',
             site_changed: 'false',
+            release_notes_changed: 'false',
         });
         expect((await runClassifier('e2e-smoke.yml', pullRequestOptions(files))).outputs).toEqual({
             docs_only: 'false',
@@ -178,6 +183,7 @@ describe('user changes prose under the existing allowlist', () => {
             docs_only: 'false',
             desktop_changed: 'false',
             site_changed: 'true',
+            release_notes_changed: 'false',
         });
         expect((await runClassifier('e2e-smoke.yml', pullRequestOptions(files))).outputs).toEqual({
             docs_only: 'false',
@@ -214,6 +220,7 @@ describe('user renames files across documentation and build inputs', () => {
                 docs_only: 'false',
                 desktop_changed: 'true',
                 site_changed: 'false',
+                release_notes_changed: 'false',
             });
             expect((await runClassifier('e2e-smoke.yml', options)).outputs).toEqual({
                 docs_only: 'false',
@@ -249,6 +256,7 @@ describe('user renames files across documentation and build inputs', () => {
                 docs_only: 'false',
                 desktop_changed: 'true',
                 site_changed: 'false',
+                release_notes_changed: 'false',
             });
             expect((await runClassifier('e2e-smoke.yml', options)).outputs).toEqual({
                 docs_only: 'false',
@@ -284,6 +292,7 @@ describe('user renames files across documentation and build inputs', () => {
                 docs_only: 'false',
                 desktop_changed: 'false',
                 site_changed: 'true',
+                release_notes_changed: 'false',
             });
             expect((await runClassifier('e2e-smoke.yml', options)).outputs).toEqual({
                 docs_only: 'false',
@@ -317,6 +326,7 @@ describe('user changes shared workspace and workflow inputs', () => {
                 docs_only: 'false',
                 desktop_changed: 'true',
                 site_changed: 'true',
+                release_notes_changed: 'false',
             });
             expect((await runClassifier('e2e-smoke.yml', options)).outputs).toEqual({
                 docs_only: 'false',
@@ -349,6 +359,7 @@ describe('user changes shared workspace and workflow inputs', () => {
                 docs_only: 'false',
                 desktop_changed: 'true',
                 site_changed: 'false',
+                release_notes_changed: 'false',
             });
             expect((await runClassifier('e2e-smoke.yml', options)).outputs).toEqual({
                 docs_only: 'false',
@@ -588,6 +599,7 @@ describe('user relies on complete GitHub file inventories', () => {
             docs_only: 'true',
             desktop_changed: 'false',
             site_changed: 'false',
+            release_notes_changed: 'false',
         });
         expect(result.paginateCalls).toHaveLength(1);
         expect(result.paginateCalls[0]?.params).toEqual({
@@ -618,6 +630,7 @@ describe('user relies on complete GitHub file inventories', () => {
                 docs_only: 'true',
                 desktop_changed: 'false',
                 site_changed: 'false',
+                release_notes_changed: 'false',
             },
         },
         {
@@ -703,6 +716,7 @@ describe('user relies on complete GitHub file inventories', () => {
             docs_only: 'true',
             desktop_changed: 'false',
             site_changed: 'false',
+            release_notes_changed: 'false',
         });
         expect((await runClassifier('security.yml', options)).outputs).toEqual({
             docs_only: 'true',
@@ -749,6 +763,7 @@ describe('user relies on complete GitHub file inventories', () => {
                           docs_only: 'true',
                           desktop_changed: 'false',
                           site_changed: 'false',
+                          release_notes_changed: 'false',
                       }
                     : filename === 'e2e-smoke.yml'
                       ? { docs_only: 'true', desktop_changed: 'false' }
@@ -767,13 +782,109 @@ describe('user relies on complete GitHub file inventories', () => {
     );
 });
 
+describe('user changes release notes without runtime code', () => {
+    const releaseNotes = [{ status: 'modified', filename: releaseNotesFile }];
+
+    it('user sees a release-notes-only pull request skip product validation while retaining release checks', async () => {
+        const options = pullRequestOptions(releaseNotes);
+
+        expect((await runClassifier('ci.yml', options)).outputs).toEqual({
+            docs_only: 'true',
+            desktop_changed: 'false',
+            site_changed: 'false',
+            release_notes_changed: 'true',
+        });
+        expect((await runClassifier('e2e-smoke.yml', options)).outputs).toEqual({
+            docs_only: 'true',
+            desktop_changed: 'false',
+        });
+        expect((await runClassifier('security.yml', options)).outputs).toEqual({
+            docs_only: 'true',
+            rust_changed: 'false',
+        });
+        expect((await runClassifier('visual-components.yml', options)).outputs).toEqual({
+            ui_changed: 'false',
+        });
+    });
+
+    it('user sees release notes and runtime code run both the notes check and product validation', async () => {
+        const options = pullRequestOptions([
+            ...releaseNotes,
+            { status: 'modified', filename: 'apps/desktop/src/components/Button.vue' },
+        ]);
+
+        expect((await runClassifier('ci.yml', options)).outputs).toEqual({
+            docs_only: 'false',
+            desktop_changed: 'true',
+            site_changed: 'false',
+            release_notes_changed: 'true',
+        });
+        expect((await runClassifier('e2e-smoke.yml', options)).outputs).toEqual({
+            docs_only: 'false',
+            desktop_changed: 'true',
+        });
+        expect((await runClassifier('security.yml', options)).outputs).toEqual({
+            docs_only: 'false',
+            rust_changed: 'false',
+        });
+        expect((await runClassifier('visual-components.yml', options)).outputs).toEqual({
+            ui_changed: 'true',
+        });
+    });
+
+    it('user sees merge queue release-notes-only changes skip product validation using base and head', async () => {
+        const options = mergeGroupOptions(releaseNotes);
+        const ci = await runClassifier('ci.yml', options);
+        const e2e = await runClassifier('e2e-smoke.yml', options);
+        const visuals = await runClassifier('visual-components.yml', options);
+
+        expect(ci.outputs).toEqual({
+            docs_only: 'true',
+            desktop_changed: 'false',
+            site_changed: 'false',
+            release_notes_changed: 'true',
+        });
+        expect(e2e.outputs).toEqual({
+            docs_only: 'true',
+            desktop_changed: 'false',
+        });
+        expect(visuals.outputs).toEqual({ ui_changed: 'false' });
+        for (const result of [ci, e2e, visuals]) {
+            expect(result.compareCalls).toEqual([
+                {
+                    owner: 'TouchAI-org',
+                    repo: 'TouchAI',
+                    base: beforeSha,
+                    head: afterSha,
+                },
+            ]);
+        }
+    });
+});
+
 describe('user runs classifiers for supported event types', () => {
-    it('user sees CI merge queue runs validate everything without classifying a comparison', async () => {
+    it('user sees CI merge queue runs use full validation when the comparison is incomplete', async () => {
         const result = await runClassifier('ci.yml', {
             eventName: 'merge_group',
             payload: {
                 merge_group: {
                     base_sha: beforeSha,
+                    head_sha: afterSha,
+                },
+            },
+            compareData: {},
+        });
+
+        expect(result.outputs).toEqual(ciFallback);
+        expect(result.paginateCalls).toEqual([]);
+        expect(result.compareCalls).toHaveLength(1);
+    });
+
+    it('user sees CI merge queue runs use full validation when the base is missing', async () => {
+        const result = await runClassifier('ci.yml', {
+            eventName: 'merge_group',
+            payload: {
+                merge_group: {
                     head_sha: afterSha,
                 },
             },
@@ -905,28 +1016,38 @@ describe('user runs classifiers for supported event types', () => {
 
     it.each([
         { eventName: 'push', label: 'main-branch push' },
-        { eventName: 'merge_group', label: 'merge queue run' },
         { eventName: 'workflow_dispatch', label: 'manual invocation' },
     ])(
         'user sees component visuals run fully for a $label without a pull request',
         async ({ eventName }) => {
             const result = await runClassifier('visual-components.yml', {
                 eventName,
-                payload:
-                    eventName === 'merge_group'
-                        ? {
-                              merge_group: {
-                                  base_sha: beforeSha,
-                                  head_sha: afterSha,
-                              },
-                          }
-                        : {},
+                payload: {},
             });
 
             expect(result.outputs).toEqual(visualFallback);
             expect(result.paginateCalls).toEqual([]);
         }
     );
+
+    it('user sees component visuals classify merge queue changes from base and head', async () => {
+        const result = await runClassifier(
+            'visual-components.yml',
+            mergeGroupOptions([
+                { status: 'modified', filename: 'apps/desktop/src/components/Button.vue' },
+            ])
+        );
+
+        expect(result.outputs).toEqual({ ui_changed: 'true' });
+        expect(result.compareCalls).toEqual([
+            {
+                owner: 'TouchAI-org',
+                repo: 'TouchAI',
+                base: beforeSha,
+                head: afterSha,
+            },
+        ]);
+    });
 });
 
 describe('user receives a failure when GitHub cannot provide the file inventory', () => {
