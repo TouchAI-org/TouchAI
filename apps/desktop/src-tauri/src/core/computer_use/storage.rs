@@ -8,7 +8,7 @@ use crate::core::database::{
     DatabaseRuntime,
 };
 
-use super::{agent_desktop, driver, provision::sha256_file};
+use super::{agent_desktop, cua_driver, provision::sha256_file};
 
 const DIRECTORY_KEY: &str = "computer_use.driver_directory";
 const CLEANUP_KEY: &str = "computer_use.retired_driver_directories";
@@ -62,7 +62,7 @@ impl DriverStorage {
             tauri::async_runtime::spawn_blocking(move || {
                 validate_path(&target)?;
                 for root in &pending {
-                    if let Err(error) = driver::cleanup_removed_installations(root) {
+                    if let Err(error) = cleanup_removed_installations(root) {
                         log::warn!("Deferred driver cleanup failed: {error}");
                     }
                 }
@@ -127,9 +127,9 @@ impl DriverStorage {
             *directory = Some(destination.clone());
             return Ok(location);
         }
-        driver::cancel_all();
+        cua_driver::cancel_all();
         agent_desktop::cancel_all();
-        driver::shutdown();
+        cua_driver::shutdown();
         agent_desktop::shutdown().await?;
 
         let origin = source.clone();
@@ -150,7 +150,13 @@ impl DriverStorage {
         }
         *directory = Some(destination.clone());
         for name in DRIVERS {
-            if let Err(error) = driver::remove_installed(&source.join(name)).await {
+            let retired = source.join(name);
+            if let Err(error) =
+                tauri::async_runtime::spawn_blocking(move || retire_installation(&retired))
+                    .await
+                    .map_err(|error| error.to_string())
+                    .and_then(|result| result)
+            {
                 log::warn!(
                     "Driver storage moved; old files remain at {}: {error}",
                     source.join(name).display()
@@ -437,6 +443,60 @@ fn migrate_installation(legacy: &Path, destination: &Path) -> Result<(), String>
     std::fs::rename(legacy, &path).map_err(|error| error.to_string())?;
     if let Err(error) = std::fs::remove_dir_all(&path) {
         log::warn!("Legacy driver cleanup deferred: {error}");
+    }
+    Ok(())
+}
+
+pub(super) fn retire_installation(root: &Path) -> Result<(), String> {
+    if !root.exists() {
+        return Ok(());
+    }
+    let removed = root.with_extension("removed");
+    std::fs::create_dir_all(&removed)
+        .map_err(|error| format!("failed to create driver retirement directory: {error}"))?;
+    if std::fs::symlink_metadata(&removed)
+        .map_err(|error| error.to_string())?
+        .file_type()
+        .is_symlink()
+    {
+        return Err("driver retirement directory must not be a symbolic link".into());
+    }
+    let retired = removed.join(uuid::Uuid::new_v4().to_string());
+    std::fs::rename(root, &retired)
+        .map_err(|error| format!("failed to retire {}: {error}", root.display()))?;
+    if let Err(error) = std::fs::remove_dir_all(&retired) {
+        log::info!(
+            "Driver files retired at {}; cleanup deferred until next launch: {error}",
+            retired.display()
+        );
+    }
+    Ok(())
+}
+
+pub(super) fn cleanup_removed_installations(root: &Path) -> Result<(), String> {
+    let removed = root.with_extension("removed");
+    if !removed.exists() {
+        return Ok(());
+    }
+    if std::fs::symlink_metadata(&removed)
+        .map_err(|error| error.to_string())?
+        .file_type()
+        .is_symlink()
+    {
+        return Err("driver retirement directory must not be a symbolic link".into());
+    }
+    for entry in std::fs::read_dir(&removed).map_err(|error| error.to_string())? {
+        let entry = entry.map_err(|error| error.to_string())?;
+        if entry
+            .file_type()
+            .map_err(|error| error.to_string())?
+            .is_dir()
+            && uuid::Uuid::parse_str(&entry.file_name().to_string_lossy()).is_ok()
+        {
+            std::fs::remove_dir_all(entry.path()).map_err(|error| {
+                format!("failed to clean up {}: {error}", entry.path().display())
+            })?;
+        }
     }
     Ok(())
 }

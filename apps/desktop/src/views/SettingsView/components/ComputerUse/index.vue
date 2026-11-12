@@ -51,6 +51,7 @@
 
     const installed = computed(() => isDriverAvailable(selectedDriver.value));
     const driverDisabled = computed(() => !enabled.value || busy.value);
+    const driverMenuDisabled = computed(() => !enabled.value || (busy.value && !busyDriver.value));
     const preferencesDisabled = computed(() => driverDisabled.value || !installed.value);
     const drivers: ComputerUseDriverId[] = ['cua-driver', 'agent-desktop'];
     const driverLogos: Record<ComputerUseDriverId, string> = {
@@ -72,7 +73,7 @@
             value: driver,
             label: driver,
             iconSrc: driverLogos[driver],
-            disabled: !isDriverAvailable(driver),
+            disabled: !isDriverAvailable(driver) || busy.value || updatingDriver.value !== null,
             description: driverDescription(statuses.value[driver]),
         }))
     );
@@ -516,10 +517,10 @@
                 />
             </header>
 
-            <fieldset :disabled="driverDisabled" class="settings-section-stack">
+            <fieldset :disabled="driverMenuDisabled" class="settings-section-stack">
                 <section class="space-y-4" aria-labelledby="computer-use-driver-heading">
                     <h2 id="computer-use-driver-heading" class="settings-section-title">
-                        {{ t('settings.computerUse.group.driver') }}
+                        {{ t('settings.computerUse.group.basic') }}
                     </h2>
                     <div class="settings-row-group divide-y divide-border/70">
                         <SettingsRow
@@ -535,7 +536,7 @@
                                 :aria-label="t('settings.computerUse.field.driver')"
                                 :model-value="installed ? selectedDriver : ''"
                                 :options="driverOptions"
-                                :disabled="driverDisabled"
+                                :disabled="driverMenuDisabled"
                                 protect-option-text
                                 @update:model-value="selectDriver"
                             >
@@ -666,79 +667,11 @@
                                 <AppIcon name="folder-open" class="h-4 w-4" />
                             </Button>
                         </SettingsRow>
-                    </div>
-                </section>
-
-                <section class="space-y-4" aria-labelledby="computer-use-permission-heading">
-                    <h2 id="computer-use-permission-heading" class="settings-section-title">
-                        {{ t('settings.computerUse.group.permission') }}
-                    </h2>
-                    <div class="settings-row-group divide-y divide-border/70">
-                        <SettingsRow
-                            data-settings-search-target="computer-use-approval-mode"
-                            control-width="320"
-                            :label="t('settings.computerUse.field.approval')"
-                        >
-                            <CustomSelect
-                                trigger-test-id="computer-use-approval-mode"
-                                :aria-label="t('settings.computerUse.field.approval')"
-                                :model-value="approvalValue"
-                                :options="approvalOptions"
-                                :disabled="preferencesDisabled || saving.has('approval')"
-                                @update:model-value="setApproval"
-                            />
-                        </SettingsRow>
-
-                        <div
-                            data-settings-search-target="computer-use-capabilities"
-                            class="divide-y divide-border/70"
-                        >
-                            <SettingsRow
-                                v-for="group in visibleGroups"
-                                :key="group"
-                                control-width="auto"
-                                :label="capabilityLabel(group)"
-                                :description="capabilityDescription(group)"
-                            >
-                                <Switch
-                                    :data-testid="`computer-use-group-${group}`"
-                                    size="lg"
-                                    :aria-label="capabilityLabel(group)"
-                                    :model-value="groups[group] !== false"
-                                    :disabled="preferencesDisabled || savingGroups.has(group)"
-                                    @update:model-value="(value: boolean) => setGroup(group, value)"
-                                />
-                            </SettingsRow>
-                        </div>
-                    </div>
-                </section>
-
-                <section class="space-y-4" aria-labelledby="computer-use-behavior-heading">
-                    <h2 id="computer-use-behavior-heading" class="settings-section-title">
-                        {{ t('settings.computerUse.group.behavior') }}
-                    </h2>
-                    <div class="settings-row-group divide-y divide-border/70">
-                        <SettingsRow
-                            data-settings-search-target="computer-use-foreground"
-                            control-width="auto"
-                            :label="t('settings.computerUse.field.foreground')"
-                            :description="t('settings.computerUse.hint.foreground')"
-                        >
-                            <Switch
-                                data-testid="computer-use-foreground-toggle"
-                                size="lg"
-                                :aria-label="t('settings.computerUse.field.foreground')"
-                                :model-value="settings.allowForeground"
-                                :disabled="preferencesDisabled || saving.has('allowForeground')"
-                                @update:model-value="
-                                    (value: boolean) => update('allowForeground', value)
-                                "
-                            />
-                        </SettingsRow>
                         <SettingsRow
                             data-settings-search-target="computer-use-cursor"
                             control-width="auto"
                             :label="t('settings.computerUse.field.cursor')"
+                            :description="t('settings.computerUse.hint.cursor')"
                         >
                             <Switch
                                 data-testid="computer-use-cursor-toggle"
@@ -756,6 +689,7 @@
                             data-settings-search-target="computer-use-max-image"
                             control-width="320"
                             :label="t('settings.computerUse.field.maxImage')"
+                            :description="t('settings.computerUse.hint.maxImage')"
                         >
                             <CustomSelect
                                 trigger-test-id="computer-use-max-image"
@@ -766,7 +700,6 @@
                                 @update:model-value="setMaxImageDimension"
                             />
                         </SettingsRow>
-
                         <SettingsRow
                             data-settings-search-target="computer-use-recording"
                             control-width="auto"
@@ -814,6 +747,67 @@
                                 <AppIcon name="folder-open" class="h-4 w-4" />
                             </Button>
                         </SettingsRow>
+                    </div>
+                </section>
+
+                <section class="space-y-4" aria-labelledby="computer-use-permission-heading">
+                    <h2 id="computer-use-permission-heading" class="settings-section-title">
+                        {{ t('settings.computerUse.group.permission') }}
+                    </h2>
+                    <div class="settings-row-group divide-y divide-border/70">
+                        <SettingsRow
+                            data-settings-search-target="computer-use-approval-mode"
+                            control-width="320"
+                            :label="t('settings.computerUse.field.approval')"
+                        >
+                            <CustomSelect
+                                trigger-test-id="computer-use-approval-mode"
+                                :aria-label="t('settings.computerUse.field.approval')"
+                                :model-value="approvalValue"
+                                :options="approvalOptions"
+                                :disabled="preferencesDisabled || saving.has('approval')"
+                                @update:model-value="setApproval"
+                            />
+                        </SettingsRow>
+                        <SettingsRow
+                            data-settings-search-target="computer-use-foreground"
+                            control-width="auto"
+                            :label="t('settings.computerUse.field.foreground')"
+                            :description="t('settings.computerUse.hint.foreground')"
+                        >
+                            <Switch
+                                data-testid="computer-use-foreground-toggle"
+                                size="lg"
+                                :aria-label="t('settings.computerUse.field.foreground')"
+                                :model-value="settings.allowForeground"
+                                :disabled="preferencesDisabled || saving.has('allowForeground')"
+                                @update:model-value="
+                                    (value: boolean) => update('allowForeground', value)
+                                "
+                            />
+                        </SettingsRow>
+
+                        <div
+                            data-settings-search-target="computer-use-capabilities"
+                            class="divide-y divide-border/70"
+                        >
+                            <SettingsRow
+                                v-for="group in visibleGroups"
+                                :key="group"
+                                control-width="auto"
+                                :label="capabilityLabel(group)"
+                                :description="capabilityDescription(group)"
+                            >
+                                <Switch
+                                    :data-testid="`computer-use-group-${group}`"
+                                    size="lg"
+                                    :aria-label="capabilityLabel(group)"
+                                    :model-value="groups[group] !== false"
+                                    :disabled="preferencesDisabled || savingGroups.has(group)"
+                                    @update:model-value="(value: boolean) => setGroup(group, value)"
+                                />
+                            </SettingsRow>
+                        </div>
                     </div>
                 </section>
             </fieldset>

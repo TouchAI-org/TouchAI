@@ -162,6 +162,13 @@ beforeEach(() => {
 });
 
 describe('computer use tool', () => {
+    it('user given no stored tool configuration when loading it then uses the foreground-enabled default', () => {
+        expect(tool.defaultConfig).toEqual({ allowForeground: true });
+        expect(tool.parseConfig(null)).toEqual({ allowForeground: true });
+        expect(tool.parseConfig('{}')).toEqual({ allowForeground: true });
+        expect(tool.parseConfig('{"allowForeground":false}')).toEqual({ allowForeground: false });
+    });
+
     it('user given foreground control is off when attaching an existing browser then the driver may attach without launching', async () => {
         const result = await tool.execute(
             {

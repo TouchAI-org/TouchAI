@@ -8,7 +8,7 @@ import ComputerUseSettings from '@/views/SettingsView/components/ComputerUse/ind
 
 const state = vi.hoisted(() => {
     const settings = {
-        allowForeground: false,
+        allowForeground: true,
         allowedApps: [] as string[],
         approval: 'each' as 'each' | 'session-window' | 'full-access',
         cursorVisible: true,
@@ -135,7 +135,7 @@ const stubs = {
     Switch: {
         props: ['modelValue'],
         template:
-            '<button class="switch-stub" @click="$emit(\'update:modelValue\', !modelValue)" />',
+            '<button class="switch-stub" :aria-checked="modelValue" @click="$emit(\'update:modelValue\', !modelValue)" />',
     },
 };
 
@@ -174,7 +174,7 @@ beforeEach(() => {
     state.setEnabled.mockReset().mockResolvedValue(undefined);
     state.setGroupEnabled.mockReset().mockResolvedValue(undefined);
     settings.approval = 'each';
-    settings.allowForeground = false;
+    settings.allowForeground = true;
     settings.cursorVisible = true;
     settings.maxImageDimension = 1568;
     settings.recordingEnabled = false;
@@ -209,10 +209,34 @@ beforeEach(() => {
 
 describe('computer use settings section', () => {
     it.each([
-        ['zh-CN', '自定义位置', '使用默认位置'],
-        ['en-US', 'Custom location', 'Use default location'],
+        ['zh-CN', '基础', '显示当前 Agent 操作的光标', 'Agent 截图识别时的清晰度'],
+        [
+            'en-US',
+            'Basics',
+            'Show where the agent is acting',
+            'Screenshot sharpness for agent recognition',
+        ],
     ] as const)(
-        'user given no custom location when opening settings in %s then sees an empty field without an internal path',
+        'user given computer control settings in %s when opening then sees basics and short cursor and screenshot explanations',
+        async (locale, heading, cursorHint, screenshotHint) => {
+            setLocale(locale);
+            const wrapper = await mountPage();
+            const section = wrapper.get('section[aria-labelledby="computer-use-driver-heading"]');
+            expect(section.get('h2').text()).toBe(heading);
+            expect(
+                section.get('[data-settings-search-target="computer-use-cursor"]').text()
+            ).toContain(cursorHint);
+            expect(
+                section.get('[data-settings-search-target="computer-use-max-image"]').text()
+            ).toContain(screenshotHint);
+        }
+    );
+
+    it.each([
+        ['zh-CN', '驱动保存位置', '使用默认位置'],
+        ['en-US', 'Driver location', 'Use default location'],
+    ] as const)(
+        'user given no driver location when opening settings in %s then sees an empty field without an internal path',
         async (locale, label, placeholder) => {
             setLocale(locale);
             const wrapper = await mountPage();
@@ -230,7 +254,7 @@ describe('computer use settings section', () => {
         }
     );
 
-    it('user given a custom location when restoring default then sees an empty field after reopening', async () => {
+    it('user given a driver location when restoring default then sees an empty field after reopening', async () => {
         state.driverDirectory = 'D:/drivers';
         const wrapper = await mountPage();
         await wrapper.get('[data-testid="computer-use-driver-directory-reset"]').trigger('click');
@@ -335,6 +359,7 @@ describe('computer use settings section', () => {
     );
 
     it('user given two preference writes completing out of order when both finish then keeps both displayed choices', async () => {
+        settings.allowForeground = false;
         let finishForeground!: (value: typeof settings) => void;
         saveSettings.mockReturnValueOnce(
             new Promise((resolve) => {
@@ -464,11 +489,7 @@ describe('computer use settings section', () => {
         const wrapper = await mountDriverMenu();
         expect(wrapper.text()).not.toContain('暂无可用驱动，请先下载并安装。');
         expect(wrapper.find('[data-testid="computer-use-no-driver"]').exists()).toBe(false);
-        expect(wrapper.findAll('h2').map((heading) => heading.text())).toEqual([
-            '驱动',
-            '权限',
-            '行为',
-        ]);
+        expect(wrapper.findAll('h2').map((heading) => heading.text())).toEqual(['基础', '权限']);
         expect(document.querySelectorAll('[data-testid="computer-use-install"]')).toHaveLength(2);
         expect(wrapper.get('[data-testid="computer-use-recording-toggle"]').isVisible()).toBe(true);
         for (const control of wrapper.findAll(
@@ -579,11 +600,7 @@ describe('computer use settings section', () => {
         document.querySelector<HTMLButtonElement>('[data-testid="computer-use-remove"]')!.click();
         await flush();
         for (const control of controls) expect(control.matches(':disabled')).toBe(true);
-        expect(wrapper.findAll('h2').map((heading) => heading.text())).toEqual([
-            '驱动',
-            '权限',
-            '行为',
-        ]);
+        expect(wrapper.findAll('h2').map((heading) => heading.text())).toEqual(['基础', '权限']);
         confirmRemoval(true);
         await flush();
         for (const control of controls) expect(control.matches(':disabled')).toBe(true);
@@ -658,20 +675,18 @@ describe('computer use settings section', () => {
     it('user given computer control settings when reviewing permissions then finds confirmation and capabilities in one section', async () => {
         const wrapper = await mountPage();
         const section = wrapper.get('section[aria-labelledby="computer-use-permission-heading"]');
-        expect(wrapper.findAll('h2').map((heading) => heading.text())).toEqual([
-            '驱动',
-            '权限',
-            '行为',
-        ]);
+        expect(wrapper.findAll('h2').map((heading) => heading.text())).toEqual(['基础', '权限']);
         expect(section.text()).toContain('权限模式');
         expect(section.find('[data-testid="computer-use-approval-mode"]').exists()).toBe(true);
         expect(section.findAll('[data-testid^="computer-use-group-"]')).toHaveLength(8);
-        expect(section.find('[data-testid="computer-use-foreground-toggle"]').exists()).toBe(false);
-        const behaviour = wrapper.get('section[aria-labelledby="computer-use-behavior-heading"]');
-        expect(behaviour.find('[data-testid="computer-use-foreground-toggle"]').exists()).toBe(
-            true
-        );
-        expect(behaviour.text()).toContain('录制轨迹');
+        expect(
+            section.get('[data-testid="computer-use-foreground-toggle"]').attributes('aria-checked')
+        ).toBe('true');
+        const driver = wrapper.get('section[aria-labelledby="computer-use-driver-heading"]');
+        expect(driver.find('[data-testid="computer-use-foreground-toggle"]').exists()).toBe(false);
+        expect(driver.text()).toContain('录制轨迹');
+        expect(driver.find('[data-testid="computer-use-cursor-toggle"]').exists()).toBe(true);
+        expect(driver.find('[data-testid="computer-use-max-image"]').exists()).toBe(true);
         expect(section.text()).toContain('录制与回放工具');
     });
 
@@ -863,6 +878,59 @@ describe('computer use settings section', () => {
                 .querySelector('[data-testid="computer-use-check-update"]')
                 ?.hasAttribute('disabled')
         ).toBe(false);
+    });
+
+    it('user given a download in progress when reopening the driver list then sees loading and cannot switch or start another download', async () => {
+        status.mockImplementation(async (driver) => ({
+            abiVersion: null,
+            binary: null,
+            driverVersion: driver === 'agent-desktop' ? '1.2.0' : null,
+            error: null,
+            installed: driver === 'agent-desktop',
+        }));
+        let finishDownload!: (value: ComputerUseStatus) => void;
+        prepare.mockReturnValueOnce(
+            new Promise<ComputerUseStatus>((resolve) => {
+                finishDownload = resolve;
+            })
+        );
+        const wrapper = await mountDriverMenu();
+        document.querySelector<HTMLButtonElement>('[data-testid="computer-use-install"]')!.click();
+        await flush();
+        const trigger = wrapper.get('[data-testid="computer-use-driver-select"]');
+        expect(trigger.element.matches(':disabled')).toBe(false);
+        await trigger.trigger('keydown', { key: 'Escape' });
+        await flush();
+        expect(trigger.attributes('aria-expanded')).toBe('false');
+        await trigger.trigger('keydown', { key: 'Enter' });
+        await flush();
+        expect(trigger.attributes('aria-expanded')).toBe('true');
+        const downloading = document.querySelector<HTMLButtonElement>(
+            '[data-testid="computer-use-install"]'
+        )!;
+        expect(downloading.getAttribute('aria-busy')).toBe('true');
+        expect(downloading.querySelector('[role="status"]')).not.toBeNull();
+        expect(downloading.disabled).toBe(true);
+        const other = document.querySelector('[role="group"][aria-label="agent-desktop"]')!;
+        expect(other.querySelector('[role="option"]')?.getAttribute('aria-disabled')).toBe('true');
+        other
+            .querySelector('[role="option"]')!
+            .dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+        downloading.click();
+        await flush();
+        expect(state.selectDriver).not.toHaveBeenCalled();
+        expect(prepare).toHaveBeenCalledTimes(1);
+        finishDownload({
+            abiVersion: null,
+            binary: null,
+            driverVersion: '0.38.0',
+            error: null,
+            installed: true,
+        });
+        await flush();
+        expect(trigger.element.matches(':disabled')).toBe(false);
+        expect(trigger.text()).toContain('cua-driver');
+        expect(document.querySelector('[role="status"]')).toBeNull();
     });
 
     it.each(['rejected', 'reported'])(

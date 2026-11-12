@@ -192,5 +192,5 @@ WHERE NOT EXISTS (SELECT 1 FROM built_in_tools WHERE tool_id = 'browser');
 INSERT INTO built_in_tools (
     tool_id, display_name, description, enabled, risk_level, config_json
 )
-SELECT 'computer_use', 'ComputerUse', 'Observe and drive desktop apps through the local driver', 0, 'high', '{"allowForeground":false}'
+SELECT 'computer_use', 'ComputerUse', 'Observe and drive desktop apps through the local driver', 0, 'high', '{"allowForeground":true}'
 WHERE NOT EXISTS (SELECT 1 FROM built_in_tools WHERE tool_id = 'computer_use');

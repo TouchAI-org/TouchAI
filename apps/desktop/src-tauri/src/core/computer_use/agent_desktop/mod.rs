@@ -13,10 +13,11 @@ use tokio::sync::oneshot;
 use crate::core::window::computer_use_glow::PointerPosition;
 
 mod feedback;
+mod manifest;
 use feedback::Feedback;
 
-use super::agent_desktop_manifest::MANIFEST;
-use super::driver::{DriverStatus, UpdateInfo};
+use self::manifest::MANIFEST;
+use super::backend::{DriverStatus, UpdateInfo};
 use super::manifest::artifact;
 use super::provision::{
     confirm_install, ensure_installed, installed_binary, installed_size, InstallLayout,
@@ -511,7 +512,7 @@ pub async fn set_recording(enabled: bool, directory: &Path) -> Result<(), String
         let directory = directory.to_path_buf();
         Some(
             tokio::task::spawn_blocking(move || {
-                let run = super::driver::create_recording_directory(&directory)?;
+                let run = super::recording::create_recording_directory(&directory)?;
                 let trace = run.join("trace.jsonl");
                 std::fs::File::create(&trace).map_err(|error| error.to_string())?;
                 Ok::<_, String>((directory, trace))

@@ -10,40 +10,22 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 
-use serde::Serialize;
 use serde_json::Value;
 
-use super::abi::{AbiError, AbiLibrary, Driver, PendingCall};
-use super::manifest::{artifact, is_publishable, MANIFEST};
+pub mod abi;
+pub mod manifest;
+
+use self::abi::{AbiError, AbiLibrary, Driver, PendingCall};
+use self::manifest::MANIFEST;
+use super::backend::{DriverStatus, UpdateInfo};
+use super::http;
+use super::manifest::{artifact, is_publishable, Artifact, Transport};
 use super::provision::{
     active_install, confirm_version, ensure_installed, installed_binary, installed_size,
     InstallLayout, ProvisionError, WheelFetcher,
 };
 
-#[derive(Clone, Debug, Serialize)]
-pub struct DriverStatus {
-    pub installed: bool,
-    pub binary: Option<String>,
-    pub driver_version: Option<String>,
-    pub installed_size_bytes: Option<u64>,
-    pub abi_version: Option<String>,
-    pub metadata: Option<Value>,
-    pub error: Option<String>,
-}
-
-impl DriverStatus {
-    fn missing(error: Option<String>) -> Self {
-        Self {
-            installed: false,
-            binary: None,
-            driver_version: None,
-            installed_size_bytes: None,
-            abi_version: None,
-            metadata: None,
-            error,
-        }
-    }
-}
+use super::recording::create_recording_directory;
 
 static RUNTIME: OnceLock<Mutex<Option<Arc<Driver>>>> = OnceLock::new();
 static RUNTIME_STATUS: OnceLock<Mutex<Option<DriverStatus>>> = OnceLock::new();
@@ -86,7 +68,7 @@ pub async fn ensure_ready<F: WheelFetcher>(
     if !is_publishable(artifact) {
         return Err(format!("computer use is not available for {target} yet"));
     }
-    if artifact.transport != super::manifest::Transport::InProcess {
+    if artifact.transport != Transport::InProcess {
         return Err(format!(
             "{target} is served by a daemon and is not wired yet"
         ));
@@ -117,19 +99,19 @@ pub async fn upgrade<F: WheelFetcher>(
     root: PathBuf,
     fetcher: &F,
     version: &str,
-    release: super::http::WheelRelease,
+    release: http::WheelRelease,
 ) -> Result<DriverStatus, String> {
     let _loading = LOADING.lock().await;
     let artifact = artifact(&MANIFEST).ok_or("unsupported driver platform")?;
     if !is_publishable(artifact) {
         return Err("computer use is not available for this platform".into());
     }
-    let filename = super::manifest::release_filename(artifact, version)?;
+    let filename = manifest::release_filename(artifact, version)?;
     let package_path = release.package_path;
     if !package_path.contains(version) || !package_path.contains(&filename) {
         return Err("the package index returned an unrelated release".into());
     }
-    let candidate = super::manifest::Artifact {
+    let candidate = Artifact {
         target: artifact.target,
         package_path: &package_path,
         sha256: &release.sha256,
@@ -460,7 +442,7 @@ mod tests {
         assert!(
             unsafe { library.get::<unsafe extern "C" fn()>(b"cua_driver_create_v1\0") }.is_ok()
         );
-        assert!(super::cleanup_removed_installations(&root).is_err());
+        assert!(super::super::storage::cleanup_removed_installations(&root).is_err());
 
         std::fs::create_dir_all(&version).expect("reinstall directory");
         for filename in ["cua_driver_sdk.dll", "install.json"] {
@@ -474,7 +456,8 @@ mod tests {
                 .installed
         );
         drop(library);
-        super::cleanup_removed_installations(&root).expect("cleanup after library release");
+        super::super::storage::cleanup_removed_installations(&root)
+            .expect("cleanup after library release");
         assert_eq!(
             std::fs::read_dir(root.with_extension("removed"))
                 .expect("retired directory")
@@ -506,7 +489,7 @@ mod tests {
         super::remove_installed(&root)
             .await
             .expect("already removed");
-        super::cleanup_removed_installations(&root).expect("cleanup");
+        super::super::storage::cleanup_removed_installations(&root).expect("cleanup");
         assert!(!root.exists());
         assert_eq!(
             std::fs::read_to_string(other).expect("preserved other"),
@@ -538,34 +521,6 @@ mod tests {
         std::fs::remove_file(blocked).expect("unblock");
         super::remove_installed(&root).await.expect("retry removal");
         assert!(!root.exists());
-    }
-
-    #[test]
-    fn user_given_previous_recordings_when_starting_again_then_keeps_each_run_separate() {
-        let root = tempfile::tempdir().expect("recording root");
-        let first = super::create_recording_directory(root.path()).expect("first recording");
-        std::fs::write(first.join("action.json"), "previous action").expect("previous action");
-        let second = super::create_recording_directory(root.path()).expect("second recording");
-        assert_ne!(first, second);
-        assert_eq!(second.parent(), Some(root.path()));
-        assert_eq!(
-            std::fs::read_to_string(first.join("action.json")).expect("preserved action"),
-            "previous action"
-        );
-        assert_eq!(std::fs::read_dir(second).expect("new recording").count(), 0);
-    }
-
-    #[test]
-    fn user_given_a_file_as_recording_location_when_starting_then_gets_an_error_without_changing_it(
-    ) {
-        let root = tempfile::tempdir().expect("recording root");
-        let file = root.path().join("existing.txt");
-        std::fs::write(&file, "keep").expect("existing file");
-        assert!(super::create_recording_directory(&file).is_err());
-        assert_eq!(
-            std::fs::read_to_string(file).expect("preserved file"),
-            "keep"
-        );
     }
 
     #[tokio::test]
@@ -606,9 +561,9 @@ mod tests {
         let fixture = tempfile::tempdir().expect("isolated install");
         let root = fixture.path().join("cua-driver");
         let fetcher = super::super::http::HttpWheelFetcher::new("TouchAI/test").expect("client");
-        let manifest = &super::super::manifest::MANIFEST;
-        let artifact = super::super::manifest::artifact(manifest).expect("artifact");
-        let filename = super::super::manifest::release_filename(artifact, "0.44.0").expect("name");
+        let manifest = &super::MANIFEST;
+        let artifact = super::artifact(manifest).expect("artifact");
+        let filename = super::manifest::release_filename(artifact, "0.44.0").expect("name");
         let release = fetcher
             .release(&manifest.mirrors, "0.44.0", &filename)
             .await
@@ -738,23 +693,14 @@ pub fn status() -> DriverStatus {
     }
 }
 
-#[derive(Debug, Serialize)]
-pub struct UpdateInfo {
-    pub current: String,
-    pub latest: Option<String>,
-    pub update_available: bool,
-    pub error: Option<String>,
-}
-
 /// Ask the mirrors for the newest published driver version.
 ///
 /// `current` is the installed version, not the pinned manifest one, otherwise an
 /// upgraded installation would keep being offered the same release.
-pub async fn check_update(fetcher: &super::http::HttpWheelFetcher, current: String) -> UpdateInfo {
+pub async fn check_update(fetcher: &http::HttpWheelFetcher, current: String) -> UpdateInfo {
     match fetcher.latest_version(&MANIFEST.mirrors).await {
         Ok(latest) => UpdateInfo {
-            update_available: super::http::compare(&latest, &current)
-                == std::cmp::Ordering::Greater,
+            update_available: http::compare(&latest, &current) == std::cmp::Ordering::Greater,
             latest: Some(latest),
             current,
             error: None,
@@ -775,60 +721,10 @@ pub async fn remove_installed(root: &std::path::Path) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         cancel_all();
         shutdown();
-        if !root.exists() {
-            return Ok(());
-        }
-        let removed = root.with_extension("removed");
-        std::fs::create_dir_all(&removed)
-            .map_err(|error| format!("failed to create driver retirement directory: {error}"))?;
-        if std::fs::symlink_metadata(&removed)
-            .map_err(|error| error.to_string())?
-            .file_type()
-            .is_symlink()
-        {
-            return Err("driver retirement directory must not be a symbolic link".into());
-        }
-        let retired = removed.join(uuid::Uuid::new_v4().to_string());
-        std::fs::rename(&root, &retired)
-            .map_err(|error| format!("failed to retire {}: {error}", root.display()))?;
-        if let Err(error) = std::fs::remove_dir_all(&retired) {
-            log::info!(
-                "Driver files retired at {}; cleanup deferred until next launch: {error}",
-                retired.display()
-            );
-        }
-        Ok(())
+        super::storage::retire_installation(&root)
     })
     .await
     .map_err(|error| format!("driver removal task failed: {error}"))?
-}
-
-pub fn cleanup_removed_installations(root: &std::path::Path) -> Result<(), String> {
-    let removed = root.with_extension("removed");
-    if !removed.exists() {
-        return Ok(());
-    }
-    if std::fs::symlink_metadata(&removed)
-        .map_err(|error| error.to_string())?
-        .file_type()
-        .is_symlink()
-    {
-        return Err("driver retirement directory must not be a symbolic link".into());
-    }
-    for entry in std::fs::read_dir(&removed).map_err(|error| error.to_string())? {
-        let entry = entry.map_err(|error| error.to_string())?;
-        if entry
-            .file_type()
-            .map_err(|error| error.to_string())?
-            .is_dir()
-            && uuid::Uuid::parse_str(&entry.file_name().to_string_lossy()).is_ok()
-        {
-            std::fs::remove_dir_all(entry.path()).map_err(|error| {
-                format!("failed to clean up {}: {error}", entry.path().display())
-            })?;
-        }
-    }
-    Ok(())
 }
 
 async fn call_tool(tool: &str, arguments: Value) -> Result<Value, String> {
@@ -936,13 +832,4 @@ pub async fn set_recording(enabled: bool, output_dir: &std::path::Path) -> Resul
     .map(|_| ())?;
     *recording = Some((Arc::downgrade(&active), output_dir.to_path_buf()));
     Ok(())
-}
-
-pub(super) fn create_recording_directory(root: &std::path::Path) -> Result<PathBuf, String> {
-    std::fs::create_dir_all(root)
-        .map_err(|error| format!("failed to create {}: {error}", root.display()))?;
-    let directory = root.join(format!("recording-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir(&directory)
-        .map_err(|error| format!("failed to create {}: {error}", directory.display()))?;
-    Ok(directory)
 }

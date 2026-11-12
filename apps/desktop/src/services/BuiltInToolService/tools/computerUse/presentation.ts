@@ -126,6 +126,18 @@ const STATUS_KEYS: Record<BuiltInToolConversationStatus, MessageKey> = {
     cancelled: 'conversation.computerUse.cancelled',
 };
 
+const POINTER_ACTIONS = new Set(['click', 'double_click', 'right_click', 'move_cursor']);
+
+function coordinate(value: unknown): number | undefined {
+    return typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : undefined;
+}
+
+function point(x: unknown, y: unknown): string | undefined {
+    const left = coordinate(x);
+    const top = coordinate(y);
+    return left === undefined || top === undefined ? undefined : `${left}, ${top}`;
+}
+
 export function buildComputerUsePresentation(
     outer: Record<string, unknown>,
     status: BuiltInToolConversationStatus
@@ -147,12 +159,17 @@ export function buildComputerUsePresentation(
     );
     const details: string[] = [];
     if (typeof target === 'string') details.push(truncateText(target, 80));
-    else if (typeof args.pid === 'number') {
-        details.push(
-            typeof args.window_id === 'number'
-                ? `pid ${args.pid} · ${args.window_id}`
-                : `pid ${args.pid}`
-        );
+    // Process and window identifiers are internal routing details. Showing them
+    // reads as noise, so only human-meaningful targets are surfaced.
+    const position = point(args.x, args.y);
+    if (POINTER_ACTIONS.has(action) && position) details.push(position);
+    if (action === 'drag') {
+        const origin = point(args.from_x, args.from_y);
+        const destination = point(args.to_x, args.to_y);
+        if (origin && destination) details.push(`${origin} → ${destination}`);
+    }
+    if (action === 'browser_navigate' && typeof args.url === 'string') {
+        details.push(truncateText(args.url, 80));
     }
     if (action === 'run_steps' && Array.isArray(args.steps)) {
         details.push(t('conversation.computerUse.stepCount', { count: args.steps.length }));

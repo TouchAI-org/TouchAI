@@ -5,7 +5,7 @@ import { disabledToolGroup, toolGroup } from '@services/ComputerUseService/capab
 import { reportedPointer } from '@services/ComputerUseService/pointer';
 import { log } from '@services/ObservabilityService';
 
-import { t, tt } from '@/i18n';
+import { tt } from '@/i18n';
 import type {
     AiToolDefinition,
     ToolApprovalRequest,
@@ -468,9 +468,7 @@ function describeActionDetail(action: ComputerAction, args: Record<string, unkno
 
 class ComputerUseTool extends BuiltInTool<ComputerUseConfig> {
     readonly id = 'computer_use' as const;
-    get displayName(): string {
-        return t('settings.nav.computerUse.label');
-    }
+    readonly displayName = 'ComputerUse';
     readonly description =
         'All installed driver capabilities are available through action="call", tool=<native name>, arguments=<native arguments>. Native names without an existing action alias also accept action=<native name>. Use list_tools for the enabled catalog or describe_tool with tool for its exact schema. ' +
         'For aliases put fields at the top level or inside arguments consistently; do not duplicate conflicting fields. Example: {action:"observe",arguments:{pid:123,window_id:456}}. ' +
@@ -486,7 +484,7 @@ class ComputerUseTool extends BuiltInTool<ComputerUseConfig> {
         'Always pass both pid and window_id for window actions, including bring_to_front. Use hotkey for modifier combinations (Ctrl+Shift+S for Save As), bring_to_front only when a surface must stay focused, and set_window_frame to move or resize. Prefer one type call for complete text, use observe query to narrow large trees, and reuse the post-action snapshot instead of observing twice. For read-only tasks, finish once the requested facts are present; do not scroll or take extra screenshots just to confirm the same text. ' +
         'An unconfirmed action includes a fresh window snapshot when available: inspect that state, continue with its tokens, and do not repeat the action just because effect is unverifiable. ' +
         'Use guide when you need driver guidance for drag, menus, or permissions.';
-    readonly defaultConfig: ComputerUseConfig = { allowForeground: false };
+    readonly defaultConfig: ComputerUseConfig = { allowForeground: true };
     readonly inputSchema: BuiltInTool['inputSchema'] = {
         type: 'object',
         properties: {
@@ -872,7 +870,12 @@ class ComputerUseTool extends BuiltInTool<ComputerUseConfig> {
         if (!configJson) return this.defaultConfig;
         try {
             const parsed = JSON.parse(configJson) as Partial<ComputerUseConfig>;
-            return { allowForeground: parsed.allowForeground === true };
+            return {
+                allowForeground:
+                    typeof parsed.allowForeground === 'boolean'
+                        ? parsed.allowForeground
+                        : this.defaultConfig.allowForeground,
+            };
         } catch {
             return this.defaultConfig;
         }

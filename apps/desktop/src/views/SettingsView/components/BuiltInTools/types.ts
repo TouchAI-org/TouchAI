@@ -124,9 +124,7 @@ const BUILT_IN_TOOL_HIDDEN_IN_SETTINGS_IDS = new Set(['web_search', 'visualize_r
 const BROWSER_AUTOMATION_TOOL_IDS = new Set(['browser']);
 
 export function getBuiltInToolDisplayName(tool: BuiltInToolEntity): string {
-    return tool.tool_id === 'computer_use'
-        ? t('settings.nav.computerUse.label')
-        : tool.display_name;
+    return tool.display_name;
 }
 
 export function getBuiltInToolSummary(toolId: string, description?: string | null): string {

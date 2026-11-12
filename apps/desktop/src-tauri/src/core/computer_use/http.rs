@@ -381,17 +381,13 @@ mod tests {
     #[ignore = "downloads a release from the package indexes"]
     async fn user_given_the_published_indexes_when_resolving_a_release_then_agrees_on_its_digest() {
         let fetcher = HttpWheelFetcher::new("TouchAI/test").expect("client");
-        let artifact =
-            super::super::manifest::artifact(&super::super::manifest::MANIFEST).expect("artifact");
-        let filename =
-            super::super::manifest::release_filename(artifact, "0.44.0").expect("filename");
+        let manifest = &super::super::cua_driver::manifest::MANIFEST;
+        let artifact = super::super::manifest::artifact(manifest).expect("artifact");
+        let filename = super::super::cua_driver::manifest::release_filename(artifact, "0.44.0")
+            .expect("filename");
 
         let release = fetcher
-            .release(
-                &super::super::manifest::MANIFEST.mirrors,
-                "0.44.0",
-                &filename,
-            )
+            .release(&manifest.mirrors, "0.44.0", &filename)
             .await
             .expect("release resolved from agreeing indexes");
 

@@ -173,7 +173,7 @@ async function restoreRuntimeSettings(): Promise<void> {
 }
 
 export const DEFAULT_SETTINGS: ComputerUseSettings = {
-    allowForeground: false,
+    allowForeground: true,
     allowedApps: [],
     approval: 'each',
     cursorVisible: true,

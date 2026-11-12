@@ -35,6 +35,10 @@ struct GlowState {
 struct Activity {
     ordinal: u32,
     pointer: Option<PointerPosition>,
+    /// Set on the first foreground action and kept until the activity ends.
+    /// The glow marks "an agent is driving this desktop", not the instant of
+    /// one click, so it survives the gap while the model plans the next step.
+    engaged: bool,
     foreground_calls: usize,
     cancellation: tokio::sync::watch::Sender<bool>,
 }
@@ -43,15 +47,12 @@ impl GlowState {
     fn accepts_pulse(&self, activity_id: Option<&str>) -> bool {
         activity_id
             .and_then(|id| self.active_tasks.get(id))
-            .is_some_and(|activity| activity.foreground_calls > 0)
+            .is_some_and(|activity| activity.engaged)
     }
 
     fn can_hide(&self, generation: u64) -> bool {
         self.generation == generation
-            && self
-                .active_tasks
-                .values()
-                .all(|activity| activity.foreground_calls == 0)
+            && self.active_tasks.values().all(|activity| !activity.engaged)
     }
 
     fn begin(&mut self, activity_id: &str) -> Result<bool, String> {
@@ -70,6 +71,7 @@ impl GlowState {
             Activity {
                 ordinal: self.next_ordinal,
                 pointer: None,
+                engaged: false,
                 foreground_calls: 0,
                 cancellation: tokio::sync::watch::channel(false).0,
             },
@@ -90,6 +92,7 @@ impl GlowState {
             .active_tasks
             .get_mut(activity_id)
             .ok_or_else(|| "computer use cancelled".to_string())?;
+        activity.engaged = true;
         activity.foreground_calls += 1;
         Ok(())
     }
@@ -107,7 +110,7 @@ impl GlowState {
         let mut activities: Vec<_> = self
             .active_tasks
             .iter()
-            .filter(|(_, activity)| activity.foreground_calls > 0)
+            .filter(|(_, activity)| activity.engaged)
             .map(|(id, activity)| ActivityPayload {
                 id: id.clone(),
                 ordinal: activity.ordinal,
@@ -609,12 +612,12 @@ pub fn stop_all<R: Runtime>(app: &AppHandle<R>) -> Result<usize, String> {
         state.generation = state.generation.wrapping_add(1);
         (activities, state.generation)
     };
-    let count = crate::core::computer_use::driver::cancel_all()
+    let count = crate::core::computer_use::cua_driver::cancel_all()
         + crate::core::computer_use::agent_desktop::cancel_all();
     let released = activities.clone();
     tauri::async_runtime::spawn(async move {
         for activity_id in released {
-            crate::core::computer_use::driver::end_activity(&activity_id);
+            crate::core::computer_use::cua_driver::end_activity(&activity_id);
             if let Err(error) =
                 crate::core::computer_use::agent_desktop::end_activity(&activity_id).await
             {
@@ -718,6 +721,10 @@ mod tests {
         state.end_foreground("first");
         assert!(!state.can_hide(state.generation));
         state.end_foreground("second");
+        assert!(!state.can_hide(state.generation));
+        state.finish("first");
+        assert!(!state.can_hide(state.generation));
+        state.finish("second");
         assert!(state.can_hide(state.generation));
         assert!(state.pointers(rect(0, 0, 1920, 1080), 1.0).is_empty());
     }
@@ -743,8 +750,8 @@ mod tests {
         state.active_tasks.get_mut("task").expect("task").pointer =
             Some(PointerPosition { x: 20.0, y: 30.0 });
         state.end_foreground("task");
-        assert!(state.can_hide(state.generation));
-        assert!(!state.accepts_pulse(Some("task")));
+        assert!(!state.can_hide(state.generation));
+        assert!(state.accepts_pulse(Some("task")));
         assert!(!*cancelled.borrow());
         state.begin_foreground("task").expect("second input");
         let visible = state.pointers(rect(0, 0, 1920, 1080), 1.0);
@@ -768,6 +775,23 @@ mod tests {
         state.end_foreground("task");
         assert!(!state.can_hide(state.generation));
         state.end_foreground("task");
+        assert!(!state.can_hide(state.generation));
+        assert!(state.accepts_pulse(Some("task")));
+        state.finish("task");
+        assert!(state.can_hide(state.generation));
+    }
+
+    #[test]
+    fn user_given_a_foreground_action_that_finished_when_the_model_is_still_planning_then_keeps_the_glow_visible(
+    ) {
+        let mut state = GlowState::default();
+        state.begin("task").expect("task");
+        state.begin_foreground("task").expect("first input");
+        state.end_foreground("task");
+        assert!(state.accepts_pulse(Some("task")));
+        assert!(!state.can_hide(state.generation));
+        assert_eq!(state.pointers(rect(0, 0, 1920, 1080), 1.0).len(), 1);
+        state.finish("task");
         assert!(state.can_hide(state.generation));
     }
 

@@ -377,30 +377,31 @@ describe('computer use settings', () => {
     it('user given one failed preference write when another is pending then saves the other change and can retry', async () => {
         vi.mocked(setSetting).mockRejectedValueOnce(new Error('Storage unavailable'));
         const results = await Promise.allSettled([
-            saveSettings({ allowForeground: true }),
+            saveSettings({ allowForeground: false }),
             saveSettings({ cursorVisible: false }),
         ]);
         expect(results[0]).toMatchObject({ status: 'rejected' });
         expect(results[1]).toMatchObject({ status: 'fulfilled' });
         await expect(loadSettings()).resolves.toMatchObject({
-            allowForeground: false,
+            allowForeground: true,
             cursorVisible: false,
         });
-        await saveSettings({ allowForeground: true });
+        await saveSettings({ allowForeground: false });
         await expect(loadSettings()).resolves.toMatchObject({
-            allowForeground: true,
+            allowForeground: false,
             cursorVisible: false,
         });
     });
 
-    it('user gets the safe defaults when nothing has been saved', async () => {
+    it('user given no saved preference when loading computer use settings then gets foreground access enabled without changing approval defaults', async () => {
         await expect(loadSettings()).resolves.toEqual(DEFAULT_SETTINGS);
         expect(DEFAULT_SETTINGS.enabled).toBe(false);
         expect(DEFAULT_SETTINGS.telemetryEnabled).toBe(false);
         expect(DEFAULT_SETTINGS.approval).toBe('each');
+        expect(DEFAULT_SETTINGS.allowForeground).toBe(true);
     });
 
-    it('user keeps a saved choice and gets unknown fields dropped', async () => {
+    it('user given legacy settings without a foreground choice when loading then gets the new default and unknown fields dropped', async () => {
         settingsStore.set(
             'computer_use.settings',
             JSON.stringify({ approval: 'session-window', maxImageDimension: 900, bogus: 1 })
@@ -410,7 +411,14 @@ describe('computer use settings', () => {
 
         expect(loaded.approval).toBe('session-window');
         expect(loaded.maxImageDimension).toBe(900);
+        expect(loaded.allowForeground).toBe(true);
         expect(loaded).not.toHaveProperty('bogus');
+    });
+
+    it('user given an explicit foreground opt-out from an older settings file when loading then keeps that choice', async () => {
+        settingsStore.set('computer_use.settings', JSON.stringify({ allowForeground: false }));
+
+        await expect(loadSettings()).resolves.toMatchObject({ allowForeground: false });
     });
 
     it('user keeps full access after it is saved and loaded again', async () => {

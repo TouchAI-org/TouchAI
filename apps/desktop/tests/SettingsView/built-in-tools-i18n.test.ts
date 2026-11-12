@@ -303,7 +303,7 @@ describe('built-in tools settings i18n', () => {
         expect(usesBuiltInToolEmptyConfig('ask_user_question')).toBe(true);
     });
 
-    it('user given a computer control entry when changing locale then reads its translated name and concise summary', async () => {
+    it('user given a computer control entry when changing locale then keeps its stable name and localized summary', async () => {
         const wrapper = mount(BuiltInToolList, {
             props: {
                 tools: [
@@ -316,11 +316,11 @@ describe('built-in tools settings i18n', () => {
                 selectedToolId: 'computer_use',
             },
         });
-        expect(wrapper.get('h3').text()).toBe('电脑控制');
+        expect(wrapper.get('h3').text()).toBe('ComputerUse');
         expect(wrapper.get('p').text()).toBe('观察屏幕并操作桌面应用');
         setLocale('en-US');
         await nextTick();
-        expect(wrapper.get('h3').text()).toBe('Computer control');
+        expect(wrapper.get('h3').text()).toBe('ComputerUse');
         expect(wrapper.get('p').text()).toBe('Observe the screen and control desktop apps');
         expect(wrapper.text()).not.toContain('Long native driver instructions');
         wrapper.unmount();

@@ -306,7 +306,7 @@ pub fn run() {
 
     app.run(|app_handle, event| {
         if matches!(event, tauri::RunEvent::Exit) {
-            core::computer_use::driver::cancel_all();
+            core::computer_use::cua_driver::cancel_all();
             core::computer_use::agent_desktop::cancel_all();
             let result = tauri::async_runtime::block_on(async {
                 tokio::time::timeout(

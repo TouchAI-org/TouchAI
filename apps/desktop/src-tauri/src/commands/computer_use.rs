@@ -12,8 +12,12 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Runtime, State};
 
 use crate::core::computer_use::{
-    agent_desktop, backend::DriverId, driver, foreground, http::HttpWheelFetcher, manifest,
-    provision, storage::DriverStorage,
+    agent_desktop,
+    backend::{DriverId, DriverStatus, UpdateInfo},
+    cua_driver, foreground,
+    http::HttpWheelFetcher,
+    manifest, provision,
+    storage::DriverStorage,
 };
 use crate::core::system::paths::{app_directory_path, AppDirectory};
 
@@ -44,7 +48,7 @@ pub async fn computer_use_list_tools(
 pub async fn computer_use_status(
     driver: Option<DriverId>,
     storage: State<'_, DriverStorage>,
-) -> Result<driver::DriverStatus, String> {
+) -> Result<DriverStatus, String> {
     let root = storage.read().await?;
     driver.unwrap_or_default().status(root.clone()).await
 }
@@ -107,7 +111,7 @@ pub fn computer_use_glow_set_active<R: Runtime>(
     )?;
     if !active {
         tauri::async_runtime::spawn(async move {
-            driver::end_activity(&activity_id);
+            cua_driver::end_activity(&activity_id);
             if let Err(error) = agent_desktop::end_activity(&activity_id).await {
                 log::warn!("Failed to release desktop session: {error}");
             }
@@ -128,7 +132,7 @@ pub fn computer_use_glow_snapshot<R: Runtime>(
 pub async fn computer_use_prepare(
     driver: Option<DriverId>,
     storage: State<'_, DriverStorage>,
-) -> Result<driver::DriverStatus, String> {
+) -> Result<DriverStatus, String> {
     let root = storage.read().await?;
     let fetcher = HttpWheelFetcher::new(USER_AGENT)?;
     driver
@@ -245,7 +249,7 @@ pub async fn computer_use_invoke<R: Runtime>(
             )
             .await;
         }
-        driver::restore_installed(selected.root(&root)).await?;
+        cua_driver::restore_installed(selected.root(&root)).await?;
         let result = tauri::async_runtime::spawn_blocking(move || {
             invoke_blocking(
                 execution_id,
@@ -266,7 +270,7 @@ pub async fn computer_use_invoke<R: Runtime>(
                 // back to the caller instead of creating another thread inline.
                 if let Some(call_id) = failure.cancel_id {
                     let _ = tauri::async_runtime::spawn_blocking(move || {
-                        driver::cancel(call_id);
+                        cua_driver::cancel(call_id);
                     });
                 }
                 Err(failure.message)
@@ -281,7 +285,7 @@ pub async fn computer_use_invoke<R: Runtime>(
         tokio::select! {
             biased;
             _ = &mut wait_cancelled => {
-                driver::cancel_execution(&execution);
+                cua_driver::cancel_execution(&execution);
                 agent_desktop::cancel(&execution);
                 let _ = (&mut operation).await;
                 return Err("computer use cancelled".into());
@@ -331,12 +335,12 @@ fn invoke_blocking(
     cancellation: Option<tokio::sync::watch::Receiver<bool>>,
 ) -> Result<Value, InvokeFailure> {
     let timeout = call_timeout(&tool);
-    driver::begin_execution(&execution_id).map_err(InvokeFailure::without_cancel)?;
+    cua_driver::begin_execution(&execution_id).map_err(InvokeFailure::without_cancel)?;
     if cancellation
         .as_ref()
         .is_some_and(|receiver| *receiver.borrow() || receiver.has_changed().is_err())
     {
-        driver::release_execution(&execution_id);
+        cua_driver::release_execution(&execution_id);
         return Err(InvokeFailure::without_cancel(
             "computer use cancelled before execution",
         ));
@@ -345,9 +349,9 @@ fn invoke_blocking(
     let ending_session = (full_access && tool == "end_session").then(|| arguments.clone());
     let pending = wait_for_worker(
         move || {
-            let pending = driver::invoke_with_access(&tool, &arguments, full_access)?;
-            if let Err(error) = driver::bind_execution(&worker_execution_id, pending.id) {
-                driver::cancel(pending.id);
+            let pending = cua_driver::invoke_with_access(&tool, &arguments, full_access)?;
+            if let Err(error) = cua_driver::bind_execution(&worker_execution_id, pending.id) {
+                cua_driver::cancel(pending.id);
                 return Err(error);
             }
             Ok(pending)
@@ -357,7 +361,7 @@ fn invoke_blocking(
     )
     .and_then(|result| result)
     .map_err(|message| {
-        driver::release_execution(&execution_id);
+        cua_driver::release_execution(&execution_id);
         InvokeFailure::without_cancel(message)
     })?;
     let call_id = pending.id;
@@ -368,10 +372,10 @@ fn invoke_blocking(
         "computer use call timed out before the driver confirmed it; \
          the action may have taken effect, observe the target before retrying",
     );
-    driver::release_execution(&execution_id);
+    cua_driver::release_execution(&execution_id);
     if let (Some(arguments), Ok(Ok(envelope))) = (ending_session, &outcome) {
         if envelope["isError"].as_bool() != Some(true) {
-            driver::end_trusted_session(&arguments);
+            cua_driver::end_trusted_session(&arguments);
         }
     }
 
@@ -441,7 +445,7 @@ fn wait_for_worker<T: Send + 'static>(
 mod tests {
     use std::time::Instant;
 
-    use crate::core::computer_use::abi::AbiError;
+    use crate::core::computer_use::cua_driver::abi::AbiError;
 
     use super::*;
 
@@ -520,7 +524,7 @@ mod tests {
 /// 取消一次在途调用；返回是否找到并发出取消信号。
 #[tauri::command]
 pub fn computer_use_cancel(execution_id: String) -> bool {
-    let cua = driver::cancel_execution(&execution_id);
+    let cua = cua_driver::cancel_execution(&execution_id);
     agent_desktop::cancel(&execution_id) || cua
 }
 
@@ -528,7 +532,7 @@ pub fn computer_use_cancel(execution_id: String) -> bool {
 pub fn computer_use_cancel_all<R: Runtime>(app: AppHandle<R>) -> usize {
     crate::core::window::computer_use_glow::stop_all(&app).unwrap_or_else(|error| {
         log::warn!("Failed to stop computer-use feedback: {error}");
-        driver::cancel_all() + agent_desktop::cancel_all()
+        cua_driver::cancel_all() + agent_desktop::cancel_all()
     })
 }
 
@@ -540,7 +544,7 @@ pub async fn computer_use_apply_settings(
     storage: State<'_, DriverStorage>,
 ) -> Result<Vec<String>, String> {
     let _lease = storage.read().await?;
-    Ok(driver::apply_settings(max_image_dimension, cursor_visible).await)
+    Ok(cua_driver::apply_settings(max_image_dimension, cursor_visible).await)
 }
 
 #[tauri::command]
@@ -555,7 +559,7 @@ pub async fn computer_use_set_recording(
     let root = storage.read().await?;
     if enabled {
         let status = match selected {
-            DriverId::Cua => driver::restore_installed(selected.root(&root)).await?,
+            DriverId::Cua => cua_driver::restore_installed(selected.root(&root)).await?,
             DriverId::AgentDesktop => selected.status(root.clone()).await?,
         };
         if !status.installed {
@@ -563,7 +567,7 @@ pub async fn computer_use_set_recording(
         }
     }
     match selected {
-        DriverId::Cua => driver::set_recording(enabled, &dir).await?,
+        DriverId::Cua => cua_driver::set_recording(enabled, &dir).await?,
         DriverId::AgentDesktop => agent_desktop::set_recording(enabled, &dir).await?,
     }
     Ok(true)
@@ -587,18 +591,18 @@ fn recording_directory(
 pub async fn computer_use_check_update(
     driver: Option<DriverId>,
     storage: State<'_, DriverStorage>,
-) -> Result<driver::UpdateInfo, String> {
+) -> Result<UpdateInfo, String> {
     if driver == Some(DriverId::AgentDesktop) {
         return Ok(agent_desktop::check_update().await);
     }
     let current = {
         let root = storage.read().await?;
         provision::active_version(&provision::InstallLayout::new(DriverId::Cua.root(&root)))
-            .unwrap_or_else(|| manifest::MANIFEST.version.to_string())
+            .unwrap_or_else(|| cua_driver::manifest::MANIFEST.version.to_string())
     };
     match HttpWheelFetcher::new(USER_AGENT) {
-        Ok(fetcher) => Ok(driver::check_update(&fetcher, current).await),
-        Err(error) => Ok(driver::UpdateInfo {
+        Ok(fetcher) => Ok(cua_driver::check_update(&fetcher, current).await),
+        Err(error) => Ok(UpdateInfo {
             current,
             latest: None,
             update_available: false,
@@ -613,7 +617,7 @@ pub async fn computer_use_install_update(
     driver: Option<DriverId>,
     version: String,
     storage: State<'_, DriverStorage>,
-) -> Result<driver::DriverStatus, String> {
+) -> Result<DriverStatus, String> {
     if driver == Some(DriverId::AgentDesktop) {
         return Err("agent-desktop updates are delivered through its package manifest".into());
     }
@@ -622,13 +626,13 @@ pub async fn computer_use_install_update(
     }
     let root = storage.read().await?;
     let fetcher = HttpWheelFetcher::new(USER_AGENT)?;
-    let artifact = manifest::artifact(&manifest::MANIFEST)
+    let artifact = manifest::artifact(&cua_driver::manifest::MANIFEST)
         .ok_or("computer use is not available for this platform")?;
-    let filename = manifest::release_filename(artifact, &version)?;
+    let filename = cua_driver::manifest::release_filename(artifact, &version)?;
     let release = fetcher
-        .release(&manifest::MANIFEST.mirrors, &version, &filename)
+        .release(&cua_driver::manifest::MANIFEST.mirrors, &version, &filename)
         .await?;
-    driver::upgrade(DriverId::Cua.root(&root), &fetcher, &version, release).await
+    cua_driver::upgrade(DriverId::Cua.root(&root), &fetcher, &version, release).await
 }
 
 /// 卸载驱动：释放运行时并删除已安装的全部版本。
@@ -654,6 +658,6 @@ pub async fn computer_use_shutdown<R: Runtime>(
     if let Err(error) = crate::core::window::computer_use_glow::clear(&app) {
         log::warn!("Failed to clear computer-use feedback: {error}");
     }
-    driver::shutdown();
+    cua_driver::shutdown();
     agent_desktop::shutdown().await
 }

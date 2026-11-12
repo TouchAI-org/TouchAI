@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::sync::LazyLock;
 
 use serde::Deserialize;
 
@@ -43,7 +42,6 @@ pub struct Manifest<'source> {
 }
 
 pub const RESOURCES: &str = include_str!("../../../resources/binaries.json");
-pub static MANIFEST: LazyLock<Manifest<'static>> = LazyLock::new(|| load("cua-driver"));
 
 pub fn load(name: &str) -> Manifest<'static> {
     let mut resources: BTreeMap<&str, Manifest<'static>> =
@@ -88,26 +86,6 @@ pub fn is_publishable(artifact: &Artifact<'_>) -> bool {
         && !artifact.package_path.contains("PLACEHOLDER")
 }
 
-/// The published archive name for another version of the same artifact.
-///
-/// The manifest pins one version, so its `package_path` carries the wheel name
-/// for this platform. Swapping the pinned version for `version` yields the name
-/// the package index publishes, e.g.
-/// `cua_driver-0.44.0-py3-none-win_amd64.whl`.
-pub fn release_filename(artifact: &Artifact<'_>, version: &str) -> Result<String, String> {
-    let name = artifact
-        .package_path
-        .rsplit('/')
-        .next()
-        .filter(|name| !name.is_empty())
-        .ok_or("the driver manifest has no package name")?;
-    let pinned = MANIFEST.version;
-    if !name.contains(pinned) {
-        return Err("the driver manifest package name has no version".into());
-    }
-    Ok(name.replace(pinned, version))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -133,24 +111,6 @@ mod tests {
                 }
             }
         }
-    }
-
-    #[test]
-    fn user_given_an_unsupported_cua_target_when_installing_then_is_not_offered_an_incomplete_download(
-    ) {
-        assert!(artifact_for(&MANIFEST, "aarch64-pc-windows-msvc").is_none());
-        assert!(artifact_for(&MANIFEST, "sparc-unknown-none").is_none());
-    }
-
-    #[test]
-    fn user_given_a_newer_version_when_resolving_its_archive_then_gets_the_published_wheel_name() {
-        let manifest = load("cua-driver");
-        let artifact = artifact_for(&manifest, "x86_64-pc-windows-msvc").expect("artifact");
-
-        assert_eq!(
-            release_filename(artifact, "0.44.0").as_deref(),
-            Ok("cua_driver-0.44.0-py3-none-win_amd64.whl")
-        );
     }
 
     #[test]
