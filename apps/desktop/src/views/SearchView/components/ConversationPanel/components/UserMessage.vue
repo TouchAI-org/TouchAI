@@ -6,7 +6,7 @@
             :class="[
                 'max-w-[80%] rounded-lg px-4 py-2 break-words',
                 isQueued
-                    ? 'border border-dashed border-border-subtle bg-transparent'
+                    ? 'border border-dashed border-message-muted bg-transparent'
                     : 'bg-secondary',
             ]"
             :data-pending-delivery="message.pendingDelivery"
@@ -19,7 +19,7 @@
                     ref="textElement"
                     :class="[
                         'user-text font-serif whitespace-pre-wrap select-text',
-                        'text-message-foreground',
+                        isQueued ? 'text-message-muted' : 'text-message-foreground',
                         !isExpanded ? 'line-clamp-6' : '',
                     ]"
                     :data-collapsed="!isExpanded && canCollapse ? 'true' : undefined"
@@ -94,16 +94,17 @@
         <div
             v-if="isQueued"
             data-testid="pending-message-actions"
-            class="mt-1 flex items-center gap-1 text-caption text-text-tertiary"
+            class="mt-1 flex items-center gap-1 text-caption text-message-muted"
         >
             <button
                 type="button"
                 data-testid="pending-message-send-now"
-                class="flex items-center gap-1.5 rounded-md px-2 py-1 transition-colors hover:text-text-primary"
+                class="flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:text-text-primary"
+                :aria-label="t('conversation.pendingMessage.sendNow')"
+                :title="t('conversation.pendingMessage.sendNow')"
                 @click="emit('sendNow', message.id)"
             >
                 <AppIcon name="arrow-up" class="h-4 w-4" />
-                <span>{{ t('conversation.pendingMessage.sendNow') }}</span>
             </button>
             <button
                 type="button"

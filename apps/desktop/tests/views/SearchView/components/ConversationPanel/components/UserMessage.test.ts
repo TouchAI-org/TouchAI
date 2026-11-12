@@ -124,7 +124,7 @@ describe('UserMessage long content', () => {
 });
 
 describe('UserMessage pending delivery', () => {
-    it('user sees a queued message as a dashed bubble with normal message text', () => {
+    it('user sees a queued message with muted tool-call text and a matching dashed outline', () => {
         const wrapper = mount(UserMessage, {
             props: {
                 message: {
@@ -140,15 +140,16 @@ describe('UserMessage pending delivery', () => {
 
         const bubble = wrapper.get('[data-pending-delivery="queue"]');
         expect(bubble.classes()).toContain('border-dashed');
+        expect(bubble.classes()).toContain('border-message-muted');
         expect(bubble.classes()).toContain('bg-transparent');
-        expect(wrapper.get('.user-text').classes()).toContain('text-message-foreground');
-        expect(wrapper.get('.user-text').classes()).not.toContain('text-text-tertiary');
+        expect(wrapper.get('.user-text').classes()).toContain('text-message-muted');
+        expect(wrapper.get('.user-text').classes()).not.toContain('text-message-foreground');
         expect(wrapper.findComponent({ name: 'ActionButton' }).exists()).toBe(false);
 
         wrapper.unmount();
     });
 
-    it('user sees send now, edit, and cancel actions on a queued message', async () => {
+    it('user sees icon-only steer, edit, and cancel actions on a queued message', async () => {
         const wrapper = mount(UserMessage, {
             props: {
                 message: {
@@ -163,10 +164,11 @@ describe('UserMessage pending delivery', () => {
         });
 
         expect(wrapper.find('[data-testid="pending-message-actions"]').exists()).toBe(true);
-        expect(wrapper.get('[data-testid="pending-message-send-now"]').text()).toContain('插队');
-        const sendNowIcon = wrapper.get(
-            '[data-testid="pending-message-send-now"] [data-testid="app-icon"]'
-        );
+        const sendNow = wrapper.get('[data-testid="pending-message-send-now"]');
+        expect(sendNow.text().trim()).toBe('');
+        expect(sendNow.attributes('aria-label')).toBe('插队');
+        expect(sendNow.attributes('title')).toBe('插队');
+        const sendNowIcon = sendNow.get('[data-testid="app-icon"]');
         expect(sendNowIcon.attributes('data-name')).toBe('arrow-up');
         expect(sendNowIcon.classes()).toEqual(expect.arrayContaining(['h-4', 'w-4']));
         for (const testId of [
