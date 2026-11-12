@@ -14,8 +14,10 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useStateMachine } from 'reka-ui';
 
 import type { AppUpdateChannel } from '@/config/appUpdate';
+import { t } from '@/i18n';
 import { useSettingsStore } from '@/stores/settings';
 
+import { getDownloadableAppUpdate, getInstallableAppUpdate } from './availability';
 import { createInitialAppUpdateState, reduceAppUpdateState } from './state';
 import { AUTO_CHECK_INTERVAL_MS, isWithinAppUpdateHours } from './timing';
 import type {
@@ -139,6 +141,7 @@ export class AppUpdateController {
     private downloadPromise: Promise<boolean> | null = null;
     private installPromise: Promise<boolean> | null = null;
     private lastCheckAttemptAt: string | null = null;
+    private consecutiveCheckFailures = 0;
     private reportCheckErrors = false;
     private updateOperationPromise: Promise<UpdateOperation | null> | null = null;
     private updateOperation: UpdateOperation | null = null;
@@ -155,6 +158,26 @@ export class AppUpdateController {
 
     getState(): AppUpdateState {
         return { ...this.state };
+    }
+
+    getAutomaticCheckInterval(): number {
+        return this.consecutiveCheckFailures > 0
+            ? Math.min(AUTO_CHECK_INTERVAL_MS, 60_000 * 2 ** (this.consecutiveCheckFailures - 1))
+            : AUTO_CHECK_INTERVAL_MS;
+    }
+
+    /**
+     * The later of the latest check attempt and the latest completed check.
+     *
+     * The automatic-check gate uses the same boundary, so scheduling from this
+     * value cannot move a check past the deadline the gate will accept.
+     */
+    getLastCheckAttemptAt(): string | null {
+        const attemptAt = parseTime(this.lastCheckAttemptAt);
+        const completedAt = parseTime(this.state.lastCheckedAt);
+        if (attemptAt === null) return this.state.lastCheckedAt;
+        if (completedAt === null) return this.lastCheckAttemptAt;
+        return attemptAt >= completedAt ? this.lastCheckAttemptAt : this.state.lastCheckedAt;
     }
 
     subscribe(listener: StateListener): () => void {
@@ -237,6 +260,7 @@ export class AppUpdateController {
         await this.settings.updateAppUpdateChannel(channel);
         await this.settings.updateAppUpdateLastCheckedAt(null);
         this.lastCheckAttemptAt = null;
+        this.consecutiveCheckFailures = 0;
         this.commit({ type: 'channel-updated', channel });
     }
 
@@ -252,7 +276,15 @@ export class AppUpdateController {
             return this.checkPromise;
         }
 
-        if (['downloading', 'downloaded', 'installing'].includes(this.state.status)) {
+        if (
+            ['downloading', 'installing'].includes(this.state.status) ||
+            // A manual recheck may refresh release metadata while a package is
+            // downloaded; the reducer keeps the package when the target is
+            // unchanged. Background and settings checks leave it untouched.
+            (source !== 'manual' &&
+                (this.state.status === 'downloaded' ||
+                    Boolean(getInstallableAppUpdate(this.state))))
+        ) {
             return false;
         }
 
@@ -299,6 +331,7 @@ export class AppUpdateController {
             }
 
             const checkedAt = this.now();
+            this.consecutiveCheckFailures = 0;
             this.commit({ type: 'check-completed', channel, result, checkedAt });
             await this.settings.updateAppUpdateLastCheckedAt(checkedAt);
             void this.checkEvents?.publish(result, checkedAt).catch((error) => {
@@ -321,6 +354,7 @@ export class AppUpdateController {
                 return false;
             }
 
+            this.consecutiveCheckFailures = Math.min(this.consecutiveCheckFailures + 1, 7);
             if (!this.reportCheckErrors) {
                 this.replaceState(previousState);
                 this.queueUpdateTransition('check_finished', {
@@ -332,7 +366,13 @@ export class AppUpdateController {
                 return false;
             }
 
-            this.commit({ type: 'failed', error: toErrorMessage(error) });
+            this.commit({
+                type: 'failed',
+                error:
+                    typeof navigator !== 'undefined' && navigator.onLine === false
+                        ? t('settings.general.update.error.offline')
+                        : toErrorMessage(error),
+            });
             this.queueUpdateTransition('check_finished', {
                 result: 'failure',
                 source,
@@ -358,7 +398,7 @@ export class AppUpdateController {
             return false;
         }
 
-        const update = this.state.status === 'available' ? this.state.availableUpdate : null;
+        const update = getDownloadableAppUpdate(this.state);
         if (!update) {
             this.releaseUpdateOperation();
             return false;
@@ -429,7 +469,7 @@ export class AppUpdateController {
             return false;
         }
 
-        const update = this.state.status === 'downloaded' ? this.state.downloadedUpdate : null;
+        const update = getInstallableAppUpdate(this.state);
         if (!update) {
             this.releaseUpdateOperation();
             return false;
@@ -527,7 +567,10 @@ export class AppUpdateController {
     }
 
     private shouldRunAutomaticCheck(): boolean {
-        if (!this.state.autoCheckEnabled) {
+        if (
+            !this.state.autoCheckEnabled ||
+            (typeof navigator !== 'undefined' && navigator.onLine === false)
+        ) {
             return false;
         }
 
@@ -548,7 +591,7 @@ export class AppUpdateController {
             return true;
         }
 
-        return now - lastCheckedAt >= AUTO_CHECK_INTERVAL_MS;
+        return now - lastCheckedAt >= this.getAutomaticCheckInterval();
     }
 
     private syncSettings(): void {
@@ -558,6 +601,7 @@ export class AppUpdateController {
 
         if (channel !== this.state.channel) {
             this.lastCheckAttemptAt = null;
+            this.consecutiveCheckFailures = 0;
             this.commit({ type: 'channel-updated', channel });
         }
 
@@ -597,11 +641,13 @@ export class AppUpdateController {
                     result.channel !== this.settings.getChannel() ||
                     this.checkPromise ||
                     (parseTime(checkedAt) ?? 0) < (parseTime(this.state.lastCheckedAt) ?? 0) ||
-                    ['downloading', 'downloaded', 'installing'].includes(this.state.status)
+                    ['downloading', 'downloaded', 'installing'].includes(this.state.status) ||
+                    getInstallableAppUpdate(this.state)
                 ) {
                     return;
                 }
 
+                this.consecutiveCheckFailures = 0;
                 this.commit({
                     type: 'check-completed',
                     channel: result.channel,

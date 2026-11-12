@@ -28,13 +28,14 @@ on:
                 default: release
 
 permissions:
-    contents: write
-    deployments: write
+    contents: read
 
 jobs:
     prepare-release:
         name: Prepare release metadata
         runs-on: ubuntu-latest
+        permissions:
+            contents: write
         outputs:
             release_name: ${{ steps.product.outputs.release_name }}
             cloudflare_r2_bucket_name: ${{ steps.product.outputs.cloudflare_r2_bucket_name }}
@@ -81,39 +82,16 @@ jobs:
                   EOF
 
             - name: Prepare release notes
+              working-directory: apps/desktop
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   RELEASE_TAG: ${{ inputs.tag }}
-                  RELEASE_NAME: ${{ steps.product.outputs.release_name }}
                   RELEASE_CHANNEL: ${{ inputs.channel }}
                   RELEASE_VERSION: ${{ inputs.version }}
+                  RELEASE_EVENT_NAME: ${{ github.event_name }}
                   TARGET_COMMITISH: ${{ inputs.target-commitish }}
               run: |
-                  notes_path="$RUNNER_TEMP/release-notes.md"
-                  body=""
-
-                  if body="$(gh release view "$RELEASE_TAG" --json body -q '.body' 2>/dev/null)"; then
-                    :
-                  else
-                    body=""
-                  fi
-
-                  if [ -z "$body" ]; then
-                    if body="$(gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
-                      -f "tag_name=$RELEASE_TAG" \
-                      -f "target_commitish=$TARGET_COMMITISH" \
-                      --jq '.body' 2>/dev/null)"; then
-                      :
-                    else
-                      body=""
-                    fi
-                  fi
-
-                  if [ -z "$body" ]; then
-                    body=$'## '"$RELEASE_NAME"$'\n\nChannel: '"$RELEASE_CHANNEL"$'\nVersion: '"$RELEASE_VERSION"
-                  fi
-
-                  printf '%s\n' "$body" > "$notes_path"
+                  node scripts/ci/prepare-release-notes.mjs "$RUNNER_TEMP/release-notes"
 
             - name: Ensure GitHub release exists
               env:
@@ -121,7 +99,7 @@ jobs:
                   RELEASE_TAG: ${{ inputs.tag }}
                   RELEASE_NAME: ${{ steps.product.outputs.release_name }}
                   TARGET_COMMITISH: ${{ inputs.target-commitish }}
-                  RELEASE_NOTES_PATH: ${{ runner.temp }}/release-notes.md
+                  RELEASE_NOTES_PATH: ${{ runner.temp }}/release-notes/release-body.md
                   RELEASE_PRERELEASE: ${{ inputs.prerelease }}
               run: |
                   if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
@@ -157,7 +135,7 @@ jobs:
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: ${{ steps.artifacts.outputs.release_notes_name }}
-                  path: ${{ runner.temp }}/release-notes.md
+                  path: ${{ runner.temp }}/release-notes
                   if-no-files-found: error
 
     build-windows:
@@ -224,7 +202,6 @@ jobs:
                   Add-GitHubEnv 'VELOPACK_PACK_ID' $product.identifier
                   Add-GitHubEnv 'VELOPACK_PACK_TITLE' $product.displayName
                   Add-GitHubEnv 'VELOPACK_MAIN_EXE' $product.packaging.mainExe
-                  Add-GitHubEnv 'RELEASE_NAME' '${{ needs.prepare-release.outputs.release_name }}'
 
             - name: Install Velopack CLI
               run: dotnet tool install --global vpk
@@ -290,17 +267,6 @@ jobs:
             - name: Normalize Velopack release asset names
               working-directory: apps/desktop
               run: node scripts/ci/normalize-velopack-release-assets.mjs "$env:VELOPACK_RELEASE" "${{ inputs.channel }}" "${{ inputs.version }}"
-
-            - name: Sync GitHub release notes
-              shell: pwsh
-              env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                  RELEASE_TAG: ${{ inputs.tag }}
-                  RELEASE_NOTES_PATH: ${{ runner.temp }}/release-notes/release-notes.md
-              run: |
-                  gh release edit "$env:RELEASE_TAG" `
-                    --title "$env:RELEASE_NAME" `
-                    --notes-file "$env:RELEASE_NOTES_PATH"
 
             - name: Upload Velopack diagnostics artifact
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -529,12 +495,21 @@ jobs:
 
     build-update-channels:
         name: Build update release feeds
+        permissions:
+            contents: write
+            id-token: write
+            attestations: write
         needs:
             - prepare-release
             - build-windows
             - build-macos
             - build-linux
         runs-on: ubuntu-latest
+        env:
+            RELEASE_CHANNEL: ${{ inputs.channel }}
+            RELEASE_VERSION: ${{ inputs.version }}
+            RELEASE_TAG: ${{ inputs.tag }}
+            RELEASE_PRERELEASE: ${{ inputs.prerelease }}
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
@@ -593,17 +568,49 @@ jobs:
               run: |
                   node scripts/ci/build-update-channels.mjs "$RUNNER_TEMP/touchai-update-dist" \
                     --fetch-existing true \
-                    --channel "${{ inputs.channel }}" \
-                    --version "${{ inputs.version }}" \
-                    --tag "${{ inputs.tag }}" \
-                    --prerelease "${{ inputs.prerelease }}" \
+                    --channel "$RELEASE_CHANNEL" \
+                    --version "$RELEASE_VERSION" \
+                    --tag "$RELEASE_TAG" \
+                    --prerelease "$RELEASE_PRERELEASE" \
                     --release-notes-file "$RUNNER_TEMP/release-notes/release-notes.md" \
+                    --release-notes-by-locale-file "$RUNNER_TEMP/release-notes/release-notes.json" \
                     --release-dir "$RUNNER_TEMP/touchai-release-assets"
 
             - name: Stage current GitHub release assets
               working-directory: apps/desktop
               run: |
-                  node scripts/ci/stage-release-upload-assets.mjs "$RUNNER_TEMP/touchai-release-assets" "$RUNNER_TEMP/touchai-github-release-assets" "${{ inputs.version }}"
+                  node scripts/ci/stage-release-upload-assets.mjs "$RUNNER_TEMP/touchai-release-assets" "$RUNNER_TEMP/touchai-github-release-assets" "$RELEASE_VERSION"
+                  cp "$RUNNER_TEMP/release-notes/release-notes.json" "$RUNNER_TEMP/touchai-github-release-assets/release-notes.json"
+
+            - name: Match source inventory to the packaged version
+              working-directory: apps/desktop
+              run: node scripts/ci/set-release-version.mjs "$RELEASE_VERSION"
+
+            - name: Generate source dependency SBOM
+              uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c
+              with:
+                  path: .
+                  format: spdx-json
+                  syft-version: v1.57.1
+                  output-file: ${{ runner.temp }}/touchai-github-release-assets/TouchAI-${{ inputs.version }}.source.spdx.json
+                  upload-artifact: false
+                  upload-release-assets: false
+
+            - name: Generate release checksums
+              working-directory: apps/desktop
+              run: node scripts/ci/release-checksums.mjs "$RUNNER_TEMP/touchai-github-release-assets"
+
+            - name: Attest final release assets
+              id: provenance
+              uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+              with:
+                  subject-path: ${{ runner.temp }}/touchai-github-release-assets/*
+                  create-storage-record: false
+
+            - name: Include offline provenance bundle
+              env:
+                  ATTESTATION_BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+              run: cp -- "$ATTESTATION_BUNDLE" "$RUNNER_TEMP/touchai-github-release-assets/provenance.sigstore.json"
 
             - name: Upload public release assets to GitHub release
               shell: bash
@@ -630,6 +637,9 @@ jobs:
 
     deploy-update-channels:
         name: Deploy update release feeds
+        permissions:
+            contents: read
+            deployments: write
         if: ${{ inputs.deploy-production }}
         needs:
             - prepare-release
@@ -685,6 +695,21 @@ jobs:
                   prune_plan="$RUNNER_TEMP/touchai-r2-prune-plan.txt"
                   node scripts/ci/plan-r2-release-asset-prune.mjs "$RELEASE_CHANNEL" > "$prune_plan"
 
+            - name: Deploy update binaries to Cloudflare R2
+              shell: bash
+              env:
+                  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+                  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+                  CLOUDFLARE_R2_BUCKET_NAME: ${{ needs.prepare-release.outputs.cloudflare_r2_bucket_name }}
+              run: |
+                  set -euo pipefail
+                  update_dist="$RUNNER_TEMP/touchai-update-dist"
+                  find "$update_dist" -type f ! -name 'releases.*.json' -print0 |
+                    while IFS= read -r -d '' file; do
+                      key="${file#"$update_dist"/}"
+                      pnpm dlx wrangler@3.90.0 r2 object put "$CLOUDFLARE_R2_BUCKET_NAME/$key" --file "$file"
+                    done
+
             - name: Deploy update release feeds to Cloudflare R2
               shell: bash
               env:
@@ -694,7 +719,7 @@ jobs:
               run: |
                   set -euo pipefail
                   update_dist="$RUNNER_TEMP/touchai-update-dist"
-                  find "$update_dist" -type f -print0 |
+                  find "$update_dist" -type f -name 'releases.*.json' -print0 |
                     while IFS= read -r -d '' file; do
                       key="${file#"$update_dist"/}"
                       pnpm dlx wrangler@3.90.0 r2 object put "$CLOUDFLARE_R2_BUCKET_NAME/$key" --file "$file"

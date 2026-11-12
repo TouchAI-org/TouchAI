@@ -169,4 +169,68 @@ describe('user must update before continuing', () => {
 
         expect(wrapper.text()).toContain('原因：download failed: 504');
     });
+
+    it('user can recheck an update while a package is already downloaded', async () => {
+        const candidate = {
+            version: '0.2.1',
+            fileName: `${APP_PRODUCT_CONFIG.identifier}-0.2.1-full.nupkg`,
+            notes: 'Security fixes',
+            sizeBytes: 12_000_000,
+        };
+        appUpdateServiceMock.state = {
+            ...baseState,
+            status: 'downloaded',
+            latestUpdate,
+            availableUpdate: candidate,
+            downloadedUpdate: candidate,
+            updateRequirement: requiredRequirement,
+        };
+
+        const wrapper = mount(AppUpdateRequiredGate);
+        await nextTick();
+
+        const recheck = wrapper.get('[data-testid="app-update-required-check"]');
+        expect(recheck.attributes('disabled')).toBeUndefined();
+        await recheck.trigger('click');
+
+        expect(appUpdateServiceMock.checkNow).toHaveBeenCalledWith('manual');
+
+        await wrapper.get('[data-testid="app-update-required-primary"]').trigger('click');
+        expect(appUpdateServiceMock.install).toHaveBeenCalledOnce();
+        wrapper.unmount();
+    });
+
+    it.each(['download', 'install'] as const)(
+        'user retries a failed required %s without opening an external download',
+        async (phase) => {
+            const candidate = {
+                version: '0.2.1',
+                fileName: `${APP_PRODUCT_CONFIG.identifier}-0.2.1-full.nupkg`,
+                notes: 'Security fixes',
+                sizeBytes: 12_000_000,
+            };
+            appUpdateServiceMock.state = {
+                ...baseState,
+                status: 'failed',
+                latestUpdate,
+                availableUpdate: candidate,
+                downloadedUpdate: phase === 'install' ? candidate : null,
+                updateRequirement: requiredRequirement,
+                error: 'temporary failure',
+            };
+            const { openUrl } = await import('@tauri-apps/plugin-opener');
+            const wrapper = mount(AppUpdateRequiredGate);
+            await nextTick();
+
+            await wrapper.get('[data-testid="app-update-required-primary"]').trigger('click');
+
+            expect(appUpdateServiceMock[phase]).toHaveBeenCalledOnce();
+            expect(
+                appUpdateServiceMock[phase === 'install' ? 'download' : 'install']
+            ).not.toHaveBeenCalled();
+            expect(openUrl).not.toHaveBeenCalled();
+            expect(wrapper.text()).toContain('temporary failure');
+            wrapper.unmount();
+        }
+    );
 });

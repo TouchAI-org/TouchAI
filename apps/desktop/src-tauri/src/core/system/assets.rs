@@ -3,7 +3,6 @@
 //! 应用资源下载与管理。
 
 use log::{error, info, warn};
-use sha2::{Digest, Sha256};
 use std::future::Future;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
@@ -13,17 +12,8 @@ use tokio::fs;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 
+use crate::core::download::{download_bytes, sha256_hex, DownloadTimeouts};
 use crate::core::system::paths::{app_directory_path, AppDirectory};
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    let digest = Sha256::digest(bytes);
-    let mut output = String::with_capacity(digest.len() * 2);
-    for byte in digest {
-        use std::fmt::Write as _;
-        let _ = write!(&mut output, "{byte:02x}");
-    }
-    output
-}
 
 /// 字体文件名
 const FONT_FILENAME: &str = "SourceHanSerifSC-VF.ttf.woff2";
@@ -183,37 +173,19 @@ async fn replace_font_file(source_path: &Path, font_path: &Path) -> Result<(), S
 /// 从指定 URL 下载文件
 async fn download_from_url(url: &str) -> Result<Vec<u8>, String> {
     info!("Attempting to download font from: {}", url);
-
-    let client = reqwest::Client::builder()
-        .connect_timeout(std::time::Duration::from_secs(
-            DOWNLOAD_CONNECT_TIMEOUT_SECS,
-        ))
-        .timeout(std::time::Duration::from_secs(DOWNLOAD_TIMEOUT_SECS))
-        .no_gzip()
-        .no_brotli()
-        .no_deflate()
-        .no_zstd()
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
-
-    let response = client
-        .get(url)
-        .header(reqwest::header::ACCEPT_ENCODING, "identity")
-        .send()
-        .await
-        .map_err(|e| format!("Failed to send request: {}", e))?;
-
-    if !response.status().is_success() {
-        return Err(format!("HTTP error: {}", response.status()));
-    }
-
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|e| format!("Failed to read response body: {}", e))?;
-
+    let bytes = download_bytes(
+        url,
+        FONT_EXPECTED_SIZE_BYTES,
+        FONT_EXPECTED_SHA256,
+        DownloadTimeouts {
+            connect: std::time::Duration::from_secs(DOWNLOAD_CONNECT_TIMEOUT_SECS),
+            operation: std::time::Duration::from_secs(DOWNLOAD_TIMEOUT_SECS),
+        },
+    )
+    .await
+    .map_err(|error| error.to_string())?;
     info!("Successfully downloaded {} bytes from {}", bytes.len(), url);
-    Ok(bytes.to_vec())
+    Ok(bytes)
 }
 
 /// 尝试从所有 CDN 下载字体（单轮）

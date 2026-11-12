@@ -1,5 +1,11 @@
 export type ReleaseChannel = 'stable' | 'beta' | 'nightly';
 
+export function previousReleaseTag(
+    releases: Array<{ tag_name: string; draft?: boolean }>,
+    channel: ReleaseChannel,
+    version: string
+): string | null;
+
 export function resolveReleaseMetadata(input: {
     eventName: string;
     refType?: string | null;

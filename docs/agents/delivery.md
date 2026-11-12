@@ -46,6 +46,8 @@ If an AI tool materially shaped the work, the PR body states the model, tools, a
 
 Releases run through the existing GitHub Actions workflows. Do not deploy, publish, tag, or change release configuration by hand; release tooling work gets its own issue.
 
+For the end-to-end maintainer and Agent runbook, see [Releasing](releasing.md). A user's initial release request approves the channel, version or target commit for the whole run; the Agent does not ask again at each step. Re-confirm only if that scope changes. Never create tags, releases, or update feeds by hand.
+
 **Launch-ready:** issue accepted and linked; `pnpm test:pr` passes; E2E evidence for affected surfaces; performance budget measured; database impact declared as `none` or an approved schema change with a tested migration and restore path; both locales present; risks and known limitations written; docs updated.
 
 If a change cannot be rolled back safely, say so in the PR before it ships.

@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { versionFromAssetName } from '../update-release-assets.mjs';
+import { legacyEnglishReleaseNotes, normalizeLocalizedReleaseNotes } from './release-notes.mjs';
 
 const REQUIRED_SEVERITIES = ['critical', 'security', 'recommended'];
 const DOWNLOAD_KINDS = ['installer', 'fullPackage', 'deltaPackage', 'updatePackage', 'asset'];
@@ -156,6 +157,9 @@ function normalizeLatestRelease(value, channel) {
             value.releaseNotes ?? null,
             `${channel}.Latest.releaseNotes`
         ),
+        ...(value.releaseNotesByLocale
+            ? { releaseNotesByLocale: normalizeLocalizedReleaseNotes(value.releaseNotesByLocale) }
+            : {}),
         downloads: normalizeDownloads(value.downloads, channel),
     };
 }
@@ -320,7 +324,9 @@ async function releaseDownloadsFromDirectory(product, releaseDir, version) {
             continue;
         }
 
-        if (version && !entry.name.includes(version)) {
+        // Match the parsed version exactly: a substring test also accepts an
+        // older build such as `1.2.3-beta.1` when releasing `1.2.3`.
+        if (version && versionFromAssetName(entry.name) !== version) {
             continue;
         }
 
@@ -346,20 +352,33 @@ async function releaseAssetsFromDirectory(releaseDir, channel) {
         return [];
     }
 
+    let text;
     try {
-        const feed = JSON.parse(
-            await readFile(join(releaseDir, `releases.${channel}.json`), 'utf8')
-        );
-        if (!Array.isArray(feed.Assets)) {
-            return [];
-        }
-        return feed.Assets;
+        text = await readFile(join(releaseDir, `releases.${channel}.json`), 'utf8');
     } catch (error) {
         if (error?.code === 'ENOENT') {
-            return [];
+            // Publishing without the freshly packaged feed would make the new
+            // Latest point at package entries nobody uploaded. Refuse instead of
+            // silently keeping (or clearing) the previous channel history.
+            throw new Error(
+                `Missing releases.${channel}.json in the release directory; refusing to publish an update feed without packaged assets.`,
+                { cause: error }
+            );
         }
         throw error;
     }
+
+    let feed;
+    try {
+        feed = JSON.parse(text);
+    } catch {
+        throw new Error(`releases.${channel}.json is not valid JSON.`);
+    }
+    if (!Array.isArray(feed.Assets)) {
+        throw new Error(`releases.${channel}.json must contain an Assets array.`);
+    }
+
+    return feed.Assets;
 }
 
 function latestByChannelFromRelease(product, release, fallbackPublishedAt) {
@@ -387,6 +406,13 @@ function latestByChannelFromRelease(product, release, fallbackPublishedAt) {
                 release.releaseNotes ?? null,
                 `${channel}.Latest.releaseNotes`
             ),
+            ...(release.releaseNotesByLocale
+                ? {
+                      releaseNotesByLocale: normalizeLocalizedReleaseNotes(
+                          release.releaseNotesByLocale
+                      ),
+                  }
+                : {}),
             downloads: mergeDownloads(release.downloads),
         },
     };
@@ -464,14 +490,24 @@ export async function buildUpdateChannels(projectRoot, outputRoot, now = new Dat
     const updates = product.services.updates;
     const outputDir = join(outputRoot, relativeUpdatePath(updates.baseUrl));
     const channelNames = channelEntries(updates.channels).map(([channel]) => channel);
+    const releaseNotesByLocale = options.release
+        ? (options.release.releaseNotesByLocale ??
+          (options.release.releaseNotesByLocaleFile
+              ? normalizeLocalizedReleaseNotes(
+                    JSON.parse(await readFile(options.release.releaseNotesByLocaleFile, 'utf8'))
+                )
+              : null))
+        : null;
     const release = options.release
         ? {
               ...options.release,
               releaseNotes:
                   options.release.releaseNotes ??
+                  (releaseNotesByLocale ? legacyEnglishReleaseNotes(releaseNotesByLocale) : null) ??
                   (options.release.releaseNotesFile
                       ? await readFile(options.release.releaseNotesFile, 'utf8')
                       : null),
+              releaseNotesByLocale,
               downloads: mergeDownloads(
                   await releaseDownloadsFromDirectory(
                       product,
@@ -563,6 +599,7 @@ function parseCliOptions(argv) {
             prerelease: booleanArg(options.prerelease, '--prerelease'),
             publishedAt: options['published-at'] ?? null,
             releaseNotesFile: options['release-notes-file'] ?? null,
+            releaseNotesByLocaleFile: options['release-notes-by-locale-file'] ?? null,
             releaseDir: options['release-dir'] ?? null,
         };
     }

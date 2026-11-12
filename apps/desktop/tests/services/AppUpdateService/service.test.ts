@@ -387,7 +387,7 @@ describe('user checks for and installs app updates', () => {
         });
     });
 
-    it('user is not checked again for an hour after a failed automatic check', async () => {
+    it('user is not immediately checked again after a failed automatic check', async () => {
         const { controller, checkForUpdates } = createController({
             checkError: new Error('network unavailable'),
         });
@@ -436,6 +436,183 @@ describe('user checks for and installs app updates', () => {
 
     it('user sees nothing downloaded or installed when no update is selected', async () => {
         const { controller, downloadUpdate, installUpdate } = createController();
+
+        await expect(controller.download()).resolves.toBe(false);
+        await expect(controller.install()).resolves.toBe(false);
+        expect(downloadUpdate).not.toHaveBeenCalled();
+        expect(installUpdate).not.toHaveBeenCalled();
+    });
+
+    it('user completes the same update when retrying a failed download', async () => {
+        const { controller, downloadUpdate } = createController();
+        downloadUpdate.mockRejectedValueOnce(new Error('connection lost'));
+        await controller.checkNow('manual');
+
+        await expect(controller.download()).resolves.toBe(false);
+        expect(controller.getState()).toMatchObject({
+            status: 'failed',
+            availableUpdate,
+            error: 'connection lost',
+        });
+
+        await expect(controller.download()).resolves.toBe(true);
+        expect(controller.getState()).toMatchObject({
+            status: 'downloaded',
+            downloadedUpdate: availableUpdate,
+            error: null,
+        });
+        expect(downloadUpdate).toHaveBeenLastCalledWith(
+            'stable',
+            availableUpdate.version,
+            availableUpdate.fileName
+        );
+    });
+
+    it('user retries a failed installation without downloading the package again', async () => {
+        const { controller, downloadUpdate, installUpdate } = createController();
+        installUpdate.mockRejectedValueOnce(new Error('file in use'));
+        await controller.checkNow('manual');
+        await controller.download();
+
+        await expect(controller.install()).resolves.toBe(false);
+        await expect(controller.download()).resolves.toBe(false);
+        expect(controller.getState()).toMatchObject({
+            status: 'failed',
+            downloadedUpdate: availableUpdate,
+            error: 'file in use',
+        });
+
+        await expect(controller.install()).resolves.toBe(true);
+        expect(controller.getState()).toMatchObject({ status: 'installing', error: null });
+        expect(downloadUpdate).toHaveBeenCalledTimes(1);
+        expect(installUpdate).toHaveBeenLastCalledWith(
+            'stable',
+            availableUpdate.version,
+            availableUpdate.fileName,
+            expect.objectContaining({ updateOperationId: expect.any(String) })
+        );
+    });
+
+    it('user keeps the installation retry after rechecking following an install failure', async () => {
+        const { controller, checkForUpdates, downloadUpdate, installUpdate } = createController();
+        installUpdate.mockRejectedValueOnce(new Error('file in use'));
+        await controller.checkNow('manual');
+        await controller.download();
+        await controller.install();
+
+        await expect(controller.checkNow('manual')).resolves.toBe(true);
+        await expect(controller.checkNow('settings-open')).resolves.toBe(false);
+        expect(checkForUpdates).toHaveBeenCalledTimes(2);
+        expect(controller.getState()).toMatchObject({
+            status: 'downloaded',
+            downloadedUpdate: availableUpdate,
+            error: null,
+        });
+
+        await expect(controller.install()).resolves.toBe(true);
+        expect(downloadUpdate).toHaveBeenCalledTimes(1);
+    });
+
+    it('user keeps the downloaded package when a manual recheck selects the same release', async () => {
+        const { controller, checkForUpdates } = createController();
+        await controller.checkNow('manual');
+        await controller.download();
+
+        await expect(controller.checkNow('manual')).resolves.toBe(true);
+
+        expect(checkForUpdates).toHaveBeenCalledTimes(2);
+        expect(controller.getState()).toMatchObject({
+            status: 'downloaded',
+            downloadedUpdate: availableUpdate,
+            downloadProgress: 100,
+        });
+    });
+
+    it('user gets a newly selected release when a manual recheck finds a newer version', async () => {
+        const { controller, checkForUpdates } = createController();
+        await controller.checkNow('manual');
+        await controller.download();
+        const newerUpdate = {
+            ...availableUpdate,
+            version: '0.2.1',
+            fileName: `${APP_PRODUCT_CONFIG.identifier}-0.2.1-full.nupkg`,
+        };
+        checkForUpdates.mockResolvedValueOnce({
+            status: 'available',
+            channel: 'stable',
+            currentVersion: '0.1.0',
+            latest: { ...latestUpdate, version: '0.2.1', tag: 'v0.2.1' },
+            update: newerUpdate,
+            requirement: neutralRequirement,
+        });
+
+        await expect(controller.checkNow('manual')).resolves.toBe(true);
+
+        expect(controller.getState()).toMatchObject({
+            status: 'available',
+            availableUpdate: newerUpdate,
+            downloadedUpdate: null,
+        });
+    });
+
+    it('user retains the installation retry when another window shares a newer check', async () => {
+        let receiveCheck!: (result: AppUpdateCheckResult, checkedAt: string) => void;
+        const { controller, installUpdate } = createController({
+            checkEvents: {
+                listen: async (listener) => {
+                    receiveCheck = listener;
+                    return () => undefined;
+                },
+                publish: async () => undefined,
+            },
+        });
+        installUpdate.mockRejectedValueOnce(new Error('file in use'));
+        await controller.checkNow('manual');
+        await controller.download();
+        await controller.install();
+
+        receiveCheck(
+            {
+                status: 'not_available',
+                channel: 'stable',
+                currentVersion: '0.2.0',
+                latest: latestUpdate,
+                requirement: neutralRequirement,
+            },
+            '2026-05-22T13:00:00.000Z'
+        );
+
+        expect(controller.getState()).toMatchObject({
+            status: 'failed',
+            downloadedUpdate: availableUpdate,
+            error: 'file in use',
+        });
+        await expect(controller.install()).resolves.toBe(true);
+    });
+
+    it('user cannot retry a package after changing away from its channel', async () => {
+        const { controller, downloadUpdate, installUpdate } = createController();
+        downloadUpdate.mockRejectedValueOnce(new Error('connection lost'));
+        await controller.checkNow('manual');
+        await controller.download();
+        await controller.setChannel('beta');
+
+        await expect(controller.download()).resolves.toBe(false);
+        await expect(controller.install()).resolves.toBe(false);
+        expect(controller.getState()).toMatchObject({
+            channel: 'beta',
+            availableUpdate: null,
+            downloadedUpdate: null,
+        });
+        expect(downloadUpdate).toHaveBeenCalledTimes(1);
+        expect(installUpdate).not.toHaveBeenCalled();
+    });
+
+    it('user cannot download or install after a check fails without a candidate', async () => {
+        const { controller, downloadUpdate, installUpdate } = createController({
+            checkError: new Error('network unavailable'),
+        });
+        await controller.checkNow('manual');
 
         await expect(controller.download()).resolves.toBe(false);
         await expect(controller.install()).resolves.toBe(false);

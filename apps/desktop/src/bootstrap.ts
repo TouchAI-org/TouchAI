@@ -123,22 +123,72 @@ function setupLinkInterceptor(): void {
     document.addEventListener('click', handleLinkClick, true);
 }
 
+let stopAppUpdateChecks: (() => void) | null = null;
+
 function scheduleAppUpdateChecks(): void {
+    stopAppUpdateChecks?.();
+    let stopped = false;
+    let running = false;
+    let timer: number | null = null;
     const runAndScheduleNextCheck = async () => {
+        if (stopped || running) return;
+        if (timer !== null) window.clearTimeout(timer);
+        timer = null;
+        running = true;
         const now = Date.now();
-        if (isWithinAppUpdateHours(now)) {
-            await appUpdateService.checkNow('automatic').catch((error) => {
-                log.warn('[AppUpdateService] Automatic update check failed:', error);
-            });
+        const checked = isWithinAppUpdateHours(now)
+            ? await appUpdateService.checkNow('automatic').catch((error) => {
+                  log.warn('[AppUpdateService] Automatic update check failed:', error);
+                  return false;
+              })
+            : false;
+        running = false;
+        if (stopped) return;
+        if (!checked) {
+            // A skipped check (interval not reached, offline, outside hours) or a
+            // failed check must keep the existing deadline, not restart it. A
+            // deadline that already passed falls back to the next allowed window
+            // so a stale timestamp cannot create a zero-delay retry loop.
+            const interval = appUpdateService.getAutomaticCheckInterval();
+            const attemptAt = Date.parse(appUpdateService.getLastCheckAttemptAt() ?? '');
+            const hasLiveDeadline =
+                isWithinAppUpdateHours(now) &&
+                Number.isFinite(attemptAt) &&
+                attemptAt + interval > now;
+            const referenceAt = hasLiveDeadline ? attemptAt : now;
+            let retryAt = getNextAppUpdateCheckAt(referenceAt, interval);
+            if (retryAt <= now) {
+                // Quiet hours clamp a 07:30 reference to 08:00, which can equal
+                // "now" the moment the skipped check finishes. Re-arm at the
+                // next full window instead of spinning on a zero-delay timer.
+                retryAt = getNextAppUpdateCheckAt(now, interval);
+            }
+            timer = window.setTimeout(runAndScheduleNextCheck, Math.max(0, retryAt - now));
+            return;
         }
 
         // The interval gate records completion time, so schedule from completion as well.
         const completedAt = Date.now();
-        window.setTimeout(
+        timer = window.setTimeout(
             runAndScheduleNextCheck,
-            getNextAppUpdateCheckAt(completedAt) - completedAt
+            getNextAppUpdateCheckAt(completedAt, appUpdateService.getAutomaticCheckInterval()) -
+                completedAt
         );
     };
+
+    const onOnline = () => {
+        void runAndScheduleNextCheck();
+    };
+    const stop = () => {
+        stopped = true;
+        if (timer !== null) window.clearTimeout(timer);
+        window.removeEventListener('online', onOnline);
+        window.removeEventListener('pagehide', stop);
+        stopAppUpdateChecks = null;
+    };
+    stopAppUpdateChecks = stop;
+    window.addEventListener('online', onOnline);
+    window.addEventListener('pagehide', stop, { once: true });
 
     void initializeAppUpdateNotifications()
         .catch((error) => {

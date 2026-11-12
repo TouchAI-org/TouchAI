@@ -1,6 +1,10 @@
 ﻿<script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
     import { appUpdateService } from '@services/AppUpdateService';
+    import {
+        getDownloadableAppUpdate,
+        getInstallableAppUpdate,
+    } from '@services/AppUpdateService/availability';
     import { getAppUpdateRequirementReasonText } from '@services/AppUpdateService/requirementText';
     import type { AppUpdateState } from '@services/AppUpdateService/types';
     import { log } from '@services/ObservabilityService';
@@ -8,8 +12,9 @@
     import { computed, onMounted, onUnmounted, ref } from 'vue';
 
     import { APP_PRODUCT_CONFIG } from '@/config/product';
-    import { t } from '@/i18n';
+    import { getLocale, t } from '@/i18n';
     import { preferredAppUpdateDownload } from '@/services/AppUpdateService/downloads';
+    import { appUpdateReleaseNotes } from '@/services/AppUpdateService/releaseNotes';
 
     defineOptions({
         name: 'AppUpdateRequiredGate',
@@ -30,13 +35,11 @@
     const isBusy = computed(() => isChecking.value || isDownloading.value || isInstalling.value);
     const canUseInAppUpdate = computed(
         () =>
-            updateState.value.status === 'available' &&
+            Boolean(getDownloadableAppUpdate(updateState.value)) &&
             (requirement.value?.targetSatisfiesRequirement ?? false)
     );
-    const canInstall = computed(() => updateState.value.status === 'downloaded');
-    const releaseNotes = computed(
-        () => visibleUpdate.value?.notes?.trim() || latestUpdate.value?.releaseNotes?.trim() || ''
-    );
+    const canInstall = computed(() => Boolean(getInstallableAppUpdate(updateState.value)));
+    const releaseNotes = computed(() => appUpdateReleaseNotes(updateState.value, getLocale()));
     const directDownload = computed(() =>
         preferredAppUpdateDownload(latestUpdate.value?.downloads ?? [])
     );

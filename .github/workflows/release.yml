@@ -69,6 +69,8 @@ jobs:
         permissions:
             contents: write
             deployments: write
+            id-token: write
+            attestations: write
         uses: ./.github/workflows/velopack-build.yml
         with:
             channel: ${{ needs.resolve.outputs.channel }}

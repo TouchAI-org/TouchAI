@@ -2,7 +2,11 @@
 
 //! Velopack-backed application update support.
 
+mod download;
 pub mod notification;
+
+#[cfg(test)]
+mod download_tests;
 
 use semver::{Prerelease, Version};
 use serde::{Deserialize, Serialize};
@@ -16,7 +20,7 @@ use std::{
 use tauri::{AppHandle, Emitter, Runtime};
 use velopack::{
     bundle::Manifest as VelopackManifest,
-    sources::{AutoSource, HttpSource, UpdateSource},
+    sources::{AutoSource, UpdateSource},
     Error as VelopackError, UpdateCheck, UpdateInfo, UpdateManager, UpdateOptions, VelopackAsset,
     VelopackAssetFeed,
 };
@@ -238,6 +242,8 @@ pub struct AppUpdateChannelLatest {
     pub prerelease: bool,
     #[serde(default)]
     pub release_notes: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub release_notes_by_locale: BTreeMap<String, String>,
     #[serde(default)]
     pub downloads: Vec<AppUpdateDownload>,
 }
@@ -371,7 +377,6 @@ fn parse_product_release_feed(
 struct ProductHttpUpdateSource {
     base_url: String,
     product: String,
-    http: HttpSource,
     metadata: Arc<Mutex<ProductUpdateFeedMetadata>>,
 }
 
@@ -380,7 +385,6 @@ impl ProductHttpUpdateSource {
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             product: product.to_string(),
-            http: HttpSource::new(base_url),
             metadata: Arc::new(Mutex::new(ProductUpdateFeedMetadata::default())),
         }
     }
@@ -432,8 +436,7 @@ impl UpdateSource for ProductHttpUpdateSource {
         local_file: &Path,
         progress_sender: Option<mpsc::Sender<i16>>,
     ) -> Result<(), VelopackError> {
-        self.http
-            .download_release_entry(asset, local_file, progress_sender)
+        download::download_package(&self.base_url, asset, local_file, progress_sender)
     }
 }
 
@@ -635,7 +638,7 @@ fn manager(channel: AppUpdateChannel) -> Result<AppUpdateManager, VelopackError>
 
 fn update_options(channel: AppUpdateChannel) -> UpdateOptions {
     UpdateOptions {
-        AllowVersionDowngrade: true,
+        AllowVersionDowngrade: false,
         ExplicitChannel: Some(channel.as_str().to_string()),
         MaximumDeltasBeforeFallback: MAXIMUM_DELTAS_BEFORE_FULL_FALLBACK,
         ..UpdateOptions::default()
@@ -1034,6 +1037,27 @@ mod tests {
     }
 
     #[test]
+    fn user_receives_localized_notes_through_the_native_update_result() {
+        let latest: AppUpdateChannelLatest = serde_json::from_value(serde_json::json!({
+            "version": "1.2.3",
+            "tag": "v1.2.3",
+            "releaseUrl": "https://example.com/releases/v1.2.3",
+            "publishedAt": null,
+            "prerelease": false,
+            "releaseNotes": "Legacy notes",
+            "releaseNotesByLocale": {"en-US": "Safer updates", "zh-CN": "更安全的更新"}
+        }))
+        .unwrap();
+        let result = unsupported_not_installed(AppUpdateChannel::Stable, Some(latest));
+        let serialized = serde_json::to_value(result).unwrap();
+        assert_eq!(
+            serialized["latest"]["releaseNotesByLocale"]["zh-CN"],
+            "更安全的更新"
+        );
+        assert_eq!(serialized["latest"]["releaseNotes"], "Legacy notes");
+    }
+
+    #[test]
     fn user_keeps_the_latest_channel_information_on_an_unsupported_result() {
         let latest = AppUpdateChannelLatest {
             version: "9.9.9".to_string(),
@@ -1042,6 +1066,7 @@ mod tests {
             published_at: None,
             prerelease: false,
             release_notes: None,
+            release_notes_by_locale: BTreeMap::new(),
             downloads: Vec::new(),
         };
 
@@ -1078,6 +1103,7 @@ mod tests {
             published_at: Some("2026-05-24T00:00:00.000Z".to_string()),
             prerelease: true,
             release_notes: Some("Security fixes".to_string()),
+            release_notes_by_locale: BTreeMap::new(),
             downloads: vec![AppUpdateDownload {
                 kind: "installer".to_string(),
                 name: "TouchAI-beta-0.2.1-beta.1-windows.msi".to_string(),
@@ -1099,7 +1125,7 @@ mod tests {
     }
 
     #[test]
-    fn channel_update_options_allow_deltas_and_use_explicit_channel() {
+    fn user_gets_delta_updates_with_the_explicit_channel_and_no_downgrade() {
         let options = update_options(AppUpdateChannel::Nightly);
 
         assert_eq!(options.ExplicitChannel.as_deref(), Some("nightly"));
@@ -1107,7 +1133,7 @@ mod tests {
             options.MaximumDeltasBeforeFallback,
             MAXIMUM_DELTAS_BEFORE_FULL_FALLBACK
         );
-        assert!(options.AllowVersionDowngrade);
+        assert!(!options.AllowVersionDowngrade);
     }
 
     #[test]
@@ -1199,6 +1225,7 @@ mod tests {
                 published_at: Some("2026-05-24T00:00:00.000Z".to_string()),
                 prerelease: false,
                 release_notes: Some("Bug fixes".to_string()),
+                release_notes_by_locale: BTreeMap::new(),
                 downloads: vec![AppUpdateDownload {
                     kind: "installer".to_string(),
                     name: "TouchAI-0.2.1-windows.msi".to_string(),
@@ -1307,6 +1334,14 @@ mod tests {
         assert!(version_is_at_least("0.2.0", "0.2.0-beta.1"));
         assert!(!version_is_at_least("0.2.0-beta.1", "0.2.0"));
         assert!(version_is_less_than("0.2.0-nightly.1", "0.2.0-beta.1"));
+    }
+
+    #[test]
+    fn user_sees_later_beta_builds_as_newer_than_earlier_betas() {
+        assert!(version_is_less_than("1.0.0-beta.8", "1.0.0-beta.9"));
+        assert!(version_is_less_than("1.0.0-beta.9", "1.0.0-beta.10"));
+        assert!(version_is_less_than("1.0.0-beta.10", "1.0.0-beta.11"));
+        assert!(version_is_less_than("1.0.0-beta.11", "1.0.0"));
     }
 
     #[test]

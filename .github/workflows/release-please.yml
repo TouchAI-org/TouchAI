@@ -1,8 +1,10 @@
 name: Release Please
 
 on:
-    # Keep the release PR current after main changes. The stable Velopack build below
-    # only runs when release-please actually creates a GitHub release.
+    # Keep the release PR current after main changes. CHANGELOG.md is engineering
+    # history; user-facing Stable notes come from the reviewed bilingual file in
+    # apps/desktop/release-notes. The stable Velopack build below only runs when
+    # release-please actually creates a GitHub release.
     push:
         branches:
             - main
@@ -124,6 +126,8 @@ jobs:
         permissions:
             contents: write
             deployments: write
+            id-token: write
+            attestations: write
         uses: ./.github/workflows/velopack-build.yml
         with:
             channel: stable

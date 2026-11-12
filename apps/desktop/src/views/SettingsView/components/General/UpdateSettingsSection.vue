@@ -1,9 +1,14 @@
 <script setup lang="ts">
     import CustomSelect from '@components/CustomSelect.vue';
     import SettingsRow from '@components/SettingsRow.vue';
+    import { Button } from '@components/ui/button';
     import { Switch } from '@components/ui/switch';
     import { appUpdateService } from '@services/AppUpdateService';
-    import { getAvailableAppUpdateVersion } from '@services/AppUpdateService/availability';
+    import {
+        getAvailableAppUpdateVersion,
+        getDownloadableAppUpdate,
+        getInstallableAppUpdate,
+    } from '@services/AppUpdateService/availability';
     import type { AppUpdateChannel } from '@services/AppUpdateService/types';
     import { log } from '@services/ObservabilityService';
     import { getVersion } from '@tauri-apps/api/app';
@@ -13,9 +18,10 @@
     import { useAppUpdateState } from '@/composables/useAppUpdateState';
     import { APP_UPDATE_CHANNELS, appUpdateChannelLabel } from '@/config/appUpdate';
     import { APP_PRODUCT_CONFIG, APP_VERSION } from '@/config/product';
-    import { t } from '@/i18n';
+    import { getLocale, t } from '@/i18n';
     import { formatDateTime } from '@/i18n/format';
     import { preferredAppUpdateDownload } from '@/services/AppUpdateService/downloads';
+    import { appUpdateReleaseNotes } from '@/services/AppUpdateService/releaseNotes';
 
     import UpdateDetailsDialog from './UpdateDetailsDialog.vue';
 
@@ -61,11 +67,14 @@
             ''
     );
     const channelLabel = computed(() => t(channelLabelKey(updateState.value.channel)));
-    const releaseNotes = computed(
-        () => visibleUpdate.value?.notes?.trim() || latestUpdate.value?.releaseNotes?.trim() || ''
-    );
+    const releaseNotes = computed(() => appUpdateReleaseNotes(updateState.value, getLocale()));
     const currentDisplayVersion = computed(
         () => updateState.value.currentVersion ?? appVersion.value
+    );
+    const hasCurrentReleaseNotes = computed(
+        () =>
+            latestUpdate.value?.version === currentDisplayVersion.value &&
+            Boolean(releaseNotes.value)
     );
     const directDownload = computed(() =>
         preferredAppUpdateDownload(latestUpdate.value?.downloads ?? [])
@@ -81,12 +90,8 @@
     const isDownloading = computed(() => updateState.value.status === 'downloading');
     const isInstalling = computed(() => updateState.value.status === 'installing');
     const isBusy = computed(() => isChecking.value || isDownloading.value || isInstalling.value);
-    const canInstall = computed(() => updateState.value.status === 'downloaded');
-    const canUseInAppUpdate = computed(
-        () =>
-            updateState.value.status === 'available' &&
-            (updateState.value.updateRequirement?.targetSatisfiesRequirement ?? true)
-    );
+    const canInstall = computed(() => Boolean(getInstallableAppUpdate(updateState.value)));
+    const canUseInAppUpdate = computed(() => Boolean(getDownloadableAppUpdate(updateState.value)));
     const statusTitle = computed(() => {
         if (isChecking.value) {
             return t('settings.general.update.status.checking');
@@ -166,7 +171,9 @@
     const detailsTitle = computed(() =>
         hasUpdateDetails.value
             ? t('settings.general.update.dialog.newVersionTitle')
-            : t('settings.general.update.dialog.noVersion')
+            : hasCurrentReleaseNotes.value
+              ? t('settings.general.update.dialog.currentRelease')
+              : t('settings.general.update.dialog.noVersion')
     );
 
     const dialogVersion = computed(() =>
@@ -197,9 +204,15 @@
     }
 
     async function checkAndOpenUpdates(source: 'manual' | 'settings-open' = 'manual') {
+        if (isDownloading.value) {
+            detailsOpen.value = true;
+            return;
+        }
         const completed = await checkForUpdates(source);
         const updateCanBeShown =
             completed ||
+            canInstall.value ||
+            canUseInAppUpdate.value ||
             ['available', 'downloaded', 'unsupported'].includes(updateState.value.status);
         if (updateCanBeShown && hasUpdateDetails.value) {
             detailsOpen.value = true;
@@ -319,14 +332,30 @@
                         {{ updateState.error }}
                     </div>
                 </template>
+                <Button
+                    v-if="hasCurrentReleaseNotes"
+                    variant="ghost"
+                    size="sm"
+                    data-testid="settings-update-release-notes-action"
+                    :disabled="isBusy"
+                    @click="detailsOpen = true"
+                >
+                    {{ t('settings.update.releaseNotes') }}
+                </Button>
                 <button
                     type="button"
                     class="ml-auto inline-flex h-9 min-w-[88px] items-center justify-center rounded-control border border-transparent bg-surface-sunken px-3 text-[12px] font-normal text-neutral-800 transition-colors hover:bg-surface-active disabled:cursor-not-allowed disabled:opacity-50"
                     data-testid="settings-update-primary-action"
-                    :disabled="isBusy"
+                    :disabled="isChecking || isInstalling"
                     @click="handlePrimaryAction"
                 >
-                    {{ t('settings.general.update.action.check') }}
+                    {{
+                        t(
+                            isDownloading
+                                ? 'settings.general.update.action.showProgress'
+                                : 'settings.general.update.action.check'
+                        )
+                    }}
                 </button>
             </SettingsRow>
         </div>
@@ -338,7 +367,10 @@
             :channel="channelLabel"
             :published-at="dialogPublishedAt"
             :has-update="hasUpdateDetails"
-            :release-notes="hasUpdateDetails ? releaseNotes : ''"
+            :release-notes="hasUpdateDetails || hasCurrentReleaseNotes ? releaseNotes : ''"
+            :package-size-bytes="
+                hasUpdateDetails ? (visibleUpdate?.sizeBytes ?? directDownload?.sizeBytes) : null
+            "
             :action-text="primaryDetailsActionText"
             :busy="isBusy"
             :download-progress="isDownloading ? (updateState.downloadProgress ?? 0) : null"
