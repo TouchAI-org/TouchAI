@@ -58,4 +58,3 @@ Owner pages for areas with their own invariants and contracts:
 | Area               | Page                         | Read it when                                                                                     |
 | ------------------ | ---------------------------- | ------------------------------------------------------------------------------------------------ |
 | Product analytics  | [analytics.md](analytics.md) | Touching the event registry, consent, the delivery queue, the sender, or export/import scrubbing |
-| Shared search host | [search.md](search.md)       | Touching provider registration, query sessions, typed actions, or file/skill search adapters     |
