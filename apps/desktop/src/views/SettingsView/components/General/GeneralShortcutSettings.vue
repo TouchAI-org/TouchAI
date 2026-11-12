@@ -162,7 +162,6 @@
 
     const saveNewShortcut = async (newShortcut: string) => {
         if (isReservedGlobalShortcut(newShortcut)) {
-            shortcutRegistrationFailed.value = false;
             displayShortcut.value = formatShortcutForDisplay(settings.value.globalShortcut);
             alertMessage.value?.warning(t('settings.general.globalShortcutReservedOnMac'), 4000);
             return;
@@ -176,7 +175,6 @@
             }))
         );
         if (conflictActionId) {
-            shortcutRegistrationFailed.value = false;
             displayShortcut.value = formatShortcutForDisplay(settings.value.globalShortcut);
             alertMessage.value?.error(
                 t('settings.general.searchShortcuts.errors.duplicate', {
@@ -188,10 +186,10 @@
         }
 
         isSaving.value = true;
-        shortcutRegistrationFailed.value = false;
 
         try {
             await settingsStore.updateGlobalShortcut(newShortcut);
+            shortcutRegistrationFailed.value = false;
             displayShortcut.value = formatShortcutForDisplay(newShortcut);
             alertMessage.value?.success(t('settings.general.shortcutSaved'), 3000);
         } catch (error) {
@@ -206,7 +204,9 @@
             });
             alertMessage.value?.error(errorMessage, 4000);
             displayShortcut.value = formatShortcutForDisplay(settings.value.globalShortcut);
-            shortcutRegistrationFailed.value = true;
+            // A rejected save does not mean the shortcut that remained active is
+            // unregistered. Re-read the native status instead of conflating the two.
+            await refreshShortcutRegistrationStatus();
         } finally {
             isSaving.value = false;
         }
@@ -230,22 +230,29 @@
     watch(
         () => settings.value.globalShortcut,
         (shortcut) => {
-            if (!isCapturing.value && !shortcutRegistrationFailed.value) {
+            if (!isCapturing.value) {
                 displayShortcut.value = formatShortcutForDisplay(shortcut);
             }
         }
     );
 
+    const refreshShortcutRegistrationStatus = async () => {
+        try {
+            const [failed, error] = await native.shortcut.getShortcutStatus();
+            shortcutRegistrationFailed.value = failed;
+            if (failed) {
+                log.warn('[GeneralView] Shortcut registration failed:', error);
+            }
+        } catch (error) {
+            log.warn('[GeneralView] Failed to read shortcut registration status:', error);
+        }
+    };
+
     const loadSettings = async () => {
         try {
             await settingsStore.initialize();
             displayShortcut.value = formatShortcutForDisplay(settings.value.globalShortcut);
-
-            const [failed, error] = await native.shortcut.getShortcutStatus();
-            if (failed) {
-                shortcutRegistrationFailed.value = true;
-                log.warn('[GeneralView] Shortcut registration failed:', error);
-            }
+            await refreshShortcutRegistrationStatus();
         } catch (error) {
             log.error('Failed to load settings:', error);
             alertMessage.value?.error(t('settings.general.loadSettingsFailed'), 3000);

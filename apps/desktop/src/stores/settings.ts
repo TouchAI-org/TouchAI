@@ -40,6 +40,20 @@ function toSettingsError(result: SettingsMutationResult): SettingsServiceError {
     return new SettingsServiceError(result.code, result.message);
 }
 
+function sameSettingField(left: unknown, right: unknown): boolean {
+    if (Object.is(left, right)) {
+        return true;
+    }
+    if (left === null || right === null || typeof left !== 'object' || typeof right !== 'object') {
+        return false;
+    }
+    try {
+        return JSON.stringify(left) === JSON.stringify(right);
+    } catch {
+        return false;
+    }
+}
+
 export const useSettingsStore = defineStore('settings', () => {
     const settings = ref<GeneralSettingsData>(createDefaultGeneralSettings());
     const initialization = shallowRef<SettingsInitialization | null>(null);
@@ -72,7 +86,16 @@ export const useSettingsStore = defineStore('settings', () => {
         for (const [key, pending] of pendingMutations) {
             applyGeneralSettingValue(snapshot, key, pending.value);
         }
-        settings.value = snapshot;
+        // Do not replace the root object: Search and Browser keep an editable draft in a
+        // deep watcher over their section. Mutate only fields whose content changed so an
+        // unrelated save cannot reset a draft that is not part of the snapshot update.
+        const target = settings.value as unknown as Record<keyof GeneralSettingsData, unknown>;
+        const snapshotFields = snapshot as unknown as Record<keyof GeneralSettingsData, unknown>;
+        for (const key of Object.keys(snapshotFields) as Array<keyof GeneralSettingsData>) {
+            if (!sameSettingField(target[key], snapshotFields[key])) {
+                target[key] = snapshotFields[key];
+            }
+        }
     }
 
     function ensureSubscribed(source: SettingsService): void {
@@ -212,6 +235,20 @@ export const useSettingsStore = defineStore('settings', () => {
         }
     }
 
+    async function refreshStartOnBoot(): Promise<void> {
+        const effective = await service().readEffectiveValue('start_on_boot');
+        if (
+            !disposed &&
+            typeof effective === 'boolean' &&
+            effective !== settings.value.startOnBoot
+        ) {
+            // The OS is authoritative when this view opens. Persist its value through the
+            // owner so a later unrelated settings refresh cannot overwrite the displayed
+            // state with a stale saved value.
+            await updateSetting('start_on_boot', effective);
+        }
+    }
+
     const settingComputedRefs = createGeneralSettingsComputedRefs(settings);
     const settingUpdaters = createGeneralSettingUpdaters(updateSetting);
 
@@ -223,6 +260,7 @@ export const useSettingsStore = defineStore('settings', () => {
         initialize,
         dispose,
         refresh,
+        refreshStartOnBoot,
         ...settingComputedRefs,
         ...settingUpdaters,
     };

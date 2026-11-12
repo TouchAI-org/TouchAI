@@ -3,18 +3,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const tauri = vi.hoisted(() => ({
     emit: vi.fn(async () => undefined),
     emitTo: vi.fn(async () => undefined),
+    listen: vi.fn(),
     listeners: new Set<(event: { payload: unknown }) => void>(),
 }));
 
 vi.mock('@tauri-apps/api/event', () => ({
     emit: tauri.emit,
     emitTo: tauri.emitTo,
-    listen: vi.fn(async (_name: string, handler: (event: { payload: unknown }) => void) => {
-        tauri.listeners.add(handler);
-        return () => {
-            tauri.listeners.delete(handler);
-        };
-    }),
+    listen: tauri.listen,
 }));
 
 vi.mock('@tauri-apps/api/window', () => ({
@@ -41,6 +37,19 @@ describe('user cannot leak settings through the settings transport', () => {
     beforeEach(() => {
         tauri.emit.mockClear();
         tauri.emitTo.mockClear();
+        tauri.listen
+            .mockReset()
+            .mockImplementation(
+                async (
+                    _name: string,
+                    handler: (event: { payload: unknown }) => void
+                ): Promise<() => void> => {
+                    tauri.listeners.add(handler);
+                    return () => {
+                        tauri.listeners.delete(handler);
+                    };
+                }
+            );
         tauri.listeners.clear();
     });
 
@@ -169,6 +178,16 @@ describe('user cannot leak settings through the settings transport', () => {
         }
 
         expect(received).toHaveLength(0);
+    });
+
+    it('user binds the listener to the current window so directed replies stay addressed', async () => {
+        const transport = createTauriSettingsTransport('win-a');
+
+        await transport.listen(() => undefined);
+
+        expect(tauri.listen).toHaveBeenCalledWith(SETTINGS_TRANSPORT_EVENT, expect.any(Function), {
+            target: { kind: 'Window', label: 'win-a' },
+        });
     });
 
     it('user receives well-formed envelopes after validation', async () => {

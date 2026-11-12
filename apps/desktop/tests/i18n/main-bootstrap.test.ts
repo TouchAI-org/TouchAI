@@ -241,9 +241,16 @@ describe('user opens the main window', () => {
 
     it('user releases settings listeners when the window leaves', async () => {
         mainWindowAt();
+        const addListener = vi.spyOn(window, 'addEventListener');
         await startApp();
+        const startupHandlers = addListener.mock.calls
+            .filter(([type]) => type === 'pagehide' || type === 'beforeunload')
+            .map(([, handler]) => handler as EventListener);
+        addListener.mockRestore();
 
-        window.dispatchEvent(new Event('pagehide'));
+        for (const handler of startupHandlers) {
+            handler(new Event('pagehide'));
+        }
 
         expect(settingsStoreMock.dispose).toHaveBeenCalled();
     });

@@ -288,10 +288,25 @@ describe('user records a new activation shortcut', () => {
         expect(settingsMock.updateGlobalShortcut).toHaveBeenCalledWith('Ctrl+N');
         expect(settingsMock.settings.value.globalShortcut).toBe('Alt+Space');
         expect(wrapper.find('[data-testid="settings-shortcut-occupied-indicator"]').exists()).toBe(
-            true
+            false
         );
         expect(notifyMock).toHaveBeenCalled();
         expect(alertMock.error).toHaveBeenCalled();
+    });
+
+    it('user still sees authoritative shortcut changes after a failed save', async () => {
+        settingsMock.updateGlobalShortcut.mockRejectedValueOnce(new Error('settings locked'));
+        const wrapper = await mountSection();
+        await startCapture(wrapper);
+
+        await pressKeys({ key: 'n', ctrlKey: true });
+        settingsMock.settings.value.globalShortcut = 'Ctrl+Space';
+        await wrapper.vm.$nextTick();
+
+        expect(fieldValue(wrapper)).toBe('Ctrl+Space');
+        expect(wrapper.find('[data-testid="settings-shortcut-occupied-indicator"]').exists()).toBe(
+            false
+        );
     });
 
     it('user is not asked to save a shortcut they already have', async () => {

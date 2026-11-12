@@ -145,6 +145,14 @@ export async function executeSettingTool(
                 status: 'success',
             };
         }
+        if (result.status === 'unknown' || result.status === 'recovery-required') {
+            return {
+                result: [formatSingleUpdate(request.key, request.value), result.message].join('\n'),
+                isError: true,
+                status: 'error',
+                errorMessage: result.message,
+            };
+        }
         errorMessage = result.message;
     } catch (error) {
         errorMessage = error instanceof Error ? error.message : String(error);

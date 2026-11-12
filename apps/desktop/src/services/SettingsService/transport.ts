@@ -66,12 +66,20 @@ export function createTauriSettingsTransport(label = currentWindowLabel()): Sett
             await emitTo(target, SETTINGS_TRANSPORT_EVENT, message);
         },
         async listen(handler) {
-            return await listenEvent<unknown>(SETTINGS_TRANSPORT_EVENT, (event) => {
-                const message = parseSettingsWireMessage(event.payload);
-                if (message) {
-                    handler(message);
-                }
-            });
+            return await listenEvent<unknown>(
+                SETTINGS_TRANSPORT_EVENT,
+                (event) => {
+                    const message = parseSettingsWireMessage(event.payload);
+                    if (message) {
+                        handler(message);
+                    }
+                },
+                // Generic listeners default to `Any`, which also receives directed
+                // events addressed to another window. Bind to this window so replies
+                // carrying snapshots cannot cross windows; unfiltered broadcasts still
+                // reach every window listener.
+                { target: { kind: 'Window', label } }
+            );
         },
         async onFocus(handler) {
             try {

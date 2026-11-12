@@ -188,6 +188,35 @@ describe('user changes app settings through the assistant', () => {
         expect(service.getSnapshot().globalShortcut).toBe('Alt+Space');
     });
 
+    it('user reads an unconfirmed setting update without being told it failed', async () => {
+        setLocale('en-US');
+        vi.spyOn(service, 'mutate').mockResolvedValueOnce({
+            status: 'unknown',
+            key: 'start_minimized',
+            code: SettingsErrorCode.Timeout,
+            message: 'Settings result unknown: re-check settings before retrying.',
+        });
+
+        const result = await executeSettingTool(
+            {
+                action: 'set',
+                key: 'start_minimized',
+                value: false,
+                reason: 'User asked for it.',
+            },
+            {},
+            createExecutionContext()
+        );
+
+        expect(result).toMatchObject({
+            isError: true,
+            status: 'error',
+            errorMessage: 'Settings result unknown: re-check settings before retrying.',
+        });
+        expect(result.result).toContain('Settings result unknown');
+        expect(result.result).not.toContain('Setting update failed');
+    });
+
     it('user cancels while the settings owner initializes and no setting is written', async () => {
         setLocale('en-US');
         const controller = new AbortController();

@@ -1,15 +1,25 @@
 import { createSettingsBus } from '@tests/utils/settingsTransport';
 import { createPinia, setActivePinia } from 'pinia';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { nextTick, watch } from 'vue';
 
 import { setActiveSettingsService } from '@/services/SettingsService';
 import { SettingsService } from '@/services/SettingsService/service';
 
-const { getSettingValueMock, getSettingValuesMock, setSettingMock } = vi.hoisted(() => ({
-    getSettingValueMock: vi.fn(),
-    getSettingValuesMock: vi.fn(),
-    setSettingMock: vi.fn(),
-}));
+const { getSettingValueMock, getSettingValuesMock, setSettingMock, nativeMock } = vi.hoisted(
+    () => ({
+        getSettingValueMock: vi.fn(),
+        getSettingValuesMock: vi.fn(),
+        setSettingMock: vi.fn(),
+        nativeMock: {
+            isAutostartEnabled: vi.fn(async () => false),
+            enableAutostart: vi.fn(async () => undefined),
+            disableAutostart: vi.fn(async () => undefined),
+            registerGlobalShortcut: vi.fn(async () => undefined),
+            setSearchWindowDefaults: vi.fn(async () => undefined),
+        },
+    })
+);
 
 vi.mock('@database/queries', () => ({
     getSettingValue: getSettingValueMock,
@@ -20,15 +30,15 @@ vi.mock('@database/queries', () => ({
 vi.mock('@services/NativeService', () => ({
     native: {
         autostart: {
-            isAutostartEnabled: vi.fn(async () => false),
-            enableAutostart: vi.fn(async () => undefined),
-            disableAutostart: vi.fn(async () => undefined),
+            isAutostartEnabled: nativeMock.isAutostartEnabled,
+            enableAutostart: nativeMock.enableAutostart,
+            disableAutostart: nativeMock.disableAutostart,
         },
         shortcut: {
-            registerGlobalShortcut: vi.fn(async () => undefined),
+            registerGlobalShortcut: nativeMock.registerGlobalShortcut,
         },
         window: {
-            setSearchWindowDefaults: vi.fn(async () => undefined),
+            setSearchWindowDefaults: nativeMock.setSearchWindowDefaults,
         },
     },
 }));
@@ -44,10 +54,12 @@ describe('user changes a setting while a refresh is in flight', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        nativeMock.isAutostartEnabled.mockResolvedValue(false);
         setActivePinia(createPinia());
         bus = createSettingsBus();
 
         const values: Record<string, string | null> = {
+            start_on_boot: 'true',
             start_minimized: 'true',
         };
         getSettingValueMock.mockImplementation(
@@ -125,5 +137,48 @@ describe('user changes a setting while a refresh is in flight', () => {
         releaseWrite();
         await update;
         expect(store.settings.startMinimized).toBe(false);
+    });
+
+    it('user keeps an unrelated draft section when another setting changes', async () => {
+        const owner = new SettingsService({ transport: bus.transport('main') });
+        setActiveSettingsService(owner);
+        await owner.initialize();
+        const { useSettingsStore } = await import('@/stores/settings');
+        const store = useSettingsStore();
+        await store.initialize();
+
+        const searchSettings = store.settings.searchSettings;
+        const resets: unknown[] = [];
+        const stop = watch(
+            () => store.settings.searchSettings,
+            (config) => resets.push(config),
+            { deep: true }
+        );
+
+        const update = store.updateStartMinimized(false);
+        releaseWrite();
+        await update;
+        await nextTick();
+
+        expect(store.settings.searchSettings).toBe(searchSettings);
+        expect(resets).toHaveLength(0);
+        stop();
+    });
+
+    it('user sees the effective OS autostart state when reopening settings', async () => {
+        const owner = new SettingsService({ transport: bus.transport('main') });
+        setActiveSettingsService(owner);
+        await owner.initialize();
+        const { useSettingsStore } = await import('@/stores/settings');
+        const store = useSettingsStore();
+        await store.initialize();
+        expect(store.settings.startOnBoot).toBe(true);
+
+        nativeMock.isAutostartEnabled.mockResolvedValue(false);
+        await store.refreshStartOnBoot();
+
+        expect(store.settings.startOnBoot).toBe(false);
+        expect(nativeMock.disableAutostart).toHaveBeenCalledTimes(1);
+        expect(setSettingMock).toHaveBeenCalledWith({ key: 'start_on_boot', value: 'false' });
     });
 });

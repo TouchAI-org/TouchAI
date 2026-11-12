@@ -90,6 +90,7 @@
     const loadSettings = async () => {
         try {
             await settingsStore.initialize();
+            await settingsStore.refreshStartOnBoot();
         } catch (error) {
             log.error('Failed to load settings:', error);
             alertMessage.value?.error(t('settings.general.loadSettingsFailed'), 3000);
