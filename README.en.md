@@ -41,16 +41,11 @@
 
 Download the latest installer from [Releases](https://github.com/TouchAI-org/TouchAI/releases).
 
-See the [release process](docs/releasing.md) for channel selection, the
-no-downgrade policy, and installer integrity checks.
-
 ### Development & Contributing
 
 If you want to contribute to TouchAI, read the [contributing docs](./CONTRIBUTING.md).
 
 ### Docs
-
-- [Release process](docs/releasing.md)
 
 For more details, browse the project docs and source code.
 

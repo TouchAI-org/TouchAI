@@ -1,7 +1,8 @@
 # Release process
 
-For maintainers and Agents. Releases run only through GitHub Actions. Do not
-create tags, releases, upload assets, or edit update feeds by hand.
+For maintainers and Agents. This runbook is intentionally not linked from the
+project README. Releases run only through GitHub Actions. Do not create tags,
+releases, upload assets, or edit update feeds by hand.
 
 ## Channels
 
