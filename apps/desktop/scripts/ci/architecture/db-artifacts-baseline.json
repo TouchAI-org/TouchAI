@@ -14,5 +14,5 @@
     "apps/desktop/src/database/artifacts/import/chat_merge.sql": "35ad7217e1cdf922501baeed579e47b5c33d55e401ab649544f0e3661cb710b2",
     "apps/desktop/src/database/artifacts/import/full_prelude.sql": "da107ee3a6bec5ac0d6755bcb9d5e5132b7ccaa7cc7d17ccc2a671b67932bb08",
     "apps/desktop/src/database/artifacts/runtime/guards.sql": "03c131a547b18f39c3265eb223dd14439f388454715bb84391fe24839c9cb62a",
-    "apps/desktop/src/database/artifacts/runtime/seed.sql": "68756000a6bd0ba6b5443636f1b8b1cee01340d4cc4f5ec59c0ae5649d5a631e"
+    "apps/desktop/src/database/artifacts/runtime/seed.sql": "02e7b820b4e7dfc5b0065b37c7ee1284b9d04fcd94de74707eef78333e6b13f0"
 }
