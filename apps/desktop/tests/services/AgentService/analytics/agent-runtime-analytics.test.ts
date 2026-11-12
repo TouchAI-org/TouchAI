@@ -625,20 +625,32 @@ describe('user gets real agent telemetry from the runtime and executor seam', ()
         });
     });
 
-    it('user sees no late tool completion after a cancelled request has already completed', async () => {
+    it('user waits for a pending sibling before a cancelled request completes', async () => {
         const controller = new AbortController();
+        let markSecondToolStarted: (() => void) | undefined;
+        const secondToolStarted = new Promise<void>((resolve) => {
+            markSecondToolStarted = resolve;
+        });
+        let markRoundAborted: (() => void) | undefined;
+        const roundAborted = new Promise<void>((resolve) => {
+            markRoundAborted = resolve;
+        });
         let releaseSecondTool: (() => void) | undefined;
         const secondToolGate = new Promise<void>((resolve) => {
             releaseSecondTool = resolve;
         });
         builtInExecuteToolMock.mockImplementation(
-            async ({ toolCall }: { toolCall: { id: string } }) => {
+            async ({ toolCall, signal }: { toolCall: { id: string }; signal: AbortSignal }) => {
                 if (toolCall.id === 'call-1') {
-                    // Let the second parallel tool start before the abort lands,
-                    // so this really is a late completion after cancellation.
-                    await Promise.resolve();
+                    await secondToolStarted;
                     controller.abort();
                     throw new AiError(AiErrorCode.REQUEST_CANCELLED);
+                }
+                markSecondToolStarted?.();
+                if (signal.aborted) {
+                    markRoundAborted?.();
+                } else {
+                    signal.addEventListener('abort', () => markRoundAborted?.(), { once: true });
                 }
                 await secondToolGate;
                 return builtInResult('call-2');
@@ -653,24 +665,30 @@ describe('user gets real agent telemetry from the runtime and executor seam', ()
         const startedOperation = operationSequence;
         const runtime = createRuntime({ signal: controller.signal });
 
-        await expect(runtime.run()).rejects.toBeInstanceOf(AiError);
+        const pendingRun = runtime.run();
+        await roundAborted;
+        expect(tracksOf('agent.request_completed')).toHaveLength(0);
+
+        releaseSecondTool?.();
+        await expect(pendingRun).rejects.toBeInstanceOf(AiError);
 
         const completed = await waitForTerminal();
         expect(completed.attributes).toMatchObject({
             result: 'cancelled',
-            tool_count: 1,
+            tool_count: 2,
         });
 
-        // The user re-enables analytics in another window while the second tool
-        // is still finishing; the late completion must neither be sent nor be
-        // rebound to the newer consent epoch.
+        const eventNames = trackCalls().map((tracked) => tracked.eventName);
+        const terminalIndex = eventNames.lastIndexOf('agent.request_completed');
+        expect(
+            eventNames.slice(0, terminalIndex).filter((name) => name === 'agent.tool_completed')
+        ).toHaveLength(2);
+        expect(eventNames.slice(terminalIndex + 1)).not.toContain('agent.tool_completed');
+
+        // Re-enabling analytics in another window must not retag this request.
         enableAnalytics(9);
-        releaseSecondTool?.();
-        // Let the still-running tool return and any note it makes run; a false
-        // positive would only happen if the guard let it through.
         await new Promise((resolve) => setTimeout(resolve, 0));
 
-        expect(tracksOf('agent.tool_completed')).toHaveLength(1);
         expect(tracksOf('agent.request_completed')).toHaveLength(1);
         const operationIds = new Set(trackCalls().map((tracked) => tracked.operationId));
         expect(operationIds).toEqual(new Set([`op-runtime-${startedOperation}`]));
