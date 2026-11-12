@@ -135,27 +135,53 @@ export async function resetSearchSurface() {
     );
     if (hasConversation) await callE2eBridge('clearSessionToIdle');
     await callE2eBridge('resetSearchWindowBounds');
-    await browser.waitUntil(
-        async () =>
-            browser.execute(async () => {
-                const card = document.querySelector('[data-testid="search-view-card"]');
-                const editor = document.querySelector(
-                    '[data-testid="search-editor-host"] .ProseMirror'
-                );
-                if (!card || !editor) return false;
-                const rect = editor.getBoundingClientRect();
-                const state = await window.__TOUCHAI_E2E__.getSearchWindowState();
-                return (
-                    !document.querySelector('[data-testid="conversation-panel-host"]') &&
-                    card.getAnimations().length === 0 &&
-                    Math.abs(card.getBoundingClientRect().height - state.defaults.height) <= 2 &&
-                    rect.top >= 0 &&
-                    rect.bottom <= innerHeight &&
-                    rect.height > 0
-                );
-            }),
-        { timeoutMsg: 'The search surface did not settle with an accessible idle editor.' }
-    );
+    let lastSurfaceState = null;
+    try {
+        await browser.waitUntil(
+            async () => {
+                lastSurfaceState = await browser.execute(async () => {
+                    const card = document.querySelector('[data-testid="search-view-card"]');
+                    const editor = document.querySelector(
+                        '[data-testid="search-editor-host"] .ProseMirror'
+                    );
+                    if (!card || !editor) {
+                        return { ready: false, missingCard: !card, missingEditor: !editor };
+                    }
+                    const rect = editor.getBoundingClientRect();
+                    const state = await window.__TOUCHAI_E2E__.getSearchWindowState();
+                    const cardRect = card.getBoundingClientRect();
+                    return {
+                        ready:
+                            !document.querySelector('[data-testid="conversation-panel-host"]') &&
+                            card.getAnimations().length === 0 &&
+                            Math.abs(cardRect.height - state.defaults.height) <= 2 &&
+                            rect.top >= 0 &&
+                            rect.bottom <= innerHeight &&
+                            rect.height > 0,
+                        hasConversation: Boolean(
+                            document.querySelector('[data-testid="conversation-panel-host"]')
+                        ),
+                        animationCount: card.getAnimations().length,
+                        cardHeight: cardRect.height,
+                        defaultHeight: state.defaults.height,
+                        editorTop: rect.top,
+                        editorBottom: rect.bottom,
+                        editorHeight: rect.height,
+                        innerHeight,
+                    };
+                });
+                return lastSurfaceState.ready;
+            },
+            { timeoutMsg: 'The search surface did not settle.' }
+        );
+    } catch (error) {
+        throw new Error(
+            `The search surface did not settle with an accessible idle editor: ${JSON.stringify(
+                lastSurfaceState
+            )}`,
+            { cause: error }
+        );
+    }
 }
 
 /** Compare the visible card; the transparent host also reserves room for overlays. */
