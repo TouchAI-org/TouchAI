@@ -1472,6 +1472,54 @@ fn user_gets_quick_search_click_stats_through_the_typed_upsert() {
 }
 
 #[test]
+fn user_gets_recent_file_references_through_the_typed_read() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+    execute_sql(
+        &test_app.main_webview,
+        "INSERT INTO quick_search_click_stats
+             (query_norm, path_norm, click_count, updated_at)
+         VALUES
+             (?, ?, ?, ?),
+             (?, ?, ?, ?)",
+        json!([
+            "@reference",
+            "d:\\often.md",
+            100,
+            "2026-11-08 10:00:00.100",
+            "@reference",
+            "d:\\latest.md",
+            1,
+            "2026-11-09 10:00:00.200"
+        ]),
+    );
+
+    assert_eq!(
+        database_operation(
+            &test_app.main_webview,
+            json!({
+                "kind": "quick_search_find_recent",
+                "queryNorm": "@reference",
+                "limit": 12
+            }),
+        ),
+        json!([
+            {
+                "query_norm": "@reference",
+                "path_norm": "d:\\latest.md",
+                "click_count": 1,
+                "updated_at": "2026-11-09 10:00:00.200"
+            },
+            {
+                "query_norm": "@reference",
+                "path_norm": "d:\\often.md",
+                "click_count": 100,
+                "updated_at": "2026-11-08 10:00:00.100"
+            }
+        ])
+    );
+}
+
+#[test]
 fn user_exports_a_consistent_database_backup() {
     let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
     let target_dir = tempfile::tempdir().expect("backup destination");
