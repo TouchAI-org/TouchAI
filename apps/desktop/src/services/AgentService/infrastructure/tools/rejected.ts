@@ -4,7 +4,9 @@ import { createToolPart } from '@database/queries/toolParts';
 import { serializeAuditPayload } from '@services/ObservabilityService/redact';
 import { log } from '@services/ObservabilityService';
 
-import type { AiToolCall } from '../../contracts/tooling';
+import { AiError, AiErrorCode } from '../../contracts/errors';
+import type { AiToolCall, ToolEvent } from '../../contracts/tooling';
+import type { ToolDispatchResult } from './types';
 
 function safeServerId(value: string | undefined): number | null {
     if (value === undefined) return null;
@@ -40,13 +42,19 @@ function toolIdentity(name: string): {
     };
 }
 
+function throwIfAborted(signal?: AbortSignal): void {
+    if (signal?.aborted) {
+        throw new AiError(AiErrorCode.REQUEST_CANCELLED);
+    }
+}
+
 /**
  * Persist a call that failed before an adapter could create its normal tool log.
  * `requestedName` keeps non-canonical names intact when history is replayed.
  */
-export async function recordRejectedToolCall(options: {
+async function persistRejectedToolCall(options: {
     toolCall: AiToolCall;
-    input: unknown;
+    input: string;
     result: string;
     iteration: number;
     sessionId: number;
@@ -60,10 +68,10 @@ export async function recordRejectedToolCall(options: {
             session_id: options.sessionId,
             message_id: options.messageId,
             iteration: options.iteration,
-            input: serializeAuditPayload(options.input),
+            input: options.input,
             output: options.result,
             status: 'error',
-            error_message: serializeAuditPayload(options.result),
+            error_message: options.result,
             requestedName: options.toolCall.name,
         });
         if (typeof part.id !== 'number') {
@@ -79,4 +87,54 @@ export async function recordRejectedToolCall(options: {
         });
         throw error;
     }
+}
+
+/**
+ * Finish a rejected call consistently: persist the audit-safe payload, emit
+ * `call_end`, and return the result recorded in conversation history.
+ */
+export async function rejectToolCall(options: {
+    toolCall: AiToolCall;
+    input: unknown;
+    result: string;
+    iteration: number;
+    sessionId: number | null;
+    messageId: number | null;
+    durationMs: number;
+    signal?: AbortSignal;
+    emitToolEvent: (event: ToolEvent) => void;
+}): Promise<ToolDispatchResult> {
+    throwIfAborted(options.signal);
+
+    const input = serializeAuditPayload(options.input);
+    const result = serializeAuditPayload(options.result);
+    const toolLogId =
+        options.sessionId === null
+            ? null
+            : await persistRejectedToolCall({
+                  toolCall: options.toolCall,
+                  input,
+                  result,
+                  iteration: options.iteration,
+                  sessionId: options.sessionId,
+                  messageId: options.messageId,
+              });
+
+    throwIfAborted(options.signal);
+    options.emitToolEvent({
+        type: 'call_end',
+        callId: options.toolCall.id,
+        result,
+        isError: true,
+        durationMs: options.durationMs,
+        finalStatus: 'error',
+    });
+
+    return {
+        toolCall: options.toolCall,
+        input,
+        result,
+        isError: true,
+        toolLogId,
+    };
 }

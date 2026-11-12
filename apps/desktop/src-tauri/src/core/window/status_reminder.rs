@@ -34,6 +34,7 @@ pub struct SessionStatusReminderNotificationApprovalPayload {
     pub call_id: String,
     pub approve_label: String,
     pub reject_label: String,
+    pub decision_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -59,6 +60,8 @@ struct SessionStatusReminderActionPayload {
     kind: SessionStatusReminderKind,
     #[serde(skip_serializing_if = "Option::is_none")]
     call_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    decision_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     reply_text: Option<String>,
 }
@@ -524,10 +527,7 @@ fn build_toast_document(
     let launch = serialize_activation_payload(
         payload,
         SessionStatusReminderAction::Open,
-        payload
-            .approval
-            .as_ref()
-            .map(|approval| approval.call_id.clone()),
+        payload.approval.as_ref(),
     )?;
 
     let toast = doc
@@ -587,12 +587,12 @@ fn build_toast_document(
             let approve_arguments = serialize_activation_payload(
                 payload,
                 SessionStatusReminderAction::Approve,
-                Some(approval.call_id.clone()),
+                Some(approval),
             )?;
             let reject_arguments = serialize_activation_payload(
                 payload,
                 SessionStatusReminderAction::Reject,
-                Some(approval.call_id.clone()),
+                Some(approval),
             )?;
 
             append_action_element(
@@ -699,14 +699,15 @@ fn append_action_element(
 fn serialize_activation_payload(
     payload: &SessionStatusReminderNotificationPayload,
     action: SessionStatusReminderAction,
-    call_id: Option<String>,
+    approval: Option<&SessionStatusReminderNotificationApprovalPayload>,
 ) -> Result<String, String> {
     serde_json::to_string(&SessionStatusReminderActionPayload {
         action,
         session_id: payload.session_id,
         task_id: payload.task_id.clone(),
         kind: payload.kind,
-        call_id,
+        call_id: approval.map(|approval| approval.call_id.clone()),
+        decision_id: approval.and_then(|approval| approval.decision_id.clone()),
         reply_text: None,
     })
     .map_err(|error| error.to_string())
@@ -1207,6 +1208,10 @@ mod macos_notifications {
                 .get("callId")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
+            let decision_id: Option<String> = payload
+                .get("decisionId")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
             let session_id: Option<i64> = payload.get("sessionId").and_then(|v| v.as_i64());
             let task_id: Option<String> = payload
                 .get("taskId")
@@ -1232,6 +1237,7 @@ mod macos_notifications {
                     task_id: task_id.unwrap_or_default(),
                     kind: kind.unwrap_or(SessionStatusReminderKind::Completed),
                     call_id,
+                    decision_id,
                     reply_text: reply_text.clone(),
                 },
                 reply_text,
@@ -1270,7 +1276,7 @@ mod macos_notifications {
         let base_payload = serialize_activation_payload(
             payload,
             SessionStatusReminderAction::Open,
-            payload.approval.as_ref().map(|a| a.call_id.clone()),
+            payload.approval.as_ref(),
         )
         .map_err(|e| format!("Failed to serialize activation payload: {e}"))?;
 
@@ -1401,6 +1407,10 @@ mod linux_notifications {
             task_id: payload.task_id.clone(),
             kind: payload.kind,
             call_id: payload.approval.as_ref().map(|a| a.call_id.clone()),
+            decision_id: payload
+                .approval
+                .as_ref()
+                .and_then(|a| a.decision_id.clone()),
             reply_text: None,
         };
 
@@ -1454,9 +1464,10 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        finalize_activation_payload, has_windows_installation_marker,
+        finalize_activation_payload, has_windows_installation_marker, serialize_activation_payload,
         should_restore_search_window_from_status_reminder, SessionStatusReminderAction,
         SessionStatusReminderActionPayload, SessionStatusReminderKind,
+        SessionStatusReminderNotificationApprovalPayload, SessionStatusReminderNotificationPayload,
     };
 
     // Clicking a reminder either restores the search window or answers the approval inline.
@@ -1472,6 +1483,7 @@ mod tests {
             session_id: 1,
             task_id: "task-1".to_string(),
             call_id: None,
+            decision_id: None,
             reply_text: None,
         }
     }
@@ -1499,6 +1511,38 @@ mod tests {
         assert!(!should_restore_search_window_from_status_reminder(Some(
             &payload
         )));
+    }
+
+    #[test]
+    fn user_notification_approval_action_keeps_call_and_decision_identity() {
+        let approval = SessionStatusReminderNotificationApprovalPayload {
+            call_id: "call-1".to_string(),
+            approve_label: "Approve".to_string(),
+            reject_label: "Reject".to_string(),
+            decision_id: Some("decision-1".to_string()),
+        };
+        let payload = SessionStatusReminderNotificationPayload {
+            title: "Waiting approval".to_string(),
+            body: "Review the tool call".to_string(),
+            session_id: 1,
+            task_id: "task-1".to_string(),
+            kind: SessionStatusReminderKind::WaitingApproval,
+            approval: Some(approval.clone()),
+            open_label: None,
+            reply_placeholder: None,
+            reply_label: None,
+        };
+
+        let serialized = serialize_activation_payload(
+            &payload,
+            SessionStatusReminderAction::Approve,
+            Some(&approval),
+        )
+        .expect("serialize approval action");
+        let value: serde_json::Value = serde_json::from_str(&serialized).expect("json");
+
+        assert_eq!(value["callId"], "call-1");
+        assert_eq!(value["decisionId"], "decision-1");
     }
 
     #[test]
@@ -1547,6 +1591,7 @@ mod tests {
                 task_id: "task-1".to_string(),
                 kind: SessionStatusReminderKind::Completed,
                 call_id: None,
+                decision_id: None,
                 reply_text: None,
             },
             Some("   ".to_string()),
@@ -1565,6 +1610,7 @@ mod tests {
                 task_id: "task-1".to_string(),
                 kind: SessionStatusReminderKind::Failed,
                 call_id: None,
+                decision_id: None,
                 reply_text: None,
             },
             Some(" follow up ".to_string()),
@@ -1594,6 +1640,7 @@ mod tests {
             task_id: "task-1".to_string(),
             kind: SessionStatusReminderKind::WaitingApproval,
             call_id: Some("call-1".to_string()),
+            decision_id: None,
             reply_text: None,
         };
 
@@ -1610,6 +1657,7 @@ mod tests {
             task_id: "task-1".to_string(),
             kind: SessionStatusReminderKind::Completed,
             call_id: None,
+            decision_id: None,
             reply_text: None,
         };
         let reject_waiting = SessionStatusReminderActionPayload {
@@ -1618,6 +1666,7 @@ mod tests {
             task_id: "task-1".to_string(),
             kind: SessionStatusReminderKind::WaitingApproval,
             call_id: Some("call-1".to_string()),
+            decision_id: None,
             reply_text: None,
         };
 
@@ -1672,6 +1721,7 @@ mod tests_windows {
                 call_id: "call-1".to_string(),
                 approve_label: "Approve".to_string(),
                 reject_label: "Reject".to_string(),
+                decision_id: Some("decision-1".to_string()),
             }),
             open_label: None,
             reply_placeholder: None,
