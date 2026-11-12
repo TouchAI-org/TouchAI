@@ -20,6 +20,15 @@ export const ResultStates: Story = {
                 { keys: ['Enter', 'Tab'], separator: '/', label: 'Insert' },
                 { keys: ['Esc'], label: 'Close' },
             ],
+            gridItems: [
+                { label: 'Open workspace', highlighted: true },
+                { label: 'Recent workspace' },
+                { label: 'Design tokens' },
+                { label: 'Search window' },
+                { label: 'Visual baselines' },
+                { label: 'Lint rules' },
+                { label: 'Unavailable', disabled: true },
+            ],
         }),
         template: `
             <div class="flex w-full max-w-3xl flex-col gap-4 p-8">
@@ -28,11 +37,16 @@ export const ResultStates: Story = {
                     <ResultItem label="Recent workspace" description="An earlier project" role="option" aria-selected="false" />
                     <ResultItem label="Unavailable workspace" disabled role="option" aria-selected="false" />
                 </ResultPanel>
-                <ResultPanel layout="grid" :shortcuts="shortcuts" status="3 results">
-                    <div class="grid w-full grid-cols-3 gap-2">
-                        <ResultItem layout="grid" label="Open workspace" highlighted />
-                        <ResultItem layout="grid" label="Recent workspace" />
-                        <ResultItem layout="grid" label="Unavailable workspace" disabled />
+                <ResultPanel layout="grid" :shortcuts="shortcuts" status="7 results">
+                    <div class="grid w-full grid-cols-7 gap-2">
+                        <ResultItem
+                            v-for="item in gridItems"
+                            :key="item.label"
+                            layout="grid"
+                            :label="item.label"
+                            :highlighted="item.highlighted"
+                            :disabled="item.disabled"
+                        />
                     </div>
                 </ResultPanel>
                 <ResultPanel :state="{ kind: 'loading', message: 'Loading results…' }" />
