@@ -22,26 +22,37 @@ describe('given a release assembled from platform build artifacts', () => {
         const workflow = readWorkflow('velopack-build.yml');
         const steps = workflow.jobs['build-update-channels']!.steps;
         const checksum = steps.findIndex((step) => step.run?.includes('release-checksums.mjs'));
-        const sbom = steps.findIndex((step) => step.uses?.startsWith('anchore/sbom-action@'));
+        const sbom = steps.findIndex((step) => step.name === 'Generate source dependency SBOM');
+        const syft = steps.findIndex((step) => step.name === 'Install Syft');
         const version = steps.findIndex((step) => step.run?.includes('set-release-version.mjs'));
         const attest = steps.findIndex((step) => step.uses?.startsWith('actions/attest@'));
         const upload = steps.findIndex((step) => step.run?.includes('gh release upload'));
         expect(sbom).toBeGreaterThan(-1);
+        expect(syft).toBeGreaterThan(-1);
         expect(version).toBeGreaterThan(-1);
         expect(sbom).toBeGreaterThan(version);
+        expect(sbom).toBeGreaterThan(syft);
         expect(checksum).toBeGreaterThan(sbom);
         expect(attest).toBeGreaterThan(checksum);
         expect(upload).toBeGreaterThan(attest);
         expect(steps[attest]?.with?.['subject-path']).toBe(
             '${{ runner.temp }}/touchai-github-release-assets/*'
         );
-        expect(steps[sbom]?.with?.['upload-release-assets']).toBe(false);
-        expect(steps[sbom]?.with?.['upload-artifact']).toBe(false);
-        expect(steps[sbom]?.with?.['syft-version']).toMatch(/^v\d+\.\d+\.\d+$/);
-        for (const index of [sbom, attest]) {
-            expect(steps[index]?.uses).toMatch(/@[a-f0-9]{40}$/);
-        }
+        expect(steps[attest]?.uses).toMatch(/@[a-f0-9]{40}$/);
         expect(steps.some((step) => step.run?.includes('provenance.sigstore.json'))).toBe(true);
+    });
+
+    it('user gets the source SBOM without an unapproved third-party action', () => {
+        const steps = readWorkflow('velopack-build.yml').jobs['build-update-channels']!.steps;
+        const syft = steps.find((step) => step.name === 'Install Syft');
+        const sbom = steps.find((step) => step.name === 'Generate source dependency SBOM');
+
+        expect(steps.some((step) => step.uses?.startsWith('anchore/sbom-action@'))).toBe(false);
+        expect(syft?.uses).toBeUndefined();
+        expect(syft?.run).toContain('SYFT_SHA256');
+        expect(syft?.run).toContain('sha256sum -c -');
+        expect(sbom?.run).toContain('syft dir:. -o spdx-json');
+        expect(sbom?.run).toContain('source.spdx.json');
     });
 
     it('user gets signing permissions only in the attesting job and its reusable-workflow callers', () => {
