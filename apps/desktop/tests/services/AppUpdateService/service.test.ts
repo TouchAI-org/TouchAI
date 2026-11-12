@@ -453,7 +453,7 @@ describe('user checks for and installs app updates', () => {
         expect(controller.getState()).toMatchObject({
             status: 'failed',
             availableUpdate,
-            error: 'connection lost',
+            error: '更新失败，请重试',
         });
 
         await expect(controller.download()).resolves.toBe(true);
@@ -480,7 +480,7 @@ describe('user checks for and installs app updates', () => {
         expect(controller.getState()).toMatchObject({
             status: 'failed',
             downloadedUpdate: availableUpdate,
-            error: 'file in use',
+            error: '更新失败，请重试',
         });
 
         await expect(controller.install()).resolves.toBe(true);
@@ -586,7 +586,7 @@ describe('user checks for and installs app updates', () => {
         expect(controller.getState()).toMatchObject({
             status: 'failed',
             downloadedUpdate: availableUpdate,
-            error: 'file in use',
+            error: '更新失败，请重试',
         });
         await expect(controller.install()).resolves.toBe(true);
     });

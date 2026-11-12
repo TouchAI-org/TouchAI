@@ -458,7 +458,8 @@ describe('user checks for updates', () => {
         await flushPromises();
 
         expect(dialogExists(wrapper)).toBe(true);
-        expect(dialog(wrapper).attributes('data-error')).toBe('file in use');
+        expect(dialog(wrapper).attributes('data-error')).toBe('更新检查失败');
+        expect(dialog(wrapper).attributes('data-error')).not.toBe('file in use');
         expect(dialog(wrapper).attributes('data-action')).toContain('重启');
     });
 

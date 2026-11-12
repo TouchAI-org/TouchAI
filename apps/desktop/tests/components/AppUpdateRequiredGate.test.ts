@@ -230,7 +230,8 @@ describe('user must update before continuing', () => {
                 appUpdateServiceMock[phase === 'install' ? 'download' : 'install']
             ).not.toHaveBeenCalled();
             expect(openUrl).not.toHaveBeenCalled();
-            expect(wrapper.text()).toContain('temporary failure');
+            expect(wrapper.text()).toContain('更新失败，请重试');
+            expect(wrapper.text()).not.toContain('temporary failure');
             wrapper.unmount();
         }
     );
