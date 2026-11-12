@@ -1,7 +1,9 @@
 import { AppEvent, eventService } from '@services/EventService';
 import type { DatabaseQueryRequest } from '@services/NativeService/database';
 import { setActiveSettingsService } from '@services/SettingsService';
+import { SettingsService } from '@services/SettingsService/service';
 import { installSearchSurfaceBoundary } from '@tests/utils/searchSurface';
+import { createSettingsBus } from '@tests/utils/settingsTransport';
 import { getTauriInvokeCalls, mockTauriCommand } from '@tests/utils/tauri';
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import { createPinia, disposePinia } from 'pinia';
@@ -35,6 +37,9 @@ let reads: Array<(name: string) => void>;
 beforeEach(() => {
     reads = [];
     pinia = createPinia();
+    setActiveSettingsService(
+        new SettingsService({ transport: createSettingsBus().transport('main') })
+    );
     installSearchSurfaceBoundary();
     Object.defineProperties(Range.prototype, {
         getBoundingClientRect: { configurable: true, value: () => new DOMRect() },
@@ -87,8 +92,8 @@ afterEach(async () => {
     wrapper?.unmount();
     wrapper = undefined;
     disposePinia(pinia);
-    await flushPromises();
     setActiveSettingsService(null);
+    await flushPromises();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     for (const [name, descriptor] of Object.entries(rangeGeometry)) {

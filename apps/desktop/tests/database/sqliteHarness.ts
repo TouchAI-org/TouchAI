@@ -42,7 +42,7 @@ export function routeQueriesTo(
     database: SqliteDatabase,
     options: { beforeCommit?: () => void } = {}
 ): void {
-    interceptTauriInvoke((call) => {
+    interceptTauriInvoke((call, next) => {
         if (call.cmd === 'database_tx_begin') {
             database.exec('BEGIN');
             return 'test-tx';
@@ -56,7 +56,9 @@ export function routeQueriesTo(
             database.exec('ROLLBACK');
             return null;
         }
-        if (call.cmd !== 'database_query' && call.cmd !== 'database_tx_query') return undefined;
+        if (call.cmd !== 'database_query' && call.cmd !== 'database_tx_query') {
+            return next();
+        }
 
         const { request } = call.payload as {
             request: { sql: string; params: SQLInputValue[]; method: string };
