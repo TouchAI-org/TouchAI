@@ -1,8 +1,14 @@
 import { invoke } from './invoke';
-import type { QuickSearchFileItem, QuickSearchResult, QuickSearchStatus } from './types';
+import type {
+    QuickSearchFileItem,
+    QuickSearchResult,
+    QuickSearchStatus,
+    QuickShortcutItem,
+} from './types';
 
 const DEFAULT_PAGE_SIZE = 60;
 const DEFAULT_ICON_SIZE = 48;
+const DEFAULT_REFERENCE_SUGGESTION_LIMIT = 12;
 
 export const quickSearch = {
     searchShortcuts(
@@ -23,6 +29,18 @@ export const quickSearch = {
             limit,
             include_shortcuts: options?.includeShortcuts ?? false,
         });
+    },
+
+    getFileReferenceSuggestions(
+        recentPaths: string[],
+        limit = DEFAULT_REFERENCE_SUGGESTION_LIMIT,
+        signal?: AbortSignal
+    ): Promise<QuickShortcutItem[]> {
+        if (signal?.aborted) return Promise.resolve([]);
+        return invoke<QuickShortcutItem[]>('quick_search_file_reference_suggestions', {
+            recentPaths,
+            limit,
+        }).then((suggestions) => (signal?.aborted ? [] : suggestions));
     },
 
     getShortcutIcon(path: string, size = DEFAULT_ICON_SIZE): Promise<string | null> {

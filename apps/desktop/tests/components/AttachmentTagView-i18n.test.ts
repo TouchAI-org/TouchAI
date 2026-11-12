@@ -43,10 +43,7 @@ describe('user sees an attachment tag', () => {
         expect(wrapper.attributes('translate')).toBe('no');
         expect(wrapper.attributes('title')).toBe('设置说明文件.txt');
 
-        const label = wrapper.get('.search-tag-label--attachment');
-        expect(label.text()).toBe('设置说明文件.txt');
-        expect(label.attributes('data-no-i18n')).toBe('true');
-        expect(label.attributes('translate')).toBe('no');
+        expect(wrapper.text()).toBe('设置说明文件.txt');
     });
 
     it('user marks attachment image alt text as not eligible for global DOM localization', () => {

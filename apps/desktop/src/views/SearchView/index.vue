@@ -33,6 +33,7 @@
         SearchSurfacePreparation,
         SearchWindowState,
     } from '@/services/NativeService/types';
+    import type { SearchActionOutcome, SearchActivationContext } from '@/services/SearchService';
     import { type AskUserConfirmOptions, useAskUserStore } from '@/stores/askUser';
     import { useMcpStore } from '@/stores/mcp';
     import { useSettingsStore } from '@/stores/settings';
@@ -54,6 +55,8 @@
     import ModelDropdownPopup from './components/ModelDropdownPopup/index.vue';
     import QuickSearchPanel from './components/QuickSearchPanel/index.vue';
     import SearchBar from './components/SearchBar/index.vue';
+    import SkillPickerPanel from './components/SearchBar/SkillPickerPanel.vue';
+    import type { FilePickerContext } from './components/SearchBar/types';
     import SearchOverlayHost from './components/SearchOverlayHost/index.vue';
     import type { SearchOverlayPosition } from './components/SearchOverlayHost/position';
     import SearchPanelResizeHandles from './components/SearchPanelResizeHandles/index.vue';
@@ -212,6 +215,16 @@
     let pendingModelOpenEpoch: number | null = null;
     const modelDropdownQuery = ref('');
     const quickSearchOpen = ref(false);
+    const skillAutocompleteOpen = ref(false);
+    const skillInputActive = ref(false);
+    const fileInputActive = ref(false);
+    const fileAutocompleteQuery = ref<string | null>(null);
+    const filePickerContext = ref<FilePickerContext | null>(null);
+    const fileSearchEnabled = computed(
+        () =>
+            fileAutocompleteQuery.value !== null ||
+            (!skillInputActive.value && !fileInputActive.value)
+    );
     // Keep QuickSearch mounted while a submitted query hands the surface to the
     // conversation panel. The shell then collapses in CSS instead of disappearing.
     const quickSearchHandoffLifecycle = useStateMachine('idle', {
@@ -229,6 +242,28 @@
         () => quickSearchHandoffLifecycle.state.value === 'closing'
     );
     const quickSearchPanel = ref<QuickSearchHandle>();
+    function captureSearchActivationContext(): Partial<SearchActivationContext> {
+        return {
+            input: searchBar.value?.captureSearchActivationInput?.(),
+            conversation:
+                currentSessionId.value !== null ? { sessionId: currentSessionId.value } : null,
+        };
+    }
+    function handleSearchActionOutcome(outcome: SearchActionOutcome) {
+        const messages = {
+            'requires-conversation': 'search.results.requiresConversation',
+            'requires-permissions': 'search.results.requiresPermissions',
+            unavailable: 'search.results.unavailable',
+            unsupported: 'search.results.unavailable',
+            failed: 'search.results.actionFailed',
+        } as const;
+        if (outcome.status in messages)
+            notify({
+                title: t('search.results.open'),
+                body: t(messages[outcome.status as keyof typeof messages]),
+            });
+    }
+    const skillPickerPanel = ref<InstanceType<typeof SkillPickerPanel>>();
     const quickSearchHandoffShell = ref<HTMLElement | null>(null);
     type QuickSearchRevealPhase = 'idle' | 'measuring' | 'open' | 'folding' | 'handoff';
     const quickSearchRevealPhase = ref<QuickSearchRevealPhase>('idle');
@@ -238,6 +273,8 @@
     const conversationPanel = ref<ConversationPanelHandle>();
     const conversationContainer = ref<HTMLElement | null>(null);
     const pageContainer = ref<HTMLElement | null>(null);
+    const inputArea = ref<HTMLElement | null>(null);
+    const pickerContainer = ref<HTMLElement | null>(null);
     const pageContent = ref<HTMLElement | null>(null);
     const searchViewCard = ref<HTMLElement | null>(null);
     const overlayRegionElement = ref<HTMLElement | null>(null);
@@ -343,6 +380,7 @@
             clearAskUser: () => void;
             setLanguage: (locale: AppLocale) => Promise<void>;
             getQuickSearchFallbackResults?: (query: string) => QuickShortcutItem[];
+            resetDraft?: () => void;
             clearSessionToIdle?: () => Promise<void>;
             getSessionExpandDebug?: () => { events: unknown[] } | null;
         };
@@ -443,6 +481,7 @@
             text: capturedSnapshot?.text ?? query,
             attachments: capturedSnapshot?.attachments ?? attachments.value,
             editorDoc: capturedSnapshot?.editorDoc,
+            skills: capturedSnapshot?.skills,
             excludeFromHistory: capturedSnapshot?.excludeFromHistory,
         });
     }
@@ -487,7 +526,9 @@
     const {
         handleModelChange,
         createAttachmentFromClipboardPath,
+        createAttachmentFromSearchResult,
         removeAttachment,
+        restoreAttachment,
         clearAttachments,
         getSupportedAttachments,
         getUnsupportedAttachmentMessage,
@@ -502,6 +543,10 @@
         modelOverride,
         clearAttachments,
         createAttachmentFromClipboardPath,
+        clearEditor: () =>
+            searchBar.value?.restoreInputHistorySnapshot(
+                createInputHistorySnapshot({ text: '', attachments: [] })
+            ),
     });
 
     const requestDraftClear = (options?: { preserveModelTag?: boolean }) => {
@@ -548,6 +593,10 @@
         getCurrentInputSnapshot: buildCurrentInputHistorySnapshot,
     });
 
+    const floatingPicker = computed(
+        () => sessionHistory.value.length > 0 && !quickSearchHandoff.value
+    );
+
     const {
         contentReady: searchViewContentReady,
         cardHeight: cardPixelHeight,
@@ -556,6 +605,8 @@
         effectiveWindowMaximized,
         settledWindowMaximized,
         fillConversationAvailableHeight,
+        skillPickerMaxHeight,
+        filePickerMaxHeight,
         monitorHost: usesMonitorHost,
         panelBounds,
         overlayMaxViewportHeight,
@@ -584,6 +635,9 @@
         isLogicalPanelResizing,
     } = useSearchWindowResize({
         target: pageContent,
+        inputArea,
+        picker: pickerContainer,
+        floatingPicker,
         measureContentHeight: measurePageContentHeight,
         overlayTarget: overlayRegionElement,
         // The animated height belongs to the opaque card. The outer frame
@@ -594,6 +648,7 @@
         intrinsicHeightMeasurementPending: quickSearchRevealPending,
         sessionCount: computed(() => sessionHistory.value.length),
         quickSearchOpen,
+        skillAutocompleteOpen,
         defaultSize: searchWindowDefaultSize,
         ready: viewReady,
         onLogicalPanelHeightChange: handleLogicalPanelHeightChange,
@@ -631,6 +686,9 @@
         })
     );
     const pageContentStyle = computed(() => {
+        if (!floatingPicker.value && (quickSearchOpen.value || skillAutocompleteOpen.value)) {
+            return { height: '100%', flex: '1 1 0%', maxHeight: 'none' };
+        }
         if (
             sessionHistory.value.length > 0 ||
             fillConversationAvailableHeight.value ||
@@ -700,19 +758,24 @@
         });
     }
 
-    const { isQuickSearchOpen, shouldTriggerQuickSearch } = useQuickSearchCoordinator({
-        queryText,
-        attachments,
-        sessionHistory,
-        cursorContext,
-        modelOverride,
-        modelDropdownState,
-        activeOverlay,
-        quickSearchOpen,
-        quickSearchHandoff,
-        controller,
-        suppressNextAutoOpen: suppressQuickSearchAutoOpenOnce,
-    });
+    const { isQuickSearchOpen, shouldShowQuickSearch, shouldTriggerQuickSearch } =
+        useQuickSearchCoordinator({
+            queryText,
+            attachments,
+            sessionHistory,
+            cursorContext,
+            modelOverride,
+            modelDropdownState,
+            activeOverlay,
+            quickSearchOpen,
+            quickSearchHandoff,
+            controller,
+            suppressNextAutoOpen: suppressQuickSearchAutoOpenOnce,
+            skillInputActive,
+            fileInputActive,
+            fileAutocompleteQuery,
+        });
+    const quickSearchEligible = computed(() => shouldShowQuickSearch(queryText.value));
 
     const sessionIdleForAutoShrink = computed(
         () =>
@@ -742,6 +805,7 @@
     }
 
     function shouldClearSessionAfterTimeout() {
+        if (skillAutocompleteOpen.value || controller.hasInputContent()) return false;
         return shouldAutoShrinkSearchSession({
             timedOut: true,
             sessionIdle: sessionIdleForAutoShrink.value,
@@ -1144,6 +1208,16 @@
 
     function measurePageContentHeight(content: HTMLElement) {
         if (!conversationPanel.value || !conversationContainer.value) {
+            const picker = skillAutocompleteOpen.value
+                ? skillPickerPanel.value
+                : quickSearchOpen.value
+                  ? quickSearchPanel.value
+                  : undefined;
+            const editor = inputArea.value?.firstElementChild;
+            if (picker && editor) {
+                // Measure requested results independently of the animated viewport.
+                return editor.getBoundingClientRect().height + picker.getContentHeight();
+            }
             return Math.max(content.scrollHeight, content.getBoundingClientRect().height);
         }
 
@@ -1310,6 +1384,28 @@
         }
     }
 
+    const completeFile = computed(() => {
+        if (
+            !quickSearchOpen.value ||
+            quickSearchRevealPhase.value === 'folding' ||
+            quickSearchHandoff.value ||
+            !fileSearchEnabled.value ||
+            activeOverlay.value !== 'none' ||
+            (attachments.value.length && fileAutocompleteQuery.value === null)
+        )
+            return undefined;
+        return (index?: number) => {
+            const item = quickSearchPanel.value?.getReferenceCandidate(
+                index,
+                fileAutocompleteQuery.value ?? queryText.value
+            );
+            if (!item) return null;
+            const attachment = createAttachmentFromSearchResult(item);
+            attachments.value.push(attachment);
+            return attachment;
+        };
+    });
+
     const searchKeyboard = useSearchKeyboard({
         cancelActivePanelInteraction: () => {
             const resizeCancelled = cancelSearchPanelResizing();
@@ -1358,11 +1454,45 @@
         clearAll,
         cancelRequest,
         clearSession: clearSessionToIdle,
+        clearDraft: () => clearDraft({ preserveModelTag: true }),
     });
     routeSearchSurfaceCommand = searchKeyboard.routeSearchSurfaceCommand;
 
     function handleQueryTextChange(value: string) {
         queryText.value = value;
+    }
+
+    function handleSkillInputActiveChange(active: boolean) {
+        skillInputActive.value = active;
+        if (active && fileAutocompleteQuery.value === null && !quickSearchHandoff.value) {
+            finalizeQuickSearchClose();
+        }
+    }
+
+    function handleSkillAutocompleteOpenChange(open: boolean) {
+        skillAutocompleteOpen.value = open;
+        if (open && (pendingModelOpenEpoch !== null || activeOverlay.value !== 'none')) {
+            void hideAllOverlays(false).catch((error) => {
+                log.error('[SearchView] Failed to dismiss overlays before skill selection:', error);
+            });
+        }
+    }
+
+    function handleFileAutocompleteQueryChange(query: string | null) {
+        fileAutocompleteQuery.value = query;
+        if (query !== null && (pendingModelOpenEpoch !== null || activeOverlay.value !== 'none')) {
+            void hideAllOverlays(false).catch((error) =>
+                log.error('[SearchView] Failed to dismiss overlays before file selection:', error)
+            );
+        }
+    }
+
+    function handleFileReference(index: number) {
+        searchBar.value?.completeFileReference?.(index);
+    }
+
+    function moveFileSelection(direction: 'up' | 'down' | 'left' | 'right') {
+        return quickSearchPanel.value?.moveSelection(direction) ?? false;
     }
 
     function handleCursorContextChange(context: SearchCursorContext) {
@@ -1445,6 +1575,11 @@
     }
 
     function handleQuickSearchOpenChange(value: boolean) {
+        if (!fileSearchEnabled.value && !quickSearchHandoff.value) {
+            finalizeQuickSearchClose();
+            return;
+        }
+        if (value && !quickSearchEligible.value) return;
         // A stale QuickSearch request can finish after submission has started.
         // Keep the panel mounted until the handoff animation owns the close.
         if (!value && quickSearchHandoff.value && !quickSearchHandoffClosing.value) {
@@ -1754,6 +1889,7 @@
             // again for something that only hangs above it.
             await closeSessionHistoryOverlayForIntent(intentEpoch, false);
             if (!isOverlayIntentCurrent(intentEpoch)) return;
+            if (!(await closeSkillPickerForOverlayIntent(intentEpoch))) return;
             await controller.prepareModelDropdownOpen(() => isOverlayIntentCurrent(intentEpoch));
             if (!isOverlayIntentCurrent(intentEpoch)) return;
             overlayAnchorElement.value = controller.getModelDropdownAnchor();
@@ -1809,6 +1945,21 @@
         if (!isOverlayIntentCurrent(intentEpoch)) return;
     }
 
+    async function closeSkillPickerForOverlayIntent(intentEpoch: number) {
+        if (!isOverlayIntentCurrent(intentEpoch)) return false;
+        if (!controller.isSkillAutocompleteOpen()) return true;
+        controller.closeSkillAutocomplete();
+        await nextTick();
+        if (!isOverlayIntentCurrent(intentEpoch)) return false;
+        try {
+            await remeasureTargetHeight();
+        } catch (error) {
+            log.error('[SearchView] Failed to settle skill picker before opening overlay:', error);
+            return false;
+        }
+        return isOverlayIntentCurrent(intentEpoch);
+    }
+
     async function handleHistoryOpenChangeForIntent(
         payload: {
             open: boolean;
@@ -1825,6 +1976,7 @@
         // Layered over the results list, like the model picker: opening a popup must not dismiss
         // what the user was reading.
         await closeModelDropdownForIntent(intentEpoch, false);
+        if (!(await closeSkillPickerForOverlayIntent(intentEpoch))) return;
         // The same rule as the model picker: while the list is open the popup covers it, so it needs
         // the slot's edges and none of its own control's placement.
         if (quickSearchOpen.value) {
@@ -2180,6 +2332,9 @@
             setSearchQuery(text: string) {
                 applyE2eSearchQuery(text);
             },
+            resetDraft() {
+                clearDraft();
+            },
             async sendPrompt(text: string) {
                 const snapshot = createInputHistorySnapshot({
                     text,
@@ -2192,7 +2347,7 @@
             getQuickSearchFallbackResults(query: string) {
                 const fixture = e2eSearchFixture.value;
                 return fixture?.query.trim().toLowerCase() === query.trim().toLowerCase()
-                    ? fixture.results
+                    ? fixture.results.map((item) => ({ ...item }))
                     : [];
             },
             getSearchWindowState: native.window.getSearchWindowState,
@@ -2611,7 +2766,7 @@
                                 v-if="searchViewContentReady && sessionHistory.length > 0"
                                 ref="conversationContainer"
                                 data-testid="conversation-panel-host"
-                                class="min-h-0 w-full flex-1 overflow-hidden"
+                                class="isolate min-h-0 w-full flex-1 overflow-hidden"
                             >
                                 <ConversationPanel
                                     ref="conversationPanel"
@@ -2652,7 +2807,13 @@
                             <AskUserPanel v-if="searchViewContentReady && askUserStore.current" />
                             <div
                                 v-if="viewReady && !askUserStore.current"
-                                class="relative w-full shrink-0"
+                                ref="inputArea"
+                                class="relative flex w-full flex-col"
+                                :class="
+                                    !floatingPicker && (quickSearchOpen || skillAutocompleteOpen)
+                                        ? 'min-h-0 flex-1'
+                                        : 'shrink-0'
+                                "
                             >
                                 <SearchBar
                                     ref="searchBar"
@@ -2661,10 +2822,24 @@
                                     "
                                     :query-text="queryText"
                                     :attachments="attachments"
+                                    :complete-file="completeFile"
+                                    :move-file-selection="moveFileSelection"
+                                    :file-picker-context="filePickerContext"
+                                    :auto-select-first="floatingPicker"
+                                    :show-empty-results="floatingPicker"
                                     :model-override="modelOverride"
                                     :start-dragging="startSearchPanelDragging"
+                                    @file-autocomplete-query-change="
+                                        handleFileAutocompleteQueryChange
+                                    "
+                                    @file-input-active-change="fileInputActive = $event"
+                                    @skill-autocomplete-open-change="
+                                        handleSkillAutocompleteOpenChange
+                                    "
+                                    @skill-input-active-change="handleSkillInputActiveChange"
                                     @update:query-text="handleQueryTextChange"
                                     @attachment-remove-request="handleAttachmentRemoveRequest"
+                                    @attachment-restore-request="restoreAttachment"
                                     @model-change="handleModelChange"
                                     @cursor-context-change="handleCursorContextChange"
                                     @model-override-change="handleModelOverrideChange"
@@ -2674,53 +2849,122 @@
                                     "
                                     @drag-start="handleSearchPanelDragStart"
                                     @drag-end="handleSearchPanelDragEnd"
-                                />
-                                <div class="quick-search-handoff-slot">
-                                    <div
-                                        v-if="
-                                            searchViewContentReady &&
-                                            (sessionHistory.length === 0 || quickSearchHandoff)
-                                        "
-                                        v-show="quickSearchOpen"
-                                        ref="quickSearchHandoffShell"
-                                        data-testid="quick-search-handoff-shell"
-                                        :class="[
-                                            'quick-search-handoff-shell w-full',
-                                            quickSearchRevealPhase === 'measuring'
-                                                ? 'quick-search-handoff-shell--measuring'
-                                                : '',
-                                            quickSearchRevealPhase === 'open' && quickSearchOpen
-                                                ? 'quick-search-handoff-shell--open'
-                                                : '',
-                                            quickSearchRevealPhase === 'folding'
-                                                ? 'quick-search-handoff-shell--folding'
-                                                : '',
-                                            quickSearchRevealPhase === 'handoff'
-                                                ? 'quick-search-handoff-shell--handoff'
-                                                : '',
-                                        ]"
-                                        :style="{
-                                            visibility:
-                                                quickSearchRevealPhase === 'measuring'
-                                                    ? 'hidden'
-                                                    : undefined,
-                                        }"
-                                    >
+                                >
+                                    <template #results="{ skillPicker, selectSkill }">
                                         <div
-                                            class="quick-search-handoff-shell__content min-h-0 overflow-hidden"
+                                            v-if="
+                                                searchViewContentReady &&
+                                                (sessionHistory.length === 0 ||
+                                                    quickSearchHandoff ||
+                                                    fileAutocompleteQuery !== null ||
+                                                    skillPicker)
+                                            "
+                                            v-show="quickSearchOpen || skillPicker"
+                                            ref="pickerContainer"
+                                            :class="
+                                                floatingPicker
+                                                    ? 'absolute bottom-full left-1/2 z-20 w-4/5 -translate-x-1/2 bg-transparent'
+                                                    : 'flex min-h-0 flex-1 flex-col justify-end'
+                                            "
                                         >
-                                            <QuickSearchPanel
-                                                ref="quickSearchPanel"
-                                                :open="quickSearchOpen"
-                                                :search-query="queryText"
-                                                :enabled="true"
-                                                :handoff="quickSearchHandoff"
-                                                @blank-click="handleQuickSearchBlankClick"
-                                                @update:open="handleQuickSearchOpenChange"
+                                            <div
+                                                v-show="quickSearchOpen && fileSearchEnabled"
+                                                class="quick-search-handoff-slot"
+                                                :class="
+                                                    floatingPicker
+                                                        ? ''
+                                                        : 'flex min-h-0 flex-1 flex-col'
+                                                "
+                                            >
+                                                <div
+                                                    v-if="
+                                                        sessionHistory.length === 0 ||
+                                                        fileAutocompleteQuery !== null ||
+                                                        quickSearchHandoff
+                                                    "
+                                                    v-show="quickSearchOpen && fileSearchEnabled"
+                                                    ref="quickSearchHandoffShell"
+                                                    data-testid="quick-search-handoff-shell"
+                                                    :class="[
+                                                        floatingPicker
+                                                            ? 'w-full'
+                                                            : 'quick-search-handoff-shell w-full flex-1',
+                                                        quickSearchRevealPhase === 'measuring'
+                                                            ? 'quick-search-handoff-shell--measuring'
+                                                            : '',
+                                                        quickSearchRevealPhase === 'open' &&
+                                                        quickSearchOpen
+                                                            ? 'quick-search-handoff-shell--open'
+                                                            : '',
+                                                        quickSearchRevealPhase === 'folding'
+                                                            ? 'quick-search-handoff-shell--folding'
+                                                            : '',
+                                                        quickSearchRevealPhase === 'handoff'
+                                                            ? 'quick-search-handoff-shell--handoff'
+                                                            : '',
+                                                    ]"
+                                                    :style="{
+                                                        visibility:
+                                                            quickSearchRevealPhase === 'measuring'
+                                                                ? 'hidden'
+                                                                : undefined,
+                                                    }"
+                                                >
+                                                    <div
+                                                        :class="
+                                                            floatingPicker
+                                                                ? ''
+                                                                : 'quick-search-handoff-shell__content flex min-h-0 flex-col justify-end overflow-hidden'
+                                                        "
+                                                    >
+                                                        <QuickSearchPanel
+                                                            ref="quickSearchPanel"
+                                                            :open="quickSearchOpen"
+                                                            :search-query="
+                                                                fileAutocompleteQuery ?? queryText
+                                                            "
+                                                            :enabled="quickSearchEligible"
+                                                            :get-activation-context="
+                                                                captureSearchActivationContext
+                                                            "
+                                                            :reference-mode="
+                                                                fileAutocompleteQuery !== null
+                                                            "
+                                                            :max-height="filePickerMaxHeight"
+                                                            :compact="floatingPicker"
+                                                            :handoff="quickSearchHandoff"
+                                                            @action-outcome="
+                                                                handleSearchActionOutcome
+                                                            "
+                                                            @reference="handleFileReference"
+                                                            @content-resize="
+                                                                scheduleContentMeasurement()
+                                                            "
+                                                            @reference-state-change="
+                                                                filePickerContext = $event
+                                                            "
+                                                            @blank-click="
+                                                                handleQuickSearchBlankClick
+                                                            "
+                                                            @update:open="
+                                                                handleQuickSearchOpenChange
+                                                            "
+                                                        />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <SkillPickerPanel
+                                                v-if="skillPicker"
+                                                ref="skillPickerPanel"
+                                                :picker="skillPicker"
+                                                :max-height="skillPickerMaxHeight"
+                                                :compact="floatingPicker"
+                                                @select="selectSkill"
+                                                @content-resize="scheduleContentMeasurement()"
                                             />
                                         </div>
-                                    </div>
-                                </div>
+                                    </template>
+                                </SearchBar>
                             </div>
                         </div>
                         <SearchPanelResizeHandles

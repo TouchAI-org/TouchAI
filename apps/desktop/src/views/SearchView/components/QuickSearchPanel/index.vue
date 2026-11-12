@@ -3,139 +3,98 @@
   -->
 
 <template>
-    <div
-        v-if="results.length > 0 || props.open"
+    <ResultPanel
+        v-if="(results.length > 0 || props.open) && (compact || panelState?.kind !== 'empty')"
+        ref="panel"
         data-testid="quick-search-panel"
-        class="quick-search-panel mt-1.5 w-full rounded-lg border border-gray-200 bg-white/95 p-2 shadow-lg backdrop-blur"
-        @click.self="handleBlankSurfaceClick"
+        :layout="viewMode"
+        :floating="compact"
+        :list-id="referenceMode ? listId : undefined"
+        :list-label="referenceMode ? t('search.results.files') : undefined"
+        :active-item-id="activeItemId"
+        :max-height="maxHeight"
+        :viewport-height="panelState ? undefined : viewportHeight"
+        :viewport-padding="viewportPadding"
+        :row-height="compact ? RESULT_COMPACT_ROW_HEIGHT : undefined"
+        :preserve-focus="referenceMode"
+        :state="panelState"
+        :status="statusGroups"
+        :shortcuts="shortcuts"
+        :busy="isLoadingMore || (referenceMode && searchState === 'loading' && results.length > 0)"
+        @viewport-change="assignScrollRef"
+        @scroll="handleScroll"
+        @wheel="handleWheel"
+        @blank-click="handleBlankSurfaceClick"
+        @content-resize="emit('contentResize')"
     >
         <div
-            :ref="assignScrollRef"
-            :class="[
-                'quick-search-scroll quick-search-scrollbar overflow-x-hidden overflow-y-auto',
-                viewMode === 'list' && 'justify-start',
-            ]"
-            :style="scrollStyle"
-            @scroll.passive="handleScroll"
+            :class="viewMode === 'grid' ? 'quick-search-grid' : 'flex w-full shrink-0 flex-col'"
+            :style="viewMode === 'grid' ? gridStyle : undefined"
             @click.self="handleBlankSurfaceClick"
         >
-            <!-- 网格视图 -->
-            <div
-                v-if="viewMode === 'grid'"
-                class="quick-search-grid"
-                :style="gridStyle"
-                @click.self="handleBlankSurfaceClick"
-            >
-                <button
-                    v-for="(item, index) in results"
-                    :key="item.path"
-                    :ref="
-                        (el) => {
-                            if (el) itemRefs[index] = el as HTMLButtonElement;
-                        }
-                    "
-                    type="button"
-                    :title="getItemHoverTitle(item)"
-                    data-no-i18n="true"
-                    translate="no"
-                    :class="[
-                        'flex h-[88px] w-[88px] cursor-pointer flex-col items-center justify-center overflow-hidden rounded-xl p-1 outline-none',
-                        index === highlightedIndex ? 'bg-primary-100' : 'hover:bg-gray-100',
-                    ]"
-                    @click="handleItemClick(index)"
-                    @contextmenu.prevent="handleContextMenu($event, index)"
-                >
-                    <div
-                        class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-md"
-                    >
-                        <img
-                            v-if="isImageItem(item) && imagePreviewMap[item.path]"
-                            :src="imagePreviewMap[item.path]"
-                            :alt="item.name"
-                            loading="lazy"
-                            decoding="async"
-                            class="quick-search-image-thumbnail h-8 w-8 rounded object-cover"
-                        />
-                        <div
-                            v-else-if="isImageItem(item)"
-                            class="quick-search-icon-placeholder h-8 w-8 rounded-md"
-                        ></div>
-                        <img
-                            v-else-if="iconMap[item.path]"
-                            :src="iconMap[item.path]"
-                            :alt="item.name"
-                            class="h-8 w-8 rounded object-contain"
-                        />
-                        <div v-else class="quick-search-icon-placeholder h-8 w-8 rounded-md"></div>
-                    </div>
-                    <p
-                        class="quick-search-name mt-1 h-8 w-full px-0.5 text-center text-[12px] leading-4 text-gray-700"
-                    >
-                        <span
-                            v-for="(segment, segmentIndex) in getNameSegments(item.name)"
-                            :key="`${item.path}-${segmentIndex}`"
-                            :class="segment.matched ? 'quick-search-name-match' : ''"
-                        >
-                            {{ segment.text }}
-                        </span>
-                    </p>
-                </button>
-            </div>
-            <!-- 列表视图 -->
-            <div v-else class="quick-search-list" @click.self="handleBlankSurfaceClick">
-                <QuickSearchListItem
-                    v-for="(item, index) in results"
-                    :key="item.path"
-                    :ref="
-                        (el) => {
-                            if (el) itemRefs[index] = el as HTMLButtonElement;
-                        }
-                    "
-                    :name="item.name"
-                    :path="
-                        item.source === 'file' || item.source === 'shortcut_file' ? item.path : ''
-                    "
-                    :icon-src="isImageItem(item) ? imagePreviewMap[item.path] : iconMap[item.path]"
-                    :name-segments="getNameSegments(item.name)"
-                    :highlighted="index === highlightedIndex"
-                    @click="handleItemClick(index)"
-                    @contextmenu="handleContextMenu($event, index)"
-                />
-            </div>
+            <ResultItem
+                v-for="(item, index) in results"
+                :id="referenceMode ? `${listId}-${index}` : undefined"
+                :key="item.key"
+                :ref="(el) => assignItemRef(el, index)"
+                :title="item.result.description"
+                :role="referenceMode ? 'option' : undefined"
+                :aria-selected="referenceMode ? index === highlightedIndex : undefined"
+                :aria-disabled="referenceMode && searchState !== 'ready' ? true : undefined"
+                :tabindex="referenceMode ? -1 : undefined"
+                :layout="viewMode"
+                :compact="compact"
+                :label="item.result.label"
+                :description="item.result.description"
+                :disabled="item.result.disabled"
+                :segments="getNameSegments(item.result.label)"
+                :icon-src="getResultIcon(item)"
+                :icon-fit="isImageItem(fileSearchItem(item.result)) ? 'cover' : 'contain'"
+                :highlighted="index === highlightedIndex"
+                @click="handleResultClick(index)"
+                @contextmenu="handleContextMenu($event, index)"
+            />
         </div>
-        <!-- 状态栏 -->
-        <div
-            v-if="results.length > 0"
-            class="quick-search-status flex items-center justify-end gap-2 px-1 pt-1"
-        >
-            <span
-                v-if="isLoadingMore"
-                class="inline-block h-3 w-3 animate-spin rounded-full border border-gray-300 border-t-gray-600"
-            ></span>
-            <span class="quick-search-status-text text-caption leading-none text-gray-400">
-                {{ statusText }}
-            </span>
-            <button
-                type="button"
-                class="quick-search-view-toggle flex h-4 w-4 items-center justify-center text-gray-400 outline-none hover:text-gray-600"
-                :title="viewToggleTitle"
+        <template v-if="!compact && results.length" #actions>
+            <ResultShortcut
+                data-testid="quick-search-view-toggle"
+                as="button"
+                :keys="viewToggleKeys"
+                :label="viewToggleLabel"
+                separator="+"
+                :aria-label="viewToggleLabel"
+                @mousedown.prevent
                 @click="toggleViewMode"
-            >
-                <AppIcon :name="viewMode === 'grid' ? 'list-ul' : 'grid-alt'" class="h-3.5 w-3.5" />
-            </button>
-        </div>
-    </div>
+            />
+        </template>
+    </ResultPanel>
 </template>
 
 <script setup lang="ts">
-    import AppIcon from '@components/AppIcon.vue';
     import type { ComponentPublicInstance } from 'vue';
-    import { computed, toRef } from 'vue';
+    import { computed, onBeforeUnmount, ref, toRef, useId, watch } from 'vue';
 
+    import {
+        ResultItem,
+        ResultPanel,
+        type ResultPanelShortcut,
+        type ResultPanelState,
+        ResultShortcut,
+    } from '@/components/ui/result-panel';
+    import { RESULT_COMPACT_ROW_HEIGHT } from '@/components/ui/result-panel/layout';
     import { t } from '@/i18n';
+    import type {
+        SearchActionOutcome,
+        SearchActivationContext,
+        SearchMatch,
+    } from '@/services/SearchService';
+    import { fileSearchItem } from '@/services/SearchService/files';
+    import { useSettingsStore } from '@/stores/settings';
+    import { formatShortcutForDisplay } from '@/utils/shortcuts';
 
+    import type { FilePickerContext } from '../SearchBar/types';
+    import { resolveAutocompleteCompletion } from '../SearchBar/utils/autocomplete';
     import { useQuickSearchLogic } from './composables/useQuickSearchLogic';
-    import QuickSearchListItem from './QuickSearchListItem.vue';
 
     defineOptions({
         name: 'QuickSearchPanel',
@@ -146,38 +105,62 @@
         searchQuery: string;
         enabled?: boolean;
         handoff?: boolean;
+        referenceMode?: boolean;
+        maxHeight?: number;
+        compact?: boolean;
+        getActivationContext?: () => Partial<
+            Omit<SearchActivationContext, 'query' | 'epoch' | 'intent' | 'signal'>
+        >;
     }
 
     const props = withDefaults(defineProps<Props>(), {
         enabled: true,
         handoff: false,
+        referenceMode: false,
+        maxHeight: undefined,
+        compact: false,
+        getActivationContext: undefined,
     });
 
     const emit = defineEmits<{
+        actionOutcome: [outcome: SearchActionOutcome];
         blankClick: [];
         'update:open': [value: boolean];
+        reference: [index: number];
+        referenceStateChange: [context: FilePickerContext | null];
+        contentResize: [];
     }>();
+    const panel = ref<InstanceType<typeof ResultPanel>>();
+
+    const settingsStore = useSettingsStore();
 
     const quickSearchLogic = useQuickSearchLogic({
         open: toRef(props, 'open'),
         searchQuery: toRef(props, 'searchQuery'),
         enabled: toRef(props, 'enabled'),
         handoff: toRef(props, 'handoff'),
+        referenceMode: toRef(props, 'referenceMode'),
+        compact: toRef(props, 'compact'),
+        maxHeight: toRef(props, 'maxHeight'),
         emitOpenUpdate: (value) => emit('update:open', value),
+        getActivationContext: () => props.getActivationContext?.() ?? {},
+        onActionOutcome: (outcome) => emit('actionOutcome', outcome),
     });
 
     const {
-        results,
+        items: results,
+        searchState,
         highlightedIndex,
         itemRefs,
-        scrollStyle,
+        viewportHeight,
+        viewportPadding,
         gridStyle,
         moveSelection,
         iconMap,
         imagePreviewMap,
         isImageItem,
-        getItemHoverTitle,
         handleScroll,
+        handleWheel,
         isContextMenuOpen,
         getNameSegments,
         handleItemClick,
@@ -188,6 +171,7 @@
         close: closePanel,
         settleInteraction,
         getHighlightedItem,
+        getReferenceCandidate,
         openHighlightedItem,
         triggerSearch,
         goToPage,
@@ -201,40 +185,139 @@
     } = quickSearchLogic;
 
     const scrollRef = quickSearchLogic.scrollRef;
+    function getResultIcon(match: SearchMatch) {
+        const file = fileSearchItem(match.result);
+        return file
+            ? isImageItem(file)
+                ? imagePreviewMap.value[file.path]
+                : iconMap.value[file.path]
+            : match.result.iconSrc;
+    }
+    const listId = `file-picker-${useId()}`;
+    const activeItemId = computed(() =>
+        highlightedIndex.value >= 0 ? `${listId}-${highlightedIndex.value}` : undefined
+    );
+    const completion = computed(() => {
+        if (!props.open || !props.enabled || searchState.value !== 'ready') return null;
+        const target = resolveAutocompleteCompletion(
+            props.searchQuery.trim(),
+            results.value,
+            highlightedIndex.value,
+            (match) => match.result.label,
+            results.value.length === totalResults.value
+        );
+        return target && getReferenceCandidate(target.index)
+            ? { ...target, query: props.searchQuery.trim() }
+            : null;
+    });
+    watch(
+        [() => props.open, activeItemId, completion],
+        () => {
+            emit(
+                'referenceStateChange',
+                props.open
+                    ? { listId, activeItemId: activeItemId.value, completion: completion.value }
+                    : null
+            );
+        },
+        { immediate: true }
+    );
+    onBeforeUnmount(() => emit('referenceStateChange', null));
 
-    function assignScrollRef(el: Element | ComponentPublicInstance | null) {
-        scrollRef.value = el as HTMLElement | null;
+    function handleResultClick(index: number) {
+        if (props.referenceMode) {
+            if (getReferenceCandidate(index)) emit('reference', index);
+            return;
+        }
+        void handleItemClick(index);
+    }
+
+    function assignScrollRef(element: HTMLElement | null) {
+        scrollRef.value = element;
+    }
+
+    function assignItemRef(element: Element | ComponentPublicInstance | null, index: number) {
+        const dom = element instanceof Element ? element : element?.$el;
+        if (dom instanceof HTMLElement) itemRefs.value[index] = dom;
     }
 
     function handleBlankSurfaceClick() {
         emit('blankClick');
     }
 
-    const statusText = computed(() => {
+    const panelState = computed<ResultPanelState | null>(() => {
+        if (results.value.length) return null;
+        if (searchState.value === 'loading')
+            return { kind: 'loading', message: t('search.results.fileLoading') };
+        if (searchState.value === 'ready')
+            return { kind: 'empty', message: t('search.results.fileEmpty') };
+        if (searchState.value === 'error')
+            return { kind: 'error', message: t('search.results.fileError') };
+        return null;
+    });
+    const statusGroups = computed(() => {
+        if (!results.value.length) return [];
         const total = totalResults.value;
         const totalPages = Math.max(1, Math.ceil(total / 60));
+        const totalLabel = t('quickSearch.status.total', { total });
+        if (totalPages === 1) return [totalLabel];
         const currentPageNum =
             highlightedIndex.value >= 0
                 ? Math.floor(highlightedIndex.value / 60) + 1
                 : currentPage.value + 1;
-        return t('quickSearch.status.pageSummary', {
-            current: currentPageNum,
-            totalPages,
-            total,
-        });
+        return [t('quickSearch.status.page', { current: currentPageNum, totalPages }), totalLabel];
     });
-    const viewToggleTitle = computed(() => {
+    const shortcuts = computed<ResultPanelShortcut[]>(() => {
+        if (!results.value.length) return [];
+        if (props.referenceMode) {
+            const items: ResultPanelShortcut[] = [
+                {
+                    keys: highlightedIndex.value < 0 ? ['↓'] : ['↑', '↓'],
+                    label: t('search.results.navigate'),
+                },
+            ];
+            if (highlightedIndex.value >= 0)
+                items.push({
+                    keys: ['Enter', 'Tab'],
+                    separator: '/',
+                    label: t('search.results.reference'),
+                });
+            items.push({ keys: ['Esc'], label: t('search.results.close') });
+            return items;
+        }
+        if (highlightedIndex.value < 0) {
+            return [{ keys: ['↓'], label: t('search.results.navigate') }];
+        }
+        const hints: ResultPanelShortcut[] = [
+            { keys: ['↑', '↓'], label: t('search.results.navigate') },
+            { keys: ['Enter'], label: t('search.results.open') },
+        ];
+        if (
+            results.value[highlightedIndex.value]?.result.completionAction?.kind ===
+            'file.reference'
+        )
+            hints.push({ keys: ['Tab'], label: t('search.results.reference') });
+        hints.push({ keys: ['Esc'], label: t('search.results.back') });
+        return hints;
+    });
+    const viewToggleLabel = computed(() => {
         return viewMode.value === 'grid'
             ? t('quickSearch.view.switchToList')
             : t('quickSearch.view.switchToGrid');
     });
+    const viewToggleKeys = computed(() => {
+        const shortcut = settingsStore.searchKeybindings['search.quickSearch.toggleView'];
+        return shortcut ? formatShortcutForDisplay(shortcut).split('+') : [];
+    });
 
     defineExpose({
+        getContentHeight: () => panel.value?.getContentHeight() ?? 0,
         open: openPanel,
         close: closePanel,
         settleInteraction,
         moveSelection,
         getHighlightedItem,
+        getReferenceCandidate,
         openHighlightedItem,
         triggerSearch,
         goToPage,

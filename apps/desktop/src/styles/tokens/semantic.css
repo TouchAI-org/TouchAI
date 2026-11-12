@@ -135,9 +135,20 @@
 
     --color-selection-bg: var(--color-primary-100);
     --color-selection-outline: var(--color-primary-300);
+    /* Shared launcher results, controls, and keyboard hints. */
+    --color-search-surface: var(--color-white);
+    --color-search-floating-surface: color-mix(in srgb, var(--color-background) 95%, transparent);
+    --blur-search-floating: 1px;
     --color-search-hover: var(--color-ui-100);
+    --color-search-selected: var(--color-ui-500);
     --color-search-text: var(--color-gray-800);
+    --color-search-muted: var(--color-gray-500);
     --color-search-border: var(--color-gray-200);
+    --color-search-control: var(--color-gray-600);
+    --color-search-loading-border: var(--color-gray-300);
+    --color-search-match: var(--color-primary-600);
+    --color-keycap: var(--color-ui-300);
+    --color-keycap-foreground: var(--color-gray-600);
     --color-badge-surface: var(--color-white);
     --color-badge-border: var(--color-neutral-300);
     --color-badge-foreground: var(--color-neutral-600);

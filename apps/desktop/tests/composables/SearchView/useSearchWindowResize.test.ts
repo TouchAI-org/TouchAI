@@ -289,6 +289,156 @@ describe('useSearchWindowResize', () => {
         return { mounted, target, sessionCount, quickSearchOpen, ready };
     }
 
+    it('user given no conversation when expanding skills then can use the same available space as files', async () => {
+        const { mounted } = await mount({ skillAutocompleteOpen: ref(true) });
+        await flushLifecycle();
+        try {
+            expect(mounted.result.skillPickerMaxHeight.value).toBeGreaterThan(500);
+            expect(mounted.result.skillPickerMaxHeight.value).toBe(
+                mounted.result.filePickerMaxHeight.value
+            );
+        } finally {
+            mounted.unmount();
+        }
+    });
+
+    it('user given a conversation when its floating picker opens then leaves twenty percent above the editor visible without resizing the card', async () => {
+        const input = createMeasuredElement(60);
+        const picker = createMeasuredElement(200);
+        const { mounted } = await mount({
+            inputArea: ref(input.element),
+            picker: ref(picker.element),
+            floatingPicker: ref(true),
+            sessionCount: ref(2),
+            skillAutocompleteOpen: ref(true),
+        });
+        await flushLifecycle();
+        nativeMock.window.getSearchWindowState.mockResolvedValue(
+            createWindowState({ currentHeight: 420 })
+        );
+        await mounted.result.syncWindowState();
+        try {
+            expect(mounted.result.skillPickerMaxHeight.value).toBeCloseTo(287.2);
+            expect(mounted.result.filePickerMaxHeight.value).toBeCloseTo(287.2);
+            picker.setHeight(320);
+            for (const observer of ResizeObserverMock.instances) {
+                if (!observer.disconnected && observer.observed.includes(picker.element))
+                    observer.emit(picker.element);
+            }
+            await nextTick();
+            expect(mounted.result.skillPickerMaxHeight.value).toBeCloseTo(287.2);
+            expect(mounted.result.currentHeight.value).toBe(420);
+            input.setHeight(140);
+            for (const observer of ResizeObserverMock.instances) {
+                if (!observer.disconnected && observer.observed.includes(input.element))
+                    observer.emit(input.element);
+            }
+            await nextTick();
+            expect(mounted.result.skillPickerMaxHeight.value).toBeCloseTo(223.2);
+        } finally {
+            mounted.unmount();
+        }
+    });
+
+    it.each([
+        { displayHeight: 1080, scale: 1, expected: 299.5 },
+        { displayHeight: 840, scale: 1.5, expected: 193.5 },
+    ])(
+        'user retains conversation space when a skill picker opens on a $displayHeight pixel display at $scale scale',
+        async ({ displayHeight, scale, expected }) => {
+            vi.stubGlobal('innerHeight', displayHeight / scale);
+            vi.stubGlobal('devicePixelRatio', scale);
+            currentMonitorMock.mockResolvedValue({
+                workArea: {
+                    position: { x: 0, y: 0 },
+                    size: { width: 1920, height: displayHeight },
+                },
+            });
+            const { mounted } = await mount({
+                inputArea: ref(createMeasuredElement(380).element),
+                picker: ref(createMeasuredElement(320).element),
+                sessionCount: ref(2),
+                skillAutocompleteOpen: ref(true),
+            });
+            await flushLifecycle();
+
+            try {
+                expect(mounted.result.skillPickerMaxHeight?.value).toBe(expected);
+            } finally {
+                mounted.unmount();
+            }
+        }
+    );
+
+    it('user keeps the editor and conversation inside a manually sized card while choosing a skill', async () => {
+        const { mounted } = await mount({
+            inputArea: ref(createMeasuredElement(160).element),
+            picker: ref(createMeasuredElement(100).element),
+            sessionCount: ref(2),
+            skillAutocompleteOpen: ref(true),
+        });
+        await flushLifecycle();
+        nativeMock.window.getSearchWindowState.mockResolvedValue(
+            createWindowState({
+                currentHeight: 260,
+                heightMode: SearchWindowHeightMode.ManualOverride,
+            })
+        );
+        await mounted.result.syncWindowState();
+
+        try {
+            expect(mounted.result.skillPickerMaxHeight?.value).toBe(99.5);
+            expect(mounted.result.currentHeight.value).toBe(260);
+        } finally {
+            mounted.unmount();
+        }
+    });
+
+    it('user gets a smaller skill list when their multiline editor takes more of the shared space', async () => {
+        const input = createMeasuredElement(340);
+        const picker = createMeasuredElement(280);
+        const { mounted } = await mount({
+            inputArea: ref(input.element),
+            picker: ref(picker.element),
+            sessionCount: ref(1),
+            skillAutocompleteOpen: ref(true),
+        });
+        await flushLifecycle();
+
+        try {
+            expect(mounted.result.skillPickerMaxHeight?.value).toBe(299.5);
+            input.setHeight(440);
+            for (const observer of ResizeObserverMock.instances) {
+                if (!observer.disconnected && observer.observed.includes(input.element)) {
+                    observer.emit(input.element);
+                }
+            }
+            await nextTick();
+            expect(mounted.result.skillPickerMaxHeight?.value).toBe(249.5);
+        } finally {
+            mounted.unmount();
+        }
+    });
+
+    it('user can grow a skills-only result panel without enabling manual conversation sizing', async () => {
+        const skillAutocompleteOpen = ref(false);
+        const { mounted } = await mount({ skillAutocompleteOpen });
+        await flushLifecycle();
+        skillAutocompleteOpen.value = true;
+        await flushLifecycle();
+
+        try {
+            expect(nativeMock.window.setSearchWindowMinSize).toHaveBeenLastCalledWith({
+                minWidth: 750,
+                minHeight: 60,
+                maxHeight: null,
+            });
+            expect(mounted.result.allowLogicalPanelHeightResize.value).toBe(false);
+        } finally {
+            mounted.unmount();
+        }
+    });
+
     it('user opens a hidden native-sized window, then its panel has measurable bounds before WebKit allocates the viewport', async () => {
         vi.stubGlobal('innerWidth', 0);
         vi.stubGlobal('innerHeight', 0);

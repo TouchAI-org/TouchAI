@@ -22,6 +22,7 @@ export const SEARCH_WINDOW_TOP_INSET = 96;
 export interface SearchWindowHeightPolicyInput {
     sessionCount: number;
     quickSearchOpen: boolean;
+    skillAutocompleteOpen?: boolean;
 }
 
 export interface SearchWindowConversationLayoutInput {
@@ -113,13 +114,14 @@ export function resolveSearchWindowMeasuredHeight(input: SearchWindowMeasuredHei
  * - 空态（无会话、QuickSearch 关闭）：允许内容驱动的自动 resize（让 SearchBar 多行
  *   时窗口跟随扩展），但禁止手动覆盖。
  * - 对话态：启用自动 resize，允许手动覆盖，遵循 ManualOverride。
- * - QuickSearch 打开但无会话：启用自动 resize，但不允许手动覆盖。
+ * - QuickSearch / Skills 自动补全打开但无会话：启用自动 resize，但不允许手动覆盖。
  */
 export function resolveSearchWindowHeightPolicy(
     input: SearchWindowHeightPolicyInput
 ): SearchWindowHeightPolicy {
     const hasConversationPanel = input.sessionCount > 0;
-    const hasManagedPanel = hasConversationPanel || input.quickSearchOpen;
+    const hasManagedPanel =
+        hasConversationPanel || input.quickSearchOpen || (input.skillAutocompleteOpen ?? false);
 
     return {
         hasManagedPanel,

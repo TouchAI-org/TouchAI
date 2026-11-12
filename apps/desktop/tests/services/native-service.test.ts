@@ -20,6 +20,7 @@ import {
     type QuickSearchFileItem,
     type QuickSearchResult,
     type QuickSearchStatus,
+    type QuickShortcutItem,
     type SearchSurfacePreparation,
     type SearchWindowRegionUpdate,
     shortcut,
@@ -790,6 +791,21 @@ describe('user searches files and shortcuts', () => {
                     limit: 20,
                     include_shortcuts: true,
                 }
+            )
+        ).resolves.toEqual(response);
+    });
+
+    it('user gets recent reference suggestions from accepted paths', async () => {
+        const response: QuickShortcutItem[] = [
+            { name: 'Plan.md', path: 'D:/Docs/Plan.md', source: 'file' },
+        ];
+        mockTauriCommand('quick_search_file_reference_suggestions', response);
+
+        await expect(
+            callAndExpectInvoke(
+                () => quickSearch.getFileReferenceSuggestions(['D:/Docs/Plan.md'], 12),
+                'quick_search_file_reference_suggestions',
+                { recentPaths: ['D:/Docs/Plan.md'], limit: 12 }
             )
         ).resolves.toEqual(response);
     });

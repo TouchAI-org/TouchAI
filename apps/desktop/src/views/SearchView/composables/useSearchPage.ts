@@ -34,6 +34,7 @@ import {
 } from '@/config/searchKeybindings';
 import { type MessageKey, type MessageParams, t } from '@/i18n';
 import { useSettingsStore } from '@/stores/settings';
+import { hasInputHistorySnapshotContent } from '@/types/session';
 import { isE2eTestMode } from '@/utils/runtimeMode';
 import { normalizeLocalShortcutString } from '@/utils/shortcuts';
 
@@ -275,6 +276,14 @@ export function useSearchPageController(options: {
         return quickSearchPanel.value?.getHighlightedItem() !== null;
     }
 
+    function isSkillAutocompleteOpen() {
+        return searchBar.value?.isSkillAutocompleteOpen() === true;
+    }
+
+    function closeSkillAutocomplete() {
+        searchBar.value?.closeSkillAutocomplete();
+    }
+
     function openQuickSearch() {
         quickSearchPanel.value?.open();
     }
@@ -350,6 +359,14 @@ export function useSearchPageController(options: {
         getModelDropdownContext,
         isQuickSearchOpen,
         isQuickSearchItemHighlighted,
+        isSkillAutocompleteOpen,
+        isSkillAutocompleteActive: () => searchBar.value?.isSkillAutocompleteActive() === true,
+        isFileAutocompleteOpen: () => searchBar.value?.isFileAutocompleteOpen?.() === true,
+        closeSkillAutocomplete,
+        hasInputContent: () => {
+            const snapshot = searchBar.value?.captureInputHistorySnapshot();
+            return snapshot ? hasInputHistorySnapshotContent(snapshot) : false;
+        },
         openQuickSearch,
         closeQuickSearch,
         settleQuickSearchInteraction,

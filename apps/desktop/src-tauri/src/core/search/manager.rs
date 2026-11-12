@@ -20,7 +20,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use super::provider_everything::EverythingClient;
+use super::provider_everything::{is_recent_document_path, EverythingClient};
 
 // 子模块拆分：
 // - `matching`：路径归一化、分词、打分与去重键构建
@@ -47,6 +47,8 @@ use sync::{lock_mutex, read_lock, write_lock};
 const INDEX_REFRESH_TTL: Duration = Duration::from_secs(30);
 const TARGET_RESOLVER_WORKERS: usize = 2;
 const EVERYTHING_QUERY_MIN_RESULTS: usize = 24;
+const MAX_RECENT_REFERENCE_PATHS: usize = 40;
+const MAX_REFERENCE_SUGGESTIONS: usize = 20;
 
 /// 快速搜索调度器。
 struct QuickSearchManager {
@@ -301,6 +303,33 @@ impl QuickSearchManager {
         }
 
         Ok(results)
+    }
+
+    /// Combine available references with recently modified documents.
+    fn file_reference_suggestions(
+        &self,
+        recent_paths: &[String],
+        limit: usize,
+    ) -> Result<Vec<QuickShortcutItem>, String> {
+        collect_reference_suggestions(recent_paths, limit, |fetch_limit| {
+            let paths = {
+                let mut client = lock_mutex(&self.everything_client);
+                let db_loaded = client
+                    .is_db_loaded()
+                    .map_err(|error| self.map_everything_error(error))?;
+                if !db_loaded {
+                    self.update_database_loading_state();
+                    return Ok(Vec::new());
+                }
+                client
+                    .query_recent_document_paths(fetch_limit as u32)
+                    .map_err(|error| self.map_everything_error(error))?
+                    .paths
+            };
+
+            self.mark_everything_ready();
+            Ok(paths)
+        })
     }
 
     /// 触发一次索引刷新。
@@ -668,6 +697,100 @@ pub fn search_files(
     manager().search_files(query, limit.max(1), include_shortcuts)
 }
 
+/// Return recent references and documents for an empty @ query.
+pub fn file_reference_suggestions(
+    recent_paths: &[String],
+    limit: usize,
+) -> Result<Vec<QuickShortcutItem>, String> {
+    manager().file_reference_suggestions(recent_paths, limit.max(1))
+}
+
+fn collect_reference_suggestions(
+    recent_paths: &[String],
+    limit: usize,
+    load_document_paths: impl FnOnce(usize) -> Result<Vec<String>, String>,
+) -> Result<Vec<QuickShortcutItem>, String> {
+    let bounded_limit = limit.clamp(1, MAX_REFERENCE_SUGGESTIONS);
+    let mut recent = recent_reference_items(recent_paths, bounded_limit);
+    // Fetch enough documents to compensate for overlap with accepted references.
+    let fetch_limit = bounded_limit + recent.len();
+    let paths = match load_document_paths(fetch_limit) {
+        Ok(paths) => paths,
+        Err(error) if !recent.is_empty() => {
+            debug!(
+                "[QuickSearch] document suggestions unavailable; keeping references: {}",
+                error
+            );
+            return Ok(recent);
+        }
+        Err(error) => return Err(error),
+    };
+    let reference_paths: HashSet<_> = recent
+        .iter()
+        .map(|item| normalize_path_str(&item.path))
+        .collect();
+    let documents: Vec<_> = recent_document_items(&paths, fetch_limit)
+        .into_iter()
+        .filter(|item| !reference_paths.contains(&normalize_path_str(&item.path)))
+        .take(bounded_limit)
+        .collect();
+    // Reserve half the list for each source, then give unused slots to the other.
+    let reference_count = recent
+        .len()
+        .min(bounded_limit - documents.len().min(bounded_limit / 2));
+    recent.truncate(reference_count);
+    recent.extend(documents.into_iter().take(bounded_limit - reference_count));
+    Ok(recent)
+}
+
+fn recent_reference_items(paths: &[String], limit: usize) -> Vec<QuickShortcutItem> {
+    let mut seen = HashSet::new();
+    let mut items = Vec::new();
+    for path in paths.iter().take(MAX_RECENT_REFERENCE_PATHS) {
+        let path_norm = normalize_path_str(path);
+        if !seen.insert(path_norm) || !Path::new(path).is_file() {
+            continue;
+        }
+        let Some(name) = display_name_from_path(Path::new(path), is_lnk_file(Path::new(path)))
+        else {
+            continue;
+        };
+        items.push(QuickShortcutItem {
+            name,
+            path: path.clone(),
+            source: "file".to_string(),
+        });
+        if items.len() >= limit {
+            break;
+        }
+    }
+    items
+}
+
+fn recent_document_items(paths: &[String], limit: usize) -> Vec<QuickShortcutItem> {
+    let mut seen = HashSet::new();
+    let mut items = Vec::new();
+    for path in paths {
+        let path_obj = Path::new(path);
+        let path_norm = normalize_path_str(path);
+        if !seen.insert(path_norm) || !is_recent_document_path(path_obj) || !path_obj.is_file() {
+            continue;
+        }
+        let Some(name) = display_name_from_path(path_obj, false) else {
+            continue;
+        };
+        items.push(QuickShortcutItem {
+            name,
+            path: path.clone(),
+            source: "file".to_string(),
+        });
+        if items.len() >= limit {
+            break;
+        }
+    }
+    items
+}
+
 /// 返回全局单例调度器。
 ///
 /// 搜索状态、缓存和后台任务都依赖共享实例；如果每次调用都重新构造，
@@ -675,4 +798,189 @@ pub fn search_files(
 fn manager() -> &'static QuickSearchManager {
     static MANAGER: OnceLock<QuickSearchManager> = OnceLock::new();
     MANAGER.get_or_init(QuickSearchManager::new)
+}
+
+#[cfg(test)]
+mod recent_reference_tests {
+    use std::{fs, path::PathBuf};
+
+    use super::{collect_reference_suggestions, recent_document_items, recent_reference_items};
+
+    fn create_file(root: &std::path::Path, name: &str) -> PathBuf {
+        let path = root.join(name);
+        fs::write(&path, name).expect("fixture file");
+        path
+    }
+
+    #[test]
+    fn user_sees_existing_references_in_order_without_missing_or_duplicate_files() {
+        let root = tempfile::tempdir().expect("temp directory");
+        let first = create_file(root.path(), "Plan.md");
+        let second = create_file(root.path(), "Notes.pdf");
+        let missing = root.path().join("Missing.txt");
+        let paths = vec![
+            first.to_string_lossy().into_owned(),
+            missing.to_string_lossy().into_owned(),
+            first.to_string_lossy().into_owned(),
+            second.to_string_lossy().into_owned(),
+        ];
+
+        let items = recent_reference_items(&paths, 12);
+
+        assert_eq!(
+            items
+                .iter()
+                .map(|item| item.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Plan.md", "Notes.pdf"]
+        );
+        assert!(items.iter().all(|item| item.source == "file"));
+    }
+
+    #[test]
+    fn user_sees_only_documents_within_the_requested_suggestion_limit() {
+        let root = tempfile::tempdir().expect("temp directory");
+        let markdown = create_file(root.path(), "Plan.md");
+        let image = create_file(root.path(), "Cover.png");
+        let pdf = create_file(root.path(), "Brief.pdf");
+        let paths = vec![
+            image.to_string_lossy().into_owned(),
+            markdown.to_string_lossy().into_owned(),
+            pdf.to_string_lossy().into_owned(),
+        ];
+
+        let items = recent_document_items(&paths, 1);
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].name, "Plan.md");
+    }
+
+    fn create_paths(root: &std::path::Path, prefix: &str, count: usize) -> Vec<String> {
+        (0..count)
+            .map(|index| {
+                create_file(root, &format!("{prefix}-{index}.md"))
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn user_with_many_references_sees_both_sources_in_recency_order_when_opening_suggestions() {
+        let root = tempfile::tempdir().expect("temp directory");
+        let references = create_paths(root.path(), "reference", 12);
+        let documents = create_paths(root.path(), "document", 12);
+
+        let items = collect_reference_suggestions(&references, 12, |_| Ok(documents))
+            .expect("combined suggestions");
+
+        let expected: Vec<String> = (0..6)
+            .map(|index| format!("reference-{index}.md"))
+            .chain((0..6).map(|index| format!("document-{index}.md")))
+            .collect();
+        assert_eq!(
+            items.iter().map(|item| &item.name).collect::<Vec<_>>(),
+            expected.iter().collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn user_with_few_references_sees_the_remaining_slots_filled_with_modified_documents() {
+        let root = tempfile::tempdir().expect("temp directory");
+        let references = create_paths(root.path(), "reference", 1);
+        let documents = create_paths(root.path(), "document", 12);
+
+        let items = collect_reference_suggestions(&references, 12, |_| Ok(documents))
+            .expect("combined suggestions");
+
+        assert_eq!(items.len(), 12);
+        assert_eq!(items[0].name, "reference-0.md");
+        assert_eq!(items[11].name, "document-10.md");
+    }
+
+    #[test]
+    fn user_with_few_modified_documents_keeps_more_references_without_hiding_the_documents() {
+        let root = tempfile::tempdir().expect("temp directory");
+        let references = create_paths(root.path(), "reference", 12);
+        let documents = create_paths(root.path(), "document", 1);
+
+        let items = collect_reference_suggestions(&references, 12, |_| Ok(documents))
+            .expect("combined suggestions");
+
+        assert_eq!(items.len(), 12);
+        assert_eq!(items[10].name, "reference-10.md");
+        assert_eq!(items[11].name, "document-0.md");
+    }
+
+    #[test]
+    fn user_sees_each_file_once_when_both_sources_contain_the_same_paths() {
+        let root = tempfile::tempdir().expect("temp directory");
+        let references = create_paths(root.path(), "reference", 12);
+        let mut documents: Vec<String> = references
+            .iter()
+            .map(|path| path.to_uppercase().replace('\\', "/"))
+            .collect();
+        documents.extend(create_paths(root.path(), "document", 12));
+
+        let items = collect_reference_suggestions(&references, 12, |limit| {
+            Ok(documents.into_iter().take(limit).collect())
+        })
+        .expect("combined suggestions");
+
+        assert_eq!(items.len(), 12);
+        assert_eq!(items[0].name, "reference-0.md");
+        assert_eq!(items[5].name, "reference-5.md");
+        assert_eq!(items[6].name, "document-0.md");
+        assert_eq!(items[11].name, "document-5.md");
+    }
+
+    #[test]
+    fn user_keeps_available_references_when_the_document_index_is_unavailable() {
+        let root = tempfile::tempdir().expect("temp directory");
+        let references = create_paths(root.path(), "reference", 12);
+
+        let items = collect_reference_suggestions(&references, 12, |_| {
+            Err("Document index unavailable".to_string())
+        })
+        .expect("available references");
+
+        assert_eq!(items.len(), 12);
+        assert_eq!(items[0].name, "reference-0.md");
+        assert_eq!(items[11].name, "reference-11.md");
+    }
+
+    #[test]
+    fn user_without_references_gets_a_document_index_error_then_can_load_after_recovery() {
+        let error = collect_reference_suggestions(&[], 12, |_| {
+            Err("Document index unavailable".to_string())
+        })
+        .expect_err("no available source");
+        assert_eq!(error, "Document index unavailable");
+
+        let root = tempfile::tempdir().expect("temp directory");
+        let documents = create_paths(root.path(), "document", 2);
+        let items = collect_reference_suggestions(&[], 12, |_| Ok(documents))
+            .expect("recovered suggestions");
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].name, "document-0.md");
+        assert_eq!(items[1].name, "document-1.md");
+    }
+
+    #[test]
+    fn user_sees_bounded_suggestions_when_the_requested_limit_is_out_of_range() {
+        let root = tempfile::tempdir().expect("temp directory");
+        let references = create_paths(root.path(), "reference", 40);
+        let documents = create_paths(root.path(), "document", 40);
+
+        let items = collect_reference_suggestions(&references, usize::MAX, |_| Ok(documents))
+            .expect("bounded suggestions");
+        assert_eq!(items.len(), 20);
+        assert_eq!(items[9].name, "reference-9.md");
+        assert_eq!(items[10].name, "document-0.md");
+
+        let single = collect_reference_suggestions(&references, 0, |_| Ok(Vec::new()))
+            .expect("minimum suggestion limit");
+        assert_eq!(single.len(), 1);
+        assert_eq!(single[0].name, "reference-0.md");
+    }
 }

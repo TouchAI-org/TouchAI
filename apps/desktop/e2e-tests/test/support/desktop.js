@@ -129,7 +129,7 @@ export async function findElementByTestId(testId) {
 /** Restore the logical card through its owner, without resizing the transparent native host. */
 export async function resetSearchSurface() {
     await callE2eBridge('clearAskUser');
-    await callE2eBridge('setSearchQuery', '');
+    await callE2eBridge('resetDraft');
     const hasConversation = await browser.execute(() =>
         Boolean(document.querySelector('[data-testid="conversation-panel-host"]'))
     );

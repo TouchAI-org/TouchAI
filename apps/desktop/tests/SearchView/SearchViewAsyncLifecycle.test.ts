@@ -1,8 +1,9 @@
 import { shallowMount, type VueWrapper } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { defineComponent, h, nextTick, type Ref } from 'vue';
+import { defineComponent, h, nextTick, type Ref, ref, watch } from 'vue';
 
 import type { SessionMessage } from '@/types/session';
+import type { SkillPickerState } from '@/views/SearchView/components/SearchBar/composables/useSkillAutocomplete';
 import SearchView from '@/views/SearchView/index.vue';
 import type { SearchSurfacePreparationControllerOptions } from '@/views/SearchView/searchSurfacePreparation';
 
@@ -31,11 +32,15 @@ const {
         prefetchModelDropdownData: vi.fn(),
         prepareModelDropdownOpen: vi.fn(),
         selectModelFromDropdown: vi.fn(),
+        isSkillAutocompleteOpen: vi.fn(() => false),
+        closeSkillAutocomplete: vi.fn(),
+        hasInputContent: vi.fn(() => false),
     },
     clipboardState: {
         consumeShortcutAutoPastePayload: vi.fn(),
     },
     draftState: {
+        clearDraft: vi.fn(),
         importClipboardPayload: vi.fn(),
     },
     currentWindowMock: {
@@ -67,6 +72,7 @@ const {
             markHistorySelectionPending: ReturnType<typeof vi.fn>;
             abandonHistorySelection: ReturnType<typeof vi.fn>;
             sessionHistory: Ref<SessionMessage[]>;
+            currentSessionId: Ref<number | null>;
         } | null,
     },
     resizeState: {
@@ -200,6 +206,7 @@ vi.mock('@/views/SearchView/composables/searchInteraction', async (importOrigina
         ...actual,
         useQuickSearchCoordinator: () => ({
             isQuickSearchOpen: computed(() => false),
+            shouldShowQuickSearch: () => true,
             shouldTriggerQuickSearch: () => false,
         }),
     };
@@ -216,7 +223,7 @@ vi.mock('@/views/SearchView/composables/useSearchInput', () => ({
         syncAttachmentSupport: vi.fn(),
     }),
     useSearchDraftController: () => ({
-        clearDraft: vi.fn(),
+        clearDraft: draftState.clearDraft,
         importClipboardPayload: draftState.importClipboardPayload,
     }),
 }));
@@ -347,6 +354,7 @@ vi.mock('@/views/SearchView/composables/useSearchWindowResize', async () => {
                 effectiveWindowMaximized: ref(false),
                 settledWindowMaximized: ref(false),
                 fillConversationAvailableHeight: ref(false),
+                skillPickerMaxHeight: ref(299.5),
                 monitorHost: ref(false),
                 measurementHold: ref(false),
                 panelStyle: ref(undefined),
@@ -443,6 +451,7 @@ interface SearchViewSetupState {
             hiddenAt: number;
         }) => void;
         recordActivation: (source: 'shortcut' | 'notification' | 'manual') => void;
+        setWindowFocused: (focused: boolean) => void;
     };
 }
 
@@ -456,6 +465,7 @@ describe('SearchView async overlay and listener lifecycle', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         clipboardState.consumeShortcutAutoPastePayload.mockResolvedValue(null);
+        draftState.clearDraft.mockReset();
         draftState.importClipboardPayload.mockResolvedValue(undefined);
         keyboardState.options = null;
         lifecycleState.options = null;
@@ -473,6 +483,9 @@ describe('SearchView async overlay and listener lifecycle', () => {
         delete (window as Window & { __TOUCHAI_E2E__?: unknown }).__TOUCHAI_E2E__;
 
         controllerMock.focusSearchInput.mockResolvedValue(undefined);
+        controllerMock.isSkillAutocompleteOpen.mockReturnValue(false);
+        controllerMock.closeSkillAutocomplete.mockReset();
+        controllerMock.hasInputContent.mockReturnValue(false);
         controllerMock.getModelDropdownAnchor.mockReturnValue(document.createElement('button'));
         controllerMock.getModelDropdownContext.mockReturnValue({
             activeModelId: null,
@@ -507,7 +520,11 @@ describe('SearchView async overlay and listener lifecycle', () => {
         vi.unstubAllGlobals();
     });
 
-    function mountSearchView() {
+    function mountSearchView(skillPicker = ref<SkillPickerState | null>(null)) {
+        controllerMock.isSkillAutocompleteOpen.mockImplementation(() => skillPicker.value !== null);
+        controllerMock.closeSkillAutocomplete.mockImplementation(() => {
+            skillPicker.value = null;
+        });
         const overlayContent = defineComponent({
             setup(_, { expose }) {
                 expose({ handleOverlayShown: vi.fn(), handleKeyDown: vi.fn() });
@@ -516,6 +533,7 @@ describe('SearchView async overlay and listener lifecycle', () => {
         });
         const overlayHost = defineComponent({
             name: 'SearchOverlayHost',
+            props: { open: Boolean },
             setup(_, { expose, slots }) {
                 expose({ refreshPosition: vi.fn().mockResolvedValue(undefined) });
                 return () => h('div', slots.default?.());
@@ -524,16 +542,50 @@ describe('SearchView async overlay and listener lifecycle', () => {
         const wrapper = shallowMount(SearchView, {
             global: {
                 stubs: {
+                    SearchBar: defineComponent({
+                        name: 'SearchBar',
+                        inheritAttrs: false,
+                        props: { queryText: { type: String, default: '' } },
+                        emits: [
+                            'update:queryText',
+                            'skillAutocompleteOpenChange',
+                            'skillInputActiveChange',
+                            'requestToggleModelDropdown',
+                        ],
+                        setup(_, { slots, emit }) {
+                            watch(
+                                skillPicker,
+                                (picker) => emit('skillAutocompleteOpenChange', picker !== null),
+                                { immediate: true, flush: 'post' }
+                            );
+                            return () => [
+                                h('div', { 'data-testid': 'test-search-editor' }),
+                                slots.results?.({
+                                    skillPicker: skillPicker.value,
+                                    selectSkill: () => undefined,
+                                }),
+                            ];
+                        },
+                    }),
                     SearchOverlayHost: overlayHost,
                     ModelDropdownPopup: overlayContent,
                     SessionHistoryPopover: overlayContent,
                     ConversationPanel: defineComponent({
+                        name: 'ConversationPanel',
                         setup(_, { expose }) {
                             expose({ getContentHeight: () => 340, focus: vi.fn() });
                             return () => h('div', 'Conversation');
                         },
                     }),
                     QuickSearchPanel: defineComponent({
+                        name: 'QuickSearchPanel',
+                        props: {
+                            open: Boolean,
+                            enabled: Boolean,
+                            handoff: Boolean,
+                            searchQuery: { type: String, default: '' },
+                            referenceMode: Boolean,
+                        },
                         setup(_, { expose }) {
                             expose({ close: vi.fn() });
                             return () => h('div', 'Search results');
@@ -545,6 +597,143 @@ describe('SearchView async overlay and listener lifecycle', () => {
         wrappers.push(wrapper);
         return wrapper;
     }
+
+    function createSkillPicker(): SkillPickerState {
+        return {
+            listId: 'skill-list',
+            query: 'review',
+            loading: false,
+            error: false,
+            candidates: [
+                {
+                    name: 'review',
+                    description: 'Review a change',
+                    shortDescription: null,
+                    path: '/skills/review/SKILL.md',
+                    directory: '/skills/review',
+                },
+            ],
+            highlightedIndex: 0,
+        };
+    }
+
+    it('user given a conversation and skill draft when typing @ then searches the local filename in the existing file panel', async () => {
+        const wrapper = mountSearchView();
+        await flushPromises();
+        requestFlowState.current!.sessionHistory.value = [
+            { id: 'prior', role: 'user', content: 'previous', parts: [], timestamp: 1 },
+        ];
+        await nextTick();
+        expect(wrapper.findComponent({ name: 'QuickSearchPanel' }).exists()).toBe(false);
+        const editor = wrapper.findComponent({ name: 'SearchBar' });
+        editor.vm.$emit('skillInputActiveChange', true);
+        editor.vm.$emit('update:queryText', 'Please compare\n@README');
+        editor.vm.$emit('fileInputActiveChange', true);
+        editor.vm.$emit('fileAutocompleteQueryChange', 'README');
+        await nextTick();
+        const panel = wrapper.findComponent({ name: 'QuickSearchPanel' });
+        expect(panel.props()).toMatchObject({
+            enabled: true,
+            referenceMode: true,
+            searchQuery: 'README',
+        });
+        expect(wrapper.find('[data-testid="conversation-panel-host"]').exists()).toBe(true);
+        editor.vm.$emit('fileAutocompleteQueryChange', null);
+        await nextTick();
+        expect(wrapper.findComponent({ name: 'QuickSearchPanel' }).exists()).toBe(false);
+        expect(editor.props('queryText')).toBe('Please compare\n@README');
+    });
+
+    it.each(['/', '$'])(
+        'user sees a %s skill picker in a conversation without mounting the file search adapter',
+        async (prefix) => {
+            const picker = ref<SkillPickerState | null>(null);
+            const wrapper = mountSearchView(picker);
+            await flushPromises();
+            expect(wrapper.findComponent({ name: 'QuickSearchPanel' }).exists()).toBe(true);
+            requestFlowState.current!.sessionHistory.value = [
+                { id: 'previous', role: 'user', content: 'previous', parts: [], timestamp: 1 },
+            ];
+            await nextTick();
+            const editor = wrapper.findComponent({ name: 'SearchBar' });
+            editor.vm.$emit('update:queryText', `${prefix}review`);
+            editor.vm.$emit('skillInputActiveChange', true);
+            picker.value = createSkillPicker();
+            await nextTick();
+
+            expect(wrapper.findComponent({ name: 'SkillPickerPanel' }).exists()).toBe(true);
+            expect(wrapper.findComponent({ name: 'QuickSearchPanel' }).exists()).toBe(false);
+            expect(wrapper.find('[data-testid="conversation-panel-host"]').exists()).toBe(true);
+        }
+    );
+
+    it('user retains the skill query and highlighted row after the native surface hides and reopens', async () => {
+        const picker = ref<SkillPickerState | null>(createSkillPicker());
+        const wrapper = mountSearchView(picker);
+        await flushPromises();
+        const editor = wrapper.findComponent({ name: 'SearchBar' });
+        editor.vm.$emit('update:queryText', '/review');
+        editor.vm.$emit('skillInputActiveChange', true);
+        await nextTick();
+        const reconcile = lifecycleState.options!.reconcileSearchOverlays as (
+            restoreFocus?: boolean
+        ) => Promise<void>;
+        const hidden = lifecycleState.options!.onSurfaceHidden as () => Promise<void>;
+        const visibility = lifecycleState.options!.onSurfaceVisibilityChange as (
+            visible: boolean
+        ) => void;
+
+        await reconcile(false);
+        await hidden();
+        visibility(true);
+        await reconcile();
+        await nextTick();
+
+        const panel = wrapper.findComponent({ name: 'SkillPickerPanel' });
+        expect(panel.exists()).toBe(true);
+        expect(panel.props('picker')).toMatchObject({ query: 'review', highlightedIndex: 0 });
+        expect(editor.props('queryText')).toBe('/review');
+    });
+
+    it.each(['model', 'history'] as const)(
+        'user can open the %s overlay from Skills while preserving their query',
+        async (overlay) => {
+            const picker = ref<SkillPickerState | null>(createSkillPicker());
+            const wrapper = mountSearchView(picker);
+            await flushPromises();
+            const editor = wrapper.findComponent({ name: 'SearchBar' });
+            editor.vm.$emit('update:queryText', '/review');
+            editor.vm.$emit('skillInputActiveChange', true);
+            await nextTick();
+
+            if (overlay === 'model') {
+                editor.vm.$emit('requestToggleModelDropdown');
+                for (let tick = 0; tick < 8; tick += 1) await flushPromises();
+            } else {
+                await getSetupState(wrapper).openHistoryDialog();
+            }
+
+            expect(wrapper.findComponent({ name: 'SearchOverlayHost' }).props('open')).toBe(true);
+            expect(wrapper.findComponent({ name: 'SkillPickerPanel' }).exists()).toBe(false);
+            expect(picker.value).toBeNull();
+            expect(editor.props('queryText')).toBe('/review');
+        }
+    );
+
+    it('user keeps their active skill draft when a completed conversation is eligible for timeout cleanup', async () => {
+        const wrapper = mountSearchView();
+        requestFlowState.current!.currentSessionId.value = 17;
+        requestFlowState.current!.sessionHistory.value = [
+            { id: 'completed', role: 'assistant', content: 'done', parts: [], timestamp: 1 },
+        ];
+        getSetupState(wrapper).searchInteractionContext.setWindowFocused(true);
+        await nextTick();
+        const shouldClear = lifecycleState.options!.shouldClearSessionAfterTimeout as () => boolean;
+        expect(shouldClear()).toBe(true);
+
+        controllerMock.hasInputContent.mockReturnValue(true);
+        expect(shouldClear()).toBe(false);
+    });
 
     it('remeasures the host when positioned overlay bounds change the required viewport height', async () => {
         const wrapper = mountSearchView();
@@ -1054,6 +1243,24 @@ describe('SearchView async overlay and listener lifecycle', () => {
         bridge.setSearchFixture('Fixture', results);
         expect(bridge.getQuickSearchFallbackResults(' fixture ')).toEqual(results);
         expect(bridge.getQuickSearchFallbackResults('another query')).toEqual([]);
+    });
+
+    it('user resets the E2E draft through the same complete clear flow as the product', async () => {
+        runtimeModeState.isE2eTestMode.mockResolvedValue(true);
+        mountSearchView();
+        await flushPromises();
+        await flushPromises();
+
+        const bridge = (
+            window as Window & {
+                __TOUCHAI_E2E__?: {
+                    resetDraft: () => void;
+                };
+            }
+        ).__TOUCHAI_E2E__!;
+        bridge.resetDraft();
+
+        expect(draftState.clearDraft).toHaveBeenCalledOnce();
     });
 
     it('user submitting from idle waits for response content before the window expands', async () => {

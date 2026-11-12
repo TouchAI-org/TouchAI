@@ -1,19 +1,31 @@
-import type { QuickShortcutItem } from '@services/NativeService';
-import { computed, nextTick, type Ref, ref } from 'vue';
+import { computed, nextTick, type Ref, ref, watch } from 'vue';
+
+import {
+    RESULT_COMPACT_ROW_HEIGHT,
+    RESULT_LIST_COLLAPSED_ROWS,
+    RESULT_LIST_EXPANDED_ROWS,
+    RESULT_LIST_ROW_HEIGHT,
+    RESULT_VIEWPORT_PADDING,
+} from '@/components/ui/result-panel/layout';
+import {
+    nextResultIndex,
+    resultExpansionAfterNavigation,
+    revealResultRange,
+} from '@/components/ui/result-panel/navigation';
 
 export type ViewMode = 'grid' | 'list';
 
 export const BASE_GAP_PX = 8; // 网格默认间距（px）
 export const MIN_GAP_PX = 4; // 网格允许的最小间距（px）
-export const ITEM_SIZE_PX = 88; // 单个结果项方块尺寸（px）
-export const LIST_ROW_HEIGHT_PX = 40; // 列表视图行高（px）
+export const ITEM_SIZE_PX = 88; // 网格项高度和最小列宽（px）
+export const LIST_ROW_HEIGHT_PX = RESULT_LIST_ROW_HEIGHT;
 export const LIST_ROW_GAP_PX = 0; // 列表视图行间距（px）
 export const COLLAPSED_VISIBLE_ROWS = 2; // 折叠态可见行数
 export const EXPANDED_VISIBLE_ROWS = 4; // 展开态可见行数
 
 const MIN_EDGE_SPACE_PX = MIN_GAP_PX; // 面板左右最小留白（px）
 const MAX_COLUMNS = 7; // 网格列数上限，避免布局过密
-const DEFAULT_EDGE_SPACE_PX = BASE_GAP_PX; // 默认左右留白（px）
+const DEFAULT_EDGE_SPACE_PX = RESULT_VIEWPORT_PADDING; // 默认左右留白（px）
 // 折叠态下的默认面板最大高度（px）。
 const DEFAULT_MAX_HEIGHT_PX =
     2 * DEFAULT_EDGE_SPACE_PX +
@@ -21,16 +33,18 @@ const DEFAULT_MAX_HEIGHT_PX =
     (COLLAPSED_VISIBLE_ROWS - 1) * BASE_GAP_PX;
 
 // 列表模式下的默认面板最大高度（px）。
-const LIST_COLLAPSED_VISIBLE_ROWS = 8;
-const LIST_EXPANDED_VISIBLE_ROWS = 15;
+const LIST_COLLAPSED_VISIBLE_ROWS = RESULT_LIST_COLLAPSED_ROWS;
+const LIST_EXPANDED_VISIBLE_ROWS = RESULT_LIST_EXPANDED_ROWS;
 const LIST_DEFAULT_MAX_HEIGHT_PX =
     2 * DEFAULT_EDGE_SPACE_PX + LIST_COLLAPSED_VISIBLE_ROWS * LIST_ROW_HEIGHT_PX;
 
 interface UseLayoutOptions {
     isOpen: Ref<boolean>;
-    results: Ref<QuickShortcutItem[]>;
+    results: Readonly<Ref<readonly unknown[]>>;
     highlightedIndex: Ref<number>;
     scrollRef: Ref<HTMLElement | null>;
+    compact?: Readonly<Ref<boolean>>;
+    maxHeight?: Readonly<Ref<number | undefined>>;
 }
 
 /**
@@ -44,7 +58,13 @@ export function useLayout(options: UseLayoutOptions) {
     const { isOpen, results, highlightedIndex, scrollRef } = options;
 
     // 1. 视图模式与布局状态
-    const viewMode = ref<ViewMode>('grid');
+    const preferredViewMode = ref<ViewMode>('grid');
+    const viewMode = computed({
+        get: () => (options.compact?.value ? ('list' as const) : preferredViewMode.value),
+        set: (mode: ViewMode) => {
+            if (!options.compact?.value) preferredViewMode.value = mode;
+        },
+    });
     const gridColumns = ref(1);
     const gridGap = ref(BASE_GAP_PX);
     const edgeSpace = ref(DEFAULT_EDGE_SPACE_PX);
@@ -55,10 +75,13 @@ export function useLayout(options: UseLayoutOptions) {
         }
         if (viewMode.value === 'list') {
             const totalRows = results.value.length;
-            const effectiveRows = Math.max(1, Math.min(visibleRows.value, totalRows));
+            const effectiveRows = Math.max(
+                1,
+                options.compact?.value ? totalRows : Math.min(visibleRows.value, totalRows)
+            );
             return (
                 2 * DEFAULT_EDGE_SPACE_PX +
-                effectiveRows * LIST_ROW_HEIGHT_PX +
+                effectiveRows * currentRowHeight() +
                 (effectiveRows - 1) * LIST_ROW_GAP_PX
             );
         }
@@ -70,13 +93,8 @@ export function useLayout(options: UseLayoutOptions) {
         );
     });
 
-    const scrollStyle = computed(() => ({
-        '--quick-edge-space': `${edgeSpace.value}px`,
-        '--quick-selection-max-height': `${selectionMaxHeight.value}px`,
-    }));
-
     const gridStyle = computed(() => ({
-        gridTemplateColumns: `repeat(${Math.max(gridColumns.value, 1)}, ${ITEM_SIZE_PX}px)`,
+        gridTemplateColumns: `repeat(${Math.max(gridColumns.value, 1)}, minmax(0, 1fr))`,
         gap: `${gridGap.value}px`,
     }));
 
@@ -87,9 +105,10 @@ export function useLayout(options: UseLayoutOptions) {
      * @returns void
      */
     function toggleViewMode() {
+        if (options.compact?.value) return;
+        const expanded = visibleRows.value > collapsedRows();
         viewMode.value = viewMode.value === 'grid' ? 'list' : 'grid';
-        visibleRows.value =
-            viewMode.value === 'list' ? LIST_EXPANDED_VISIBLE_ROWS : EXPANDED_VISIBLE_ROWS;
+        visibleRows.value = expanded ? expandedRows() : collapsedRows();
         updateLayout();
         if (highlightedIndex.value >= 0) {
             scrollHighlightedIntoView();
@@ -102,7 +121,11 @@ export function useLayout(options: UseLayoutOptions) {
      * @returns 行高（px）。
      */
     function currentRowHeight(): number {
-        return viewMode.value === 'list' ? LIST_ROW_HEIGHT_PX : ITEM_SIZE_PX;
+        return options.compact?.value
+            ? RESULT_COMPACT_ROW_HEIGHT
+            : viewMode.value === 'list'
+              ? LIST_ROW_HEIGHT_PX
+              : ITEM_SIZE_PX;
     }
 
     /**
@@ -114,6 +137,31 @@ export function useLayout(options: UseLayoutOptions) {
         return viewMode.value === 'list' ? LIST_ROW_GAP_PX : gridGap.value;
     }
 
+    function collapsedRows() {
+        return viewMode.value === 'list' ? LIST_COLLAPSED_VISIBLE_ROWS : COLLAPSED_VISIBLE_ROWS;
+    }
+
+    function expandedRows() {
+        return viewMode.value === 'list' ? LIST_EXPANDED_VISIBLE_ROWS : EXPANDED_VISIBLE_ROWS;
+    }
+
+    function handleWheel(event: WheelEvent) {
+        if (
+            options.compact?.value ||
+            !isOpen.value ||
+            event.ctrlKey ||
+            event.deltaY <= 0 ||
+            Math.abs(event.deltaX) > event.deltaY ||
+            visibleRows.value > collapsedRows()
+        )
+            return;
+        const columns = viewMode.value === 'list' ? 1 : Math.max(gridColumns.value, 1);
+        if (results.value.length <= columns * visibleRows.value) return;
+        // The first downward gesture reveals the next batch without moving the existing rows.
+        setVisibleRows(expandedRows());
+        event.preventDefault();
+    }
+
     // 3. 布局计算
     /**
      * 设置可见行数，并限制在折叠行数与展开行数之间。
@@ -122,17 +170,7 @@ export function useLayout(options: UseLayoutOptions) {
      * @returns void
      */
     function setVisibleRows(rows: number) {
-        if (viewMode.value === 'list') {
-            visibleRows.value = Math.max(
-                LIST_COLLAPSED_VISIBLE_ROWS,
-                Math.min(rows, LIST_EXPANDED_VISIBLE_ROWS)
-            );
-        } else {
-            visibleRows.value = Math.max(
-                COLLAPSED_VISIBLE_ROWS,
-                Math.min(rows, EXPANDED_VISIBLE_ROWS)
-            );
-        }
+        visibleRows.value = Math.max(collapsedRows(), Math.min(rows, expandedRows()));
     }
 
     /**
@@ -144,11 +182,7 @@ export function useLayout(options: UseLayoutOptions) {
         gridColumns.value = 1;
         gridGap.value = BASE_GAP_PX;
         edgeSpace.value = DEFAULT_EDGE_SPACE_PX;
-        if (viewMode.value === 'list') {
-            visibleRows.value = LIST_COLLAPSED_VISIBLE_ROWS;
-        } else {
-            setVisibleRows(COLLAPSED_VISIBLE_ROWS);
-        }
+        visibleRows.value = collapsedRows();
     }
 
     /**
@@ -179,7 +213,7 @@ export function useLayout(options: UseLayoutOptions) {
             Math.floor((availableWidth - BASE_GAP_PX) / (ITEM_SIZE_PX + BASE_GAP_PX))
         );
         // 列数按可用宽度决定，不再被结果数截断。
-        // 这样容器可以保持居中，而结果项始终从容器左侧开始排布。
+        // 每列均分可用宽度，不满一行的结果仍从左侧开始排布。
         const columns = Math.min(fitColumns, MAX_COLUMNS);
 
         let gap = BASE_GAP_PX;
@@ -218,31 +252,17 @@ export function useLayout(options: UseLayoutOptions) {
         const scrollContainer = scrollRef.value;
         if (!scrollContainer) return;
 
-        const activeColumns = Math.max(gridColumns.value, 1);
-        const rowHeight = currentRowHeight() + Math.max(currentRowGap(), 0);
-        if (rowHeight <= 0) return;
-
-        const targetRow = Math.floor(highlightedIndex.value / activeColumns);
-        const totalRows = Math.max(1, Math.ceil(results.value.length / activeColumns));
-        const visRows = Math.max(1, Math.min(visibleRows.value, totalRows));
-        const currentFirstRow = Math.max(Math.floor(scrollContainer.scrollTop / rowHeight), 0);
-
-        let nextFirstRow = currentFirstRow;
-        if (targetRow < currentFirstRow) {
-            nextFirstRow = targetRow;
-        } else if (targetRow > currentFirstRow + visRows - 1) {
-            nextFirstRow = targetRow - visRows + 1;
-        }
-
         requestAnimationFrame(() => {
-            const maxScrollTop = Math.max(
-                scrollContainer.scrollHeight - scrollContainer.clientHeight,
-                0
-            );
-            const alignedScrollTop = Math.min(Math.max(nextFirstRow * rowHeight, 0), maxScrollTop);
-            if (Math.abs(scrollContainer.scrollTop - alignedScrollTop) > 0.5) {
-                scrollContainer.scrollTop = alignedScrollTop;
-            }
+            if (highlightedIndex.value < 0 || scrollContainer.clientHeight <= 0) return;
+            // The shared picker can be shorter than the requested row count.
+            // Measure the committed viewport after layout instead of assuming expanded rows fit.
+            const columns = viewMode.value === 'list' ? 1 : Math.max(gridColumns.value, 1);
+            const rowHeight = currentRowHeight();
+            const rowStride = rowHeight + Math.max(currentRowGap(), 0);
+            const padding = options.compact?.value ? 0 : edgeSpace.value;
+            const targetTop = padding + Math.floor(highlightedIndex.value / columns) * rowStride;
+            const targetBottom = targetTop + rowHeight;
+            revealResultRange(scrollContainer, targetTop, targetBottom, padding);
         });
     }
 
@@ -253,98 +273,73 @@ export function useLayout(options: UseLayoutOptions) {
      * - up 从第一排返回 -1，实现"去激活"语义。
      *
      * @param direction 高亮移动方向。
-     * @returns void
+     * @returns Whether result navigation consumed the direction.
      */
     function moveSelection(direction: 'up' | 'down' | 'left' | 'right') {
-        if (!isOpen.value || results.value.length === 0) return;
+        if (!isOpen.value || results.value.length === 0) return false;
 
-        const maxIndex = results.value.length - 1;
         const activeColumns = viewMode.value === 'list' ? 1 : Math.max(gridColumns.value, 1);
         const currentIndex = highlightedIndex.value;
-        let nextIndex = currentIndex;
+        const nextIndex = nextResultIndex(
+            currentIndex,
+            results.value.length,
+            direction,
+            activeColumns,
+            !options.compact?.value
+        );
+        if (nextIndex === null) return false;
 
-        const collapsedRows =
-            viewMode.value === 'list' ? LIST_COLLAPSED_VISIBLE_ROWS : COLLAPSED_VISIBLE_ROWS;
-
-        switch (direction) {
-            case 'left':
-                if (currentIndex < 0) return; // 无高亮时忽略
-                nextIndex = Math.max(nextIndex - 1, 0);
-                break;
-            case 'right':
-                if (currentIndex < 0) return; // 无高亮时忽略
-                nextIndex = Math.min(nextIndex + 1, maxIndex);
-                break;
-            case 'up':
-                if (currentIndex < 0) return; // 无高亮时忽略
-                if (currentIndex < activeColumns) {
-                    // 第一排向上 → 去激活高亮
-                    nextIndex = -1;
-                } else {
-                    nextIndex = Math.max(nextIndex - activeColumns, 0);
-                }
-                // 向上回到折叠区域或去激活时自动收缩。
-                if (visibleRows.value !== collapsedRows) {
-                    const shouldCollapse =
-                        nextIndex < 0 || Math.floor(nextIndex / activeColumns) < collapsedRows;
-                    if (shouldCollapse) {
-                        setVisibleRows(collapsedRows);
-                        updateLayout();
-                    }
-                }
-                break;
-            case 'down':
-                if (currentIndex < 0) {
-                    // 无高亮 → 激活首项
-                    nextIndex = 0;
-                } else {
-                    const currentRow = Math.floor(currentIndex / activeColumns);
-                    nextIndex = Math.min(nextIndex + activeColumns, maxIndex);
-                    if (
-                        visibleRows.value === collapsedRows &&
-                        currentRow >= collapsedRows - 1 &&
-                        nextIndex > currentIndex
-                    ) {
-                        // 展开前记录当前高亮行的视觉位置，展开后恢复，避免内容跳动。
-                        const container = scrollRef.value;
-                        const rowTop =
-                            currentRow * (currentRowHeight() + Math.max(currentRowGap(), 0));
-                        const offsetInViewport = container ? rowTop - container.scrollTop : 0;
-                        setVisibleRows(
-                            viewMode.value === 'list'
-                                ? LIST_EXPANDED_VISIBLE_ROWS
-                                : EXPANDED_VISIBLE_ROWS
-                        );
-                        updateLayout();
-                        if (container) {
-                            requestAnimationFrame(() => {
-                                container.scrollTop = rowTop - offsetInViewport;
-                            });
-                        }
-                    }
-                }
-                break;
+        const initialRows = collapsedRows();
+        const expanded = visibleRows.value > initialRows;
+        const nextExpanded = resultExpansionAfterNavigation({
+            expanded,
+            currentIndex,
+            nextIndex,
+            direction,
+            collapsedRows: initialRows,
+            columns: activeColumns,
+        });
+        if (!options.compact?.value && expanded !== nextExpanded) {
+            // Preserve the current row's position while revealing the second batch.
+            const container = scrollRef.value;
+            const scrollTop = container?.scrollTop ?? 0;
+            setVisibleRows(nextExpanded ? expandedRows() : initialRows);
+            updateLayout();
+            if (container && nextExpanded) {
+                requestAnimationFrame(() => (container.scrollTop = scrollTop));
+            }
         }
 
         highlightedIndex.value = nextIndex;
         if (nextIndex >= 0) {
             void scrollHighlightedIntoView();
         }
+        return true;
     }
+
+    watch(
+        () => options.compact?.value,
+        () => {
+            resetLayoutState();
+            updateLayout();
+        }
+    );
 
     return {
         viewMode,
+        rowHeight: computed(currentRowHeight),
         gridColumns,
         gridGap,
         visibleRows,
         selectionMaxHeight,
-        scrollStyle,
+        edgeSpace,
         gridStyle,
         toggleViewMode,
         setVisibleRows,
         resetLayoutState,
         updateLayout,
         syncLayout,
+        handleWheel,
         moveSelection,
         scrollHighlightedIntoView,
     };

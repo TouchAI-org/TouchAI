@@ -75,6 +75,9 @@ interface UseQuickSearchCoordinatorOptions {
     quickSearchHandoff?: Readonly<Ref<boolean>>;
     controller: SearchPageController;
     suppressNextAutoOpen?: Ref<boolean>;
+    skillInputActive?: Ref<boolean>;
+    fileInputActive?: Ref<boolean>;
+    fileAutocompleteQuery?: Ref<string | null>;
 }
 
 type SearchKeyboardSurface = 'search-surface' | SearchOverlaySurfaceType;
@@ -108,6 +111,7 @@ interface CreateSearchKeyboardRouterOptions {
     getActiveSurface: () => SearchKeyboardSurface;
     getQueryText: () => string;
     hasAttachments: () => boolean;
+    hasInputContent?: () => boolean;
     isQuickSearchOpen: () => boolean;
     hasQuickSearchHighlight: () => boolean;
     shouldTriggerQuickSearch: (query: string) => boolean;
@@ -178,6 +182,7 @@ export interface UseSearchKeyboardOptions {
     clearAll: () => void;
     cancelRequest: () => void;
     clearSession: () => void;
+    clearDraft?: () => void;
 }
 
 export type SearchKeydownHandler = ((event: KeyboardEvent) => Promise<void>) & {
@@ -227,6 +232,7 @@ export function extractSessionInputHistoryEntries(
             snapshot: createInputHistorySnapshot({
                 text: message.inputSnapshot?.text ?? message.content,
                 attachments: message.inputSnapshot?.attachments ?? message.attachments ?? [],
+                skills: message.inputSnapshot?.skills,
                 editorDoc: message.inputSnapshot?.editorDoc,
                 excludeFromHistory: message.inputSnapshot?.excludeFromHistory,
             }),
@@ -481,6 +487,9 @@ export function useQuickSearchCoordinator(options: UseQuickSearchCoordinatorOpti
         quickSearchOpen,
         controller,
         suppressNextAutoOpen,
+        skillInputActive,
+        fileInputActive,
+        fileAutocompleteQuery,
     } = options;
 
     const isQuickSearchOpen = computed(() => {
@@ -495,8 +504,12 @@ export function useQuickSearchCoordinator(options: UseQuickSearchCoordinatorOpti
      * the user's results.
      */
     function shouldShowQuickSearch(query: string) {
+        if (fileAutocompleteQuery?.value !== undefined && fileAutocompleteQuery.value !== null)
+            return true;
         return (
             sessionHistory.value.length === 0 &&
+            !skillInputActive?.value &&
+            !fileInputActive?.value &&
             !!query.trim() &&
             !cursorContext.value.isMultiLine &&
             !modelOverride.value.modelId &&
@@ -534,7 +547,7 @@ export function useQuickSearchCoordinator(options: UseQuickSearchCoordinatorOpti
         }
 
         if (shouldTriggerQuickSearch(query)) {
-            controller.triggerQuickSearch(query);
+            controller.triggerQuickSearch(fileAutocompleteQuery?.value ?? query);
         }
     }
 
@@ -552,6 +565,9 @@ export function useQuickSearchCoordinator(options: UseQuickSearchCoordinatorOpti
             isModelDropdownOpen: modelDropdownState.value.isOpen,
             activeOverlay: activeOverlay.value,
             quickSearchHandoff: options.quickSearchHandoff?.value ?? false,
+            skillInputActive: skillInputActive?.value ?? false,
+            fileInputActive: fileInputActive?.value ?? false,
+            fileAutocompleteQuery: fileAutocompleteQuery?.value ?? null,
         }),
         (state) => {
             if (state.quickSearchHandoff) return;
@@ -567,6 +583,7 @@ export function useQuickSearchCoordinator(options: UseQuickSearchCoordinatorOpti
 
     return {
         isQuickSearchOpen,
+        shouldShowQuickSearch,
         shouldTriggerQuickSearch,
         syncQuickSearchPanel,
     };
@@ -656,6 +673,7 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
         getActiveSurface,
         getQueryText,
         hasAttachments,
+        hasInputContent,
         isQuickSearchOpen,
         hasQuickSearchHighlight,
         shouldTriggerQuickSearch,
@@ -787,7 +805,7 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
             }
 
             // Step 1: Clear input text first without exiting the current conversation
-            if (queryText.trim()) {
+            if (queryText.trim() || hasInputContent?.()) {
                 onClearDraft();
                 return true;
             }
@@ -867,7 +885,7 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
                     // claims the native resize transaction synchronously; closing
                     // first lets ResizeObserver enqueue a stale shrink and causes
                     // the host to jump back to the compact height.
-                    if (queryText.trim()) {
+                    if (queryText.trim() || hasAttachments() || hasInputContent?.()) {
                         runKeyboardEffect(onSubmit);
                     } else {
                         onCloseQuickSearch();
@@ -899,7 +917,7 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
                     return false;
                 }
 
-                if (queryText.trim() || hasAttachments()) {
+                if (queryText.trim() || hasAttachments() || hasInputContent?.()) {
                     runKeyboardEffect(onSubmit);
                     return true;
                 }
@@ -910,7 +928,7 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
         }
 
         if (getActiveSurface() === 'search-surface' && input.key === 'Enter' && !input.shiftKey) {
-            if (queryText.trim() || hasAttachments()) {
+            if (queryText.trim() || hasAttachments() || hasInputContent?.()) {
                 runKeyboardEffect(onSubmit);
             }
             return true;
@@ -964,6 +982,7 @@ export function createSearchKeydownHandler(
         clearAll,
         cancelRequest,
         clearSession,
+        clearDraft,
     } = options;
 
     let lastBackspaceTime = 0;
@@ -992,6 +1011,7 @@ export function createSearchKeydownHandler(
         },
         getQueryText: () => queryText.value,
         hasAttachments: () => attachments.value.length > 0,
+        hasInputContent: () => controller.hasInputContent(),
         isQuickSearchOpen: () => isQuickSearchOpen.value,
         hasQuickSearchHighlight: () => controller.isQuickSearchItemHighlighted(),
         shouldTriggerQuickSearch,
@@ -1053,7 +1073,8 @@ export function createSearchKeydownHandler(
             clearSession();
         },
         onClearDraft: () => {
-            queryText.value = '';
+            if (clearDraft) clearDraft();
+            else queryText.value = '';
         },
         onPrimaryShortcut: (key) => {
             if (key === '.') {
@@ -1110,6 +1131,24 @@ export function createSearchKeydownHandler(
         }
 
         if (event.defaultPrevented) {
+            return;
+        }
+
+        if (event.isComposing || event.keyCode === 229) return;
+        if (
+            !pendingToolApproval.value &&
+            !getActiveOverlaySurface() &&
+            !modelDropdownState.value.isOpen &&
+            !sessionHistoryOverlayOpen.value &&
+            (controller.isSkillAutocompleteActive() || controller.isFileAutocompleteOpen?.()) &&
+            (['ArrowUp', 'ArrowDown', 'Enter', 'Tab', 'Escape', 'Esc'].includes(event.key) ||
+                (controller.isFileAutocompleteOpen?.() &&
+                    ['ArrowLeft', 'ArrowRight'].includes(event.key))) &&
+            !event.ctrlKey &&
+            !event.metaKey &&
+            !event.altKey &&
+            !event.shiftKey
+        ) {
             return;
         }
 

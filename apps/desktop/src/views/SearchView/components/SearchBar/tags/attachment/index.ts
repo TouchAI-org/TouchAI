@@ -5,6 +5,7 @@
  */
 
 import type { Editor } from '@tiptap/core';
+import { closeHistory } from '@tiptap/pm/history';
 import type { DOMOutputSpec } from '@tiptap/pm/model';
 import type { Node as PmNode } from '@tiptap/pm/model';
 import type { EditorState, Transaction } from '@tiptap/pm/state';
@@ -14,7 +15,7 @@ import type { Component } from 'vue';
 
 import { type AttachmentSupportStatus } from '@/services/AgentService/infrastructure/attachments';
 
-import { createSearchTagNode, createTagCloseButton } from '../factory';
+import { appendTagSeparator, createSearchTagNode, createTagCloseButton } from '../factory';
 import { isRegisteredTagNode, registerSearchTag } from '../registry';
 import AttachmentTagView from './AttachmentTagView.vue';
 
@@ -74,6 +75,7 @@ const AttachmentTagNode = createSearchTagNode({
             'data-attachment-tag': '',
             'data-attachment-id': HTMLAttributes.attachmentId || '',
             'data-attachment-alias': alias,
+            'data-attachment-file': isImage ? undefined : '',
             class: isImage ? 'search-tag-chip--image' : '',
             title: name,
         };
@@ -81,12 +83,10 @@ const AttachmentTagNode = createSearchTagNode({
     renderChildren(HTMLAttributes) {
         const isImage = HTMLAttributes.fileType === 'image';
         const name = HTMLAttributes.fileName || 'file';
-        // 文件名超过 12 字符时截断为 10 字符 + 省略号，防止标签过宽
-        const truncated = name.length > 12 ? name.slice(0, 10) + '…' : name;
 
         const children: DOMOutputSpec[] = [];
 
-        if (HTMLAttributes.preview) {
+        if (isImage && HTMLAttributes.preview) {
             children.push([
                 'img',
                 {
@@ -101,11 +101,11 @@ const AttachmentTagNode = createSearchTagNode({
             children.push([
                 'span',
                 { class: 'search-tag-label search-tag-label--attachment' },
-                truncated,
+                name,
             ]);
         }
 
-        children.push(createTagCloseButton('attachment'));
+        if (isImage) children.push(createTagCloseButton('attachment'));
         return children;
     },
     addNodeView: () => VueNodeViewRenderer(AttachmentTagView as Component),
@@ -117,6 +117,9 @@ interface InsertAttachmentTagOptions {
     textOffset?: number;
     sameOffsetIndex?: number;
     atCurrentSelection?: boolean;
+    replaceToken?: boolean;
+    replaceRange?: { from: number; to: number };
+    separateHistory?: boolean;
 }
 
 /**
@@ -133,20 +136,40 @@ export function insertAttachmentTag(
             typeof options.textOffset === 'number' || options.atCurrentSelection ? undefined : 'end'
         );
 
-    chain
+    const inserted = chain
         .command(({ tr, state }: { tr: Transaction; state: EditorState }) => {
             const attachmentTagType = state.schema.nodes.attachmentTag;
             if (!attachmentTagType) return false;
             const node = attachmentTagType.create(attrs);
-            const pos = resolveAttachmentTagInsertPosition(state, options);
-            if (options.atCurrentSelection && !state.selection.empty) {
-                tr.delete(state.selection.from, state.selection.to);
+            let pos =
+                options.replaceRange?.from ?? resolveAttachmentTagInsertPosition(state, options);
+            let end =
+                options.replaceRange?.to ?? (options.atCurrentSelection ? state.selection.to : pos);
+            if (options.replaceToken && state.selection.empty) {
+                const { $from } = state.selection;
+                const before = $from.parent.textBetween(0, $from.parentOffset, '\n', '\ufffc');
+                const after = $from.parent.textBetween(
+                    $from.parentOffset,
+                    $from.parent.content.size,
+                    '\n',
+                    '\ufffc'
+                );
+                pos -= before.match(/[^\s\ufffc]+$/)?.[0].length ?? 0;
+                end += after.match(/^[^\s\ufffc]+/)?.[0].length ?? 0;
             }
-            tr.insert(pos, node);
-            tr.setSelection(TextSelection.create(tr.doc, pos + node.nodeSize));
+            if (options.separateHistory) closeHistory(tr);
+            tr.replaceWith(pos, end, node);
+            const cursor = pos + node.nodeSize;
+            const nextCursor =
+                options.replaceToken || options.replaceRange
+                    ? appendTagSeparator(tr, cursor)
+                    : cursor;
+            tr.setSelection(TextSelection.create(tr.doc, nextCursor));
             return true;
         })
         .run();
+    if (inserted && options.separateHistory) editor.view.dispatch(closeHistory(editor.state.tr));
+    return inserted;
 }
 
 /**

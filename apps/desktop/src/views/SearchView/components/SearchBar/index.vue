@@ -6,7 +6,7 @@
     <div
         ref="searchBarContainerRef"
         data-testid="search-bar"
-        class="search-bar-container relative flex min-h-14 w-full gap-2 p-3"
+        class="search-bar-container relative flex min-h-14 w-full shrink-0 gap-2 p-3"
         :class="isMultiLine ? 'items-start' : 'items-center'"
         @mousedown="handleContainerMouseDown"
     >
@@ -48,6 +48,7 @@
             </div>
         </div>
     </div>
+    <slot name="results" :skill-picker="skillPickerState" :select-skill="selectSkillCandidate" />
 </template>
 
 <script setup lang="ts">
@@ -56,13 +57,15 @@
     import { log } from '@services/ObservabilityService';
     import { EditorContent } from '@tiptap/vue-3';
     import type { ComponentPublicInstance } from 'vue';
-    import { onMounted, onUnmounted, ref, toRefs, watch } from 'vue';
+    import { computed, onMounted, onUnmounted, ref, toRefs, useId, watch } from 'vue';
 
     import type { Index } from '@/services/AgentService/infrastructure/attachments';
+    import type { SelectedSkill, SkillMetadata } from '@/services/AgentService/skills';
 
     import { type ModelCapabilities, useSearchInput } from './composables/useSearchLogic';
+    import type { SkillPickerState } from './composables/useSkillAutocomplete';
     import { insertAttachmentTag } from './tags/attachment';
-    import type { SearchCursorContext, SearchModelOverride } from './types';
+    import type { FilePickerContext, SearchCursorContext, SearchModelOverride } from './types';
     import {
         insertPlainTextAtSelection,
         isSearchTagDomTarget,
@@ -78,20 +81,39 @@
         queryText?: string;
         attachments?: Index[];
         modelOverride?: SearchModelOverride;
+        autoSelectFirst?: boolean;
+        showEmptyResults?: boolean;
+        completeFile?: (index?: number) => Index | null;
+        moveFileSelection?: (direction: 'up' | 'down' | 'left' | 'right') => boolean;
+        filePickerContext?: FilePickerContext | null;
         startDragging: (event: MouseEvent) => Promise<void>;
     }
 
     const props = withDefaults(defineProps<Props>(), {
         disabled: false,
+        autoSelectFirst: false,
+        showEmptyResults: false,
         queryText: '',
         attachments: () => [],
+        completeFile: undefined,
+        moveFileSelection: undefined,
+        filePickerContext: null,
         modelOverride: () => ({
             modelId: null,
             providerId: null,
         }),
     });
 
-    const { disabled, queryText, attachments, modelOverride } = toRefs(props);
+    const {
+        disabled,
+        queryText,
+        attachments,
+        modelOverride,
+        autoSelectFirst,
+        completeFile,
+        moveFileSelection,
+        filePickerContext,
+    } = toRefs(props);
     const searchBarContainerRef = ref<HTMLElement | null>(null);
     const editorHostRef = ref<HTMLElement | null>(null);
     let selectionDragCleanup: (() => void) | null = null;
@@ -100,10 +122,16 @@
         'update:queryText': [query: string];
         modelChange: [capabilities: ModelCapabilities];
         attachmentRemoveRequest: [id: string];
+        attachmentRestoreRequest: [attachment: Index];
         dragStart: [];
         dragEnd: [];
         cursorContextChange: [context: SearchCursorContext];
         modelOverrideChange: [modelOverride: SearchModelOverride];
+        skillAutocompleteOpenChange: [open: boolean];
+        skillInputActiveChange: [active: boolean];
+        fileAutocompleteQueryChange: [query: string | null];
+        fileInputActiveChange: [active: boolean];
+        skillsChange: [skills: SelectedSkill[]];
         requestPrefetchModelDropdown: [];
         requestToggleModelDropdown: [];
     }>();
@@ -114,10 +142,15 @@
         queryText,
         attachments,
         modelOverride,
+        autoSelectFirst,
+        completeFile,
+        moveFileSelection,
+        filePickerContext,
         emitQueryText: (value) => emit('update:queryText', value),
         emitModelChange: (capabilities) => emit('modelChange', capabilities),
         emitModelOverrideChange: (value) => emit('modelOverrideChange', value),
         emitRemoveAttachmentRequest: (id) => emit('attachmentRemoveRequest', id),
+        emitRestoreAttachmentRequest: (attachment) => emit('attachmentRestoreRequest', attachment),
         emitDragStart: () => emit('dragStart'),
         emitDragEnd: () => emit('dragEnd'),
         startDragging: props.startDragging,
@@ -138,8 +171,16 @@
         cursorAtTextStart,
         cursorAtEnd,
         focus,
+        insertSkillAtCursor,
         loadActiveModel,
+        skillAutocomplete,
+        skillInputActive,
+        fileAutocomplete,
+        fileInputActive,
+        completeFileReference,
+        selectedSkills,
         captureInputHistorySnapshot,
+        captureSearchActivationInput,
         restoreInputHistorySnapshot,
         handleContainerMouseDown,
         handleEditorMouseDown,
@@ -148,6 +189,80 @@
         onEditorClick,
     } = searchInput;
     const logoContainerRef = searchInput.logoContainerRef;
+    const skillListId = `skill-picker-${useId()}`;
+    const skillAutocompleteCandidates = skillAutocomplete.candidates;
+    const skillAutocompleteOpen = computed<boolean>((wasOpen) => {
+        if (!skillAutocomplete.isOpen.value) return false;
+        if (props.showEmptyResults || skillAutocompleteCandidates.value.length) return true;
+        // Pending queries retain visibility without reopening an empty launcher.
+        return skillAutocomplete.isLoading.value && wasOpen === true;
+    });
+    const skillAutocompleteHighlightedIndex = skillAutocomplete.highlightedIndex;
+    const skillPickerState = computed<SkillPickerState | null>(() =>
+        skillAutocompleteOpen.value
+            ? {
+                  listId: skillListId,
+                  query: skillAutocomplete.query.value,
+                  loading: skillAutocomplete.isLoading.value,
+                  error: skillAutocomplete.error.value,
+                  candidates: skillAutocompleteCandidates.value,
+                  highlightedIndex: skillAutocompleteHighlightedIndex.value,
+              }
+            : null
+    );
+    defineSlots<{
+        results(props: {
+            skillPicker: SkillPickerState | null;
+            selectSkill: (skill: SkillMetadata) => void;
+        }): unknown;
+    }>();
+    watch(selectedSkills, (skills) => emit('skillsChange', skills), { flush: 'sync' });
+    watch(skillInputActive, (active) => emit('skillInputActiveChange', active), {
+        immediate: true,
+        flush: 'sync',
+    });
+    watch(fileAutocomplete.query, (query) => emit('fileAutocompleteQueryChange', query), {
+        immediate: true,
+        flush: 'sync',
+    });
+    watch(fileInputActive, (active) => emit('fileInputActiveChange', active), {
+        immediate: true,
+        flush: 'sync',
+    });
+
+    watch(
+        [
+            skillAutocompleteOpen,
+            skillAutocompleteHighlightedIndex,
+            skillAutocompleteCandidates,
+            editor,
+            fileAutocomplete.query,
+            filePickerContext,
+        ],
+        () => {
+            const dom = editor.value?.view.dom;
+            if (!dom) return;
+            dom.setAttribute('role', 'combobox');
+            dom.setAttribute('aria-autocomplete', 'both');
+            const fileOpen = fileAutocomplete.query.value !== null && !!filePickerContext.value;
+            dom.setAttribute('aria-expanded', String(skillAutocompleteOpen.value || fileOpen));
+            if (fileOpen && filePickerContext.value)
+                dom.setAttribute('aria-controls', filePickerContext.value.listId);
+            else if (skillAutocompleteOpen.value) dom.setAttribute('aria-controls', skillListId);
+            else dom.removeAttribute('aria-controls');
+            const activeId = `${skillListId}-${skillAutocompleteHighlightedIndex.value}`;
+            if (fileOpen && filePickerContext.value?.activeItemId) {
+                dom.setAttribute('aria-activedescendant', filePickerContext.value.activeItemId);
+            } else if (
+                skillAutocompleteOpen.value &&
+                skillAutocompleteCandidates.value.length &&
+                skillAutocompleteHighlightedIndex.value >= 0
+            ) {
+                dom.setAttribute('aria-activedescendant', activeId);
+            } else dom.removeAttribute('aria-activedescendant');
+        },
+        { flush: 'post' }
+    );
 
     function assignLogoContainerRef(el: Element | ComponentPublicInstance | null) {
         logoContainerRef.value = el as HTMLElement | null;
@@ -159,6 +274,10 @@
 
     function handleModelDropdownPrefetchRequest() {
         emit('requestPrefetchModelDropdown');
+    }
+
+    function selectSkillCandidate(skill: SkillMetadata) {
+        skillAutocomplete.selectSkill(skill);
     }
 
     function emitCursorContext() {
@@ -179,14 +298,23 @@
     watch(
         disabled,
         (isDisabled) => {
-            if (!isDisabled) {
-                return;
-            }
+            editor.value?.setEditable(!isDisabled);
+            if (!isDisabled) return;
+            skillAutocomplete.close();
+            fileAutocomplete.close();
 
             // 禁用输入时主动移除编辑器焦点，避免失活编辑器继续接收键盘输入。
             editor.value?.view.dom.blur();
         },
         { flush: 'post' }
+    );
+
+    watch(
+        skillAutocompleteOpen,
+        (isOpen) => {
+            emit('skillAutocompleteOpenChange', isOpen);
+        },
+        { immediate: true, flush: 'post' }
     );
 
     /** 清理文本选区拖拽跟踪状态和全局事件监听。 */
@@ -270,6 +398,7 @@
 
     onMounted(() => {
         initEditor();
+        editor.value?.setEditable(!disabled.value);
     });
 
     onUnmounted(() => {
@@ -330,7 +459,15 @@
         loadActiveModel,
         insertTextAtCursor,
         insertAttachmentAtCursor,
+        insertSkillAtCursor: (skill: SelectedSkill) => insertSkillAtCursor(skill),
+        isSkillAutocompleteOpen: () => skillAutocompleteOpen.value,
+        isSkillAutocompleteActive: () => skillAutocomplete.activeTrigger.value !== null,
+        closeSkillAutocomplete: skillAutocomplete.close,
+        isFileAutocompleteOpen: () => fileAutocomplete.query.value !== null,
+        closeFileAutocomplete: fileAutocomplete.close,
+        completeFileReference,
         captureInputHistorySnapshot,
+        captureSearchActivationInput,
         restoreInputHistorySnapshot,
     });
 </script>

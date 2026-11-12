@@ -52,6 +52,10 @@ function createControllerStub() {
         })),
         isQuickSearchOpen: vi.fn(() => false),
         isQuickSearchItemHighlighted: vi.fn(() => false),
+        isSkillAutocompleteOpen: () => false,
+        isSkillAutocompleteActive: () => false,
+        closeSkillAutocomplete: vi.fn(),
+        hasInputContent: () => false,
         openQuickSearch: vi.fn(),
         closeQuickSearch: vi.fn(),
         settleQuickSearchInteraction: vi.fn(),
@@ -280,9 +284,106 @@ describe('createSearchEntryPolicy', () => {
 });
 
 describe('useQuickSearchCoordinator', () => {
+    it('user given a conversation and a tagged multiline draft when typing @ then searches its filename and keeps the draft on dismissal', async () => {
+        const controller = createControllerStub();
+        const queryText = ref('Please compare\n@read');
+        const fileInputActive = ref(true);
+        const fileAutocompleteQuery = ref<string | null>('read');
+        const mounted = await mountComposable(() =>
+            useQuickSearchCoordinator({
+                queryText,
+                attachments: ref([{ id: 'existing-file' }]),
+                sessionHistory: ref([createUserMessage('1', { content: 'Existing conversation' })]),
+                cursorContext: ref({
+                    isMultiLine: true,
+                    cursorAtStart: false,
+                    cursorAtTextStart: false,
+                    cursorAtEnd: true,
+                }),
+                modelOverride: ref({ modelId: 'selected-model', providerId: 1 }),
+                modelDropdownState: ref({ isOpen: false }),
+                activeOverlay: ref('none'),
+                quickSearchOpen: ref(false),
+                skillInputActive: ref(true),
+                fileInputActive,
+                fileAutocompleteQuery,
+                controller,
+            })
+        );
+
+        try {
+            mounted.result.syncQuickSearchPanel();
+            expect(controller.triggerQuickSearch).toHaveBeenLastCalledWith('read');
+            controller.triggerQuickSearch.mockClear();
+            fileAutocompleteQuery.value = null;
+            await nextTick();
+            expect(controller.closeQuickSearch).toHaveBeenCalled();
+            expect(controller.triggerQuickSearch).not.toHaveBeenCalled();
+            expect(queryText.value).toBe('Please compare\n@read');
+
+            fileAutocompleteQuery.value = '';
+            await nextTick();
+            expect(controller.triggerQuickSearch).toHaveBeenLastCalledWith('');
+        } finally {
+            mounted.unmount();
+        }
+    });
+
     afterEach(() => {
         document.body.innerHTML = '';
     });
+
+    it.each(['/', '$'])(
+        'user sees file results stay closed while a %s skill input is active and resume after removing it',
+        async (prefix) => {
+            const skillInputActive = ref(true);
+            const queryText = ref(`${prefix}review`);
+            const quickSearchOpen = ref(false);
+            const controller = createControllerStub();
+            controller.triggerQuickSearch.mockImplementation(() => {
+                quickSearchOpen.value = true;
+            });
+            controller.closeQuickSearch.mockImplementation(() => {
+                quickSearchOpen.value = false;
+            });
+            const mounted = await mountComposable(() =>
+                useQuickSearchCoordinator({
+                    queryText,
+                    attachments: ref([]),
+                    sessionHistory: ref([]),
+                    cursorContext: ref({
+                        isMultiLine: false,
+                        cursorAtStart: false,
+                        cursorAtTextStart: false,
+                        cursorAtEnd: true,
+                    }),
+                    modelOverride: ref({ modelId: null, providerId: null }),
+                    modelDropdownState: ref({ isOpen: false }),
+                    activeOverlay: ref('none'),
+                    quickSearchOpen,
+                    skillInputActive,
+                    controller,
+                })
+            );
+
+            try {
+                mounted.result.syncQuickSearchPanel();
+                expect(quickSearchOpen.value).toBe(false);
+                expect(mounted.result.shouldTriggerQuickSearch(queryText.value)).toBe(false);
+
+                queryText.value = 'ordinary search';
+                skillInputActive.value = false;
+                await nextTick();
+                expect(quickSearchOpen.value).toBe(true);
+
+                skillInputActive.value = true;
+                await nextTick();
+                expect(quickSearchOpen.value).toBe(false);
+            } finally {
+                mounted.unmount();
+            }
+        }
+    );
 
     it('opens quick search only when the query satisfies the coordinator policy', async () => {
         const controller = createControllerStub();
@@ -428,6 +529,36 @@ describe('createSearchKeyboardRouter', () => {
             }),
         };
     }
+
+    it('user submits a selected skill without prompt text when pressing Enter', () => {
+        let submitted = false;
+        const { router } = createKeyboardRouter({
+            hasInputContent: () => true,
+            onSubmit: () => {
+                submitted = true;
+            },
+        });
+
+        expect(router.route({ key: 'Enter' })).toBe(true);
+        expect(submitted).toBe(true);
+    });
+
+    it('user clears a selected skill before leaving the conversation when pressing Escape', () => {
+        const draft = { hasSkill: true, conversationOpen: true };
+        const { router } = createKeyboardRouter({
+            hasInputContent: () => draft.hasSkill,
+            getSessionHistoryCount: () => 1,
+            onClearDraft: () => {
+                draft.hasSkill = false;
+            },
+            onClearSession: () => {
+                draft.conversationOpen = false;
+            },
+        });
+
+        expect(router.route({ key: 'Escape' })).toBe(true);
+        expect(draft).toEqual({ hasSkill: false, conversationOpen: true });
+    });
 
     it('rejects pending approval with escape before normal surface handling', () => {
         const { router, callbacks } = createKeyboardRouter({

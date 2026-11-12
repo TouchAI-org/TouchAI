@@ -37,6 +37,9 @@ import {
 
 interface UseSearchWindowResizeOptions {
     target: Ref<HTMLElement | null>;
+    inputArea?: Ref<HTMLElement | null>;
+    picker?: Ref<HTMLElement | null>;
+    floatingPicker?: Readonly<Ref<boolean>>;
     /** Read natural content independently of the viewport that clips it. */
     measureContentHeight?: (target: HTMLElement) => number;
     overlayTarget?: Ref<HTMLElement | null>;
@@ -45,6 +48,7 @@ interface UseSearchWindowResizeOptions {
     intrinsicHeightMeasurementPending?: Readonly<Ref<boolean>>;
     sessionCount: Ref<number>;
     quickSearchOpen: Ref<boolean>;
+    skillAutocompleteOpen?: Readonly<Ref<boolean>>;
     defaultSize: Ref<SearchWindowDefaultSize>;
     ready: Ref<boolean>;
     onLogicalPanelHeightChange?: (height: number) => void;
@@ -75,6 +79,8 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
 
     const currentWidth = ref(0);
     const currentHeight = ref(0);
+    const inputAreaHeight = ref(options.defaultSize.value.height);
+    const pickerHeight = ref(0);
     const activeHeightChange = shallowRef<HeightChange | null>(null);
     const cardAnimation = shallowRef<Animation | null>(null);
     // Hold the previous layout until native bounds can contain the next frame.
@@ -131,12 +137,16 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         };
     });
     const availablePanelHeight = computed(() =>
-        monitorHost.value && workAreaHeight.value !== null
-            ? Math.max(
+        workAreaHeight.value === null
+            ? Number.POSITIVE_INFINITY
+            : Math.max(
                   minimumPanelHeight.value,
-                  Math.floor(panelBounds.value.bottom - panelBounds.value.top)
+                  Math.floor(
+                      monitorHost.value
+                          ? panelBounds.value.bottom - panelBounds.value.top
+                          : workAreaHeight.value / scaleFactor()
+                  )
               )
-            : Number.POSITIVE_INFINITY
     );
     const searchWindowHeightMode = ref<SearchWindowHeightMode>(SearchWindowHeightMode.Auto);
     const searchWindowResizeConstraintsReady = ref(false);
@@ -241,6 +251,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         resolveSearchWindowHeightPolicy({
             sessionCount: options.sessionCount.value,
             quickSearchOpen: options.quickSearchOpen.value,
+            skillAutocompleteOpen: options.skillAutocompleteOpen?.value ?? false,
         })
     );
     const effectiveWindowMaximized = computed(() =>
@@ -278,6 +289,34 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     const contentReady = computed(
         () => options.ready.value && searchWindowResizeConstraintsReady.value
     );
+    const filePickerMaxHeight = computed(() => {
+        if (options.floatingPicker?.value) {
+            const capacity = effectiveWindowMaximized.value
+                ? panelViewportHeight.value
+                : Math.min(
+                      availablePanelHeight.value,
+                      currentHeight.value || options.defaultSize.value.height
+                  );
+            // Reserve conversation space above the editor even when the card is short
+            // or the draft spans multiple lines. The picker never resizes the card.
+            return Math.max(0, capacity - inputAreaHeight.value - 1) * 0.8;
+        }
+        const contentCapacity = effectiveWindowMaximized.value
+            ? panelViewportHeight.value
+            : Math.min(
+                  availablePanelHeight.value,
+                  fillConversationAvailableHeight.value
+                      ? currentHeight.value || options.defaultSize.value.height
+                      : resolveAutoSessionPanelHeight({
+                            searchBarHeight: options.defaultSize.value.height,
+                        })
+              );
+        const editorHeight = Math.max(0, inputAreaHeight.value - pickerHeight.value);
+        // Leave half of the space below the editor for the conversation rail.
+        const available = Math.max(0, contentCapacity - editorHeight - 1);
+        return available / (options.sessionCount.value > 0 ? 2 : 1);
+    });
+    const skillPickerMaxHeight = filePickerMaxHeight;
 
     const cardStyle = computed(() => ({
         transform:
@@ -337,6 +376,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     let commitQueue: Promise<void> = Promise.resolve();
     let commitGeneration = 0;
     let resizeObserver: ResizeObserver | null = null;
+    let inputResizeObserver: ResizeObserver | null = null;
     let mutationObserver: MutationObserver | null = null;
     let unlistenWindowResize: (() => void) | null = null;
     let unlistenWindowMoved: (() => void) | null = null;
@@ -699,22 +739,22 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         if (monitorHost.value) {
             viewportWidth.value = window.innerWidth;
             viewportHeight.value = window.innerHeight;
-            const generation = commitGeneration;
-            try {
-                const [monitor, position] = await Promise.all([
-                    currentMonitor(),
-                    currentWindow.outerPosition(),
-                ]);
-                if (isCurrentGeometry(generation)) hostOrigin.value = position;
-                if (monitor && isCurrentGeometry(generation)) {
-                    workAreaWidth.value = monitor.workArea.size.width;
-                    workAreaLeft.value = monitor.workArea.position.x;
-                    workAreaHeight.value = monitor.workArea.size.height;
-                    workAreaTop.value = monitor.workArea.position.y;
-                }
-            } catch (error) {
-                reportError('read search window work area', error);
+        }
+        const generation = commitGeneration;
+        try {
+            const [monitor, position] = await Promise.all([
+                currentMonitor(),
+                monitorHost.value ? currentWindow.outerPosition() : Promise.resolve(null),
+            ]);
+            if (position && isCurrentGeometry(generation)) hostOrigin.value = position;
+            if (monitor && isCurrentGeometry(generation)) {
+                workAreaWidth.value = monitor.workArea.size.width;
+                workAreaLeft.value = monitor.workArea.position.x;
+                workAreaHeight.value = monitor.workArea.size.height;
+                workAreaTop.value = monitor.workArea.position.y;
             }
+        } catch (error) {
+            reportError('read search window work area', error);
         }
     }
 
@@ -1092,6 +1132,26 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     );
 
     watch(
+        () => [options.inputArea?.value, options.picker?.value],
+        ([inputArea, picker]) => {
+            inputResizeObserver?.disconnect();
+            const measureInput = () => {
+                inputAreaHeight.value =
+                    inputArea?.getBoundingClientRect().height ?? options.defaultSize.value.height;
+                pickerHeight.value = picker?.getBoundingClientRect().height ?? 0;
+                scheduleMeasurement();
+            };
+            measureInput();
+            inputResizeObserver = null;
+            if (!inputArea && !picker) return;
+            inputResizeObserver = new ResizeObserver(measureInput);
+            if (inputArea) inputResizeObserver.observe(inputArea);
+            if (picker) inputResizeObserver.observe(picker);
+        },
+        { immediate: true, flush: 'post' }
+    );
+
+    watch(
         () => options.ready.value,
         (ready) => {
             if (!ready) {
@@ -1228,6 +1288,8 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         windowListenersDisposed = true;
         claimGeometry();
         disposeObservers();
+        inputResizeObserver?.disconnect();
+        inputResizeObserver = null;
         viewportSyncScheduler.cancel();
         unlistenWindowResize?.();
         unlistenWindowResize = null;
@@ -1246,6 +1308,8 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         effectiveWindowMaximized,
         settledWindowMaximized,
         fillConversationAvailableHeight,
+        skillPickerMaxHeight,
+        filePickerMaxHeight,
         monitorHost,
         panelBounds,
         overlayMinViewportLeft: computed(() =>

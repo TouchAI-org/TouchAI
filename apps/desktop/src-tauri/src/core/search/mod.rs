@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use tauri::async_runtime;
 
 mod types;
-pub use types::{QuickSearchFileItem, QuickSearchResult, QuickSearchStatus};
+pub use types::{QuickSearchFileItem, QuickSearchResult, QuickSearchStatus, QuickShortcutItem};
 
 #[cfg(target_os = "windows")]
 mod assets;
@@ -28,6 +28,10 @@ const MAX_PAGE_SIZE: usize = 200;
 const DEFAULT_LIMIT: usize = 60;
 #[cfg(target_os = "windows")]
 const MAX_LIMIT: usize = 200;
+#[cfg(target_os = "windows")]
+const DEFAULT_REFERENCE_SUGGESTION_LIMIT: usize = 12;
+#[cfg(target_os = "windows")]
+const MAX_REFERENCE_SUGGESTION_LIMIT: usize = 20;
 #[cfg(target_os = "windows")]
 const DEFAULT_ICON_SIZE: u32 = 48;
 #[cfg(target_os = "windows")]
@@ -80,6 +84,28 @@ pub async fn quick_search_search_files(
     .map_err(|err| format!("quick_search_search_files task join failed: {}", err))?
 }
 
+#[cfg(target_os = "windows")]
+pub async fn quick_search_file_reference_suggestions(
+    recent_paths: Vec<String>,
+    limit: Option<usize>,
+) -> Result<Vec<QuickShortcutItem>, String> {
+    let normalized_limit = limit
+        .unwrap_or(DEFAULT_REFERENCE_SUGGESTION_LIMIT)
+        .clamp(1, MAX_REFERENCE_SUGGESTION_LIMIT);
+    let suggestions = async_runtime::spawn_blocking(move || {
+        manager::file_reference_suggestions(&recent_paths, normalized_limit)
+    })
+    .await
+    .map_err(|err| {
+        format!(
+            "quick_search_file_reference_suggestions task join failed: {}",
+            err
+        )
+    })??;
+    assets::remember_search_paths(&suggestions);
+    Ok(suggestions)
+}
+
 /// 搜索快捷项列表（非 Windows 平台降级实现）。
 #[cfg(not(target_os = "windows"))]
 pub async fn quick_search_search_shortcuts(
@@ -105,6 +131,14 @@ pub async fn quick_search_search_files(
 ) -> Result<Vec<QuickSearchFileItem>, String> {
     let _ = query;
     Err("Quick search file search is only available on Windows".to_string())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub async fn quick_search_file_reference_suggestions(
+    _recent_paths: Vec<String>,
+    _limit: Option<usize>,
+) -> Result<Vec<QuickShortcutItem>, String> {
+    Ok(Vec::new())
 }
 
 /// 获取单个快捷项图标（Windows）。

@@ -112,6 +112,36 @@ describe('when the user adds files to the draft', () => {
         attachments.clearAttachments();
         expect(attachmentsRef.value).toEqual([]);
     });
+
+    it('user given an existing file when restoring another reference then keeps both in order with current model support', () => {
+        const attachments = useSearchAttachments({
+            attachments: ref([createAttachmentIndex('keep', 'file')]),
+        });
+        attachments.handleModelChange({ supportsFiles: true, supportsImages: false });
+
+        attachments.restoreAttachment(
+            createAttachmentIndex('restored', 'image', { supportStatus: 'supported' })
+        );
+
+        expect(
+            attachments.attachments.value.map(({ id, supportStatus }) => ({ id, supportStatus }))
+        ).toEqual([
+            { id: 'keep', supportStatus: 'supported' },
+            { id: 'restored', supportStatus: 'unsupported-image' },
+        ]);
+    });
+
+    it('user given a reference already in the draft when its restoration repeats then retains one unchanged attachment', () => {
+        const attachment = createAttachmentIndex('keep', 'file');
+        const attachments = useSearchAttachments({ attachments: ref([attachment]) });
+        attachments.handleModelChange({ supportsFiles: true, supportsImages: true });
+
+        attachments.restoreAttachment(createAttachmentIndex('keep', 'file', { name: 'stale.txt' }));
+
+        expect(attachments.attachments.value).toEqual([
+            { ...attachment, supportStatus: 'supported' },
+        ]);
+    });
 });
 
 describe('when the draft is replaced or cleared', () => {

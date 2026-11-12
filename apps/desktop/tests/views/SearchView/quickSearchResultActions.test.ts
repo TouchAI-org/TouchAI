@@ -33,6 +33,7 @@ const {
         pruneIconMaps: vi.fn(),
     },
     clickStatsMock: {
+        prefetch: vi.fn(async () => undefined),
         rankResults: vi.fn(async (_query: string, items: QuickShortcutItem[]) => items),
         recordClick: vi.fn(),
     },
@@ -366,7 +367,11 @@ describe('when paging through more results fails or ends', () => {
             searchShortcuts: vi
                 .fn()
                 .mockResolvedValueOnce(
-                    createSearchResult([createShortcut('App')], [], { total_results: 10 })
+                    createSearchResult([createShortcut('App')], [createShortcut('File1')], {
+                        total_files: 9,
+                        total_results: 10,
+                        next_offset: 1,
+                    })
                 )
                 .mockResolvedValueOnce(createSearchResult([], [], { total_results: 10 })),
         });
@@ -384,7 +389,11 @@ describe('when paging through more results fails or ends', () => {
         const searchShortcuts = vi
             .fn()
             .mockResolvedValueOnce(
-                createSearchResult([createShortcut('App')], [], { total_results: 10 })
+                createSearchResult([createShortcut('App')], [createShortcut('File1')], {
+                    total_files: 9,
+                    total_results: 10,
+                    next_offset: 1,
+                })
             )
             .mockImplementationOnce(
                 () =>
@@ -415,13 +424,15 @@ describe('when paging through more results fails or ends', () => {
             .fn()
             .mockResolvedValueOnce(
                 createSearchResult([createShortcut('App')], [createShortcut('File1')], {
-                    total_results: 10,
+                    total_files: 90,
+                    total_results: 91,
                     next_offset: 42,
                 })
             )
             .mockResolvedValueOnce(
                 createSearchResult([], [createShortcut('File2')], {
-                    total_results: 10,
+                    total_files: 90,
+                    total_results: 91,
                     next_offset: 84,
                 })
             );

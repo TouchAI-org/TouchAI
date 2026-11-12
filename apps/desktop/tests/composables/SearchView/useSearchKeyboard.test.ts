@@ -1,12 +1,24 @@
 import { mountComposable } from '@tests/utils/composables';
+import { installSkillCommands, skillFile } from '@tests/utils/skills';
+import { mockTauriCommand } from '@tests/utils/tauri';
+import { flushPromises, mount } from '@vue/test-utils';
+import { createPinia } from 'pinia';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { computed, ref } from 'vue';
+import { computed, defineComponent, h, ref } from 'vue';
 
 import { createDefaultSearchKeybindings } from '@/config/searchKeybindings';
 import type { PendingToolApproval, SessionMessage } from '@/types/session';
+import SearchBar from '@/views/SearchView/components/SearchBar/index.vue';
 import type { UseSearchKeyboardOptions } from '@/views/SearchView/composables/searchInteraction';
-import { useSearchKeyboard } from '@/views/SearchView/composables/useSearchPage';
-import type { PendingRequest, SearchPageController } from '@/views/SearchView/types';
+import {
+    useSearchKeyboard,
+    useSearchPageController,
+} from '@/views/SearchView/composables/useSearchPage';
+import type {
+    PendingRequest,
+    SearchBarHandle,
+    SearchPageController,
+} from '@/views/SearchView/types';
 
 vi.mock('@/stores/askUser', () => ({
     useAskUserStore: () => ({ current: null }),
@@ -31,6 +43,10 @@ function createControllerStub(): SearchPageController {
         })),
         isQuickSearchOpen: vi.fn(() => false),
         isQuickSearchItemHighlighted: vi.fn(() => false),
+        isSkillAutocompleteOpen: () => false,
+        isSkillAutocompleteActive: () => false,
+        closeSkillAutocomplete: vi.fn(),
+        hasInputContent: () => false,
         openQuickSearch: vi.fn(),
         closeQuickSearch: vi.fn(),
         settleQuickSearchInteraction: vi.fn(),
@@ -223,6 +239,37 @@ describe('useSearchKeyboard inline overlay inputs', () => {
         return event;
     }
 
+    it.each(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter', 'Tab', 'Escape'])(
+        'user given an @ picker in a conversation when pressing %s then the editor owns the completion key',
+        async (key) => {
+            const options = createOptions();
+            options.queryText.value = 'Please read @file';
+            options.controller.isFileAutocompleteOpen = () => true;
+            options.isQuickSearchOpen = computed(() => true);
+            options.controller.isQuickSearchItemHighlighted = () => true;
+            options.sessionHistory.value = [
+                { id: 'prior', role: 'user', content: 'prior', parts: [], timestamp: 1 },
+            ];
+            const mounted = await mountComposable(() => useSearchKeyboard(options));
+            try {
+                const event = new KeyboardEvent('keydown', {
+                    key,
+                    bubbles: true,
+                    cancelable: true,
+                });
+                window.dispatchEvent(event);
+                expect(event.defaultPrevented).toBe(false);
+                expect(options.handleSubmit).not.toHaveBeenCalled();
+                expect(options.controller.openHighlightedQuickSearchItem).not.toHaveBeenCalled();
+                expect(options.controller.focusConversation).not.toHaveBeenCalled();
+                expect(options.navigateInputHistory).not.toHaveBeenCalled();
+                expect(options.queryText.value).toBe('Please read @file');
+            } finally {
+                mounted.unmount();
+            }
+        }
+    );
+
     it.each([
         { key: 'ArrowLeft' },
         { key: 'PageDown' },
@@ -339,4 +386,156 @@ describe('useSearchKeyboard inline overlay inputs', () => {
 
         mounted.unmount();
     });
+});
+
+describe('given a skill picker owns the editor result slot', () => {
+    afterEach(() => {
+        document.body.innerHTML = '';
+    });
+
+    it.each(
+        ['$', '/'].flatMap((prefix) =>
+            ['Tab', 'Enter'].flatMap((key) =>
+                [true, false].map((matched) => ({ prefix, key, matched }))
+            )
+        )
+    )(
+        'user given a $prefix completion with matched=$matched when pressing $key through the page then keeps the action in the editor',
+        async ({ prefix, key, matched }) => {
+            const rangeDescriptors = ['getClientRects', 'getBoundingClientRect'].map((name) => ({
+                name,
+                descriptor: Object.getOwnPropertyDescriptor(Range.prototype, name),
+            }));
+            // JSDOM has no layout; ProseMirror still measures the browser selection.
+            Object.defineProperties(Range.prototype, {
+                getClientRects: { configurable: true, value: () => [] },
+                getBoundingClientRect: { configurable: true, value: () => new DOMRect() },
+            });
+            installSkillCommands();
+            mockTauriCommand('database_query', {
+                rows: [],
+                rowsAffected: 0,
+                lastInsertId: null,
+            });
+            const options = createOptions();
+            options.sessionHistory.value = [
+                { id: 'prior', role: 'user', content: 'prior', parts: [], timestamp: 1 },
+            ];
+            const searchBar = ref<SearchBarHandle>();
+            const component = defineComponent({
+                setup() {
+                    options.controller = useSearchPageController({
+                        searchBar,
+                        quickSearchOpen: ref(false),
+                        quickSearchPanel: ref(),
+                        conversationPanel: ref(),
+                    });
+                    useSearchKeyboard(options);
+                    return () =>
+                        h(SearchBar, {
+                            ref: searchBar,
+                            queryText: options.queryText.value,
+                            'onUpdate:queryText': (value: string) => {
+                                options.queryText.value = value;
+                            },
+                            startDragging: async () => {},
+                        });
+                },
+            });
+            const wrapper = mount(component, {
+                attachTo: document.body,
+                global: { plugins: [createPinia()] },
+            });
+            const focusConversation = vi.spyOn(options.controller, 'focusConversation');
+            const openFile = vi.spyOn(options.controller, 'openHighlightedQuickSearchItem');
+            try {
+                await flushPromises();
+                const editor = wrapper.get<HTMLElement>('.ProseMirror');
+                editor.element.focus();
+                await flushPromises();
+                const draft = `${prefix}${matched ? 'sum' : 'zz-missing-skill'}`;
+                searchBar.value!.insertTextAtCursor(draft);
+                await flushPromises();
+                expect(editor.attributes('aria-expanded')).toBe(String(matched));
+                expect(wrapper.find('[data-inline-completion]').exists()).toBe(matched);
+
+                const event = new KeyboardEvent('keydown', {
+                    key,
+                    bubbles: true,
+                    cancelable: true,
+                });
+                editor.element.dispatchEvent(event);
+                await flushPromises();
+
+                expect(options.handleSubmit).not.toHaveBeenCalled();
+                expect(focusConversation).not.toHaveBeenCalled();
+                expect(openFile).not.toHaveBeenCalled();
+                expect(options.navigateInputHistory).not.toHaveBeenCalled();
+                expect(event.defaultPrevented).toBe(true);
+                expect(document.activeElement).toBe(editor.element);
+                if (matched) {
+                    expect(wrapper.get('[data-skill-tag]').text()).toBe('summary');
+                    expect(searchBar.value!.captureInputHistorySnapshot().skills).toEqual([
+                        { name: 'summary', path: skillFile().path },
+                    ]);
+                } else {
+                    expect(wrapper.find('[data-skill-tag]').exists()).toBe(false);
+                    expect(searchBar.value!.captureInputHistorySnapshot().text).toBe(draft);
+                }
+            } finally {
+                await new Promise(requestAnimationFrame);
+                wrapper.unmount();
+                for (const { name, descriptor } of rangeDescriptors) {
+                    if (descriptor) Object.defineProperty(Range.prototype, name, descriptor);
+                    else Reflect.deleteProperty(Range.prototype, name);
+                }
+            }
+        }
+    );
+
+    it.each(['ArrowUp', 'ArrowDown', 'Enter', 'Tab', 'Escape'])(
+        'user can use %s in the skill picker without operating the conversation or file results',
+        async (key) => {
+            const options = createOptions();
+            options.queryText.value = '/review';
+            options.sessionHistory.value = [
+                {
+                    id: 'previous',
+                    role: 'user',
+                    content: 'previous prompt',
+                    parts: [],
+                    timestamp: 1,
+                },
+            ];
+            options.controller.isSkillAutocompleteOpen = () => true;
+            options.controller.isSkillAutocompleteActive = () => true;
+            const mounted = await mountComposable(() => useSearchKeyboard(options));
+            const editor = document.createElement('div');
+            editor.contentEditable = 'true';
+            document.body.appendChild(editor);
+            let receivedByPicker = false;
+            editor.addEventListener('keydown', () => {
+                receivedByPicker = true;
+            });
+
+            try {
+                const event = new KeyboardEvent('keydown', {
+                    key,
+                    bubbles: true,
+                    cancelable: true,
+                });
+                editor.dispatchEvent(event);
+
+                expect(receivedByPicker).toBe(true);
+                expect(event.defaultPrevented).toBe(false);
+                expect(options.queryText.value).toBe('/review');
+                expect(options.handleSubmit).not.toHaveBeenCalled();
+                expect(options.navigateInputHistory).not.toHaveBeenCalled();
+                expect(options.controller.focusConversation).not.toHaveBeenCalled();
+                expect(options.hideSearchWindow).not.toHaveBeenCalled();
+            } finally {
+                mounted.unmount();
+            }
+        }
+    );
 });

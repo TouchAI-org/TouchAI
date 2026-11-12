@@ -2,6 +2,7 @@
  * SearchView 输入层。
  * 统一承载草稿与附件输入编排，保持输入业务收敛。
  */
+import { convertFileSrc } from '@tauri-apps/api/core';
 import { type Ref, ref } from 'vue';
 
 import { t } from '@/i18n';
@@ -12,7 +13,8 @@ import {
     isAttachmentSupported,
 } from '@/services/AgentService/infrastructure/attachments';
 import { clipboardService } from '@/services/ClipboardService';
-import type { ClipboardPayload } from '@/services/NativeService/types';
+import type { ClipboardPayload, QuickShortcutItem } from '@/services/NativeService/types';
+import { isImagePath } from '@/utils/path';
 
 import type { SearchModelCapabilities, SearchModelOverride } from '../types';
 import { applyClipboardPayloadToDraft } from '../utils/clipboardDraft';
@@ -26,6 +28,7 @@ interface UseSearchDraftControllerOptions {
     attachments: Ref<Index[]>;
     modelOverride: Ref<SearchModelOverride>;
     clearAttachments: () => void;
+    clearEditor?: () => void;
     createAttachmentFromClipboardPath: (type: 'image' | 'file', path: string) => Promise<Index>;
 }
 
@@ -79,6 +82,12 @@ export function useSearchAttachments(options: UseSearchAttachmentsOptions = {}) 
         attachments.value = [];
     }
 
+    function restoreAttachment(attachment: Index) {
+        if (attachments.value.some((current) => current.id === attachment.id)) return;
+        attachment.supportStatus = getAttachmentSupportStatus(attachment);
+        attachments.value.push(attachment);
+    }
+
     function getSupportedAttachments() {
         return attachments.value.filter(isAttachmentSupported);
     }
@@ -113,12 +122,30 @@ export function useSearchAttachments(options: UseSearchAttachmentsOptions = {}) 
         return attachment;
     }
 
+    function createAttachmentFromSearchResult(item: QuickShortcutItem): Index {
+        // Search already supplies draft metadata. File I/O belongs to submission,
+        // so completing a reference never waits for another native icon request.
+        const type = item.source === 'file' && isImagePath(item.path) ? 'image' : 'file';
+        const attachment: Index = {
+            id: crypto.randomUUID(),
+            type,
+            path: item.path,
+            originPath: item.path,
+            name: item.name,
+            preview: type === 'image' ? convertFileSrc(item.path) : undefined,
+        };
+        attachment.supportStatus = getAttachmentSupportStatus(attachment);
+        return attachment;
+    }
+
     return {
         attachments,
         handleModelChange,
         syncAttachmentSupport,
         createAttachmentFromClipboardPath: createNormalizedAttachment,
+        createAttachmentFromSearchResult,
         removeAttachment,
+        restoreAttachment,
         clearAttachments,
         getSupportedAttachments,
         getUnsupportedAttachmentMessage,
@@ -136,11 +163,13 @@ export function useSearchDraftController(options: UseSearchDraftControllerOption
         modelOverride,
         clearAttachments,
         createAttachmentFromClipboardPath,
+        clearEditor,
     } = options;
 
     function clearDraft(options?: { preserveModelTag?: boolean }) {
         queryText.value = '';
         clearAttachments();
+        clearEditor?.();
         if (!options?.preserveModelTag) {
             modelOverride.value = {
                 modelId: null,

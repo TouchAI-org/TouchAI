@@ -8,12 +8,17 @@ use std::{ffi::OsStr, os::windows::ffi::OsStrExt};
 
 const EVERYTHING_ERROR_IPC: u32 = 2;
 const EVERYTHING_SORT_NAME_ASCENDING: u32 = 1;
+const EVERYTHING_SORT_DATE_MODIFIED_DESCENDING: u32 = 14;
 const EVERYTHING_REQUEST_FILE_NAME: u32 = 0x0000_0001;
 const EVERYTHING_REQUEST_PATH: u32 = 0x0000_0002;
 const EVERYTHING_QUERY_ALL_RESULTS: u32 = 0xffff_ffff;
 const EVERYTHING_SHORTCUT_SEARCH_TERM: &str = "ext:lnk";
 const EVERYTHING_FILE_ONLY_FILTER: &str = "file:";
 const EVERYTHING_EXCLUDE_SHORTCUT_FILTER: &str = "!ext:lnk";
+const RECENT_DOCUMENT_EXTENSIONS: &[&str] = &[
+    "md", "markdown", "txt", "rtf", "pdf", "doc", "docx", "odt", "xls", "xlsx", "ods", "csv",
+    "tsv", "ppt", "pptx", "odp", "json", "yaml", "yml", "html", "htm",
+];
 
 /// Everything 查询错误。
 #[derive(Debug)]
@@ -75,63 +80,12 @@ impl EverythingClient {
         max_results: u32,
         offset: u32,
     ) -> Result<QueryPathsResult, EverythingError> {
-        unsafe {
-            // 每次查询前重置 SDK 内部状态，避免沿用上次参数。
-            Everything_Reset();
-            let search_wide = to_wide(search_text);
-            Everything_SetSearchW(search_wide.as_ptr());
-            Everything_SetRequestFlags(EVERYTHING_REQUEST_FILE_NAME | EVERYTHING_REQUEST_PATH);
-            Everything_SetSort(EVERYTHING_SORT_NAME_ASCENDING);
-            Everything_SetMatchPath(0);
-            Everything_SetMatchCase(0);
-            Everything_SetRegex(0);
-            Everything_SetMax(max_results);
-            Everything_SetOffset(offset);
-
-            if Everything_QueryW(1) == 0 {
-                let error_code = Everything_GetLastError();
-                // 失败后也重置，防止下次查询受污染。
-                Everything_Reset();
-                return Err(EverythingError {
-                    code: error_code,
-                    message: format!("Everything_QueryW failed, code={}", error_code),
-                });
-            }
-
-            let total = Everything_GetTotResults();
-            let result_count = Everything_GetNumResults();
-            let mut results = Vec::with_capacity(result_count as usize);
-            // 复用缓冲区以减少每条结果的分配开销。
-            let mut buffer = vec![0_u16; 32768];
-
-            for index in 0..result_count {
-                let copied = Everything_GetResultFullPathNameW(
-                    index,
-                    buffer.as_mut_ptr(),
-                    buffer.len() as u32,
-                );
-                if copied == 0 {
-                    continue;
-                }
-                let end = buffer
-                    .iter()
-                    .position(|ch| *ch == 0)
-                    .unwrap_or_else(|| (copied as usize).min(buffer.len()));
-                if end == 0 {
-                    continue;
-                }
-                let path = String::from_utf16_lossy(&buffer[..end]);
-                if !path.trim().is_empty() {
-                    results.push(path);
-                }
-            }
-
-            Everything_Reset();
-            Ok(QueryPathsResult {
-                paths: results,
-                total,
-            })
-        }
+        self.query_paths_with_sort(
+            search_text,
+            max_results,
+            offset,
+            EVERYTHING_SORT_NAME_ASCENDING,
+        )
     }
 
     /// 前台查询普通文件结果。
@@ -170,6 +124,100 @@ impl EverythingClient {
         )
         .map(|result| result.paths)
     }
+
+    /// 查询最近修改的常见文档文件。
+    pub(crate) fn query_recent_document_paths(
+        &mut self,
+        max_results: u32,
+    ) -> Result<QueryPathsResult, EverythingError> {
+        self.query_paths_with_sort(
+            &recent_document_query(),
+            max_results,
+            0,
+            EVERYTHING_SORT_DATE_MODIFIED_DESCENDING,
+        )
+    }
+
+    fn query_paths_with_sort(
+        &mut self,
+        search_text: &str,
+        max_results: u32,
+        offset: u32,
+        sort: u32,
+    ) -> Result<QueryPathsResult, EverythingError> {
+        unsafe {
+            Everything_Reset();
+            let search_wide = to_wide(search_text);
+            Everything_SetSearchW(search_wide.as_ptr());
+            Everything_SetRequestFlags(EVERYTHING_REQUEST_FILE_NAME | EVERYTHING_REQUEST_PATH);
+            Everything_SetSort(sort);
+            Everything_SetMatchPath(0);
+            Everything_SetMatchCase(0);
+            Everything_SetRegex(0);
+            Everything_SetMax(max_results);
+            Everything_SetOffset(offset);
+
+            if Everything_QueryW(1) == 0 {
+                let error_code = Everything_GetLastError();
+                Everything_Reset();
+                return Err(EverythingError {
+                    code: error_code,
+                    message: format!("Everything_QueryW failed, code={}", error_code),
+                });
+            }
+
+            let total = Everything_GetTotResults();
+            let result_count = Everything_GetNumResults();
+            let mut results = Vec::with_capacity(result_count as usize);
+            let mut buffer = vec![0_u16; 32768];
+
+            for index in 0..result_count {
+                let copied = Everything_GetResultFullPathNameW(
+                    index,
+                    buffer.as_mut_ptr(),
+                    buffer.len() as u32,
+                );
+                if copied == 0 {
+                    continue;
+                }
+                let end = buffer
+                    .iter()
+                    .position(|ch| *ch == 0)
+                    .unwrap_or_else(|| (copied as usize).min(buffer.len()));
+                if end == 0 {
+                    continue;
+                }
+                let path = String::from_utf16_lossy(&buffer[..end]);
+                if !path.trim().is_empty() {
+                    results.push(path);
+                }
+            }
+
+            Everything_Reset();
+            Ok(QueryPathsResult {
+                paths: results,
+                total,
+            })
+        }
+    }
+}
+
+pub(crate) fn is_recent_document_path(path: &std::path::Path) -> bool {
+    path.extension()
+        .and_then(OsStr::to_str)
+        .is_some_and(|extension| {
+            RECENT_DOCUMENT_EXTENSIONS
+                .iter()
+                .any(|allowed| extension.eq_ignore_ascii_case(allowed))
+        })
+}
+
+pub(crate) fn recent_document_query() -> String {
+    format!(
+        "{} ext:{}",
+        EVERYTHING_FILE_ONLY_FILTER,
+        RECENT_DOCUMENT_EXTENSIONS.join(";")
+    )
 }
 
 #[link(name = "everything_sdk", kind = "static")]
@@ -201,4 +249,42 @@ fn to_wide(path: &str) -> Vec<u16> {
         .encode_wide()
         .chain(std::iter::once(0))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::{is_recent_document_path, recent_document_query};
+
+    #[test]
+    fn recent_documents_include_common_text_and_office_files_only() {
+        for path in [
+            "README.md",
+            "notes.TXT",
+            "report.pdf",
+            "brief.docx",
+            "budget.xlsx",
+            "deck.pptx",
+            "data.csv",
+            "config.yaml",
+        ] {
+            assert!(is_recent_document_path(Path::new(path)), "{path}");
+        }
+        for path in ["cover.png", "app.exe", "archive.zip", "shortcut.lnk"] {
+            assert!(!is_recent_document_path(Path::new(path)), "{path}");
+        }
+    }
+
+    #[test]
+    fn recent_document_query_is_file_only_and_bounded_to_the_allowlist() {
+        let query = recent_document_query();
+
+        assert!(query.starts_with("file: ext:"));
+        assert!(query.contains("md;markdown;txt"));
+        assert!(query.contains("docx"));
+        assert!(query.contains("pptx"));
+        assert!(!query.contains("lnk"));
+        assert!(!query.contains("exe"));
+    }
 }

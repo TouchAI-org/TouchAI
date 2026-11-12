@@ -3,13 +3,16 @@ import '../tags';
 
 import { log } from '@services/ObservabilityService';
 import { Editor } from '@tiptap/vue-3';
-import { type Ref, ref, shallowRef, watch } from 'vue';
+import { computed, type Ref, ref, shallowRef, watch } from 'vue';
 
 import { locale, t } from '@/i18n';
 import {
     buildAttachmentPromptMetas,
     type Index,
 } from '@/services/AgentService/infrastructure/attachments';
+import type { SelectedSkill } from '@/services/AgentService/skills';
+import type { SearchActivationContext } from '@/services/SearchService';
+import { recordAcceptedFileReference } from '@/services/SearchService/fileReferenceHistory';
 import { createInputHistorySnapshot, type InputHistorySnapshot } from '@/types/session';
 
 import {
@@ -21,7 +24,10 @@ import {
     updateAttachmentTag,
 } from '../tags/attachment';
 import { getModelTag, insertModelTag, MODEL_TAG_NODE, removeModelTag } from '../tags/model';
-import type { SearchModelOverride } from '../types';
+import { getSkillTags, insertSkillTag } from '../tags/skill';
+import type { FilePickerContext, SearchModelOverride } from '../types';
+import { handleAutocompleteKeyDown } from '../utils/autocomplete';
+import { InlineCompletion, setInlineCompletion } from '../utils/inlineCompletion';
 import {
     createSearchEditorExtensions,
     DEFAULT_PLACEHOLDER_KEY,
@@ -38,7 +44,9 @@ import {
     setEditorText,
 } from '../utils/tiptap';
 import { useDragging } from './useDragging';
+import { containsFileQuery, useFileAutocomplete } from './useFileAutocomplete';
 import { type ModelCapabilities, useModelSelection } from './useModelSelection';
+import { containsSkillQuery, useSkillAutocomplete } from './useSkillAutocomplete';
 
 export type { ModelCapabilities } from './useModelSelection';
 
@@ -48,10 +56,15 @@ interface UseSearchInputOptions {
     queryText: Ref<string>;
     attachments: Ref<Index[]>;
     modelOverride: Ref<SearchModelOverride>;
+    autoSelectFirst?: Readonly<Ref<boolean>>;
+    completeFile?: Ref<((index?: number) => Index | null) | undefined>;
+    moveFileSelection?: Ref<((direction: 'up' | 'down' | 'left' | 'right') => boolean) | undefined>;
+    filePickerContext?: Readonly<Ref<FilePickerContext | null>>;
     emitQueryText: (query: string) => void;
     emitModelChange: (capabilities: ModelCapabilities) => void;
     emitModelOverrideChange: (modelOverride: SearchModelOverride) => void;
     emitRemoveAttachmentRequest: (id: string) => void;
+    emitRestoreAttachmentRequest?: (attachment: Index) => void;
     emitDragStart: () => void;
     emitDragEnd: () => void;
     startDragging: (event: MouseEvent) => Promise<void>;
@@ -60,11 +73,13 @@ interface UseSearchInputOptions {
 export interface UseSearchInputDeps {
     createModelSelection: typeof useModelSelection;
     createDragging: typeof useDragging;
+    recordFileReference?: (path: string) => void;
 }
 
 const DEFAULT_DEPS: UseSearchInputDeps = {
     createModelSelection: useModelSelection,
     createDragging: useDragging,
+    recordFileReference: recordAcceptedFileReference,
 };
 
 function createEmptyModelOverride(): SearchModelOverride {
@@ -108,11 +123,19 @@ export function useSearchInput(
     const cursorAtStart = ref(false);
     const cursorAtTextStart = ref(false);
     const cursorAtEnd = ref(false);
+    const selectedSkills = ref<SelectedSkill[]>([]);
+    const hasSkillQuery = ref(false);
+    const fileInputActive = ref(false);
+    const fileAutocomplete = useFileAutocomplete();
+    const skillInputActive = computed(() => hasSkillQuery.value || selectedSkills.value.length > 0);
     let cachedLineHeight = 0;
     let isApplyingControlledQuery = false;
     let isRestoringInputHistory = false;
     let inputHistoryRestoreToken = 0;
     let controlledTagSyncDepth = 0;
+    let consumedCompletionTab = false;
+    // Match the editor's bounded undo history without putting file paths in nodes.
+    const completedFileReferences = new Map<string, Index>();
 
     // 2. 子能力组合
     // 顶层编排：模型选择、拖拽行为各自独立，组合在 search bar。
@@ -129,6 +152,157 @@ export function useSearchInput(
         startDragging: options.startDragging,
     });
 
+    function getTextBeforeCursor(ed: Editor): string {
+        const { $from } = ed.state.selection;
+        return $from.parent.textBetween(0, $from.parentOffset, '\n', '\ufffc');
+    }
+
+    function insertSkillAtCursor(skill: SelectedSkill) {
+        const ed = editor.value;
+        if (!ed) {
+            return;
+        }
+
+        insertSkillTag(ed, skill);
+    }
+
+    const skillAutocomplete = useSkillAutocomplete({
+        autoSelectFirst: () => options.autoSelectFirst?.value ?? false,
+        getSelectedSkills: () => {
+            const ed = editor.value;
+            return ed ? getSkillTags(ed) : [];
+        },
+        onSelect: (skill, trigger) => {
+            const ed = editor.value;
+            if (!ed) {
+                return;
+            }
+
+            insertSkillTag(ed, skill, trigger.token, trigger.suffix);
+        },
+    });
+
+    const fileCompletion = computed(() => {
+        if (!options.completeFile?.value || skillAutocomplete.activeTrigger.value) return null;
+        const completion = options.filePickerContext?.value?.completion;
+        if (
+            !completion ||
+            completion.query !== (fileAutocomplete.query.value ?? queryText.value.trim()) ||
+            (completion.implicit && !cursorAtEnd.value)
+        )
+            return null;
+        return completion;
+    });
+
+    function handleEditorKeyDown(event: KeyboardEvent): boolean {
+        const plainTab =
+            event.key === 'Tab' &&
+            !event.shiftKey &&
+            !event.ctrlKey &&
+            !event.metaKey &&
+            !event.altKey &&
+            !event.isComposing &&
+            event.keyCode !== 229;
+        if (plainTab && event.repeat && consumedCompletionTab) return true;
+        if (!event.repeat) consumedCompletionTab = false;
+        if (skillAutocomplete.handleKeyDown(event)) {
+            consumedCompletionTab = plainTab;
+            return true;
+        }
+        if (
+            fileAutocomplete.trigger.value &&
+            handleAutocompleteKeyDown(event, {
+                select: () => {
+                    completeFileReference();
+                },
+                close: fileAutocomplete.close,
+                move: (direction) => options.moveFileSelection?.value?.(direction) ?? false,
+            })
+        ) {
+            consumedCompletionTab = plainTab;
+            return true;
+        }
+        const ed = editor.value;
+        if (!plainTab || !options.completeFile?.value || !ed?.isEditable) return false;
+        consumedCompletionTab = true;
+        if (event.repeat) return true;
+        completeFileReference();
+        return true;
+    }
+
+    function completeFileReference(resultIndex?: number): boolean {
+        const ed = editor.value;
+        if (!ed?.isEditable || ed.view.composing) return false;
+        const trigger = fileAutocomplete.trigger.value;
+        // Pointer acceptance must target the same live token as keyboard acceptance.
+        if (fileInputActive.value && !trigger) return false;
+        const attachment = options.completeFile?.value?.(
+            resultIndex ?? fileCompletion.value?.index
+        );
+        if (attachment) {
+            completedFileReferences.set(attachment.id, attachment);
+            if (completedFileReferences.size > 100) {
+                completedFileReferences.delete(completedFileReferences.keys().next().value!);
+            }
+            const index = attachments.value.findIndex((item) => item.id === attachment.id);
+            const alias = buildAttachmentPromptMetas(attachments.value)[index]?.alias ?? '';
+            insertAttachmentTag(ed, toAttachmentTagAttrs(attachment, alias), {
+                atCurrentSelection: true,
+                replaceToken: !trigger,
+                replaceRange: trigger ? { from: trigger.from, to: trigger.to } : undefined,
+                separateHistory: true,
+            });
+            deps.recordFileReference?.(attachment.originPath || attachment.path);
+            fileAutocomplete.reset();
+            return true;
+        }
+        return false;
+    }
+
+    watch(
+        [editor, skillAutocomplete.completionText, fileCompletion],
+        ([ed]) => {
+            if (!ed || ed.isDestroyed) return;
+            syncInlineCompletion(ed);
+        },
+        { flush: 'post' }
+    );
+
+    function syncInlineCompletion(ed: Editor) {
+        if (
+            setInlineCompletion(
+                ed.view,
+                skillAutocomplete.completionText.value || fileCompletion.value?.text || ''
+            )
+        )
+            syncMultiLineState(ed);
+    }
+
+    function refreshAutocomplete(ed: Editor, resume = false) {
+        if (ed.view.composing) return;
+        if (!ed.isFocused || !ed.isEditable || !ed.state.selection.empty) {
+            skillAutocomplete.close();
+            fileAutocomplete.reset();
+            syncInlineCompletion(ed);
+            return;
+        }
+        const { $from } = ed.state.selection;
+        const textAfterCursor = $from.parent.textBetween(
+            $from.parentOffset,
+            $from.parent.content.size,
+            '\n',
+            '\ufffc'
+        );
+        fileAutocomplete.refresh(getTextBeforeCursor(ed), textAfterCursor, ed.state.selection.from);
+        if (fileAutocomplete.trigger.value) {
+            skillAutocomplete.close();
+            syncInlineCompletion(ed);
+            return;
+        }
+        void skillAutocomplete.refresh(getTextBeforeCursor(ed), { resume, textAfterCursor });
+        syncInlineCompletion(ed);
+    }
+
     // 3. 编辑器创建
     /**
      * 将光标滚动到可见区域。
@@ -141,6 +315,7 @@ export function useSearchInput(
         if (!ed.state.selection.empty) return;
 
         requestAnimationFrame(() => {
+            if (ed.isDestroyed || editor.value !== ed) return;
             const { view } = ed;
             if (!view.state.selection.empty) return;
             const coords = view.coordsAtPos(view.state.selection.$anchor.pos);
@@ -194,18 +369,46 @@ export function useSearchInput(
         });
 
         const ed = new Editor({
-            extensions,
+            extensions: [...extensions, InlineCompletion],
             autofocus: false,
+            onFocus: ({ editor: focusedEditor }) =>
+                refreshAutocomplete(focusedEditor as Editor, true),
             editorProps: {
                 attributes: {
                     class: 'tiptap',
                 },
+                handleKeyDown: (_view, event) => handleEditorKeyDown(event),
+                handleDOMEvents: {
+                    compositionend() {
+                        queueMicrotask(() => {
+                            const ed = editor.value;
+                            if (ed && !ed.isDestroyed) refreshAutocomplete(ed);
+                        });
+                        return false;
+                    },
+                },
             },
             onUpdate: ({ editor: updatedEditor }) => {
+                if (
+                    !controlledTagSyncDepth &&
+                    !isRestoringInputHistory &&
+                    completedFileReferences.size
+                ) {
+                    for (const tag of getAttachmentTags(updatedEditor as Editor)) {
+                        const attachment = completedFileReferences.get(tag.attachmentId);
+                        if (
+                            attachment &&
+                            !attachments.value.some((item) => item.id === attachment.id)
+                        ) {
+                            options.emitRestoreAttachmentRequest?.(attachment);
+                        }
+                    }
+                }
                 const text = getEditorText(updatedEditor);
                 searchQuery.value = text;
                 syncEditorDerivedState(updatedEditor as Editor);
                 onInput();
+                refreshAutocomplete(updatedEditor as Editor);
 
                 // 内容更新后滚动光标到可见区域
                 scrollCursorIntoView();
@@ -213,6 +416,10 @@ export function useSearchInput(
             onSelectionUpdate: () => {
                 // 光标位置变化时滚动到可见区域（例如使用上下键移动光标）
                 syncCursorFlags(editor.value);
+                const ed = editor.value;
+                if (ed) {
+                    refreshAutocomplete(ed);
+                }
                 scrollCursorIntoView();
             },
         });
@@ -228,8 +435,12 @@ export function useSearchInput(
      * 销毁编辑器实例，释放资源。
      */
     function destroyEditor() {
+        dragging.clearEditorSelectionDragState();
+        completedFileReferences.clear();
         editor.value?.destroy();
         editor.value = null;
+        skillAutocomplete.close();
+        fileAutocomplete.reset();
         cachedLineHeight = 0;
     }
 
@@ -260,6 +471,11 @@ export function useSearchInput(
      * @returns void
      */
     function syncEditorDerivedState(ed: Editor) {
+        selectedSkills.value = getSkillTags(ed);
+        // Draft intent survives popup dismissal, selection changes, and window blur.
+        const draftText = ed.state.doc.textBetween(0, ed.state.doc.content.size, '\n', '\ufffc');
+        hasSkillQuery.value = containsSkillQuery(draftText);
+        fileInputActive.value = containsFileQuery(draftText);
         syncMultiLineState(ed);
         syncCursorFlags(ed);
     }
@@ -320,6 +536,7 @@ export function useSearchInput(
         }
 
         syncEditorDerivedState(ed);
+        refreshAutocomplete(ed);
     }
 
     watch(queryText, (nextQuery) => {
@@ -501,8 +718,36 @@ export function useSearchInput(
         return createInputHistorySnapshot({
             text: ed ? getEditorText(ed) : queryText.value,
             attachments: attachments.value,
+            skills: ed ? getSkillTags(ed) : [],
             editorDoc: ed ? getEditorJSON(ed) : undefined,
         });
+    }
+
+    function captureSearchActivationInput(): NonNullable<SearchActivationContext['input']> {
+        const ed = editor.value;
+        const selection = ed?.state.selection;
+        const text =
+            ed && selection && !selection.empty
+                ? ed.state.doc.textBetween(selection.from, selection.to, '\n', '')
+                : '';
+        return {
+            ...(text ? { text } : {}),
+            files: attachments.value.map((file) => ({
+                id: file.id,
+                name: file.name,
+                kind: file.type,
+            })),
+        };
+    }
+
+    function restoreSkillTagsWhenSnapshotHasNoDoc(ed: Editor, snapshot: InputHistorySnapshot) {
+        if (snapshot.editorDoc || !snapshot.skills?.length) {
+            return;
+        }
+
+        for (const skill of snapshot.skills) {
+            insertSkillTag(ed, skill);
+        }
     }
 
     function restoreInputHistorySnapshot(snapshot: InputHistorySnapshot): string {
@@ -525,6 +770,7 @@ export function useSearchInput(
                 }
                 syncControlledModelOverrideToEditor();
                 syncAttachmentsToEditor(ed, normalizedSnapshot.attachments);
+                restoreSkillTagsWhenSnapshotHasNoDoc(ed, normalizedSnapshot);
             });
         } catch (error) {
             log.error(
@@ -535,6 +781,9 @@ export function useSearchInput(
                 setEditorText(ed, normalizedSnapshot.text);
                 syncControlledModelOverrideToEditor();
                 syncAttachmentsToEditor(ed, normalizedSnapshot.attachments);
+                for (const skill of normalizedSnapshot.skills ?? []) {
+                    insertSkillTag(ed, skill);
+                }
             });
         } finally {
             isApplyingControlledQuery = false;
@@ -545,6 +794,7 @@ export function useSearchInput(
         ed.commands.focus('end');
         syncEditorDerivedState(ed);
         scrollCursorIntoView();
+        refreshAutocomplete(ed);
         queueMicrotask(() => {
             if (inputHistoryRestoreToken === restoreToken) {
                 isRestoringInputHistory = false;
@@ -689,7 +939,9 @@ export function useSearchInput(
             return;
         }
 
-        if (isBlankEditorAreaTarget(target)) {
+        // Only the outer host is blank here; clicks inside ProseMirror already
+        // carry the browser's caret or range and must not reset it to the end.
+        if (isBlankEditorAreaTarget(target) && !ed.view.dom.contains(target)) {
             ed.commands.focus('end');
             return;
         }
@@ -752,7 +1004,14 @@ export function useSearchInput(
         cursorAtTextStart,
         cursorAtEnd,
         focus,
+        insertSkillAtCursor,
         loadActiveModel: modelSelection.loadActiveModel,
+        skillAutocomplete,
+        fileAutocomplete,
+        fileInputActive,
+        completeFileReference,
+        skillInputActive,
+        selectedSkills,
         handleContainerMouseDown: dragging.handleContainerMouseDown,
         handleEditorMouseDown,
         initEditor,
@@ -760,6 +1019,7 @@ export function useSearchInput(
         onEditorClick,
         clearDraggingState: dragging.clearEditorSelectionDragState,
         captureInputHistorySnapshot,
+        captureSearchActivationInput,
         restoreInputHistorySnapshot,
     };
 }

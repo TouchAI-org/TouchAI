@@ -11,6 +11,10 @@ export interface QuickSearchClickStatRow {
     click_count: number;
 }
 
+export interface QuickSearchRecentClickStatRow extends QuickSearchClickStatRow {
+    updated_at: string;
+}
+
 /**
  * 按规范化查询词读取点击统计行。
  */
@@ -35,6 +39,35 @@ export async function findQuickSearchClicksByQuery({
 }
 
 /**
+ * Return accepted-reference rows by use recency. Unlike typed-query ranking,
+ * click frequency is only a deterministic tie-breaker here.
+ */
+export async function findRecentQuickSearchClicksByQuery({
+    queryNorm,
+    limit,
+}: {
+    queryNorm: string;
+    limit: number;
+}): Promise<QuickSearchRecentClickStatRow[]> {
+    return db
+        .select({
+            path_norm: quickSearchClickStats.path_norm,
+            click_count: quickSearchClickStats.click_count,
+            query_norm: quickSearchClickStats.query_norm,
+            updated_at: quickSearchClickStats.updated_at,
+        })
+        .from(quickSearchClickStats)
+        .where(eq(quickSearchClickStats.query_norm, queryNorm))
+        .orderBy(
+            desc(quickSearchClickStats.updated_at),
+            desc(quickSearchClickStats.click_count),
+            quickSearchClickStats.path_norm
+        )
+        .limit(limit)
+        .all();
+}
+
+/**
  * 记录一次点击（不存在则插入，存在则自增）。
  */
 export async function upsertQuickSearchClick({
@@ -53,6 +86,7 @@ export async function upsertQuickSearchClick({
             query_norm: queryNorm,
             path_norm: pathNorm,
             click_count: 1,
+            updated_at: sql`strftime('%Y-%m-%d %H:%M:%f', 'now')`,
         })
         .onConflictDoUpdate({
             target: [quickSearchClickStats.query_norm, quickSearchClickStats.path_norm],
@@ -61,7 +95,7 @@ export async function upsertQuickSearchClick({
                     WHEN ${quickSearchClickStats.click_count} >= ${maxClickCount} THEN ${maxClickCount}
                     ELSE ${quickSearchClickStats.click_count} + 1
                 END`,
-                updated_at: sql`datetime('now')`,
+                updated_at: sql`strftime('%Y-%m-%d %H:%M:%f', 'now')`,
             },
         })
         .run();

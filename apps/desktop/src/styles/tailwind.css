@@ -302,7 +302,8 @@
         border: 0 !important;
     }
 
-    .settings-scroll-fade {
+    .settings-scroll-fade,
+    [data-scroll-fade] {
         -webkit-mask-image: linear-gradient(
             to bottom,
             transparent,

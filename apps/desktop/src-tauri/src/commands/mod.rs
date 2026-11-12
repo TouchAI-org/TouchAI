@@ -102,6 +102,7 @@ pub fn invoke_handler<R: tauri::Runtime>(
         mcp::mcp_disconnect_all,
         quick_search::quick_search_search_shortcuts,
         quick_search::quick_search_search_files,
+        quick_search::quick_search_file_reference_suggestions,
         quick_search::quick_search_get_shortcut_icon,
         quick_search::quick_search_get_shortcut_icons,
         quick_search::quick_search_get_image_thumbnails,

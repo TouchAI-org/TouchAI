@@ -34,6 +34,7 @@ const {
             pruneIconMaps: vi.fn(),
         },
         clickStatsMock: {
+            prefetch: vi.fn(async () => undefined),
             rankResults: vi.fn(async (_query: string, items: QuickShortcutItem[]) => items),
             recordClick: vi.fn(),
         },
@@ -44,6 +45,7 @@ const {
             gridGap: { value: 8 },
             selectionMaxHeight: { value: 320 },
             moveSelection: vi.fn(),
+            scrollHighlightedIntoView: vi.fn(),
             setVisibleRows: vi.fn(),
             syncLayout: vi.fn().mockResolvedValue(undefined),
             updateLayout: vi.fn(),
@@ -192,6 +194,105 @@ describe('useQuickSearchLogic', () => {
         mounted.unmount();
     });
 
+    it('user given a bare @ gets selected recent suggestions without an empty native search', async () => {
+        const file: QuickShortcutItem = {
+            name: 'Plan.md',
+            path: 'D:/Docs/Plan.md',
+            source: 'file',
+        };
+        const loadReferenceSuggestions = vi.fn().mockResolvedValue([file]);
+        const searchShortcuts = vi.fn();
+        const open = ref(false);
+        const mounted = await mountComposable(() =>
+            useQuickSearchLogic(
+                {
+                    open,
+                    searchQuery: ref(''),
+                    enabled: ref(true),
+                    referenceMode: ref(true),
+                    compact: ref(true),
+                    emitOpenUpdate: (value) => {
+                        open.value = value;
+                    },
+                },
+                {
+                    quickSearch: {
+                        getStatus: vi.fn().mockResolvedValue({
+                            provider: 'everything',
+                            db_loaded: true,
+                            index_warmed: true,
+                            last_refresh_ms: null,
+                            last_error: null,
+                        }),
+                        prepareIndex: vi.fn().mockResolvedValue(undefined),
+                        searchShortcuts,
+                    },
+                    window: {
+                        hideSearchWindow: vi.fn().mockResolvedValue(undefined),
+                    },
+                    openPath: vi.fn().mockResolvedValue(undefined),
+                    loadReferenceSuggestions,
+                }
+            )
+        );
+
+        await flushAsyncWork();
+
+        expect(loadReferenceSuggestions).toHaveBeenCalledWith(12, expect.any(AbortSignal));
+        expect(searchShortcuts).not.toHaveBeenCalled();
+        expect(open.value).toBe(true);
+        expect(mounted.result.results.value).toEqual([file]);
+        expect(mounted.result.highlightedIndex.value).toBe(0);
+        expect(mounted.result.getReferenceCandidate()).toEqual(file);
+
+        mounted.unmount();
+    });
+
+    it('user given a bare @ with no suggestions gets a completed empty panel', async () => {
+        const open = ref(false);
+        const mounted = await mountComposable(() =>
+            useQuickSearchLogic(
+                {
+                    open,
+                    searchQuery: ref(''),
+                    enabled: ref(true),
+                    referenceMode: ref(true),
+                    compact: ref(true),
+                    emitOpenUpdate: (value) => {
+                        open.value = value;
+                    },
+                },
+                {
+                    quickSearch: {
+                        getStatus: vi.fn().mockResolvedValue({
+                            provider: 'everything',
+                            db_loaded: true,
+                            index_warmed: true,
+                            last_refresh_ms: null,
+                            last_error: null,
+                        }),
+                        prepareIndex: vi.fn().mockResolvedValue(undefined),
+                        searchShortcuts: vi.fn(),
+                    },
+                    window: {
+                        hideSearchWindow: vi.fn().mockResolvedValue(undefined),
+                    },
+                    openPath: vi.fn().mockResolvedValue(undefined),
+                    loadReferenceSuggestions: vi.fn().mockResolvedValue([]),
+                }
+            )
+        );
+
+        await flushAsyncWork();
+
+        expect(open.value).toBe(true);
+        expect(mounted.result.results.value).toEqual([]);
+        expect(mounted.result.searchState.value).toBe('ready');
+        expect(mounted.result.highlightedIndex.value).toBe(-1);
+
+        mounted.unmount();
+    });
+
     it('user gets the later query results even when the earlier query answers last', async () => {
         const firstSearch = deferred<QuickSearchResult>();
         const secondSearch = deferred<QuickSearchResult>();
@@ -266,7 +367,7 @@ describe('useQuickSearchLogic', () => {
         mounted.unmount();
     });
 
-    it('hides the panel when a query returns no results', async () => {
+    it('user closes the launcher panel when a query completes without results', async () => {
         const open = ref(true);
         const searchQuery = ref('');
         const quickSearchDeps = {
@@ -308,6 +409,7 @@ describe('useQuickSearchLogic', () => {
 
         expect(open.value).toBe(false);
         expect(mounted.result.results.value).toEqual([]);
+        expect(mounted.result.searchState.value).toBe('ready');
         expect(assetLoaderMock.resetLoadingState).toHaveBeenCalled();
 
         mounted.unmount();
