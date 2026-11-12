@@ -74,6 +74,8 @@ jobs:
                       // unavailable or truncated, the answer has to be "assume yes": an
                       // empty list would otherwise look like "nothing changed" and silently
                       // skip the analysis.
+                      const releaseNotesPattern =
+                        /^apps\/desktop\/release-notes\/[^/]+\.json$/;
                       const docsOnlyPatterns = [
                         /^docs\//,
                         /^[^/]+\.md$/,
@@ -90,6 +92,7 @@ jobs:
                         /^README\.md$/,
                         /^SECURITY\.md$/,
                         /^SUPPORT\.md$/,
+                        releaseNotesPattern,
                       ];
 
                       let files = [];

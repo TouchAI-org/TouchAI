@@ -67,27 +67,55 @@ jobs:
                         /^\.github\/workflows\/visual-components\.yml$/,
                       ];
 
-                      const pullNumber = context.payload.pull_request?.number;
-                      if (!pullNumber) {
-                        // A manual run has no PR to classify; run everything, which is
-                        // what someone dispatching it by hand wants anyway.
+                      if (
+                        context.eventName !== 'pull_request' &&
+                        context.eventName !== 'merge_group'
+                      ) {
+                        // A manual or main-branch run has no pull request to classify.
                         fullClassification();
                         return;
                       }
 
-                      const files = await github.paginate(github.rest.pulls.listFiles, {
-                        owner: context.repo.owner,
-                        repo: context.repo.repo,
-                        pull_number: pullNumber,
-                        per_page: 100,
-                      });
+                      let files = [];
+                      if (context.eventName === 'pull_request') {
+                        files = await github.paginate(github.rest.pulls.listFiles, {
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          pull_number: context.payload.pull_request?.number,
+                          per_page: 100,
+                        });
+                      } else {
+                        const before = context.payload.merge_group?.base_sha;
+                        const after = context.payload.merge_group?.head_sha;
+
+                        if (!before || !after || /^0+$/.test(before)) {
+                          fullClassification();
+                          return;
+                        }
+
+                        const comparison = await github.rest.repos.compareCommits({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          base: before,
+                          head: after,
+                        });
+                        files = comparison.data.files ?? [];
+
+                        if (!Array.isArray(files) || files.length >= 300) {
+                          fullClassification();
+                          return;
+                        }
+                      }
 
                       if (!Array.isArray(files) || files.length === 0 || files.length >= 3000) {
                         fullClassification();
                         return;
                       }
 
-                      const expectedCount = context.payload.pull_request?.changed_files;
+                      const expectedCount =
+                        context.eventName === 'pull_request'
+                          ? context.payload.pull_request?.changed_files
+                          : undefined;
 
                       if (Number.isInteger(expectedCount) && expectedCount !== files.length) {
                         fullClassification();

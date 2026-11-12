@@ -394,6 +394,7 @@ describe('user relies on required workflow reporting', () => {
                 'workflow-lint',
                 'conventional-commits',
                 'dependency-review',
+                'release-notes-check',
                 'frontend-quality',
                 'frontend-tests',
                 'ci-tests',
@@ -403,6 +404,14 @@ describe('user relies on required workflow reporting', () => {
             ].sort()
         );
         expect(required.if).toBe('always()');
+    });
+
+    it('user sees release notes validation publish a lightweight job only when notes changed', () => {
+        const workflow = readWorkflow('ci.yml');
+        const releaseNotes = workflowJob(workflow, 'release-notes-check');
+
+        expect(releaseNotes.name).toBe('Release Notes');
+        expect(releaseNotes.if).toBe("needs.changes.outputs.release_notes_changed == 'true'");
     });
 
     it('user sees the final E2E gate wait for its jobs and always report when they finish', () => {

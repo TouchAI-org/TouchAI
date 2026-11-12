@@ -133,4 +133,15 @@ describe('user installs only dependencies each optimized job needs', () => {
             normalizedRun(step(aggregate, 'Merge frontend shard reports with coverage'))
         ).toContain('--merge-reports=.vitest-reports');
     });
+
+    it('user sees release notes validation run without installing workspace dependencies', () => {
+        const notes = job(readWorkflow('ci.yml'), 'release-notes-check');
+
+        expect(normalizedRun(step(notes, 'Validate release notes'))).toBe(
+            'node apps/desktop/scripts/ci/validate-release-notes.mjs'
+        );
+        expect(notes.steps.map((candidate) => candidate.name)).not.toContain(
+            'Install dependencies'
+        );
+    });
 });

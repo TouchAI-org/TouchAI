@@ -53,6 +53,8 @@ jobs:
                         return;
                       }
 
+                      const releaseNotesPattern =
+                        /^apps\/desktop\/release-notes\/[^/]+\.json$/;
                       const docsOnlyPatterns = [
                         /^docs\//,
                         /^[^/]+\.md$/,
@@ -69,6 +71,7 @@ jobs:
                         /^README\.md$/,
                         /^SECURITY\.md$/,
                         /^SUPPORT\.md$/,
+                        releaseNotesPattern,
                       ];
                       const desktopPatterns = [
                         /^apps\/desktop\//,
@@ -172,7 +175,10 @@ jobs:
                           docsOnlyPatterns.some((pattern) => pattern.test(filename))
                         );
                       const desktopChanged =
-                        filenames.some((filename) => desktopPatterns.some((pattern) => pattern.test(filename)));
+                        !docsOnly &&
+                        filenames.some((filename) =>
+                          desktopPatterns.some((pattern) => pattern.test(filename))
+                        );
 
                       core.setOutput('docs_only', docsOnly ? 'true' : 'false');
                       core.setOutput('desktop_changed', desktopChanged ? 'true' : 'false');
