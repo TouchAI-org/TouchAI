@@ -259,7 +259,6 @@ pub fn run() {
                         warn!("Failed to clear computer-use feedback on window close: {error}");
                     }
                 }
-                core::window::search::surface::handle_window_destroyed(&app_handle, &window_label);
             }
         })
         .invoke_handler(commands::invoke_handler::<tauri::Wry>());
