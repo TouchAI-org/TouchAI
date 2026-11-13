@@ -4,7 +4,7 @@
 // owner/transport/database failure codes deliberately do not live here: those details are
 // diagnostics, not user-facing copy.
 
-import { t } from '@/i18n';
+import { t, tt } from '@/i18n';
 import type { MessageKey } from '@/i18n/messages';
 
 import type { SettingsRejectionDescriptor } from './policy';
@@ -21,6 +21,10 @@ export function describeRejection(rejection: SettingsRejectionDescriptor): strin
         case 'shortcut-global-conflict':
             return t('settings.general.searchShortcuts.errors.globalConflict');
     }
+}
+
+export function unconfirmedMessage(): string {
+    return tt('设置结果未确认，请重新查看设置后再重试。');
 }
 
 /**

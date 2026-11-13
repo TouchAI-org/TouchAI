@@ -1,7 +1,7 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import { log } from '@services/ObservabilityService';
-import { describeRejection } from '@services/SettingsService/messages';
+import { describeRejection, unconfirmedMessage } from '@services/SettingsService/messages';
 
 import { t, tt } from '@/i18n';
 import type { ToolApprovalRequest } from '@/services/AgentService/contracts/tooling';
@@ -146,6 +146,15 @@ export async function executeSettingTool(
                 ),
                 isError: false,
                 status: 'success',
+            };
+        }
+        if (result.status === 'unknown' || result.status === 'recovery-required') {
+            const message = unconfirmedMessage();
+            return {
+                result: [formatSingleUpdate(request.key, request.value), message].join('\n'),
+                isError: true,
+                status: 'error',
+                errorMessage: message,
             };
         }
         if (result.status === 'rejected' && result.rejection) {

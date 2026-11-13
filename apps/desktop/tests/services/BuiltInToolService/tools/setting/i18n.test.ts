@@ -176,33 +176,40 @@ describe('user changes app settings through the assistant', () => {
         expect(service.getSnapshot().globalShortcut).toBe('Alt+Space');
     });
 
-    it('user reads an unconfirmed setting update with stable failure copy', async () => {
-        setLocale('en-US');
-        vi.spyOn(service, 'mutate').mockResolvedValueOnce({
-            status: 'unknown',
-            key: 'start_minimized',
-            code: SettingsErrorCode.Timeout,
-        });
-
-        const result = await executeSettingTool(
-            {
-                action: 'set',
+    it.each(['unknown', 'recovery-required'] as const)(
+        'user sees an unconfirmed setting update result after a %s response',
+        async (status) => {
+            setLocale('en-US');
+            vi.spyOn(service, 'mutate').mockResolvedValueOnce({
+                status,
                 key: 'start_minimized',
-                value: false,
-                reason: 'User asked for it.',
-            },
-            {},
-            createExecutionContext()
-        );
+                code:
+                    status === 'unknown'
+                        ? SettingsErrorCode.Timeout
+                        : SettingsErrorCode.CompensationFailed,
+            });
 
-        expect(result).toMatchObject({
-            isError: true,
-            status: 'error',
-            errorMessage: 'Setting update failed.',
-        });
-        expect(result.result).toContain('Setting update failed');
-        expect(result.result).not.toContain('Settings result unknown');
-    });
+            const result = await executeSettingTool(
+                {
+                    action: 'set',
+                    key: 'start_minimized',
+                    value: false,
+                    reason: 'User asked for it.',
+                },
+                {},
+                createExecutionContext()
+            );
+
+            expect(result).toMatchObject({
+                isError: true,
+                status: 'error',
+                errorMessage:
+                    'The setting result is unconfirmed. Re-check settings before retrying.',
+            });
+            expect(result.result).toContain('The setting result is unconfirmed');
+            expect(result.result).not.toContain('Setting update failed');
+        }
+    );
 
     it('user cancels while the settings owner initializes and no setting is written', async () => {
         setLocale('en-US');
