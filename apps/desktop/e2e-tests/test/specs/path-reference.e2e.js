@@ -74,8 +74,23 @@ async function typeDirectoryQuery(query) {
 }
 
 async function optionLabels() {
-    const options = await $$('[data-testid="quick-search-panel"] [role="option"]');
-    return Promise.all(options.map((option) => option.getText()));
+    // One round trip: element handles go stale between separate getText calls.
+    return browser.execute(() =>
+        [...document.querySelectorAll('[data-testid="quick-search-panel"] [role="option"]')].map(
+            (option) => (option.textContent ?? '').trim()
+        )
+    );
+}
+
+async function completeHighlightedOption() {
+    const index = await browser.execute(() => {
+        const options = [
+            ...document.querySelectorAll('[data-testid="quick-search-panel"] [role="option"]'),
+        ];
+        return options.findIndex((option) => option.getAttribute('aria-selected') === 'true');
+    });
+    if (index < 0) await browser.keys(['ArrowDown']);
+    await browser.keys(['Tab']);
 }
 
 describe('given a user references paths on disk', () => {
@@ -123,8 +138,7 @@ describe('given a user references paths on disk', () => {
     it('user referencing the directory result inserts a folder tag', async () => {
         const typedDirectory = toTypedPath(directoryPath);
         await typeDirectoryQuery(`${typedDirectory}/`);
-        await browser.keys(['ArrowDown']);
-        await browser.keys(['Tab']);
+        await completeHighlightedOption();
 
         await browser.waitUntil(
             async () => (await $('[data-attachment-tag]').getText()).includes('project'),
@@ -141,8 +155,7 @@ describe('given a user references paths on disk', () => {
             labels.length === 1 && labels[0].includes('notes.md'),
             `An exact file path must yield one row, got ${JSON.stringify(labels)}.`
         );
-        await browser.keys(['ArrowDown']);
-        await browser.keys(['Tab']);
+        await completeHighlightedOption();
         await browser.waitUntil(() => $('[data-attachment-tag]').isExisting());
         await browser.waitUntil(
             async () => (await $('[data-attachment-tag]').getText()).includes('notes.md'),
