@@ -57,6 +57,7 @@ const {
             }
         ),
         removePendingUserMessage: vi.fn(() => true),
+        updatePendingUserMessage: vi.fn(() => true),
         clearPendingUserMessages: vi.fn(() => true),
         updatePendingUserMessagesModel: vi.fn(() => true),
     };

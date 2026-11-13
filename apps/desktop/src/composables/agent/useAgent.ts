@@ -378,6 +378,18 @@ export function useAgent(options: UseAiRequestOptions = {}) {
             : sessionTaskCenter.removeSessionUserMessage(currentSessionId.value, messageId);
     }
 
+    function updatePendingUserMessage(messageId: string, input: PendingUserMessageInput): boolean {
+        if (
+            attachedTaskId.value &&
+            sessionTaskCenter.updateTaskUserMessage(attachedTaskId.value, messageId, input)
+        ) {
+            return true;
+        }
+        return currentSessionId.value === null
+            ? false
+            : sessionTaskCenter.updateSessionUserMessage(currentSessionId.value, messageId, input);
+    }
+
     function promotePendingUserMessage(messageId: string): boolean {
         if (
             attachedTaskId.value &&
@@ -489,6 +501,7 @@ export function useAgent(options: UseAiRequestOptions = {}) {
         enqueueUserMessage,
         promotePendingUserMessage,
         removePendingUserMessage,
+        updatePendingUserMessage,
         reorderPendingUserMessages,
         clearPendingUserMessages,
         updatePendingUserMessagesModel,

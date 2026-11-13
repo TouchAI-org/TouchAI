@@ -424,6 +424,13 @@ describe('user sends queued and priority messages during a running answer', () =
         assertPendingOrder(afterDrag, [queuedSecond, queuedFirst]);
         assertQueuedMessage(messageByText(afterDrag, queuedSecond));
         assertQueuedMessage(messageByText(afterDrag, queuedFirst));
+        const selectionAfterDrag = await browser.execute(
+            () => window.getSelection()?.toString() ?? ''
+        );
+        assertVisible(
+            selectionAfterDrag === '',
+            `Dragging a queued message selected its text: ${JSON.stringify(selectionAfterDrag)}.`
+        );
 
         releaseAnswer.resolve();
         await server.waitForRequestCount(2);
@@ -755,9 +762,10 @@ describe('user sends queued and priority messages during a running answer', () =
         );
     });
 
-    it('user can edit or cancel a queue without changing a pending steer', async () => {
+    it('user edits a queue in place without changing its slot or a pending steer', async () => {
         const releaseAnswer = deferred();
         const queuedToEdit = 'Queue opened for editing';
+        const editedQueue = 'Queue saved after editing';
         const steered = 'Steer that must remain committed';
         const queuedToRemove = 'Queue removed by the user';
 
@@ -785,10 +793,20 @@ describe('user sends queued and priority messages during a running answer', () =
         await clickMessageAction(messageByText(state, queuedToEdit), 'pending-message-edit');
         state = await waitForConversation(
             (messages) =>
-                !messageByText(messages, queuedToEdit) && pendingMessages(messages).length === 1,
-            'Editing a queued message did not remove it from the pending area.'
+                messageByText(messages, queuedToEdit)?.editing === true &&
+                pendingMessages(messages).length === 2,
+            'Opening a queued message for editing did not keep it in the pending area.'
         );
-        assertPendingOrder(state, [steered]);
+        assertPendingOrder(state, [steered, queuedToEdit]);
+        const editingMessage = messageByText(state, queuedToEdit);
+        assertVisible(
+            editingMessage.editingStatus === 'Editing in the composer' &&
+                editingMessage.hasCancelEdit &&
+                !editingMessage.hasSendNow &&
+                !editingMessage.hasEdit &&
+                !editingMessage.hasRemove,
+            `The queue did not show the editing state in place: ${JSON.stringify(editingMessage)}.`
+        );
         assertSolidSteer(messageByText(state, steered));
         const restoredDraft = await (await editorElement()).getText();
         assertVisible(
@@ -796,6 +814,61 @@ describe('user sends queued and priority messages during a running answer', () =
             `Editing did not restore the queued prompt into the editor: ${JSON.stringify(
                 restoredDraft
             )}.`
+        );
+
+        await fillSearchDraft(editedQueue);
+        await submitSearchDraft('enter');
+        state = await waitForConversation(
+            (messages) =>
+                !messageByText(messages, queuedToEdit) &&
+                messageByText(messages, editedQueue)?.id === editingMessage.id &&
+                messageByText(messages, editedQueue)?.editing === false &&
+                pendingMessages(messages).length === 2,
+            'Saving an edited queue did not replace it in place.'
+        );
+        assertPendingOrder(state, [steered, editedQueue]);
+        assertQueuedMessage(messageByText(state, editedQueue));
+        assertSolidSteer(messageByText(state, steered));
+
+        await callE2eBridge('cancelSearchRequest');
+        releaseAnswer.resolve();
+    });
+
+    it('user can cancel editing without removing the queued message', async () => {
+        const releaseAnswer = deferred();
+        const queuedToEdit = 'Queue whose edit will be cancelled';
+        const draftToKeep = 'Draft that was already in the composer';
+
+        server.planNext(async ({ stream }) => {
+            stream.text('Keeping the turn open while an edit is cancelled.');
+            await releaseAnswer.promise;
+            stream.finish('stop');
+        });
+
+        await startRunningTurn(server);
+        const { message } = await submitWhileRunning(queuedToEdit, 'enter', 'queue', 1);
+        await fillSearchDraft(draftToKeep);
+        await clickMessageAction(message, 'pending-message-edit');
+
+        const editingState = await waitForConversation(
+            (state) => messageByText(state, queuedToEdit)?.editing === true,
+            'Opening the queue for editing did not expose the editing state.'
+        );
+        await clickMessageAction(
+            messageByText(editingState, queuedToEdit),
+            'pending-message-cancel-edit'
+        );
+
+        const cancelledState = await waitForConversation(
+            (state) =>
+                messageByText(state, queuedToEdit)?.editing === false &&
+                pendingMessages(state).length === 1,
+            'Cancelling the edit removed the queued message or left it in editing state.'
+        );
+        assertQueuedMessage(messageByText(cancelledState, queuedToEdit));
+        assertVisible(
+            (await (await editorElement()).getText()).trim() === draftToKeep,
+            'Cancelling the edit did not restore the draft that was in the composer before editing.'
         );
 
         await callE2eBridge('cancelSearchRequest');

@@ -89,6 +89,24 @@ function mergePendingUserMessages(
 }
 
 /**
+ * Replace the user-editable content of a pending message while preserving its
+ * identity, queue slot, delivery mode, and any immediate-steer flag.
+ */
+function applyPendingUserMessageInput(
+    message: PendingUserMessage,
+    input: PendingUserMessageInput
+): PendingUserMessage {
+    return {
+        ...message,
+        prompt: input.prompt,
+        attachments: cloneTaskValue(input.attachments ?? []),
+        inputSnapshot: input.inputSnapshot ? cloneTaskValue(input.inputSnapshot) : undefined,
+        modelId: input.modelId,
+        providerId: input.providerId,
+    };
+}
+
+/**
  * Reorder only the queued messages, preserving the slots occupied by steers.
  *
  * The caller supplies the complete queue order. Rejecting partial or stale orders
@@ -536,6 +554,41 @@ export class SessionTaskCenter {
     }
 
     /**
+     * Update a queued message in place.
+     *
+     * A message may leave the queue while the user is editing it; refusing the
+     * update in that case keeps an already committed steer from being rewritten.
+     */
+    updateTaskUserMessage(
+        taskId: string,
+        messageId: string,
+        input: PendingUserMessageInput
+    ): boolean {
+        const task = this.tasks.get(taskId);
+        if (!task || isTerminalStatus(task.snapshot.status)) {
+            return false;
+        }
+
+        const index = task.snapshot.pendingUserMessages.findIndex(
+            (message) => message.id === messageId && message.delivery === 'queue'
+        );
+        if (index < 0) {
+            return false;
+        }
+
+        const message = task.snapshot.pendingUserMessages[index];
+        if (!message) {
+            return false;
+        }
+
+        const next = [...task.snapshot.pendingUserMessages];
+        next[index] = applyPendingUserMessageInput(message, input);
+        task.snapshot.pendingUserMessages = next;
+        this.notifySubscribers(taskId);
+        return true;
+    }
+
+    /**
      * 把一条待投递消息挂到会话上。
      *
      * 回合结束到下一条排队任务启动之间没有活跃任务，但会话已经有待发队列；
@@ -574,6 +627,38 @@ export class SessionTaskCenter {
             mergePendingUserMessages(this.sessionPendingQueues.get(sessionId) ?? [], [message])
         );
         return cloneTaskValue(message);
+    }
+
+    /** Update a queued message in the hand-over queue. */
+    updateSessionUserMessage(
+        sessionId: number,
+        messageId: string,
+        input: PendingUserMessageInput
+    ): boolean {
+        const activeTaskId = this.sessionActiveTaskIndex.get(sessionId);
+        if (activeTaskId && this.updateTaskUserMessage(activeTaskId, messageId, input)) {
+            return true;
+        }
+
+        const queued = this.sessionPendingQueues.get(sessionId);
+        if (!queued) {
+            return false;
+        }
+        const index = queued.findIndex(
+            (message) => message.id === messageId && message.delivery === 'queue'
+        );
+        if (index < 0) {
+            return false;
+        }
+
+        const message = queued[index];
+        if (!message) {
+            return false;
+        }
+        const next = [...queued];
+        next[index] = applyPendingUserMessageInput(message, input);
+        this.sessionPendingQueues.set(sessionId, next);
+        return true;
     }
 
     /** 从任务中移除一条尚未投递的消息。 */

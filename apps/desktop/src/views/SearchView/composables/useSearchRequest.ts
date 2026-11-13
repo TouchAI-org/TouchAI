@@ -264,6 +264,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         enqueueUserMessage,
         promotePendingUserMessage,
         removePendingUserMessage,
+        updatePendingUserMessage,
         reorderPendingUserMessages,
         clearPendingUserMessages,
         updatePendingUserMessagesModel,
@@ -698,6 +699,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         cancelLatestPendingMessage,
         promotePendingUserMessage,
         removePendingUserMessage,
+        updatePendingUserMessage,
         reorderPendingUserMessages,
         handleRegenerateMessage,
     };

@@ -5,11 +5,14 @@
         <div
             :class="[
                 'max-w-[80%] rounded-lg px-4 py-2 break-words',
-                isQueued
-                    ? 'border border-dashed border-message-muted bg-transparent'
-                    : 'bg-secondary',
+                isEditing
+                    ? 'border border-dashed border-primary-400 bg-primary-50'
+                    : isQueued
+                      ? 'border border-dashed border-message-muted bg-transparent'
+                      : 'bg-secondary',
             ]"
             :data-pending-delivery="message.pendingDelivery"
+            :data-editing="isEditing ? 'true' : undefined"
             :data-queue-drag-handle="isQueued ? '' : undefined"
         >
             <div class="text-reading leading-[1.6]">
@@ -96,36 +99,54 @@
             data-testid="pending-message-actions"
             class="mt-1 flex items-center gap-1 text-caption text-message-muted"
         >
-            <button
-                type="button"
-                data-testid="pending-message-send-now"
-                class="flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:text-text-primary"
-                :aria-label="t('conversation.pendingMessage.sendNow')"
-                :title="t('conversation.pendingMessage.sendNow')"
-                @click="emit('sendNow', message.id)"
-            >
-                <AppIcon name="arrow-up" class="h-4 w-4" />
-            </button>
-            <button
-                type="button"
-                data-testid="pending-message-edit"
-                class="flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:text-text-primary"
-                :aria-label="t('conversation.pendingMessage.edit')"
-                :title="t('conversation.pendingMessage.edit')"
-                @click="emit('edit', message.id)"
-            >
-                <AppIcon name="edit" class="h-3.5 w-3.5" />
-            </button>
-            <button
-                type="button"
-                data-testid="pending-message-remove"
-                class="flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:text-text-primary"
-                :aria-label="t('conversation.pendingMessage.remove')"
-                :title="t('conversation.pendingMessage.remove')"
-                @click="emit('remove', message.id)"
-            >
-                <AppIcon name="x" class="h-3.5 w-3.5" />
-            </button>
+            <template v-if="isEditing">
+                <span data-testid="pending-message-edit-status" class="px-1 text-primary-600">
+                    {{ t('conversation.pendingMessage.editing') }}
+                </span>
+                <button
+                    type="button"
+                    data-testid="pending-message-cancel-edit"
+                    class="flex h-7 items-center px-1 transition-colors hover:text-text-primary"
+                    @click="emit('cancelEdit', message.id)"
+                >
+                    {{ t('conversation.pendingMessage.cancelEdit') }}
+                </button>
+            </template>
+            <template v-else>
+                <button
+                    type="button"
+                    data-testid="pending-message-send-now"
+                    class="flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:text-text-primary disabled:pointer-events-none disabled:opacity-40"
+                    :disabled="actionsDisabled"
+                    :aria-label="t('conversation.pendingMessage.sendNow')"
+                    :title="t('conversation.pendingMessage.sendNow')"
+                    @click="emit('sendNow', message.id)"
+                >
+                    <AppIcon name="arrow-up" class="h-4 w-4" />
+                </button>
+                <button
+                    type="button"
+                    data-testid="pending-message-edit"
+                    class="flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:text-text-primary disabled:pointer-events-none disabled:opacity-40"
+                    :disabled="actionsDisabled"
+                    :aria-label="t('conversation.pendingMessage.edit')"
+                    :title="t('conversation.pendingMessage.edit')"
+                    @click="emit('edit', message.id)"
+                >
+                    <AppIcon name="edit" class="h-3.5 w-3.5" />
+                </button>
+                <button
+                    type="button"
+                    data-testid="pending-message-remove"
+                    class="flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:text-text-primary disabled:pointer-events-none disabled:opacity-40"
+                    :disabled="actionsDisabled"
+                    :aria-label="t('conversation.pendingMessage.remove')"
+                    :title="t('conversation.pendingMessage.remove')"
+                    @click="emit('remove', message.id)"
+                >
+                    <AppIcon name="x" class="h-3.5 w-3.5" />
+                </button>
+            </template>
         </div>
 
         <!-- 复制按钮 - 气泡外部右下角 -->
@@ -160,6 +181,8 @@
 
     interface Props {
         message: SessionMessage;
+        editing?: boolean;
+        actionsDisabled?: boolean;
     }
 
     const props = defineProps<Props>();
@@ -170,9 +193,11 @@
         sendNow: [messageId: string];
         edit: [messageId: string];
         remove: [messageId: string];
+        cancelEdit: [messageId: string];
     }>();
 
     const isQueued = computed(() => props.message.pendingDelivery === 'queue');
+    const isEditing = computed(() => isQueued.value && props.editing === true);
     const isExpanded = ref(false);
 
     /**

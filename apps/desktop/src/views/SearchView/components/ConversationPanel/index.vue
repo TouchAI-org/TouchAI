@@ -68,6 +68,10 @@
             >
                 <MessageItem
                     :message="message"
+                    :editing="message.id === editingPendingMessageId"
+                    :actions-disabled="
+                        Boolean(editingPendingMessageId) && message.id !== editingPendingMessageId
+                    "
                     @regenerate="handleRegenerateMessage"
                     @pending-action="handlePendingAction"
                 />
@@ -91,6 +95,11 @@
                     >
                         <MessageItem
                             :message="item"
+                            :editing="item.id === editingPendingMessageId"
+                            :actions-disabled="
+                                Boolean(editingPendingMessageId) &&
+                                item.id !== editingPendingMessageId
+                            "
                             @regenerate="handleRegenerateMessage"
                             @pending-action="handlePendingAction"
                         />
@@ -106,7 +115,7 @@
                 handle="[data-queue-drag-handle]"
                 filter="button, a, img"
                 :animation="160"
-                :disabled="queuedDisplayMessages.length < 2"
+                :disabled="queuedDisplayMessages.length < 2 || Boolean(editingPendingMessageId)"
                 :force-fallback="true"
                 :fallback-on-body="true"
                 :fallback-tolerance="4"
@@ -128,6 +137,11 @@
                 >
                     <MessageItem
                         :message="message"
+                        :editing="message.id === editingPendingMessageId"
+                        :actions-disabled="
+                            Boolean(editingPendingMessageId) &&
+                            message.id !== editingPendingMessageId
+                        "
                         @regenerate="handleRegenerateMessage"
                         @pending-action="handlePendingAction"
                     />
@@ -189,6 +203,7 @@
     interface Props {
         messages: SessionMessage[];
         pendingMessages?: PendingUserMessage[];
+        editingPendingMessageId?: string | null;
         isLoading: boolean;
         error: Error | null;
         isPinned: boolean;
@@ -200,6 +215,7 @@
 
     const props = withDefaults(defineProps<Props>(), {
         pendingMessages: () => [],
+        editingPendingMessageId: null,
         toolbarDisabled: false,
         isMaximized: false,
     });
@@ -215,11 +231,14 @@
         dragEnd: [];
         latestContentVisibilityChange: [visible: boolean];
         contentResize: [height: number];
-        pendingAction: [action: 'sendNow' | 'edit' | 'remove', messageId: string];
+        pendingAction: [action: 'sendNow' | 'edit' | 'remove' | 'cancelEdit', messageId: string];
         reorderPendingMessages: [orderedMessageIds: string[]];
     }>();
 
-    function handlePendingAction(action: 'sendNow' | 'edit' | 'remove', messageId: string): void {
+    function handlePendingAction(
+        action: 'sendNow' | 'edit' | 'remove' | 'cancelEdit',
+        messageId: string
+    ): void {
         emit('pendingAction', action, messageId);
     }
 
@@ -581,6 +600,11 @@
 <style scoped>
     .queue-message-item--sortable :deep([data-queue-drag-handle]) {
         cursor: grab;
+        user-select: none;
+    }
+
+    .queue-message-item--sortable :deep([data-queue-drag-handle] .user-text) {
+        user-select: none;
     }
 
     .queue-message-item--sortable :deep([data-queue-drag-handle]):active {
