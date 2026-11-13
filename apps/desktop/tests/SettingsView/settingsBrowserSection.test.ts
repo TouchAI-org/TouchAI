@@ -1,21 +1,28 @@
+import { DEFAULT_BROWSER_SETTINGS } from '@services/SettingsService/domain';
 import { getTauriInvokeCalls, mockTauriCommand } from '@tests/utils/tauri';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { nextTick } from 'vue';
 
 import { setLocale } from '@/i18n';
 import BrowserSettingsView from '@/views/SettingsView/components/Browser/index.vue';
 import { resetBrowserRuntimeCacheForTests } from '@/views/SettingsView/components/Browser/runtimeCache';
 import { searchSettings } from '@/views/SettingsView/settingsSearch';
 
-const updateBrowserSettingsMock = vi.hoisted(() => vi.fn(async () => undefined));
+const updateBrowserSettingsMock = vi.hoisted(() =>
+    vi.fn<(config: Record<string, unknown>) => Promise<void>>(async () => undefined)
+);
 const browserSettingsPatch = vi.hoisted(() => ({
     value: {} as Record<string, unknown>,
+}));
+const settingsRefHolder = vi.hoisted(() => ({
+    current: null as null | { value: { browserSettings: Record<string, unknown> } },
 }));
 const DEFAULT_BROWSER_DATA_PATH = 'C:/Users/test/AppData/Roaming/TouchAI/browser-data';
 
 vi.mock('@/stores/settings', async () => {
-    const { DEFAULT_BROWSER_SETTINGS } = await import('@/stores/setting/sections/browser');
+    const { DEFAULT_BROWSER_SETTINGS } = await import('@services/SettingsService/domain');
     const { ref } = await import('vue');
 
     return {
@@ -29,6 +36,9 @@ vi.mock('@/stores/settings', async () => {
                     ...browserSettingsPatch.value,
                 },
             });
+            settingsRefHolder.current = settingsRef as unknown as {
+                value: { browserSettings: Record<string, unknown> };
+            };
 
             return {
                 settings: settingsRef,
@@ -37,6 +47,19 @@ vi.mock('@/stores/settings', async () => {
         },
     };
 });
+
+function updateStoredBrowserSettings(patch: Record<string, unknown>) {
+    const holder = settingsRefHolder.current;
+    if (!holder) {
+        throw new Error('settings store was not initialized');
+    }
+    holder.value = {
+        browserSettings: {
+            ...holder.value.browserSettings,
+            ...patch,
+        },
+    };
+}
 
 vi.mock('@components/CustomSelect.vue', () => ({
     default: {
@@ -55,7 +78,20 @@ describe('user edits the browser settings', () => {
         vi.useFakeTimers();
         resetBrowserRuntimeCacheForTests();
         updateBrowserSettingsMock.mockClear();
+        updateBrowserSettingsMock.mockImplementation(async (config: Record<string, unknown>) => {
+            updateStoredBrowserSettings(config);
+        });
         browserSettingsPatch.value = {};
+        if (settingsRefHolder.current) {
+            settingsRefHolder.current.value = {
+                browserSettings: {
+                    ...DEFAULT_BROWSER_SETTINGS,
+                    defaultHomepage: 'https://example.test/home',
+                    browserExecutablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe',
+                    browserDataPath: 'D:/TouchAI/BrowserData',
+                },
+            };
+        }
         mockTauriCommand('browser_discover_installed', [
             {
                 id: 'chrome',
@@ -171,6 +207,28 @@ describe('user edits the browser settings', () => {
 
         expect(updateBrowserSettingsMock).toHaveBeenCalledWith(
             expect.objectContaining({ fingerprintWindowSize: '1440,900' })
+        );
+    });
+
+    it('user keeps a pending edit without reverting another window browser change', async () => {
+        const wrapper = mount(BrowserSettingsView);
+
+        await wrapper
+            .get('[data-testid="browser-default-homepage-input"]')
+            .setValue('https://example.test/pending');
+        updateStoredBrowserSettings({
+            defaultHomepage: 'https://example.test/other-window',
+            headless: true,
+        });
+        await nextTick();
+
+        await vi.advanceTimersByTimeAsync(300);
+
+        expect(updateBrowserSettingsMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                defaultHomepage: 'https://example.test/pending',
+                headless: true,
+            })
         );
     });
 

@@ -1,5 +1,5 @@
 import { createPinia, setActivePinia } from 'pinia';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const settingsValues = new Map<string, string | null>();
 const setSettingMock = vi.hoisted(() =>
@@ -35,12 +35,24 @@ vi.mock('@tauri-apps/api/window', () => ({
     getCurrentWindow: () => ({ label: 'settings' }),
 }));
 
+import { createSettingsBus } from '@tests/utils/settingsTransport';
+
+import { setActiveSettingsService } from '@/services/SettingsService';
+import { SettingsService } from '@/services/SettingsService/service';
+
 describe('user edits the browser settings', () => {
     beforeEach(() => {
         settingsValues.clear();
         setSettingMock.mockClear();
         getSettingValueMock.mockClear();
         setActivePinia(createPinia());
+        // The settings store now mirrors the single owner; provide it a bus-backed owner.
+        const bus = createSettingsBus();
+        setActiveSettingsService(new SettingsService({ transport: bus.transport('main') }));
+    });
+
+    afterEach(() => {
+        setActiveSettingsService(null);
     });
 
     it('user normalizes defaults and invalid json', async () => {
@@ -49,7 +61,7 @@ describe('user edits the browser settings', () => {
             getDefaultHomepageError,
             parseBrowserSettingsConfig,
             serializeBrowserSettingsConfig,
-        } = await import('@/stores/setting/sections/browser');
+        } = await import('@services/SettingsService/domain');
 
         expect(DEFAULT_BROWSER_SETTINGS.version).toBe(1);
         expect(DEFAULT_BROWSER_SETTINGS.defaultHomepage).toBe('https://touch-ai.org');
@@ -79,7 +91,7 @@ describe('user edits the browser settings', () => {
     });
 
     it('user trims string fields and preserves configured permissions', async () => {
-        const { parseBrowserSettingsConfig } = await import('@/stores/setting/sections/browser');
+        const { parseBrowserSettingsConfig } = await import('@services/SettingsService/domain');
 
         expect(
             parseBrowserSettingsConfig(
@@ -132,7 +144,7 @@ describe('user edits the browser settings', () => {
     });
 
     it('user derives the merged fingerprint profile from legacy fingerprint fields', async () => {
-        const { parseBrowserSettingsConfig } = await import('@/stores/setting/sections/browser');
+        const { parseBrowserSettingsConfig } = await import('@services/SettingsService/domain');
 
         expect(
             parseBrowserSettingsConfig(
@@ -162,7 +174,7 @@ describe('user edits the browser settings', () => {
     });
 
     it('user loads and saves browser settings through the existing settings store', async () => {
-        const { DEFAULT_BROWSER_SETTINGS } = await import('@/stores/setting/sections/browser');
+        const { DEFAULT_BROWSER_SETTINGS } = await import('@services/SettingsService/domain');
         const { useSettingsStore } = await import('@/stores/settings');
         settingsValues.set(
             'browser_settings',

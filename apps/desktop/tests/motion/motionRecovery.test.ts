@@ -6,6 +6,7 @@ import { defineComponent, h, nextTick, ref } from 'vue';
 
 import App from '@/App.vue';
 import { useMotion } from '@/composables/useMotion';
+import { setActiveSettingsService } from '@/services/SettingsService';
 import { useSettingsStore } from '@/stores/settings';
 
 import { mockTauriCommand } from '../utils/tauri';
@@ -51,6 +52,7 @@ afterEach(async () => {
     wrapper = undefined;
     if (pinia) disposePinia(pinia);
     pinia = undefined;
+    setActiveSettingsService(null);
     await paint(20);
     listeners.clear();
     systemReduced = false;

@@ -7,13 +7,6 @@
     import { Input } from '@components/ui/input';
     import { Switch } from '@components/ui/switch';
     import { log } from '@services/ObservabilityService';
-    import { open } from '@tauri-apps/plugin-dialog';
-    import { storeToRefs } from 'pinia';
-    import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-
-    import { type MessageKey, t } from '@/i18n';
-    import { native } from '@/services/NativeService';
-    import type { BrowserInstalledBrowser } from '@/services/NativeService/types';
     import {
         type BrowserFingerprintProfile,
         type BrowserPermissionMode,
@@ -24,9 +17,17 @@
         parseBrowserSettingsConfig,
         type ScreenshotAttachmentMode,
         serializeBrowserSettingsConfig,
-    } from '@/stores/setting/sections/browser';
+    } from '@services/SettingsService/domain';
+    import { open } from '@tauri-apps/plugin-dialog';
+    import { storeToRefs } from 'pinia';
+    import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+
+    import { type MessageKey, t } from '@/i18n';
+    import { native } from '@/services/NativeService';
+    import type { BrowserInstalledBrowser } from '@/services/NativeService/types';
     import { useSettingsStore } from '@/stores/settings';
 
+    import { hasSettingsDraftChanges, mergeSettingsDraft } from '../../settingsDraftSync';
     import DomainRuleInput from './components/DomainRuleInput.vue';
     import { loadCachedDefaultBrowserDataPath, loadCachedInstalledBrowsers } from './runtimeCache';
 
@@ -35,6 +36,7 @@
     const settingsStore = useSettingsStore();
     const { settings } = storeToRefs(settingsStore);
     const draft = ref<BrowserSettingsConfig>(cloneConfig(settings.value.browserSettings));
+    let syncedConfig = cloneConfig(settings.value.browserSettings);
     const saveState = ref<'idle' | 'saving' | 'saved' | 'error'>('idle');
     let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
     let isSyncingFromStore = false;
@@ -263,8 +265,10 @@
     watch(
         () => settings.value.browserSettings,
         (config) => {
+            const incoming = cloneConfig(config);
             isSyncingFromStore = true;
-            draft.value = cloneConfig(config);
+            draft.value = mergeSettingsDraft(syncedConfig, draft.value, incoming);
+            syncedConfig = incoming;
             isEditingCustomBrowserExecutable.value = Boolean(
                 draft.value.browserExecutablePath.trim() &&
                 !discoveredBrowserPaths.value.has(draft.value.browserExecutablePath.trim())
@@ -433,12 +437,17 @@
         if (!canSave.value) return;
         saveState.value = 'saving';
         try {
-            await settingsStore.updateBrowserSettings({ ...draft.value });
+            const submitted = cloneConfig(draft.value);
+            const incoming = cloneConfig(settings.value.browserSettings);
+            await settingsStore.updateBrowserSettings(
+                mergeSettingsDraft(syncedConfig, submitted, incoming)
+            );
+            await nextTick();
             saveState.value = 'saved';
-            isSyncingFromStore = true;
-            queueMicrotask(() => {
-                isSyncingFromStore = false;
-            });
+            syncedConfig = cloneConfig(settings.value.browserSettings);
+            if (hasSettingsDraftChanges(syncedConfig, cloneConfig(draft.value))) {
+                scheduleAutoSave();
+            }
         } catch (error) {
             log.error('[BrowserSettings] Failed to save browser settings:', error);
             saveState.value = 'error';

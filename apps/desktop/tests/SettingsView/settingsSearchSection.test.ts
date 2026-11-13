@@ -1,15 +1,22 @@
+import { DEFAULT_SEARCH_SETTINGS } from '@services/SettingsService/domain';
 import { mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { nextTick } from 'vue';
 
 import SearchSettingsView from '@/views/SettingsView/components/Search/index.vue';
 
-const updateSearchSettingsMock = vi.hoisted(() => vi.fn(async () => undefined));
+const updateSearchSettingsMock = vi.hoisted(() =>
+    vi.fn<(config: Record<string, unknown>) => Promise<void>>(async () => undefined)
+);
 const findBuiltInToolByToolIdMock = vi.hoisted(() => vi.fn());
 const updateBuiltInToolMock = vi.hoisted(() => vi.fn());
+const settingsRefHolder = vi.hoisted(() => ({
+    current: null as null | { value: { searchSettings: Record<string, unknown> } },
+}));
 
 vi.mock('@/stores/settings', async () => {
-    const { DEFAULT_SEARCH_SETTINGS } = await import('@/stores/setting/sections/search');
+    const { DEFAULT_SEARCH_SETTINGS } = await import('@services/SettingsService/domain');
     const { ref } = await import('vue');
     const settingsRef = ref({
         searchSettings: {
@@ -22,6 +29,9 @@ vi.mock('@/stores/settings', async () => {
             },
         },
     });
+    settingsRefHolder.current = settingsRef as unknown as {
+        value: { searchSettings: Record<string, unknown> };
+    };
 
     return {
         useSettingsStore: () => ({
@@ -35,6 +45,19 @@ vi.mock('@database/queries', () => ({
     findBuiltInToolByToolId: findBuiltInToolByToolIdMock,
     updateBuiltInTool: updateBuiltInToolMock,
 }));
+
+function updateStoredSearchSettings(patch: Record<string, unknown>) {
+    const holder = settingsRefHolder.current;
+    if (!holder) {
+        throw new Error('settings store was not initialized');
+    }
+    holder.value = {
+        searchSettings: {
+            ...holder.value.searchSettings,
+            ...patch,
+        },
+    };
+}
 
 vi.mock('@components/CustomSelect.vue', () => ({
     default: {
@@ -51,7 +74,23 @@ describe('user edits the search settings', () => {
         setActivePinia(createPinia());
         vi.useFakeTimers();
         updateSearchSettingsMock.mockClear();
+        updateSearchSettingsMock.mockImplementation(async (config: Record<string, unknown>) => {
+            updateStoredSearchSettings(config);
+        });
         updateBuiltInToolMock.mockClear();
+        if (settingsRefHolder.current) {
+            settingsRefHolder.current.value = {
+                searchSettings: {
+                    ...DEFAULT_SEARCH_SETTINGS,
+                    defaultProvider: 'brave',
+                    maxResults: 8,
+                    providers: {
+                        ...DEFAULT_SEARCH_SETTINGS.providers,
+                        brave: { enabled: true, apiKey: 'brave-key' },
+                    },
+                },
+            };
+        }
         findBuiltInToolByToolIdMock.mockResolvedValue({
             id: 7,
             tool_id: 'web_search',
@@ -151,6 +190,21 @@ describe('user edits the search settings', () => {
         await wrapper.get('[data-testid="search-enabled-toggle"]').trigger('click');
 
         expect(updateBuiltInToolMock).toHaveBeenCalledWith(7, { enabled: 0 });
+    });
+
+    it('user keeps a pending edit without reverting another window search change', async () => {
+        const wrapper = mount(SearchSettingsView);
+        await Promise.resolve();
+
+        await wrapper.get('[data-testid="search-max-results-input"]').setValue('5');
+        updateStoredSearchSettings({ maxResults: 9, defaultProvider: 'wikipedia' });
+        await nextTick();
+
+        await vi.advanceTimersByTimeAsync(300);
+
+        expect(updateSearchSettingsMock).toHaveBeenCalledWith(
+            expect.objectContaining({ maxResults: 5, defaultProvider: 'wikipedia' })
+        );
     });
 
     it('user uses compact switch controls for advanced boolean settings', async () => {

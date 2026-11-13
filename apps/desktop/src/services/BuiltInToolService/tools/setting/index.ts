@@ -1,16 +1,11 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { native } from '@services/NativeService';
+import { log } from '@services/ObservabilityService';
 
-import {
-    getSearchKeybindingDefinition,
-    type SearchKeybindingActionId,
-} from '@/config/searchKeybindings';
-import { resolveSearchWindowDefaultSize } from '@/config/searchWindow';
 import { t, tt } from '@/i18n';
 import type { ToolApprovalRequest } from '@/services/AgentService/contracts/tooling';
-import type { GeneralSettingsData } from '@/stores/settings';
-import { isReservedGlobalShortcut, normalizeLocalShortcutString } from '@/utils/shortcuts';
+import { unconfirmedMessage } from '@/services/SettingsService/messages';
+import { SettingsErrorCode } from '@/services/SettingsService/types';
 import { truncateText } from '@/utils/text';
 
 import {
@@ -25,24 +20,15 @@ import {
     SETTING_TOOL_DESCRIPTION,
     SETTING_TOOL_INPUT_SCHEMA,
     type SupportedSettingKey,
-    type SupportedSettingValue,
 } from './constants';
 import {
-    formatShortcutRegistrationError,
     formatSingleUpdate,
     getSettings,
     listSupportedSettings,
     type ParsedSettingRequest,
     parseSettingRequest,
-    prepareSettingsStore,
-    readCurrentSettingValue,
-    type SettingsStore,
+    prepareSettingsService,
 } from './helper';
-
-interface AppliedSettingSnapshot {
-    key: SupportedSettingKey;
-    previousValue: SupportedSettingValue;
-}
 
 function joinSettingLabels(keys: SupportedSettingKey[]): string {
     if (keys.length === 0) {
@@ -72,143 +58,6 @@ function buildSettingConversationSemantic(
             target: tt('应用设置'),
         };
     }
-}
-
-async function applySettingSideEffect(
-    settingsStore: SettingsStore,
-    key: SupportedSettingKey,
-    value: SupportedSettingValue
-): Promise<void> {
-    if (key === 'global_shortcut') {
-        ensureGlobalShortcutIsNotSystemReserved(value as GeneralSettingsData['globalShortcut']);
-        ensureGlobalShortcutDoesNotConflictWithSearchShortcuts(
-            settingsStore,
-            value as GeneralSettingsData['globalShortcut']
-        );
-        try {
-            await native.shortcut.registerGlobalShortcut(
-                value as GeneralSettingsData['globalShortcut']
-            );
-        } catch (error) {
-            const registrationError = new Error(
-                formatShortcutRegistrationError(
-                    value as GeneralSettingsData['globalShortcut'],
-                    error
-                )
-            );
-            (registrationError as Error & { cause?: unknown }).cause = error;
-            throw registrationError;
-        }
-        return;
-    }
-
-    if (key === 'start_on_boot') {
-        if (value) {
-            await native.autostart.enableAutostart();
-        } else {
-            await native.autostart.disableAutostart();
-        }
-        return;
-    }
-
-    if (key === 'search_window_size_preset') {
-        await native.window.setSearchWindowDefaults(
-            resolveSearchWindowDefaultSize(value as GeneralSettingsData['searchWindowSizePreset'])
-        );
-    }
-}
-
-function ensureGlobalShortcutIsNotSystemReserved(
-    shortcut: GeneralSettingsData['globalShortcut']
-): void {
-    if (!isReservedGlobalShortcut(shortcut)) {
-        return;
-    }
-
-    throw new Error(t('settings.general.globalShortcutReservedOnMac'));
-}
-
-function findGlobalShortcutSearchConflict(
-    settingsStore: SettingsStore,
-    shortcut: GeneralSettingsData['globalShortcut']
-): SearchKeybindingActionId | null {
-    const normalizedShortcut = normalizeLocalShortcutString(shortcut);
-    if (!normalizedShortcut) {
-        return null;
-    }
-
-    const searchKeybindings = settingsStore.settings.searchKeybindings ?? {};
-    for (const [actionId, searchShortcut] of Object.entries(searchKeybindings) as Array<
-        [SearchKeybindingActionId, string | null]
-    >) {
-        if (normalizeLocalShortcutString(searchShortcut) === normalizedShortcut) {
-            return actionId;
-        }
-    }
-
-    return null;
-}
-
-function ensureGlobalShortcutDoesNotConflictWithSearchShortcuts(
-    settingsStore: SettingsStore,
-    shortcut: GeneralSettingsData['globalShortcut']
-): void {
-    const conflictActionId = findGlobalShortcutSearchConflict(settingsStore, shortcut);
-    if (!conflictActionId) {
-        return;
-    }
-
-    throw new Error(
-        t('settings.general.searchShortcuts.errors.duplicate', {
-            action: t(getSearchKeybindingDefinition(conflictActionId).labelKey),
-        })
-    );
-}
-
-async function persistSettingValue(
-    settingsStore: SettingsStore,
-    key: SupportedSettingKey,
-    value: SupportedSettingValue
-): Promise<void> {
-    switch (key) {
-        case 'global_shortcut':
-            await settingsStore.updateGlobalShortcut(
-                value as GeneralSettingsData['globalShortcut']
-            );
-            return;
-        case 'start_on_boot':
-            await settingsStore.updateStartOnBoot(value as GeneralSettingsData['startOnBoot']);
-            return;
-        case 'start_minimized':
-            await settingsStore.updateStartMinimized(
-                value as GeneralSettingsData['startMinimized']
-            );
-            return;
-        case 'output_scroll_behavior':
-            await settingsStore.updateOutputScrollBehavior(
-                value as GeneralSettingsData['outputScrollBehavior']
-            );
-            return;
-        case 'search_window_size_preset':
-            await settingsStore.updateSearchWindowSizePreset(
-                value as GeneralSettingsData['searchWindowSizePreset']
-            );
-            return;
-        case 'language':
-            await settingsStore.updateLanguage(value as GeneralSettingsData['language']);
-            return;
-        default:
-            throw new Error(tt('不支持的设置键：{key}', { key }));
-    }
-}
-
-async function applySettingUpdate(
-    settingsStore: SettingsStore,
-    key: SupportedSettingKey,
-    value: SupportedSettingValue
-): Promise<void> {
-    await applySettingSideEffect(settingsStore, key, value);
-    await persistSettingValue(settingsStore, key, value);
 }
 
 /**
@@ -246,7 +95,9 @@ export function buildSettingApprovalRequest(
 }
 
 /**
- * 执行设置工具，统一承接设置列表、读取和单项写入。
+ * 执行设置工具，统一承接设置列表、读取和单项写入。写入走 SettingsService 单一所有者，
+ * 由所有者串行执行原生副作用与持久化，并区分 committed / rejected / restored /
+ * recovery-required / unknown 结果。
  * @param args 工具参数。
  * @param config 当前工具配置。
  * @param context 当前执行上下文。
@@ -258,13 +109,19 @@ export async function executeSettingTool(
     context: BaseBuiltInToolExecutionContext
 ): Promise<BuiltInToolExecutionResult> {
     const request = parseSettingRequest(args);
-    const settingsStore = await prepareSettingsStore();
+    if (context.signal?.aborted) return cancelledSettingResult();
+
+    const settingsService = await prepareSettingsService();
+    // Owner initialization can take a turn. Re-check before dispatching a read or
+    // write so a user cancellation cannot slip through that await. Once `mutate`
+    // starts, its committed/unknown result is authoritative and is never guessed
+    // or blindly rolled back here.
+    if (context.signal?.aborted) return cancelledSettingResult();
     void config;
-    void context.signal;
 
     if (request.action === 'list') {
         return {
-            result: await listSupportedSettings(settingsStore),
+            result: await listSupportedSettings(settingsService),
             isError: false,
             status: 'success',
         };
@@ -272,48 +129,65 @@ export async function executeSettingTool(
 
     if (request.action === 'get') {
         return {
-            result: await getSettings(settingsStore, request.keys),
+            result: await getSettings(settingsService, request.keys),
             isError: false,
             status: 'success',
         };
     }
 
-    const appliedSnapshot: AppliedSettingSnapshot = {
-        key: request.key,
-        previousValue: await readCurrentSettingValue(settingsStore, request.key),
-    };
-
+    let rejectionMessage: string | null = null;
     try {
-        await applySettingUpdate(settingsStore, request.key, request.value);
-    } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        let rollbackSummary: string;
-        try {
-            // 设置更新可能在抛错前已经触发部分副作用，
-            // 因此失败后仍按执行前快照做一次 best-effort 回滚。
-            await applySettingUpdate(
-                settingsStore,
-                appliedSnapshot.key,
-                appliedSnapshot.previousValue
-            );
-            rollbackSummary = `\n${tt('已尝试恢复到执行前的设置值。')}`;
-        } catch (rollbackError) {
-            rollbackSummary = `\n${tt('恢复失败')}: ${
-                rollbackError instanceof Error ? rollbackError.message : String(rollbackError)
-            }`;
+        if (context.signal?.aborted) return cancelledSettingResult();
+        const result = await settingsService.mutate(request.key, request.value);
+        if (result.status === 'committed') {
+            const warningNote = result.warning ? `\n${tt('注意')}：${result.warning}` : '';
+            return {
+                result:
+                    [tt('设置已更新'), formatSingleUpdate(request.key, request.value)].join('\n') +
+                    warningNote,
+                isError: false,
+                status: 'success',
+            };
         }
-        return {
-            result: `${tt('设置修改失败')}\n${formatSingleUpdate(request.key, request.value)}\n${tt('原因')}: ${errorMessage}${rollbackSummary}`,
-            isError: true,
-            status: 'error',
-            errorMessage,
-        };
+        if (result.status === 'unknown' || result.status === 'recovery-required') {
+            const message = unconfirmedMessage();
+            return {
+                result: [formatSingleUpdate(request.key, request.value), message].join('\n'),
+                isError: true,
+                status: 'error',
+                errorMessage: message,
+            };
+        }
+        if (
+            result.status === 'rejected' &&
+            (result.code === SettingsErrorCode.Rejected ||
+                result.code === SettingsErrorCode.NativeFailed)
+        ) {
+            rejectionMessage = result.message;
+        }
+    } catch (error) {
+        log.warn('[SettingTool] Failed to update setting:', error);
     }
 
+    const resultLines = [tt('设置修改失败。'), formatSingleUpdate(request.key, request.value)];
+    if (rejectionMessage) {
+        resultLines.push(`${tt('原因')}: ${rejectionMessage}`);
+    }
     return {
-        result: [tt('设置已更新'), formatSingleUpdate(request.key, request.value)].join('\n'),
-        isError: false,
-        status: 'success',
+        result: resultLines.join('\n'),
+        isError: true,
+        status: 'error',
+        errorMessage: rejectionMessage ?? tt('设置修改失败。'),
+    };
+}
+
+function cancelledSettingResult(): BuiltInToolExecutionResult {
+    const message = t('common.requestCancelled');
+    return {
+        result: message,
+        isError: true,
+        status: 'error',
+        errorMessage: message,
     };
 }
 

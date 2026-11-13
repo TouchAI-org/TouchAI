@@ -112,6 +112,13 @@ export const zhToEnTextMap = {
     '不支持的按键，请使用常规按键组合': 'Unsupported key. Use a standard key combination.',
     '快捷键包含不支持的按键。': 'Shortcut contains an unsupported key.',
     '注册快捷键失败：{error}': 'Failed to register shortcut: {error}',
+    注意: 'Note',
+    '设置修改失败。': 'Setting update failed.',
+    '设置尚未就绪，请稍后再试。': 'Settings are not ready yet. Try again shortly.',
+    '设置结果未确认，请重新查看设置后再重试。':
+        'The setting result is unconfirmed. Re-check settings before retrying.',
+    '设置已保存，但同步到其他窗口失败。':
+        'The setting was saved, but syncing to other windows failed.',
     'TouchAI - 快捷键注册失败': 'TouchAI - Shortcut registration failed',
     '写下你的需求...': 'Write your request...',
     '搜索模型名称、ID 或供应商': 'Search model name, ID, or provider',

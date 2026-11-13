@@ -1,12 +1,17 @@
 import { getLastTauriInvokeCall, mockTauriCommand } from '@tests/utils/tauri';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const browserSettingsValues = vi.hoisted(() => new Map<string, string | null>());
+const browserSettings = vi.hoisted(() => {
+    const values = new Map<string, string | null>();
+    return {
+        values,
+        readEffectiveSettingValue: vi.fn(async (key: string) => values.get(key) ?? null),
+    };
+});
+const browserSettingsValues = browserSettings.values;
 
-vi.mock('@database/queries', () => ({
-    getSettingValue: vi.fn(
-        async ({ key }: { key: string }) => browserSettingsValues.get(key) ?? null
-    ),
+vi.mock('@/services/BuiltInToolService/settingsReader', () => ({
+    readEffectiveSettingValue: browserSettings.readEffectiveSettingValue,
 }));
 
 import {
@@ -441,6 +446,14 @@ describe('user has browser tool settings that are stored and read', () => {
 });
 
 describe('user approves risky browser actions', () => {
+    it('user sees browser settings read through the active settings service', async () => {
+        browserSettings.readEffectiveSettingValue.mockClear();
+
+        await createBrowserApprovalRequest('browser_session', { operation: 'start' });
+
+        expect(browserSettings.readEffectiveSettingValue).toHaveBeenCalledWith('browser_settings');
+    });
+
     it('user sees no approval for routine status and observe operations', async () => {
         await expect(
             createBrowserApprovalRequest('browser_session', { operation: 'status' })

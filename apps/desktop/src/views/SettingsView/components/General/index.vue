@@ -3,15 +3,11 @@
     import CustomSelect from '@components/CustomSelect.vue';
     import SettingsRow from '@components/SettingsRow.vue';
     import { Switch } from '@components/ui/switch';
-    import { native } from '@services/NativeService';
     import { log } from '@services/ObservabilityService';
     import { storeToRefs } from 'pinia';
     import { computed, onMounted, ref, watch } from 'vue';
 
-    import {
-        resolveSearchWindowDefaultSize,
-        type SearchWindowSizePreset,
-    } from '@/config/searchWindow';
+    import { type SearchWindowSizePreset } from '@/config/searchWindow';
     import { type AppLocale, LOCALE_LABELS, SUPPORTED_LOCALES, t } from '@/i18n';
     import { type OutputScrollBehavior, useSettingsStore } from '@/stores/settings';
 
@@ -94,6 +90,7 @@
     const loadSettings = async () => {
         try {
             await settingsStore.initialize();
+            await settingsStore.refreshStartOnBoot();
         } catch (error) {
             log.error('Failed to load settings:', error);
             alertMessage.value?.error(t('settings.general.loadSettingsFailed'), 3000);
@@ -102,12 +99,6 @@
 
     const saveStartOnBoot = async () => {
         try {
-            if (settings.value.startOnBoot) {
-                await native.autostart.enableAutostart();
-            } else {
-                await native.autostart.disableAutostart();
-            }
-
             await settingsStore.updateStartOnBoot(settings.value.startOnBoot);
         } catch (error) {
             log.error('Failed to save start_on_boot setting:', error);
@@ -136,10 +127,7 @@
 
     const saveSearchWindowSizePreset = async (preset: SearchWindowSizePreset) => {
         try {
-            const size = resolveSearchWindowDefaultSize(preset);
-
             await settingsStore.updateSearchWindowSizePreset(preset);
-            await native.window.setSearchWindowDefaults(size);
 
             alertMessage.value?.success(t('settings.general.searchWindowSizeUpdated'), 2000);
         } catch (error) {
@@ -162,16 +150,6 @@
 
     onMounted(async () => {
         await loadSettings();
-
-        try {
-            const isEnabled = await native.autostart.isAutostartEnabled();
-            if (isEnabled !== settings.value.startOnBoot) {
-                settings.value.startOnBoot = isEnabled;
-                await settingsStore.updateStartOnBoot(isEnabled);
-            }
-        } catch (error) {
-            log.error('Failed to check autostart status:', error);
-        }
     });
 </script>
 

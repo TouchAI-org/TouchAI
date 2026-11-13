@@ -15,7 +15,8 @@ function setPlatform(platform: string) {
     });
 }
 
-const settingsStoreMock = vi.hoisted(() => {
+const settingsStoreMock = await vi.hoisted(async () => {
+    const { ref } = await import('vue');
     const createGeneralSettingsMock = () => ({
         globalShortcut: 'Alt+Space',
         searchKeybindings: {},
@@ -32,10 +33,9 @@ const settingsStoreMock = vi.hoisted(() => {
 
     return {
         createGeneralSettingsMock,
-        settings: {
-            value: createGeneralSettingsMock(),
-        },
+        settings: ref(createGeneralSettingsMock()),
         initialize: vi.fn().mockResolvedValue(undefined),
+        refreshStartOnBoot: vi.fn().mockResolvedValue(undefined),
         updateStartOnBoot: vi.fn().mockResolvedValue(undefined),
         updateStartMinimized: vi.fn().mockResolvedValue(undefined),
         updateOutputScrollBehavior: vi.fn().mockResolvedValue(undefined),
@@ -231,6 +231,23 @@ describe('user changes general settings', () => {
 
         const rowLabels = wrapper.findAll('[data-testid="settings-general-row-label"]');
         expect(rowLabels.length).toBeGreaterThanOrEqual(5);
+    });
+
+    it('user sees the effective autostart state when opening general settings', async () => {
+        settingsStoreMock.settings.value.startOnBoot = true;
+        settingsStoreMock.refreshStartOnBoot.mockImplementationOnce(async () => {
+            settingsStoreMock.settings.value.startOnBoot = false;
+        });
+
+        const wrapper = mount(GeneralSection);
+        await flushPromises();
+
+        expect(settingsStoreMock.refreshStartOnBoot).toHaveBeenCalledTimes(1);
+        expect(
+            wrapper
+                .get('[data-settings-search-target="start-on-boot"] [role="switch"]')
+                .attributes('aria-checked')
+        ).toBe('false');
     });
 
     it('user keeps the latest-version state compact after a manual check', async () => {

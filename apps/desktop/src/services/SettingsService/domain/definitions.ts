@@ -1,5 +1,3 @@
-import { computed, type ComputedRef, type Ref } from 'vue';
-
 import type { AppUpdateChannel } from '@/config/appUpdate';
 import type { AnimationSpeed } from '@/config/motion';
 import {
@@ -8,8 +6,15 @@ import {
     type SearchKeybindings,
 } from '@/config/searchKeybindings';
 import type { SearchWindowDefaultSize, SearchWindowSizePreset } from '@/config/searchWindow';
-import type { AppLocale } from '@/i18n';
-import type { BrowserSettingsConfig } from '@/stores/setting/sections/browser';
+import type { AppLocale } from '@/i18n/locales';
+
+import {
+    GENERAL_DERIVED_COMPUTED_BINDINGS,
+    GENERAL_SCALAR_SETTING_SPECS,
+    GENERAL_SETTINGS_DEFAULTS,
+    type GeneralScalarSettingKey,
+} from './general';
+import type { BrowserSettingsConfig } from './sections/browser';
 import {
     cloneJsonSettingsDefault,
     JSON_SETTINGS_SECTIONS,
@@ -18,15 +23,8 @@ import {
     type RegisteredJsonSettingsSection,
     type RegisteredJsonSettingsValue,
     serializeJsonSettingsValue,
-} from '@/stores/setting/sections/registry';
-import type { SearchSettingsConfig } from '@/stores/setting/sections/search';
-
-import {
-    GENERAL_DERIVED_COMPUTED_BINDINGS,
-    GENERAL_SCALAR_SETTING_SPECS,
-    GENERAL_SETTINGS_DEFAULTS,
-    type GeneralScalarSettingKey,
-} from './general';
+} from './sections/registry';
+import type { SearchSettingsConfig } from './sections/search';
 
 export type OutputScrollBehavior = 'follow_output' | 'stay_position' | 'jump_to_top';
 export type GeneralSettingKey = GeneralScalarSettingKey | 'search_keybindings' | JsonSettingsKey;
@@ -75,10 +73,6 @@ type GeneralPersistedSettingStateKey = Exclude<
     'searchWindowDefaultSize'
 >;
 
-type GeneralSettingsComputedRefMap = Record<
-    keyof GeneralSettingsComputedRefs,
-    ComputedRef<unknown>
->;
 type GeneralSettingUpdaterMap = Record<
     keyof GeneralSettingUpdaters,
     (value: unknown) => Promise<void>
@@ -94,23 +88,6 @@ export interface GeneralSettingDefinition {
     eventValue(value: GeneralSettingFieldValue): GeneralSettingValue;
     persistBeforeApply?: boolean;
     shouldRewritePersisted?(raw: string | null): boolean;
-}
-
-export interface GeneralSettingsComputedRefs {
-    animationSpeed: ComputedRef<AnimationSpeed>;
-    automaticallyReduceMotion: ComputedRef<boolean>;
-    outputScrollBehavior: ComputedRef<OutputScrollBehavior>;
-    globalShortcut: ComputedRef<string>;
-    searchKeybindings: ComputedRef<SearchKeybindings>;
-    searchWindowSizePreset: ComputedRef<SearchWindowSizePreset>;
-    searchWindowDefaultSize: ComputedRef<SearchWindowDefaultSize>;
-    language: ComputedRef<AppLocale>;
-    appUpdateChannel: ComputedRef<AppUpdateChannel>;
-    appUpdateAutoCheck: ComputedRef<boolean>;
-    appUpdateLastCheckedAt: ComputedRef<string | null>;
-    usageDetailRetentionDays: ComputedRef<number>;
-    browserSettings: ComputedRef<BrowserSettingsConfig>;
-    searchSettings: ComputedRef<SearchSettingsConfig>;
 }
 
 export interface GeneralSettingUpdaters {
@@ -142,14 +119,14 @@ export interface ScalarSettingDefinitionOptions {
     afterApply?(target: GeneralSettingsData, value: GeneralSettingFieldValue): void;
     persistBeforeApply?: boolean;
     store?: {
-        computedName?: keyof GeneralSettingsComputedRefs;
+        computedName?: string;
         updaterName?: keyof GeneralSettingUpdaters;
         normalizeUpdate?: (value: unknown) => GeneralSettingValue;
     };
 }
 
 export interface GeneralSettingComputedBinding {
-    exposedName: keyof GeneralSettingsComputedRefs;
+    exposedName: string;
     stateKey: keyof GeneralSettingsData;
 }
 
@@ -348,16 +325,6 @@ export function getGeneralSettingDefinition(
     key: GeneralSettingKey
 ): GeneralSettingDefinition | null {
     return generalSettingDefinitionByKey.get(key) ?? null;
-}
-
-export function createGeneralSettingsComputedRefs(
-    settings: Ref<GeneralSettingsData>
-): GeneralSettingsComputedRefs {
-    const refs: Partial<GeneralSettingsComputedRefMap> = {};
-    for (const binding of GENERAL_SETTING_COMPUTED_BINDINGS) {
-        refs[binding.exposedName] = computed(() => settings.value[binding.stateKey]);
-    }
-    return refs as GeneralSettingsComputedRefs;
 }
 
 export function createGeneralSettingUpdaters(

@@ -220,15 +220,13 @@ jobs:
             - name: Install frontend dependencies
               run: pnpm install --frozen-lockfile
 
-            - name: Verify preinstalled tauri-driver
+            - name: Install tauri-driver
               shell: pwsh
               run: |
-                  $driver = Get-Command tauri-driver -ErrorAction Stop
-                  & $driver.Source --help
-                  if ($LASTEXITCODE -ne 0) {
-                      throw "tauri-driver --help failed with exit code $LASTEXITCODE."
+                  if (-not (Get-Command tauri-driver -ErrorAction SilentlyContinue)) {
+                      cargo install tauri-driver --version 2.1.0 --locked
                   }
-                  Write-Output "Using runner-provided $($driver.Source)"
+                  tauri-driver --help
 
             - name: Configure Edge WebDriver
               shell: pwsh

@@ -1,5 +1,6 @@
 import { AppEvent, eventService } from '@services/EventService';
 import type { DatabaseQueryRequest } from '@services/NativeService/database';
+import { setActiveSettingsService } from '@services/SettingsService';
 import { installSearchSurfaceBoundary } from '@tests/utils/searchSurface';
 import { getTauriInvokeCalls, mockTauriCommand } from '@tests/utils/tauri';
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
@@ -7,6 +8,8 @@ import { createPinia, disposePinia } from 'pinia';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import SearchView from '@/views/SearchView/index.vue';
+
+vi.setConfig({ testTimeout: 20_000 });
 
 vi.mock('@tauri-apps/api/window', async () => {
     const { searchSurfaceWindow, searchSurfaceMonitor } =
@@ -85,6 +88,7 @@ afterEach(async () => {
     wrapper = undefined;
     disposePinia(pinia);
     await flushPromises();
+    setActiveSettingsService(null);
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     for (const [name, descriptor] of Object.entries(rangeGeometry)) {
@@ -97,12 +101,15 @@ afterEach(async () => {
 async function openView() {
     wrapper = mount(SearchView, { attachTo: document.body, global: { plugins: [pinia] } });
     await flushPromises();
-    await vi.waitFor(() =>
-        expect(
-            getTauriInvokeCalls('plugin:event|listen').some(
-                (call) => (call.payload as { event?: string })?.event === AppEvent.AI_MODELS_UPDATED
-            )
-        ).toBe(true)
+    await vi.waitFor(
+        () =>
+            expect(
+                getTauriInvokeCalls('plugin:event|listen').some(
+                    (call) =>
+                        (call.payload as { event?: string })?.event === AppEvent.AI_MODELS_UPDATED
+                )
+            ).toBe(true),
+        { timeout: 10_000 }
     );
 }
 

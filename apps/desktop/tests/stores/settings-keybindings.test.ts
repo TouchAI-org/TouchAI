@@ -1,34 +1,16 @@
-import { AppEvent } from '@services/EventService';
-import { log } from '@services/ObservabilityService';
+import { createSettingsBus } from '@tests/utils/settingsTransport';
 import { createPinia, setActivePinia } from 'pinia';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createDefaultSearchKeybindings } from '@/config/searchKeybindings';
+import { log } from '@/services/ObservabilityService';
+import { setActiveSettingsService } from '@/services/SettingsService';
+import { SettingsService } from '@/services/SettingsService/service';
 
-const {
-    eventHandlers,
-    eventServiceMock,
-    getSettingValueMock,
-    getSettingValuesMock,
-    setSettingMock,
-    windowMock,
-} = vi.hoisted(() => ({
-    eventHandlers: new Map<string, (payload: unknown) => void>(),
-    eventServiceMock: {
-        emit: vi.fn(),
-        on: vi.fn(async (event: string, handler: (payload: unknown) => void) => {
-            eventHandlers.set(event, handler);
-            return () => {
-                eventHandlers.delete(event);
-            };
-        }),
-    },
+const { getSettingValueMock, getSettingValuesMock, setSettingMock } = vi.hoisted(() => ({
     getSettingValueMock: vi.fn(),
     getSettingValuesMock: vi.fn(),
     setSettingMock: vi.fn(),
-    windowMock: {
-        label: 'settings',
-    },
 }));
 
 vi.mock('@database/queries', () => ({
@@ -37,17 +19,20 @@ vi.mock('@database/queries', () => ({
     setSetting: setSettingMock,
 }));
 
-vi.mock('@services/EventService', async () => {
-    const actual =
-        await vi.importActual<typeof import('@services/EventService')>('@services/EventService');
-    return {
-        ...actual,
-        eventService: eventServiceMock,
-    };
-});
-
-vi.mock('@tauri-apps/api/window', () => ({
-    getCurrentWindow: () => windowMock,
+vi.mock('@services/NativeService', () => ({
+    native: {
+        autostart: {
+            isAutostartEnabled: vi.fn(async () => false),
+            enableAutostart: vi.fn(async () => undefined),
+            disableAutostart: vi.fn(async () => undefined),
+        },
+        shortcut: {
+            registerGlobalShortcut: vi.fn(async () => undefined),
+        },
+        window: {
+            setSearchWindowDefaults: vi.fn(async () => undefined),
+        },
+    },
 }));
 
 function mockSettings(values: Record<string, string | null>) {
@@ -67,16 +52,24 @@ function mockSettings(values: Record<string, string | null>) {
 describe('user changes the search shortcuts', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        eventHandlers.clear();
         setActivePinia(createPinia());
-        windowMock.label = 'settings';
     });
+
+    afterEach(() => {
+        setActiveSettingsService(null);
+    });
+
+    async function createStore() {
+        const bus = createSettingsBus();
+        setActiveSettingsService(new SettingsService({ transport: bus.transport('main') }));
+        const { useSettingsStore } = await import('@/stores/settings');
+        return useSettingsStore();
+    }
 
     it('user persists default search keybindings when the row is missing', async () => {
         mockSettings({});
 
-        const { useSettingsStore } = await import('@/stores/settings');
-        const store = useSettingsStore();
+        const store = await createStore();
 
         await store.initialize();
 
@@ -108,8 +101,7 @@ describe('user changes the search shortcuts', () => {
             }
         );
 
-        const { useSettingsStore } = await import('@/stores/settings');
-        const store = useSettingsStore();
+        const store = await createStore();
 
         await expect(store.initialize()).resolves.toBeUndefined();
 
@@ -127,8 +119,7 @@ describe('user changes the search shortcuts', () => {
             }),
         });
 
-        const { useSettingsStore } = await import('@/stores/settings');
-        const store = useSettingsStore();
+        const store = await createStore();
 
         await store.initialize();
 
@@ -152,11 +143,10 @@ describe('user changes the search shortcuts', () => {
         );
     });
 
-    it('user updates search keybindings, persists them, and broadcasts the change', async () => {
+    it('user updates search keybindings, persists them, and sees the change applied', async () => {
         mockSettings({});
 
-        const { useSettingsStore } = await import('@/stores/settings');
-        const store = useSettingsStore();
+        const store = await createStore();
         await store.initialize();
 
         const nextKeybindings = {
@@ -170,12 +160,6 @@ describe('user changes the search shortcuts', () => {
         expect(setSettingMock).toHaveBeenLastCalledWith({
             key: 'search_keybindings',
             value: JSON.stringify(nextKeybindings),
-        });
-        expect(eventServiceMock.emit).toHaveBeenLastCalledWith(AppEvent.SETTINGS_GENERAL_UPDATED, {
-            sourceId: expect.any(String),
-            windowLabel: 'settings',
-            key: 'search_keybindings',
-            value: nextKeybindings,
         });
     });
 });
