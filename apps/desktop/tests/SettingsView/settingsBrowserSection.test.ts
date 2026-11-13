@@ -10,7 +10,9 @@ import BrowserSettingsView from '@/views/SettingsView/components/Browser/index.v
 import { resetBrowserRuntimeCacheForTests } from '@/views/SettingsView/components/Browser/runtimeCache';
 import { searchSettings } from '@/views/SettingsView/settingsSearch';
 
-const updateBrowserSettingsMock = vi.hoisted(() => vi.fn(async () => undefined));
+const updateBrowserSettingsMock = vi.hoisted(() =>
+    vi.fn<(config: Record<string, unknown>) => Promise<void>>(async () => undefined)
+);
 const browserSettingsPatch = vi.hoisted(() => ({
     value: {} as Record<string, unknown>,
 }));

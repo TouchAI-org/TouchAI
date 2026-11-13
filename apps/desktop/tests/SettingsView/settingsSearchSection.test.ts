@@ -6,7 +6,9 @@ import { nextTick } from 'vue';
 
 import SearchSettingsView from '@/views/SettingsView/components/Search/index.vue';
 
-const updateSearchSettingsMock = vi.hoisted(() => vi.fn(async () => undefined));
+const updateSearchSettingsMock = vi.hoisted(() =>
+    vi.fn<(config: Record<string, unknown>) => Promise<void>>(async () => undefined)
+);
 const findBuiltInToolByToolIdMock = vi.hoisted(() => vi.fn());
 const updateBuiltInToolMock = vi.hoisted(() => vi.fn());
 const settingsRefHolder = vi.hoisted(() => ({
