@@ -236,10 +236,12 @@ export const useSettingsStore = defineStore('settings', () => {
     }
 
     async function refreshStartOnBoot(): Promise<void> {
+        const displayedBefore = settings.value.startOnBoot;
         const effective = await service().readEffectiveValue('start_on_boot');
         if (
             !disposed &&
             typeof effective === 'boolean' &&
+            settings.value.startOnBoot === displayedBefore &&
             effective !== settings.value.startOnBoot
         ) {
             // The OS is authoritative when this view opens. Persist its value through the

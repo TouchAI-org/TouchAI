@@ -181,4 +181,36 @@ describe('user changes a setting while a refresh is in flight', () => {
         expect(nativeMock.disableAutostart).toHaveBeenCalledTimes(1);
         expect(setSettingMock).toHaveBeenCalledWith({ key: 'start_on_boot', value: 'false' });
     });
+
+    it('user keeps an autostart toggle made while the OS state is loading', async () => {
+        const owner = new SettingsService({ transport: bus.transport('main') });
+        setActiveSettingsService(owner);
+        await owner.initialize();
+        const { useSettingsStore } = await import('@/stores/settings');
+        const store = useSettingsStore();
+        await store.initialize();
+        expect(store.settings.startOnBoot).toBe(true);
+
+        vi.clearAllMocks();
+        let resolveEffectiveState: (enabled: boolean) => void = () => undefined;
+        nativeMock.isAutostartEnabled.mockImplementationOnce(
+            () =>
+                new Promise<boolean>((resolve) => {
+                    resolveEffectiveState = resolve;
+                })
+        );
+
+        const refresh = store.refreshStartOnBoot();
+        await vi.waitFor(() => {
+            expect(nativeMock.isAutostartEnabled).toHaveBeenCalledTimes(1);
+        });
+        await store.updateStartOnBoot(false);
+
+        resolveEffectiveState(true);
+        await refresh;
+
+        expect(store.settings.startOnBoot).toBe(false);
+        expect(nativeMock.disableAutostart).toHaveBeenCalledTimes(1);
+        expect(nativeMock.enableAutostart).not.toHaveBeenCalled();
+    });
 });
