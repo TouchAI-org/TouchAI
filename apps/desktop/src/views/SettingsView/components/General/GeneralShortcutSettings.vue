@@ -230,7 +230,7 @@
     watch(
         () => settings.value.globalShortcut,
         (shortcut) => {
-            if (!isCapturing.value) {
+            if (!isCapturing.value && !shortcutRegistrationFailed.value) {
                 displayShortcut.value = formatShortcutForDisplay(shortcut);
             }
         }
