@@ -7,11 +7,11 @@ import type {
     AttachmentPromptMeta,
     AttachmentSemanticIntent,
 } from '../../contracts/protocol';
-import { buildAttachmentPromptMetas, readAttachmentBuffer } from './content';
-import type { AttachmentIndex } from './types';
+import { buildAttachmentPromptMetas, readAttachmentHead } from './content';
+import { MAX_BINARY_SNIFF_BYTES } from './limits';
+import { type AttachmentIndex, DIRECTORY_MIME_TYPE } from './types';
 
 const BINARY_REPLACEMENT_RATIO_THRESHOLD = 0.01;
-const DIRECTORY_MIME_TYPE = 'application/x-directory';
 const DEFAULT_TEXT_MIME_TYPE = 'text/plain';
 const DEFAULT_BINARY_MIME_TYPE = 'application/octet-stream';
 
@@ -192,9 +192,9 @@ function resolveMimeType(
 }
 
 async function isAttachmentBinary(attachment: AttachmentIndex): Promise<boolean> {
-    const buffer = await readAttachmentBuffer(attachment.path);
+    const head = await readAttachmentHead(attachment.path, MAX_BINARY_SNIFF_BYTES);
     const decoder = new TextDecoder('utf-8', { fatal: false });
-    const text = decoder.decode(buffer);
+    const text = decoder.decode(head.bytes);
     const replacementCount = (text.match(/\uFFFD/g) || []).length;
 
     return (

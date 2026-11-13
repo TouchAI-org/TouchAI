@@ -19,6 +19,14 @@ export const quickSearch = {
         return invoke('quick_search_search_shortcuts', { query, pageSize, offset });
     },
 
+    listDirectory(
+        query: string,
+        limit = DEFAULT_PAGE_SIZE,
+        offset = 0
+    ): Promise<QuickSearchResult | null> {
+        return invoke('quick_search_list_directory', { query, limit, offset });
+    },
+
     searchFiles(
         query: string,
         limit = DEFAULT_PAGE_SIZE,

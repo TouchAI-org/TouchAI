@@ -12,6 +12,7 @@ import type {
     AttachmentTransportMode,
 } from '../../contracts/protocol';
 import { getProviderAttachmentCapabilities } from '../providers/capabilities';
+import { MAX_INLINE_PDF_BYTES } from './limits';
 
 type AttachmentCarrierPart = Extract<AiContentPart, { type: 'image' | 'file' }>;
 
@@ -72,6 +73,17 @@ export function buildAttachmentTransportDecision(options: {
     }
 
     if (kind === 'pdf') {
+        if (typeof size === 'number' && size > MAX_INLINE_PDF_BYTES) {
+            return {
+                kind,
+                transportMode: 'inline-text',
+                reason: 'pdf-too-large-inline-path',
+                shouldUpload: false,
+                canReuseRemoteRef: false,
+                messagePositionMode: 'inline',
+            };
+        }
+
         const shouldUseFileRef =
             capabilities.supportsProviderFileRef && capabilities.prefersFileRefForPdf;
         const canUseNativePdfInput =
@@ -99,8 +111,8 @@ export function buildAttachmentTransportDecision(options: {
 
     return {
         kind,
-        transportMode: 'inline-base64',
-        reason: 'binary-inline-fallback',
+        transportMode: 'inline-text',
+        reason: 'binary-path-reference',
         shouldUpload: false,
         canReuseRemoteRef: false,
         messagePositionMode: 'inline',

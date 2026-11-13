@@ -88,13 +88,14 @@ impl EverythingClient {
         )
     }
 
-    /// 前台查询普通文件结果。
+    /// 前台查询文件与可选文件夹结果。
     pub(crate) fn query_file_paths(
         &mut self,
         search_text: &str,
         max_results: u32,
         offset: u32,
         include_shortcuts: bool,
+        include_folders: bool,
     ) -> Result<QueryPathsResult, EverythingError> {
         let trimmed_query = search_text.trim();
         if trimmed_query.is_empty() {
@@ -104,12 +105,15 @@ impl EverythingClient {
             });
         }
 
-        let mut query_parts = vec![EVERYTHING_FILE_ONLY_FILTER.to_string()];
+        let mut query_parts = Vec::new();
+        if !include_folders {
+            query_parts.push(EVERYTHING_FILE_ONLY_FILTER.to_string());
+        }
         if !include_shortcuts {
             query_parts.push(EVERYTHING_EXCLUDE_SHORTCUT_FILTER.to_string());
         }
         // 把过滤器前缀和用户查询拼成一次 Everything 搜索表达式，
-        // 这样"只搜文件 / 是否包含 .lnk"两个约束始终在同一个 IPC 请求里生效。
+        // 目录搜索与文件搜索共用同一套 IPC 语义。
         query_parts.push(trimmed_query.to_string());
 
         self.query_paths(&query_parts.join(" "), max_results, offset)

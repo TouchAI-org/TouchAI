@@ -28,6 +28,16 @@ pub async fn quick_search_search_files(
     search::quick_search_search_files(query, limit, include_shortcuts).await
 }
 
+/// 解析目录路径查询并返回目录中的精确文件列表。
+#[tauri::command]
+pub async fn quick_search_list_directory(
+    query: String,
+    limit: Option<usize>,
+    offset: Option<u32>,
+) -> Result<Option<QuickSearchResult>, String> {
+    search::quick_search_list_directory(query, limit, offset).await
+}
+
 #[tauri::command]
 pub async fn quick_search_file_reference_suggestions(
     recent_paths: Vec<String>,

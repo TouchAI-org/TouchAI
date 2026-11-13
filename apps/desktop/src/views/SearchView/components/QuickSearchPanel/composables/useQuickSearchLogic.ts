@@ -90,7 +90,8 @@ interface UseQuickSearchFlowOptions {
 }
 
 export interface UseQuickSearchDeps {
-    quickSearch: Pick<typeof native.quickSearch, 'getStatus' | 'prepareIndex' | 'searchShortcuts'>;
+    quickSearch: Pick<typeof native.quickSearch, 'getStatus' | 'prepareIndex' | 'searchShortcuts'> &
+        Partial<Pick<typeof native.quickSearch, 'listDirectory'>>;
     window: Pick<typeof native.window, 'hideSearchWindow'>;
     openPath: typeof openPath;
     registry?: SearchProviderRegistry;
@@ -181,12 +182,18 @@ function useQuickSearchFlow(
     const searchState = ref<'idle' | 'loading' | 'ready' | 'error'>('idle');
     const clickStats = useQuickSearchClickStats();
     const session = (deps.registry ?? searchProviders).createSession([
-        createFileSearchProvider(deps.quickSearch, {
-            rank: (query, items) =>
-                items.length ? clickStats.rankResults(query, items) : Promise.resolve(items),
-            fallback: resolveE2eQuickSearchFallbackResults,
-            loadReferenceSuggestions: deps.loadReferenceSuggestions,
-        }),
+        createFileSearchProvider(
+            {
+                searchShortcuts: deps.quickSearch.searchShortcuts,
+                listDirectory: deps.quickSearch.listDirectory,
+            },
+            {
+                rank: (query, items) =>
+                    items.length ? clickStats.rankResults(query, items) : Promise.resolve(items),
+                fallback: resolveE2eQuickSearchFallbackResults,
+                loadReferenceSuggestions: deps.loadReferenceSuggestions,
+            }
+        ),
     ]);
     const actions = new SearchActionDispatcher(deps.actions ?? searchActions);
     actions.register<FileOpenAction>('file.open', async (action, context) => {

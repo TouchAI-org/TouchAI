@@ -248,6 +248,61 @@ describe('useQuickSearchLogic', () => {
         mounted.unmount();
     });
 
+    it('user typing a directory path gets its files through the directory command', async () => {
+        const file = {
+            name: 'Plan.md',
+            path: 'D:/Docs/Plan.md',
+            source: 'file' as const,
+        };
+        const listDirectory = vi.fn().mockResolvedValue(createSearchResult([], [file]));
+        const searchShortcuts = vi.fn();
+        const open = ref(false);
+        const searchQuery = ref('');
+        const mounted = await mountComposable(() =>
+            useQuickSearchLogic(
+                {
+                    open,
+                    searchQuery,
+                    enabled: ref(true),
+                    referenceMode: ref(true),
+                    compact: ref(true),
+                    emitOpenUpdate: (value) => {
+                        open.value = value;
+                    },
+                },
+                {
+                    quickSearch: {
+                        getStatus: vi.fn().mockResolvedValue({
+                            provider: 'everything',
+                            db_loaded: true,
+                            index_warmed: true,
+                            last_refresh_ms: null,
+                            last_error: null,
+                        }),
+                        prepareIndex: vi.fn().mockResolvedValue(undefined),
+                        searchShortcuts,
+                        listDirectory,
+                    },
+                    window: {
+                        hideSearchWindow: vi.fn().mockResolvedValue(undefined),
+                    },
+                    openPath: vi.fn().mockResolvedValue(undefined),
+                }
+            )
+        );
+
+        searchQuery.value = 'D:/Docs/';
+        mounted.result.triggerSearch('D:/Docs/');
+        await vi.advanceTimersByTimeAsync(80);
+        await flushAsyncWork();
+
+        expect(listDirectory).toHaveBeenCalledWith('D:/Docs/', 60, 0);
+        expect(searchShortcuts).not.toHaveBeenCalled();
+        expect(mounted.result.getReferenceCandidate()).toEqual(file);
+
+        mounted.unmount();
+    });
+
     it('user given a bare @ with no suggestions gets a completed empty panel', async () => {
         const open = ref(false);
         const mounted = await mountComposable(() =>

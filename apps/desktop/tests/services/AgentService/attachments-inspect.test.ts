@@ -9,7 +9,7 @@ import type { AttachmentIndex } from '@/services/AgentService/infrastructure/att
  * helper.
  */
 const contentState = vi.hoisted(() => ({
-    readAttachmentBuffer: vi.fn(),
+    readAttachmentHead: vi.fn(),
 }));
 
 vi.mock('@/services/AgentService/infrastructure/attachments/content', async () => {
@@ -17,7 +17,7 @@ vi.mock('@/services/AgentService/infrastructure/attachments/content', async () =
         typeof import('@/services/AgentService/infrastructure/attachments/content')
     >('@/services/AgentService/infrastructure/attachments/content');
 
-    return { ...actual, readAttachmentBuffer: contentState.readAttachmentBuffer };
+    return { ...actual, readAttachmentHead: contentState.readAttachmentHead };
 });
 
 const { inspectAttachment, inspectAttachments } =
@@ -34,13 +34,16 @@ function attachment(overrides: Partial<AttachmentIndex> = {}): AttachmentIndex {
 }
 
 /** A buffer of UTF-8 text, which the binary sniff should accept. */
-function textBuffer(text: string): ArrayBuffer {
-    return new TextEncoder().encode(text).buffer as ArrayBuffer;
+function textBytes(text: string): Uint8Array {
+    return new TextEncoder().encode(text);
 }
 
 beforeEach(() => {
-    contentState.readAttachmentBuffer.mockReset();
-    contentState.readAttachmentBuffer.mockResolvedValue(textBuffer('hello world'));
+    contentState.readAttachmentHead.mockReset();
+    contentState.readAttachmentHead.mockResolvedValue({
+        bytes: textBytes('hello world'),
+        truncated: false,
+    });
 });
 
 describe('user attaches an image', () => {
@@ -163,9 +166,10 @@ describe('user attaches plain text', () => {
 
 describe('user attaches a file the name does not explain', () => {
     it('user gets the binary kind when the content is not text', async () => {
-        contentState.readAttachmentBuffer.mockResolvedValue(
-            new Uint8Array([0x00, 0x01, 0x02, 0x00]).buffer
-        );
+        contentState.readAttachmentHead.mockResolvedValue({
+            bytes: new Uint8Array([0x00, 0x01, 0x02, 0x00]),
+            truncated: false,
+        });
 
         const result = await inspectAttachment(attachment({ name: 'blob' }), 0);
 
@@ -181,9 +185,10 @@ describe('user attaches a file the name does not explain', () => {
 
     it('user gets the binary kind when the file is mostly replacement characters', async () => {
         // A high share of undecodable bytes is the signature of a binary payload.
-        contentState.readAttachmentBuffer.mockResolvedValue(
-            textBuffer('\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD')
-        );
+        contentState.readAttachmentHead.mockResolvedValue({
+            bytes: textBytes('\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD'),
+            truncated: false,
+        });
 
         const result = await inspectAttachment(attachment({ name: 'mystery' }), 0);
 

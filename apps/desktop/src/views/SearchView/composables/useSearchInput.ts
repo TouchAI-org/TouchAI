@@ -2,6 +2,7 @@
  * SearchView 输入层。
  * 统一承载草稿与附件输入编排，保持输入业务收敛。
  */
+import { resolvePastedPathAttachment } from '@services/SearchService/pastedPath';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { type Ref, ref } from 'vue';
 
@@ -17,7 +18,11 @@ import type { ClipboardPayload, QuickShortcutItem } from '@/services/NativeServi
 import { isImagePath } from '@/utils/path';
 
 import type { SearchModelCapabilities, SearchModelOverride } from '../types';
-import { applyClipboardPayloadToDraft } from '../utils/clipboardDraft';
+import {
+    applyClipboardPayloadToDraft,
+    clipboardPayloadHasAttachmentFragments,
+    trimClipboardPayloadTextBoundary,
+} from '../utils/clipboardDraft';
 
 interface UseSearchAttachmentsOptions {
     attachments?: Ref<Index[]>;
@@ -125,6 +130,7 @@ export function useSearchAttachments(options: UseSearchAttachmentsOptions = {}) 
     function createAttachmentFromSearchResult(item: QuickShortcutItem): Index {
         // Search already supplies draft metadata. File I/O belongs to submission,
         // so completing a reference never waits for another native icon request.
+        const isFolder = item.source === 'folder';
         const type = item.source === 'file' && isImagePath(item.path) ? 'image' : 'file';
         const attachment: Index = {
             id: crypto.randomUUID(),
@@ -132,6 +138,7 @@ export function useSearchAttachments(options: UseSearchAttachmentsOptions = {}) 
             path: item.path,
             originPath: item.path,
             name: item.name,
+            mimeType: isFolder ? 'application/x-directory' : undefined,
             preview: type === 'image' ? convertFileSrc(item.path) : undefined,
         };
         attachment.supportStatus = getAttachmentSupportStatus(attachment);
@@ -182,6 +189,16 @@ export function useSearchDraftController(options: UseSearchDraftControllerOption
         payload: ClipboardPayload,
         options: ImportClipboardPayloadOptions = {}
     ) {
+        const pastedFilePath = await resolvePayloadFilePath(payload, options);
+        if (pastedFilePath) {
+            const attachment = await createAttachmentFromClipboardPath(
+                pastedFilePath.type,
+                pastedFilePath.path
+            );
+            attachments.value.push(attachment);
+            return;
+        }
+
         await applyClipboardPayloadToDraft(
             payload,
             {
@@ -193,6 +210,25 @@ export function useSearchDraftController(options: UseSearchDraftControllerOption
             },
             options
         );
+    }
+
+    async function resolvePayloadFilePath(
+        payload: ClipboardPayload,
+        options: ImportClipboardPayloadOptions
+    ) {
+        if (
+            clipboardPayloadHasAttachmentFragments(payload) ||
+            payload.imagePaths?.length ||
+            payload.filePaths?.length ||
+            !payload.text?.trim()
+        ) {
+            return null;
+        }
+
+        const text = options.trimTextBoundary
+            ? trimClipboardPayloadTextBoundary(payload).text
+            : payload.text;
+        return text ? resolvePastedPathAttachment(text) : null;
     }
 
     async function handlePaste() {

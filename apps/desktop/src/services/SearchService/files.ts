@@ -20,8 +20,22 @@ export interface FileSearchResult extends SearchResult<FileOpenAction | FileRefe
     readonly file: QuickShortcutItem;
 }
 
+const PATH_QUERY = /^(?:[a-zA-Z]:[\\/]|\\\\|\/|~(?:[\\/]|$))/;
+
+function isDirectoryQuery(query: string): boolean {
+    const trimmed = query.trim();
+    if (!trimmed) return false;
+    const unquoted =
+        (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+        (trimmed.startsWith("'") && trimmed.endsWith("'"))
+            ? trimmed.slice(1, -1)
+            : trimmed;
+    return PATH_QUERY.test(unquoted);
+}
+
 export function createFileSearchProvider(
-    native: Pick<typeof quickSearch, 'searchShortcuts'>,
+    native: Pick<typeof quickSearch, 'searchShortcuts'> &
+        Partial<Pick<typeof quickSearch, 'listDirectory'>>,
     options: {
         rank?: (query: string, items: QuickShortcutItem[]) => Promise<QuickShortcutItem[]>;
         fallback?: (query: string) => QuickShortcutItem[];
@@ -53,6 +67,27 @@ export function createFileSearchProvider(
                     totals: { file: suggestions.length },
                 };
             }
+            if (
+                intent === 'file-reference' &&
+                native.listDirectory &&
+                isDirectoryQuery(trimmedQuery)
+            ) {
+                const directoryPage = await native.listDirectory(trimmedQuery, limit, offset);
+                if (signal.aborted) return { items: [] };
+                if (directoryPage) {
+                    return {
+                        items: directoryPage.files.map((file) => toFileResult(file, intent)),
+                        total: directoryPage.total_files,
+                        totals: { file: directoryPage.total_files },
+                        nextCursor:
+                            directoryPage.next_offset > offset &&
+                            directoryPage.next_offset < directoryPage.total_files
+                                ? String(directoryPage.next_offset)
+                                : undefined,
+                    };
+                }
+            }
+
             const page = await native.searchShortcuts(query, limit, offset);
             if (signal.aborted) return { items: [] };
             const shortcuts =
@@ -76,7 +111,8 @@ export function createFileSearchProvider(
                     shortcut: page.shortcuts.length,
                     file: Math.max(
                         page.total_files,
-                        items.filter((item) => item.source === 'file').length
+                        items.filter((item) => item.source === 'file' || item.source === 'folder')
+                            .length
                     ),
                 },
                 nextCursor: more ? String(page.next_offset) : undefined,
@@ -93,10 +129,12 @@ function toFileResult(file: QuickShortcutItem, intent: SearchIntent): FileSearch
     return {
         id: file.path,
         kind: 'file',
-        group: file.source === 'file' ? 'file' : 'shortcut',
+        group: file.source === 'file' || file.source === 'folder' ? 'file' : 'shortcut',
         label: file.name,
         description:
-            file.source === 'file' || file.source === 'shortcut_file' ? file.path : undefined,
+            file.source === 'file' || file.source === 'folder' || file.source === 'shortcut_file'
+                ? file.path
+                : undefined,
         file,
         completionAction,
         primaryAction:

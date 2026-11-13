@@ -12,15 +12,16 @@ import type { AttachmentEntity } from '@database/types';
 import { native } from '@services/NativeService';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { join } from '@tauri-apps/api/path';
-import { copyFile, exists, mkdir, writeFile } from '@tauri-apps/plugin-fs';
+import { copyFile, exists, mkdir, stat, writeFile } from '@tauri-apps/plugin-fs';
 import {
     fullName as getFileName,
     icon as getFileIcon,
     size as getFileSize,
 } from 'tauri-plugin-fs-pro-api';
 
-import { bytesToArrayBuffer } from './content';
-import type { AttachmentIndex } from './types';
+import { bytesToArrayBuffer, readAttachmentBuffer } from './content';
+import { normalizeImageBytes } from './imageNormalization';
+import { type AttachmentIndex, DIRECTORY_MIME_TYPE } from './types';
 
 const imageMimeMap: Record<string, string> = {
     jpg: 'image/jpeg',
@@ -54,8 +55,13 @@ async function buildPreview(
         return convertFileSrc(path);
     }
 
-    const iconPath = await getFileIcon(path, { size: 256 });
-    return convertFileSrc(iconPath);
+    try {
+        const iconPath = await getFileIcon(path, { size: 256 });
+        return convertFileSrc(iconPath);
+    } catch {
+        // Icon lookup is platform-specific; a missing preview must not block the attachment.
+        return undefined;
+    }
 }
 
 async function computeAttachmentHash(path: string): Promise<string> {
@@ -136,13 +142,40 @@ async function prepareAttachment(
     type: AttachmentIndex['type'],
     path: string
 ): Promise<PreparedAttachment> {
-    const [hash, name, mimeType, size] = await Promise.all([
-        computeAttachmentHash(path),
-        getFileName(path),
-        resolveMimeType(type, path),
-        getFileSize(path),
-    ]);
+    const info = await stat(path);
+    const name = await getFileName(path);
 
+    if (info.isDirectory) {
+        return {
+            hash: await computeAttachmentHashFromBytes(
+                new TextEncoder().encode(`directory:${path}`)
+            ),
+            name,
+            mimeType: DIRECTORY_MIME_TYPE,
+            size: null,
+        };
+    }
+
+    const [mimeType, size] = await Promise.all([resolveMimeType(type, path), getFileSize(path)]);
+
+    if (type === 'image') {
+        const buffer = await readAttachmentBuffer(path);
+        const normalized = await normalizeImageBytes({
+            bytes: new Uint8Array(buffer),
+            mimeType: mimeType ?? 'image/png',
+        });
+        const hash = await computeAttachmentHashFromBytes(normalized.bytes);
+        const targetPath = await buildAttachmentStoragePath(type, hash);
+        await writeFile(targetPath, normalized.bytes);
+        return {
+            hash,
+            name,
+            mimeType: normalized.mimeType,
+            size: normalized.bytes.byteLength,
+        };
+    }
+
+    const hash = await computeAttachmentHash(path);
     const targetPath = await buildAttachmentStoragePath(type, hash);
     await copyFile(path, targetPath);
 
@@ -196,11 +229,18 @@ async function ensureAttachmentRecordFromBytes(
     },
     database: DatabaseExecutor = db
 ): Promise<AttachmentEntity> {
-    const hash = await computeAttachmentHashFromBytes(options.data);
+    const prepared =
+        options.type === 'image'
+            ? await normalizeImageBytes({
+                  bytes: options.data,
+                  mimeType: options.mimeType ?? 'image/png',
+              })
+            : { bytes: options.data, mimeType: options.mimeType, resized: false };
+    const hash = await computeAttachmentHashFromBytes(prepared.bytes);
     const targetPath = await buildAttachmentStoragePath(options.type, hash);
 
     if (!(await exists(targetPath))) {
-        await writeFile(targetPath, options.data);
+        await writeFile(targetPath, prepared.bytes);
     }
 
     const existing = await findAttachmentByHash(hash, database);
@@ -215,8 +255,8 @@ async function ensureAttachmentRecordFromBytes(
                 type: options.type,
                 original_name: options.name,
                 origin_path: options.originPath,
-                mime_type: options.mimeType ?? null,
-                size: options.size ?? options.data.byteLength,
+                mime_type: prepared.mimeType ?? null,
+                size: prepared.bytes.byteLength,
             },
             database
         );
@@ -239,14 +279,18 @@ async function toAttachmentIndex(
         mimeType?: string;
     } = {}
 ): Promise<AttachmentIndex> {
-    const storagePath = await buildAttachmentStoragePath(attachment.type, attachment.hash);
+    const originPath = overrides.originPath ?? attachment.origin_path;
+    const isDirectory = attachment.mime_type === DIRECTORY_MIME_TYPE;
+    const storagePath = isDirectory
+        ? originPath
+        : await buildAttachmentStoragePath(attachment.type, attachment.hash);
     return {
         id: crypto.randomUUID(),
         attachmentId: attachment.id,
         hash: attachment.hash,
         type: attachment.type,
         path: storagePath,
-        originPath: overrides.originPath ?? attachment.origin_path,
+        originPath,
         name: overrides.name ?? attachment.original_name,
         size: overrides.size ?? attachment.size ?? undefined,
         preview: await buildPreview(attachment.type, storagePath),
@@ -269,11 +313,12 @@ export async function createAttachment(
     type: 'image' | 'file',
     path: string
 ): Promise<AttachmentIndex> {
-    const [name, mimeType, size, preview] = await Promise.all([
+    const info = await stat(path);
+    const [name, mimeType, preview, size] = await Promise.all([
         getFileName(path),
         resolveMimeType(type, path),
-        getFileSize(path),
         buildPreview(type, path),
+        info.isDirectory ? Promise.resolve(undefined) : getFileSize(path),
     ]);
 
     return {
@@ -284,7 +329,7 @@ export async function createAttachment(
         name,
         size,
         preview,
-        mimeType,
+        mimeType: info.isDirectory ? DIRECTORY_MIME_TYPE : mimeType,
         supportStatus: 'supported',
     };
 }
@@ -312,8 +357,8 @@ export async function createPersistedAttachmentFromData(
         // 仍然属于这一次消息语义，不能被旧记录回灌覆盖。
         originPath: options.originPath,
         name: options.name,
-        size: options.size ?? options.data.byteLength,
-        mimeType: options.mimeType ?? persisted.mime_type ?? undefined,
+        size: persisted.size ?? options.size ?? options.data.byteLength,
+        mimeType: persisted.mime_type ?? options.mimeType ?? undefined,
     });
 }
 
@@ -413,7 +458,10 @@ async function syncAttachmentIndexFromRecord(
 ): Promise<void> {
     attachment.attachmentId = persisted.id;
     attachment.hash = persisted.hash;
-    attachment.path = await buildAttachmentStoragePath(persisted.type, persisted.hash);
+    attachment.path =
+        persisted.mime_type === DIRECTORY_MIME_TYPE
+            ? persisted.origin_path
+            : await buildAttachmentStoragePath(persisted.type, persisted.hash);
     attachment.name = persisted.original_name;
     attachment.size = persisted.size ?? undefined;
     attachment.mimeType = persisted.mime_type ?? undefined;

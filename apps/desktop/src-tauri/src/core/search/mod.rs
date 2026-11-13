@@ -7,9 +7,9 @@
 
 use std::collections::HashMap;
 
-#[cfg(target_os = "windows")]
 use tauri::async_runtime;
 
+mod directory;
 mod types;
 pub use types::{QuickSearchFileItem, QuickSearchResult, QuickSearchStatus, QuickShortcutItem};
 
@@ -82,6 +82,34 @@ pub async fn quick_search_search_files(
     })
     .await
     .map_err(|err| format!("quick_search_search_files task join failed: {}", err))?
+}
+
+/// 解析目录路径查询并返回精确的直接文件与目录。
+///
+/// 所有平台共用：非路径查询返回 `None`，前端继续走对应平台的搜索实现。
+/// 目录枚举只读文件系统，不依赖 Everything，因此 macOS/Linux 也能用 `@` 浏览目录。
+pub async fn quick_search_list_directory(
+    query: String,
+    limit: Option<usize>,
+    offset: Option<u32>,
+) -> Result<Option<QuickSearchResult>, String> {
+    const DEFAULT_DIRECTORY_LIMIT: usize = 60;
+    const MAX_DIRECTORY_LIMIT: usize = 200;
+    let normalized_limit = limit
+        .unwrap_or(DEFAULT_DIRECTORY_LIMIT)
+        .clamp(1, MAX_DIRECTORY_LIMIT);
+    let normalized_offset = offset.unwrap_or(0);
+    let result = async_runtime::spawn_blocking(move || {
+        directory::list_directory_query(&query, normalized_limit, normalized_offset)
+    })
+    .await
+    .map_err(|err| format!("quick_search_list_directory task join failed: {}", err))?;
+
+    #[cfg(target_os = "windows")]
+    if let Some(result) = result.as_ref() {
+        assets::remember_search_paths(&result.files);
+    }
+    Ok(result)
 }
 
 #[cfg(target_os = "windows")]

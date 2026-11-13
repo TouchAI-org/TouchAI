@@ -364,6 +364,7 @@ export interface QuickShortcutItem {
         | 'desktop_user'
         | 'desktop_public'
         | 'shortcut_file'
+        | 'folder'
         | 'file';
 }
 

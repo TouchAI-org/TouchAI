@@ -442,6 +442,7 @@ async function buildToolResultMessageContent(
 
     const attachmentParts = await buildAttachmentParts(attachments, {
         includeAnchorText: false,
+        inlineFileContents: true,
     });
     if (attachmentParts.length === 0) {
         return result;
