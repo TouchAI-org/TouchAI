@@ -1733,6 +1733,8 @@ mod tests_windows {
         assert!(xml.contains("scenario=\"reminder\""));
         assert!(xml.contains("Approve"));
         assert!(xml.contains("Reject"));
+        assert!(xml.contains("call-1"));
+        assert!(xml.contains("decision-1"));
         assert!(!xml.contains("Reply to TouchAI"));
     }
 

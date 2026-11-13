@@ -72,6 +72,38 @@ fn show_session_status_reminder_notification_records_test_runtime_entry() {
 }
 
 #[test]
+fn user_notification_command_preserves_approval_decision_identity() {
+    let test_app = build_test_app(TestAppOptions::default()).expect("test app");
+
+    let response: () = invoke_command_ok(
+        &test_app.main_webview,
+        "show_session_status_reminder_notification",
+        json!({
+            "payload": {
+                "title": "TouchAI",
+                "body": "Approval required",
+                "sessionId": 6,
+                "taskId": "task-2",
+                "kind": "waiting_approval",
+                "approval": {
+                    "callId": "call-1",
+                    "approveLabel": "Approve",
+                    "rejectLabel": "Reject",
+                    "decisionId": "decision-1"
+                }
+            }
+        }),
+    );
+
+    assert_eq!(response, ());
+    let records = testing::session_status_reminder_notifications(&test_app.app);
+    assert_eq!(records.len(), 1);
+    let approval = records[0].approval.as_ref().expect("approval payload");
+    assert_eq!(approval.call_id, "call-1");
+    assert_eq!(approval.decision_id.as_deref(), Some("decision-1"));
+}
+
+#[test]
 fn clear_session_status_reminder_notifications_updates_runtime_state() {
     let test_app = build_test_app(TestAppOptions::default()).expect("test app");
 
