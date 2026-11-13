@@ -203,6 +203,41 @@ describe('UserMessage pending delivery', () => {
         wrapper.unmount();
     });
 
+    it('user sees a queued message highlighted as editing in the composer', async () => {
+        const wrapper = mount(UserMessage, {
+            props: {
+                editing: true,
+                message: {
+                    id: 'pending-editing',
+                    role: 'user',
+                    content: 'queued text being edited',
+                    parts: [],
+                    timestamp: 1,
+                    pendingDelivery: 'queue',
+                } as SessionMessage,
+            },
+        });
+
+        const bubble = wrapper.get('[data-pending-delivery="queue"]');
+        expect(bubble.attributes('data-editing')).toBe('true');
+        expect(bubble.classes()).toContain('border-primary-400');
+        expect(bubble.classes()).toContain('bg-primary-50');
+        expect(wrapper.get('[data-testid="pending-message-edit-status"]').text()).toBe('正在编辑');
+
+        for (const testId of [
+            'pending-message-send-now',
+            'pending-message-edit',
+            'pending-message-remove',
+        ]) {
+            expect(wrapper.find(`[data-testid="${testId}"]`).exists()).toBe(false);
+        }
+
+        await wrapper.get('[data-testid="pending-message-cancel-edit"]').trigger('click');
+        expect(wrapper.emitted('cancelEdit')).toEqual([['pending-editing']]);
+
+        wrapper.unmount();
+    });
+
     it('user sees a pending steer as a solid bubble instead of a dashed queue', () => {
         const wrapper = mount(UserMessage, {
             props: {

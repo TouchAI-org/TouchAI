@@ -27,7 +27,7 @@
     import { type AppLocale, t } from '@/i18n';
     import type { ToolApprovalDecisionRequest } from '@/services/AgentService/contracts/tooling';
     import { mcpManager } from '@/services/AgentService/infrastructure/mcp';
-    import type { SessionTaskStatus } from '@/services/AgentService/task/types';
+    import type { PendingUserMessage, SessionTaskStatus } from '@/services/AgentService/task/types';
     import { clipboardService } from '@/services/ClipboardService';
     import type {
         ClipboardPayload,
@@ -607,6 +607,7 @@
         cancelLatestPendingMessage,
         promotePendingUserMessage,
         removePendingUserMessage,
+        updatePendingUserMessage,
         reorderPendingUserMessages,
         handleRegenerateMessage: handleRegenerateMessageRequest,
     } = useSearchRequestFlow({
@@ -615,6 +616,135 @@
         getSupportedAttachments,
         getUnsupportedAttachmentMessage,
         getCurrentInputSnapshot: buildCurrentInputHistorySnapshot,
+    });
+
+    interface PendingMessageEdit {
+        messageId: string;
+        previousDraft: InputHistorySnapshot;
+        previousModelOverride: SearchModelOverride;
+    }
+
+    const pendingMessageEdit = ref<PendingMessageEdit | null>(null);
+    const editingPendingMessageId = computed(() => pendingMessageEdit.value?.messageId ?? null);
+
+    function restorePendingMessageDraft(message: PendingUserMessage): void {
+        const snapshot = createInputHistorySnapshot({
+            text: message.prompt,
+            attachments: message.attachments,
+            editorDoc: message.inputSnapshot?.editorDoc,
+            excludeFromHistory: message.inputSnapshot?.excludeFromHistory,
+        });
+        applyInputHistorySnapshot(snapshot);
+        if (message.modelId !== undefined || message.providerId !== undefined) {
+            modelOverride.value = {
+                modelId: message.modelId ?? null,
+                providerId: message.providerId ?? null,
+            };
+        }
+    }
+
+    async function beginPendingMessageEdit(message: PendingUserMessage): Promise<void> {
+        if (pendingMessageEdit.value?.messageId !== message.id) {
+            // Switching between queued messages keeps the draft the user had
+            // before the first edit, so cancelling the last edit still restores it.
+            pendingMessageEdit.value = pendingMessageEdit.value
+                ? {
+                      ...pendingMessageEdit.value,
+                      messageId: message.id,
+                  }
+                : {
+                      messageId: message.id,
+                      previousDraft: buildCurrentInputHistorySnapshot(),
+                      previousModelOverride: { ...modelOverride.value },
+                  };
+        }
+        restorePendingMessageDraft(message);
+        await nextTick();
+        await controller.focusSearchInput();
+    }
+
+    async function cancelPendingMessageEdit(restoreDraft = true): Promise<void> {
+        const edit = pendingMessageEdit.value;
+        if (!edit) {
+            return;
+        }
+        pendingMessageEdit.value = null;
+        if (restoreDraft) {
+            applyInputHistorySnapshot(edit.previousDraft);
+            modelOverride.value = { ...edit.previousModelOverride };
+        }
+        await nextTick();
+        await controller.focusSearchInput();
+    }
+
+    async function savePendingMessageEdit(
+        query: string,
+        inputSnapshot?: InputHistorySnapshot
+    ): Promise<boolean> {
+        const edit = pendingMessageEdit.value;
+        if (!edit) {
+            return false;
+        }
+
+        const message = pendingUserMessages.value.find(
+            (entry) => entry.id === edit.messageId && entry.delivery === 'queue'
+        );
+        if (!message) {
+            // The message left the queue while the user was editing it. Keep the
+            // typed draft in place instead of silently sending a duplicate turn.
+            pendingMessageEdit.value = null;
+            return true;
+        }
+
+        const editedAttachments = getSupportedAttachments();
+        if (query.trim().length === 0 && editedAttachments.length === 0) {
+            // An empty queued message would be invisible and unsendable. Stay in
+            // edit mode so the user can keep typing or cancel.
+            return true;
+        }
+
+        const updated = updatePendingUserMessage(edit.messageId, {
+            prompt: query,
+            attachments: editedAttachments,
+            inputSnapshot: inputSnapshot ?? buildCurrentInputHistorySnapshot(query),
+            modelId: modelOverride.value.modelId ?? undefined,
+            providerId: modelOverride.value.providerId ?? undefined,
+        });
+        pendingMessageEdit.value = null;
+        if (!updated) {
+            return true;
+        }
+
+        // Editing borrows the composer without consuming the draft that was
+        // already in it. Finishing the edit hands that draft back.
+        applyInputHistorySnapshot(edit.previousDraft);
+        modelOverride.value = { ...edit.previousModelOverride };
+        await nextTick();
+        await controller.focusSearchInput();
+        return true;
+    }
+
+    watch(
+        () =>
+            pendingUserMessages.value
+                .filter((message) => message.delivery === 'queue')
+                .map((message) => message.id)
+                .join('|'),
+        () => {
+            const editingId = pendingMessageEdit.value?.messageId;
+            if (
+                editingId &&
+                !pendingUserMessages.value.some(
+                    (message) => message.id === editingId && message.delivery === 'queue'
+                )
+            ) {
+                pendingMessageEdit.value = null;
+            }
+        }
+    );
+
+    watch(currentSessionId, () => {
+        pendingMessageEdit.value = null;
     });
 
     const floatingPicker = computed(
@@ -1361,6 +1491,11 @@
             typeof inputSnapshotOrIntent === 'string' ? undefined : inputSnapshotOrIntent;
         const shortcutIntent =
             typeof inputSnapshotOrIntent === 'string' ? inputSnapshotOrIntent : intent;
+        // Saving an edit replaces the queued item in place; it must not branch
+        // into the normal "queue a new message" path.
+        if (await savePendingMessageEdit(query, inputSnapshot)) {
+            return;
+        }
         const quickSearchWasOpen = quickSearchOpen.value;
         const shouldExpand = sessionHistory.value.length === 0 && !effectiveWindowMaximized.value;
         const expansion = shouldExpand || quickSearchWasOpen ? beginSessionExpansion() : null;
@@ -1504,6 +1639,17 @@
 
     function handleQueryTextChange(value: string) {
         queryText.value = value;
+    }
+
+    function handleConversationContentResize(): void {
+        // A filled conversation scrolls inside a host that is already at its
+        // maximum height. Feeding every streaming frame back into native window
+        // measurement animates the card on each chunk and makes the whole
+        // surface flicker.
+        if (fillConversationAvailableHeight.value || effectiveWindowMaximized.value) {
+            return;
+        }
+        scheduleContentMeasurement();
     }
 
     function handleSkillInputActiveChange(active: boolean) {
@@ -2340,43 +2486,35 @@
     }
 
     async function handlePendingMessageAction(
-        action: 'sendNow' | 'edit' | 'remove',
+        action: 'sendNow' | 'edit' | 'remove' | 'cancelEdit',
         messageId: string
     ): Promise<void> {
+        if (action === 'cancelEdit') {
+            await cancelPendingMessageEdit();
+            return;
+        }
+
         if (action === 'sendNow') {
+            if (pendingMessageEdit.value?.messageId === messageId) {
+                pendingMessageEdit.value = null;
+            }
             promotePendingUserMessage(messageId);
             return;
         }
 
         if (action === 'remove') {
+            if (pendingMessageEdit.value?.messageId === messageId) {
+                pendingMessageEdit.value = null;
+            }
             removePendingUserMessage(messageId);
             return;
         }
 
         const message = pendingUserMessages.value.find((entry) => entry.id === messageId);
-        if (!message || !removePendingUserMessage(messageId)) {
+        if (!message) {
             return;
         }
-
-        const snapshot = createInputHistorySnapshot({
-            text: message.prompt,
-            attachments: message.attachments,
-            editorDoc: message.inputSnapshot?.editorDoc,
-            excludeFromHistory: message.inputSnapshot?.excludeFromHistory,
-        });
-        const restoredText =
-            searchBar.value?.restoreInputHistorySnapshot(snapshot) ?? snapshot.text;
-        attachments.value = snapshot.attachments;
-        syncAttachmentSupport();
-        queryText.value = restoredText;
-        if (message.modelId !== undefined || message.providerId !== undefined) {
-            modelOverride.value = {
-                modelId: message.modelId ?? null,
-                providerId: message.providerId ?? null,
-            };
-        }
-        await nextTick();
-        await controller.focusSearchInput();
+        await beginPendingMessageEdit(message);
     }
 
     function handlePendingMessagesReorder(orderedMessageIds: string[]): void {
@@ -2947,6 +3085,7 @@
                                     ref="conversationPanel"
                                     :messages="sessionHistory"
                                     :pending-messages="pendingUserMessages"
+                                    :editing-pending-message-id="editingPendingMessageId"
                                     :is-loading="isLoading"
                                     :error="error"
                                     :is-pinned="isPinned"
@@ -2963,7 +3102,7 @@
                                     @regenerate-message="handleRegenerateMessage"
                                     @pending-action="handlePendingMessageAction"
                                     @reorder-pending-messages="handlePendingMessagesReorder"
-                                    @content-resize="scheduleContentMeasurement()"
+                                    @content-resize="handleConversationContentResize"
                                     @latest-content-visibility-change="
                                         handleLatestContentVisibilityChange
                                     "

@@ -96,11 +96,19 @@ export async function readConversationMessages() {
                 borderColor: style?.borderTopColor ?? null,
                 borderColorRgb: comparableColor(style?.borderTopColor),
                 backgroundColor: style?.backgroundColor ?? null,
+                editing: pendingBubble?.getAttribute('data-editing') === 'true',
                 hasPendingActions: Boolean(pendingActions),
                 pendingActionText: pendingActions?.textContent?.trim() ?? null,
                 pendingActionIconCount: pendingActions
                     ? pendingActions.querySelectorAll('svg.app-icon').length
                     : 0,
+                editingStatus:
+                    node
+                        .querySelector('[data-testid="pending-message-edit-status"]')
+                        ?.textContent?.trim() ?? null,
+                hasCancelEdit: Boolean(
+                    node.querySelector('[data-testid="pending-message-cancel-edit"]')
+                ),
                 hasSendNow: Boolean(node.querySelector('[data-testid="pending-message-send-now"]')),
                 sendNowLabel:
                     node

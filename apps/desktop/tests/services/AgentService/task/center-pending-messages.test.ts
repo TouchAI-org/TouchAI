@@ -251,6 +251,57 @@ describe('user submits a message while a task runs', () => {
         expect(center.getTaskSnapshot(started.taskId)?.pendingUserMessages).toEqual([]);
     });
 
+    it('user gets an edited queue updated in place without changing its slot', async () => {
+        runtimeState.run.mockImplementation(staysRunningInSession(1));
+        const center = createCenter();
+        const started = await center.startTask({ prompt: 'Hi', sessionId: 1 });
+        const first = center.enqueueTaskUserMessage(started.taskId, { prompt: 'first' }, 'queue');
+        const second = center.enqueueTaskUserMessage(started.taskId, { prompt: 'second' }, 'queue');
+
+        expect(
+            center.updateTaskUserMessage(started.taskId, first!.id, {
+                prompt: 'first edited',
+                attachments: [],
+                inputSnapshot: {
+                    text: 'first edited',
+                    attachments: [],
+                    skills: [],
+                },
+            })
+        ).toBe(true);
+
+        expect(center.getTaskSnapshot(started.taskId)?.pendingUserMessages).toEqual([
+            expect.objectContaining({
+                id: first!.id,
+                prompt: 'first edited',
+                delivery: 'queue',
+                createdAt: first!.createdAt,
+            }),
+            second,
+        ]);
+    });
+
+    it('user cannot rewrite a queue after it has been promoted to a steer', async () => {
+        runtimeState.run.mockImplementation(staysRunningInSession(1));
+        const center = createCenter();
+        const started = await center.startTask({ prompt: 'Hi', sessionId: 1 });
+        const message = center.enqueueTaskUserMessage(
+            started.taskId,
+            { prompt: 'send now' },
+            'queue'
+        );
+
+        expect(center.promoteTaskUserMessage(started.taskId, message!.id)).toBe(true);
+        expect(
+            center.updateTaskUserMessage(started.taskId, message!.id, {
+                prompt: 'too late',
+            })
+        ).toBe(false);
+        expect(center.getTaskSnapshot(started.taskId)?.pendingUserMessages[0]?.prompt).toBe(
+            'send now'
+        );
+    });
+
     it('user gets queued messages reordered without moving a committed steer', async () => {
         runtimeState.run.mockImplementation(staysRunningInSession(10));
         const center = createCenter();
@@ -482,6 +533,49 @@ describe('user submits while a finished run hands over to its queue', () => {
             expect(
                 center.getTaskSnapshot(nextId)?.pendingUserMessages.map((entry) => entry.prompt)
             ).toEqual(['late', 'third']);
+        } finally {
+            releaseStartup?.();
+            resetStartupCapabilities();
+        }
+    });
+
+    it('user gets a handover queue edited in place before the next task attaches', async () => {
+        let releaseStartup!: () => void;
+        try {
+            runtimeState.run
+                .mockImplementationOnce(finishableRun(13))
+                .mockImplementation(staysRunningInSession(13));
+            const center = createCenter();
+            const first = await center.startTask({ prompt: 'first', sessionId: 13 });
+            center.enqueueTaskUserMessage(first.taskId, { prompt: 'second' }, 'queue');
+
+            finishCurrentTask!();
+            await first.completion;
+
+            registerStartupCapability(
+                'model-metadata',
+                new Promise<void>((resolve) => {
+                    releaseStartup = resolve;
+                })
+            );
+            await Promise.resolve();
+            await Promise.resolve();
+
+            const late = center.enqueueSessionUserMessage(13, { prompt: 'late' }, 'queue');
+            expect(late).not.toBeNull();
+            expect(center.updateSessionUserMessage(13, late!.id, { prompt: 'late edited' })).toBe(
+                true
+            );
+
+            releaseStartup();
+            await vi.waitFor(() => expect(center.getSessionStatus(13)?.status).toBe('running'));
+            const nextId = center.getSessionStatus(13)!.taskId;
+            expect(
+                center.getTaskSnapshot(nextId)?.pendingUserMessages.map((entry) => ({
+                    id: entry.id,
+                    prompt: entry.prompt,
+                }))
+            ).toEqual([{ id: late!.id, prompt: 'late edited' }]);
         } finally {
             releaseStartup?.();
             resetStartupCapabilities();
