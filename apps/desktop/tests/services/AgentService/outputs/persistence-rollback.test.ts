@@ -10,6 +10,16 @@ import { PersistenceProjector } from '@/services/AgentService/outputs/persistenc
 
 afterEach(closeTestDatabases);
 
+function persistProgress(
+    projector: PersistenceProjector,
+    parts: Parameters<PersistenceProjector['persistOutputProgress']>[0]
+) {
+    return projector.persistOutputProgress(parts, {
+        attemptGeneration: projector.getAttemptGeneration(),
+        step: 0,
+    });
+}
+
 async function startTurn() {
     const database = openMigratedDatabase();
     let failCommit = false;
@@ -64,7 +74,7 @@ async function startTurn() {
         modelLanguageContext: { locale: 'en-US', label: 'English' },
     };
     await projector.recordTurnStart(checkpoint);
-    await projector.persistOutputProgress([{ type: 'text', content: 'old' }]);
+    await persistProgress(projector, [{ type: 'text', content: 'old' }]);
 
     const readOutput = () =>
         database
@@ -103,7 +113,7 @@ describe.each(['commit', 'summary'] as const)(
                     BEGIN SELECT RAISE(ABORT, 'injected summary failure'); END;
                 `);
                 }
-                const failedWrite = expect(projector.persistOutputProgress(finalParts)).rejects;
+                const failedWrite = expect(persistProgress(projector, finalParts)).rejects;
                 if (failure === 'commit') {
                     await failedWrite.toThrow('injected commit failure');
                 } else {
@@ -121,7 +131,7 @@ describe.each(['commit', 'summary'] as const)(
                 } else if (status === 'failed') {
                     await projector.markFailed('offline', finalParts);
                 } else {
-                    await projector.persistOutputProgress(finalParts);
+                    await persistProgress(projector, finalParts);
                 }
                 expect(readOutput()).toEqual({ content: 'new-final', status });
             }

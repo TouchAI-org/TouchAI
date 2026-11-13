@@ -13,7 +13,7 @@ import type {
 import {
     AiConversationRuntime,
     type ExecuteRequestOptions,
-    type TurnEvent,
+    type RuntimeTurnEvent,
 } from '@/services/AgentService/execution/runtime';
 import { AgentRequestAnalytics } from '@/services/AgentService/infrastructure/analytics';
 import type { PromptSnapshot } from '@/services/AgentService/prompt/types';
@@ -300,8 +300,8 @@ function createExecutor(): ExecutorStub {
 function run(
     executor: ExecutorStub,
     options: Partial<ExecuteRequestOptions> = {}
-): { runtime: AiConversationRuntime; events: TurnEvent[] } {
-    const events: TurnEvent[] = [];
+): { runtime: AiConversationRuntime; events: RuntimeTurnEvent[] } {
+    const events: RuntimeTurnEvent[] = [];
     const runtime = new AiConversationRuntime(executor as never, {
         prompt: 'hello',
         onTurnEvent: (event) => events.push(event),

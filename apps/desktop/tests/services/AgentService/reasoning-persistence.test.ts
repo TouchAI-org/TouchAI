@@ -62,6 +62,17 @@ function createCheckpoint(): AttemptCheckpoint {
     };
 }
 
+/** A progress write scoped to the projector's current attempt (matches the writer path). */
+function persistProgress(
+    projector: PersistenceProjector,
+    parts: Parameters<PersistenceProjector['persistOutputProgress']>[0]
+) {
+    return projector.persistOutputProgress(parts, {
+        attemptGeneration: projector.getAttemptGeneration(),
+        step: 0,
+    });
+}
+
 describe('given a session with streamed reasoning and answer parts', () => {
     let database: DatabaseSync;
 
@@ -116,10 +127,18 @@ describe('given a session with streamed reasoning and answer parts', () => {
                 { type: 'text', content: 'Answer' },
             ],
         });
+        if (result.type !== 'completed') throw new Error('Expected a completed attempt');
         expect(readCheckpointJson()).toBe(savedCheckpoint);
+        await projector.markCompleted({
+            durationMs: 1,
+            outputParts: result.finalStepOutputParts,
+            calls: result.calls,
+        });
         const messages = await findMessagesBySessionId(1);
         expect(messages).toHaveLength(2);
-        expect(messages[1]!.parts).toMatchObject([
+        expect(
+            messages[1]!.parts.filter((part) => part.type === 'reasoning' || part.type === 'text')
+        ).toMatchObject([
             { type: 'reasoning', content: 'Plan' },
             { type: 'text', content: 'Answer' },
         ]);
@@ -131,7 +150,7 @@ describe('given a session with streamed reasoning and answer parts', () => {
             const projector = createProjector();
             await projector.recordTurnStart(createCheckpoint());
             const start = { type: 'reasoning' as const, content: '', startedAt: 1000 };
-            await projector.persistOutputProgress([start]);
+            await persistProgress(projector, [start]);
             const closed = [{ ...start, endedAt: 1500 }];
 
             if (status === 'failed') {
@@ -152,13 +171,13 @@ describe('given a session with streamed reasoning and answer parts', () => {
     it('user retains stable output parts when a boundary repeats and sees later content changes', async () => {
         const projector = createProjector();
         await projector.recordTurnStart(createCheckpoint());
-        await projector.persistOutputProgress([{ type: 'text', content: 'Partial answer' }]);
+        await persistProgress(projector, [{ type: 'text', content: 'Partial answer' }]);
         const saved = (await findMessagesBySessionId(1))[1]!;
 
-        await projector.persistOutputProgress([{ type: 'text', content: 'Partial answer' }]);
+        await persistProgress(projector, [{ type: 'text', content: 'Partial answer' }]);
         expect((await findMessagesBySessionId(1))[1]!.parts).toEqual(saved.parts);
 
-        await projector.persistOutputProgress([{ type: 'text', content: 'Partial answer v2' }]);
+        await persistProgress(projector, [{ type: 'text', content: 'Partial answer v2' }]);
         const updated = await findMessagesBySessionId(1);
         expect(updated).toHaveLength(2);
         expect(updated[1]).toMatchObject({
@@ -223,7 +242,7 @@ describe('given a session with streamed reasoning and answer parts', () => {
         async (status) => {
             const projector = createProjector();
             await projector.recordTurnStart(createCheckpoint());
-            await projector.persistOutputProgress([
+            await persistProgress(projector, [
                 { type: 'reasoning', content: 'Saved thought', startedAt: 1000, endedAt: 2000 },
                 { type: 'text', content: 'Saved answer' },
             ]);
@@ -271,7 +290,7 @@ describe('given a session with streamed reasoning and answer parts', () => {
             startedAt: 1000,
             endedAt: 2000,
         };
-        await projector.persistOutputProgress([thought]);
+        await persistProgress(projector, [thought]);
         const saved = (await findMessagesBySessionId(1))[1]!;
 
         await projector.markCompleted({
@@ -295,7 +314,7 @@ describe('given a session with streamed reasoning and answer parts', () => {
     it('user keeps streamed output when completion brings no final parts', async () => {
         const projector = createProjector();
         await projector.recordTurnStart(createCheckpoint());
-        await projector.persistOutputProgress([
+        await persistProgress(projector, [
             { type: 'reasoning', content: 'Saved thought', startedAt: 1000, endedAt: 2000 },
         ]);
         const saved = (await findMessagesBySessionId(1))[1]!;
@@ -314,7 +333,7 @@ describe('given a session with streamed reasoning and answer parts', () => {
         const parts = [
             { type: 'reasoning' as const, content: 'Plan', startedAt: 1000, endedAt: 2000 },
         ];
-        await projector.persistOutputProgress(parts);
+        await persistProgress(projector, parts);
         const saved = (await findMessagesBySessionId(1))[1]!;
 
         expect(await projector.persistToolCallMessage(parts)).toBe(saved.id);

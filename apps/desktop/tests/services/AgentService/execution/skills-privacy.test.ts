@@ -1,12 +1,13 @@
-import type { SQLInputValue } from 'node:sqlite';
-
 import {
     flushObservability,
     initObservability,
     resetObservabilityForTests,
 } from '@services/ObservabilityService';
-import type { InvokeArgs } from '@tauri-apps/api/core';
-import { closeTestDatabases, openMigratedDatabase } from '@tests/database/sqliteHarness';
+import {
+    closeTestDatabases,
+    openMigratedDatabase,
+    routeQueriesTo,
+} from '@tests/database/sqliteHarness';
 import { installSkillCommands, skillFile, widgetSkillFile } from '@tests/utils/skills';
 import { getTauriInvokeCalls, mockTauriCommand } from '@tests/utils/tauri';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -14,7 +15,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setLocale } from '@/i18n';
 import type { AiStreamChunk } from '@/services/AgentService/contracts/protocol';
 import { AiRequestExecutor } from '@/services/AgentService/execution';
-import { AiConversationRuntime, type TurnEvent } from '@/services/AgentService/execution/runtime';
+import {
+    AiConversationRuntime,
+    type RuntimeTurnEvent,
+} from '@/services/AgentService/execution/runtime';
 import { SessionTaskProjection } from '@/services/AgentService/task/projection/projection';
 import type { SessionTaskSnapshot } from '@/services/AgentService/task/types';
 
@@ -96,39 +100,13 @@ function widgetResponse(name: string, args: Record<string, unknown>, callId = 'w
 beforeEach(() => {
     httpFetch.mockReset();
     database = openMigratedDatabase();
+    routeQueriesTo(database);
     database.exec(`
         INSERT INTO providers (id, name, driver, api_endpoint, api_key, logo) VALUES (1, 'Test', 'openai-compatible', 'https://controlled.test/v1', 'test', '');
         INSERT INTO models (id, provider_id, name, model_id, is_default, tool_call) VALUES (1, 1, 'Test', 'test-model', 1, 1);
         INSERT INTO built_in_tools (tool_id, display_name, enabled, risk_level) VALUES ('activate_skill', 'ActivateSkill', 1, 'medium');
         INSERT INTO built_in_tools (tool_id, display_name, enabled, risk_level) VALUES ('show_widget', 'ShowWidget', 1, 'low');
     `);
-    for (const command of ['database_query', 'database_tx_query']) {
-        mockTauriCommand(command, (payload?: InvokeArgs) => {
-            const { request } = payload as {
-                request: { sql: string; params: SQLInputValue[]; method: string };
-            };
-            const statement = database.prepare(request.sql);
-            if (request.method === 'run') {
-                const result = statement.run(...request.params);
-                return {
-                    rows: [],
-                    rowsAffected: Number(result.changes),
-                    lastInsertId: Number(result.lastInsertRowid),
-                };
-            }
-            return { rows: statement.all(...request.params), rowsAffected: 0, lastInsertId: null };
-        });
-    }
-    mockTauriCommand('database_tx_begin', () => {
-        database.exec('BEGIN');
-        return 'test-tx';
-    });
-    mockTauriCommand('database_tx_commit', () => {
-        database.exec('COMMIT');
-    });
-    mockTauriCommand('database_tx_rollback', () => {
-        database.exec('ROLLBACK');
-    });
     const file = skillFile();
     installSkillCommands(
         [{ ...file, content: `${file.frontmatter}${privateMarker}` }],
@@ -145,7 +123,7 @@ afterEach(() => {
 describe('given a skill is activated during a conversation that needs a retry', () => {
     it('user activates a widget skill then creates a widget and retains both completed exchanges as verifiable compaction sources', async () => {
         const widgetPath = '/app/skills/.system/widget/SKILL.md';
-        const checkpoints: TurnEvent[] = [];
+        const checkpoints: RuntimeTurnEvent[] = [];
         let step = 0;
         httpFetch.mockImplementation(async () => {
             step++;
@@ -250,7 +228,7 @@ describe('given a skill is activated during a conversation that needs a retry', 
             const widgetPath = '/app/skills/.system/widget/SKILL.md';
             const requests: string[] = [];
             const chunks: AiStreamChunk[] = [];
-            const events: TurnEvent[] = [];
+            const events: RuntimeTurnEvent[] = [];
             let toolCallObserved = false;
             let step = selected ? 1 : 0;
             httpFetch.mockImplementation(async (_url, init) => {
@@ -335,7 +313,7 @@ describe('given a skill is activated during a conversation that needs a retry', 
             const nextChunks: AiStreamChunk[] = [];
             await new AiConversationRuntime(new AiRequestExecutor(), {
                 prompt: 'Draw another',
-                sessionId: result.turn!.session_id!,
+                sessionId: result.turn!.sessionId!,
                 onChunk: (chunk) => nextChunks.push(chunk),
             }).run();
             expect(nextChunks.some((chunk) => chunk.toolEvent?.type === 'widget_upsert')).toBe(
@@ -349,7 +327,7 @@ describe('given a skill is activated during a conversation that needs a retry', 
         setLocale('en-US');
         let calls = 0;
         let lastRequest = '';
-        const checkpoints: TurnEvent[] = [];
+        const checkpoints: RuntimeTurnEvent[] = [];
         httpFetch.mockImplementation(async (_url, init) => {
             calls++;
             lastRequest = init.body;
@@ -441,7 +419,7 @@ describe('given a skill is activated during a conversation that needs a retry', 
                 .mockResolvedValueOnce(response());
             const next = await new AiConversationRuntime(executor, {
                 prompt: 'Try the skill again',
-                sessionId: first.turn!.session_id!,
+                sessionId: first.turn!.sessionId!,
                 requestToolApproval: async (request) => {
                     approvals.push(request.callId);
                     return true;
@@ -466,7 +444,7 @@ describe('given a skill is activated during a conversation that needs a retry', 
                 skills: [{ name: 'summary', path: skillFile().path }],
             },
         }).run();
-        expect(first.turn?.session_id).toBeTypeOf('number');
+        expect(first.turn?.sessionId).toBeTypeOf('number');
         database.exec("UPDATE providers SET driver = 'anthropic';");
         let sent:
             | { messages: Array<{ role: string; content: Array<{ type: string; text?: string }> }> }
@@ -514,7 +492,7 @@ describe('given a skill is activated during a conversation that needs a retry', 
         });
         const followup = await new AiConversationRuntime(new AiRequestExecutor(), {
             prompt: 'Explain point two',
-            sessionId: first.turn!.session_id!,
+            sessionId: first.turn!.sessionId!,
         }).run();
         expect(followup.response).toBe('Follow-up answer.');
         const historicalUser = sent?.messages.find((message) => message.role === 'user');
@@ -540,7 +518,7 @@ describe('given a skill is activated during a conversation that needs a retry', 
                 requests.push(JSON.parse(init.body));
                 return responses.shift() ?? response();
             });
-            const events: TurnEvent[] = [];
+            const events: RuntimeTurnEvent[] = [];
             const chunks: unknown[] = [];
             const published: string[] = [];
             const snapshot: SessionTaskSnapshot = {
@@ -549,15 +527,12 @@ describe('given a skill is activated during a conversation that needs a retry', 
                 turnId: null,
                 status: 'running',
                 executionMode: 'foreground',
-                prompt: 'Summarize',
                 sessionHistory: [],
                 pendingToolApproval: null,
                 pendingApprovals: [],
                 pendingUserQuestion: null,
                 error: null,
                 currentModel: null,
-                promptSnapshot: null,
-                lastCheckpoint: null,
                 startedAt: 0,
                 updatedAt: 0,
                 modelSwitchCount: 0,

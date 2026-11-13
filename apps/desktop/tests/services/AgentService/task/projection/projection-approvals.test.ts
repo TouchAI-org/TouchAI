@@ -1,31 +1,34 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
+import type { AskUserQuestion } from '@/services/AgentService/contracts/tooling';
+import {
+    type PendingUserQuestion,
+    TaskInteractions,
+} from '@/services/AgentService/task/interactions';
 import { SessionTaskProjection } from '@/services/AgentService/task/projection/projection';
-import type { SessionTaskSnapshot } from '@/services/AgentService/task/types';
+import type { TaskViewSnapshot } from '@/services/AgentService/task/types';
 import type { SessionMessage } from '@/types/session';
 
 /**
- * Approvals and questions are the two moments where the task blocks on the user. A pending
- * approval that is not surfaced leaves the task silently waiting; one that is settled twice
- * resolves a promise the runtime already moved past.
+ * Approvals and questions are owned by `TaskInteractions`; the projection only
+ * renders their public state. These tests exercise the same sequence the task
+ * center uses so a regression in registration, rendering or settlement is
+ * visible without reintroducing approval state into the projection itself.
  */
-function createSnapshot(): SessionTaskSnapshot {
+function createSnapshot(): TaskViewSnapshot {
     return {
         taskId: 'task-1',
         sessionId: 1,
         turnId: null,
         status: 'running',
         executionMode: 'foreground',
-        prompt: 'Prompt',
         sessionHistory: [],
         pendingToolApproval: null,
         pendingApprovals: [],
         pendingUserQuestion: null,
         error: null,
         currentModel: null,
-        promptSnapshot: null,
-        lastCheckpoint: null,
         startedAt: 1,
         updatedAt: 1,
         modelSwitchCount: 0,
@@ -34,15 +37,20 @@ function createSnapshot(): SessionTaskSnapshot {
 
 function createProjection() {
     const snapshot = createSnapshot();
+    const interactions = new TaskInteractions('task-1');
+    interactions.beginAttempt('attempt-1');
     const publish = vi.fn();
-    return { snapshot, publish, projection: new SessionTaskProjection(snapshot, publish) };
+    const projection = new SessionTaskProjection(snapshot, publish, interactions);
+    return { snapshot, interactions, publish, projection };
 }
 
 /** A projection that has bootstrapped and carries one tool call awaiting approval. */
 function withToolCall() {
-    const { snapshot, publish, projection } = createProjection();
-    projection.bootstrap([], 'Hello', []);
-    const assistant = snapshot.sessionHistory.find((m) => m.role === 'assistant') as SessionMessage;
+    const state = createProjection();
+    state.projection.bootstrap([], 'Hello', []);
+    const assistant = state.snapshot.sessionHistory.find(
+        (message) => message.role === 'assistant'
+    ) as SessionMessage;
     assistant.parts.push({
         type: 'tool_call',
         toolCall: {
@@ -54,7 +62,7 @@ function withToolCall() {
             status: 'executing',
         },
     } as never);
-    return { snapshot, publish, projection, assistant };
+    return { ...state, assistant };
 }
 
 beforeEach(() => {
@@ -69,6 +77,7 @@ beforeEach(() => {
 function approvalRequest(callId: string) {
     return {
         callId,
+        attemptToken: 'attempt-1',
         title: 'Read a file',
         description: 'The tool wants to read a file',
         command: 'read_file a.txt',
@@ -82,180 +91,245 @@ function approvalRequest(callId: string) {
     };
 }
 
-describe('user is asked to approve a tool call', () => {
-    it('user gets the task paused while the approval is pending', async () => {
-        const { snapshot, projection } = withToolCall();
+function requestApproval(state: ReturnType<typeof withToolCall>, callId = 'call-1') {
+    const payload = approvalRequest(callId);
+    const display = state.projection.formatApproval(payload);
+    const wait = state.interactions.registerApproval(display, payload.attemptToken);
+    state.projection.renderApproval(display, payload);
+    return { display, payload, wait };
+}
 
-        const promise = projection.requestToolApproval(approvalRequest('call-1'));
+function question(callId: string, questions: AskUserQuestion[]): PendingUserQuestion {
+    return {
+        callId,
+        sourceMessageId: 'message-1',
+        questions,
+        createdAt: Date.now(),
+    };
+}
 
-        // The task must not look like it is still working while it waits for the user.
-        expect(snapshot.status).toBe('waiting_approval');
-        expect(snapshot.pendingToolApproval).toMatchObject({ callId: 'call-1' });
-
-        projection.approvePendingToolApproval('call-1');
-        await promise;
-    });
-
-    it('user gets the tool call marked as awaiting approval', async () => {
-        const { snapshot, projection, assistant } = withToolCall();
-
-        const promise = projection.requestToolApproval(approvalRequest('call-1'));
-
-        const part = assistant.parts.find((entry) => entry.type === 'tool_call') as never as {
-            toolCall: { status: string };
-        };
-        expect(part.toolCall.status).toBe('awaiting_approval');
-
-        projection.approvePendingToolApproval('call-1');
-        await promise;
-        expect(snapshot).toBeDefined();
-    });
-
-    it('user approves and the request resolves as allowed', async () => {
-        const { projection } = withToolCall();
-        const promise = projection.requestToolApproval(approvalRequest('call-1'));
-
-        expect(projection.approvePendingToolApproval('call-1')).toBe(true);
-
-        await expect(promise).resolves.toBe(true);
-    });
-
-    it('user rejects and the request resolves as refused', async () => {
-        const { projection } = withToolCall();
-        const promise = projection.requestToolApproval(approvalRequest('call-1'));
-
-        expect(projection.rejectPendingToolApproval('call-1')).toBe(true);
-
-        await expect(promise).resolves.toBe(false);
-    });
-
-    it('user approves without naming a call and the pending one is used', async () => {
-        const { projection } = withToolCall();
-        const promise = projection.requestToolApproval(approvalRequest('call-1'));
-
-        // The runtime calls this without an id when there is only one approval waiting.
-        expect(projection.approvePendingToolApproval()).toBe(true);
-
-        await expect(promise).resolves.toBe(true);
-    });
-
-    it('user gets false when there is nothing waiting to approve', () => {
-        const { projection } = createProjection();
-
-        expect(projection.approvePendingToolApproval()).toBe(false);
-        expect(projection.rejectPendingToolApproval()).toBe(false);
-    });
-
-    it('user gets the task running again once the approval is settled', async () => {
-        const { snapshot, projection } = withToolCall();
-        const promise = projection.requestToolApproval(approvalRequest('call-1'));
-        expect(snapshot.status).toBe('waiting_approval');
-
-        projection.approvePendingToolApproval('call-1');
-        await promise;
-
-        expect(snapshot.status).toBe('running');
-        expect(snapshot.pendingToolApproval).toBeNull();
-    });
-
-    it('user gets no second approval accepted for a call already settled', async () => {
-        const { projection } = withToolCall();
-        const first = projection.requestToolApproval(approvalRequest('call-1'));
-        projection.approvePendingToolApproval('call-1');
-        await first;
-
-        // A repeat request for the same call must not open a second pending approval; it either
-        // resolves false or stays settled, but it must never resolve true.
-        const second = projection.requestToolApproval(approvalRequest('call-1'));
-        const outcome = await Promise.race([
-            second.then((value) => value),
-            new Promise<'pending'>((resolve) => setTimeout(() => resolve('pending'), 50)),
-        ]);
-        expect(outcome).not.toBe(true);
-    });
-
-    it('user gets no approval request before a task started', async () => {
-        const { projection } = createProjection();
-
-        await expect(projection.requestToolApproval(approvalRequest('call-1'))).resolves.toBe(
-            false
-        );
-    });
-
-    it('user gets every pending approval cleared when the task is cancelled', async () => {
-        const { snapshot, projection } = withToolCall();
-        const promise = projection.requestToolApproval(approvalRequest('call-1'));
-
-        projection.clearPendingApprovals();
-
-        // A cancelled task must not leave the runtime waiting on an approval nobody will give.
-        await expect(promise).resolves.toBe(false);
-        expect(snapshot.pendingToolApproval).toBeNull();
-    });
-});
-
-describe('user is asked a question by the model', () => {
-    const questions = [
+function requestQuestion(state: ReturnType<typeof withToolCall>, callId = 'call-1') {
+    const record = question(callId, [
         {
             question: 'Which file?',
             header: 'File',
             options: [{ label: 'a.txt' }, { label: 'b.txt' }],
         },
-    ];
+    ]);
+    record.sourceMessageId = state.projection.getActiveAssistantMessageId() ?? '';
+    const wait = state.interactions.registerQuestion(record, 'attempt-1');
+    state.projection.renderQuestion(record);
+    return { record, wait };
+}
 
+describe('user is asked to approve a tool call', () => {
+    it('user gets the task paused while the approval is pending', () => {
+        const state = withToolCall();
+        const { wait } = requestApproval(state);
+
+        expect(state.snapshot.status).toBe('waiting_approval');
+        expect(state.snapshot.pendingToolApproval).toMatchObject({ callId: 'call-1' });
+
+        const settled = state.projection.settleInteractionApproval('call-1', true, {
+            decisionId: state.snapshot.pendingToolApproval?.decisionId,
+        });
+        expect(settled).toBe(true);
+        return expect(wait).resolves.toBe(true);
+    });
+
+    it('user gets the tool call marked as awaiting approval', () => {
+        const state = withToolCall();
+        const { wait } = requestApproval(state);
+
+        const part = state.assistant.parts.find((entry) => entry.type === 'tool_call');
+        expect(part).toMatchObject({ toolCall: { status: 'awaiting_approval' } });
+
+        state.projection.settleInteractionApproval('call-1', true, {
+            decisionId: state.snapshot.pendingToolApproval?.decisionId,
+        });
+        return expect(wait).resolves.toBe(true);
+    });
+
+    it('user approves and the request resolves as allowed', async () => {
+        const state = withToolCall();
+        const { display, wait } = requestApproval(state);
+
+        expect(
+            state.projection.settleInteractionApproval('call-1', true, {
+                decisionId: display.decisionId,
+            })
+        ).toBe(true);
+
+        await expect(wait).resolves.toBe(true);
+    });
+
+    it('user rejects and the request resolves as refused', async () => {
+        const state = withToolCall();
+        const { display, wait } = requestApproval(state);
+
+        expect(
+            state.projection.settleInteractionApproval('call-1', false, {
+                decisionId: display.decisionId,
+            })
+        ).toBe(true);
+
+        await expect(wait).resolves.toBe(false);
+    });
+
+    it('user decision without an identity is refused and the task keeps waiting', async () => {
+        const state = withToolCall();
+        const { display, wait } = requestApproval(state);
+
+        expect(state.projection.settleInteractionApproval('call-1', true)).toBe(false);
+        expect(state.snapshot.pendingToolApproval?.callId).toBe('call-1');
+
+        state.projection.settleInteractionApproval('call-1', false, {
+            decisionId: display.decisionId,
+        });
+        await expect(wait).resolves.toBe(false);
+    });
+
+    it('user gets false when there is nothing waiting to approve', () => {
+        const { projection } = createProjection();
+
+        expect(projection.settleInteractionApproval('missing', true)).toBe(false);
+        expect(projection.settleInteractionApproval('missing', false)).toBe(false);
+    });
+
+    it('user gets the task running again once the approval is settled', async () => {
+        const state = withToolCall();
+        const { display, wait } = requestApproval(state);
+        expect(state.snapshot.status).toBe('waiting_approval');
+
+        state.projection.settleInteractionApproval('call-1', true, {
+            decisionId: display.decisionId,
+        });
+        await expect(wait).resolves.toBe(true);
+
+        expect(state.snapshot.status).toBe('running');
+        expect(state.snapshot.pendingToolApproval).toBeNull();
+    });
+
+    it('user cannot settle an approval twice with the same identity', async () => {
+        const state = withToolCall();
+        const { display, wait } = requestApproval(state);
+
+        expect(
+            state.projection.settleInteractionApproval('call-1', true, {
+                decisionId: display.decisionId,
+            })
+        ).toBe(true);
+        await expect(wait).resolves.toBe(true);
+
+        expect(
+            state.projection.settleInteractionApproval('call-1', false, {
+                decisionId: display.decisionId,
+            })
+        ).toBe(false);
+    });
+
+    it('user still gets an approval registered when no assistant message is visible', () => {
+        const { interactions, projection } = createProjection();
+        const payload = approvalRequest('call-1');
+        const display = projection.formatApproval(payload);
+        const wait = interactions.registerApproval(display, payload.attemptToken);
+
+        projection.renderApproval(display, payload);
+
+        expect(projection.getPendingToolApproval()).toMatchObject({ callId: 'call-1' });
+        projection.settleInteractionApproval('call-1', false, {
+            decisionId: display.decisionId,
+        });
+        return expect(wait).resolves.toBe(false);
+    });
+
+    it('user gets every pending approval cleared when the task is cancelled', async () => {
+        const state = withToolCall();
+        const { wait } = requestApproval(state);
+
+        state.projection.clearPendingApprovals();
+
+        await expect(wait).resolves.toBe(false);
+        expect(state.snapshot.pendingToolApproval).toBeNull();
+    });
+
+    it('user does not get a late approval from a superseded attempt rendered', async () => {
+        const state = withToolCall();
+        state.interactions.beginAttempt('attempt-2');
+        const payload = approvalRequest('call-1');
+        const display = state.projection.formatApproval(payload);
+        const wait = state.interactions.registerApproval(display, 'attempt-1');
+
+        await expect(wait).resolves.toBe(false);
+        expect(state.interactions.pendingApproval).toBeNull();
+    });
+});
+
+describe('user is asked a question by the model', () => {
     it('user gets the task paused while the question is pending', async () => {
-        const { snapshot, projection } = withToolCall();
+        const state = withToolCall();
+        const { record, wait } = requestQuestion(state);
 
-        const promise = projection.requestUserQuestions('call-1', questions as never);
+        expect(state.snapshot.status).toBe('waiting_approval');
+        expect(state.snapshot.pendingUserQuestion).toMatchObject({ callId: 'call-1' });
 
-        expect(snapshot.status).toBe('waiting_approval');
-        expect(snapshot.pendingUserQuestion).toMatchObject({ callId: 'call-1' });
-
-        projection.settleUserQuestion('call-1', [{ answers: ['a.txt'] } as never]);
-        await promise;
+        expect(
+            state.projection.settleInteractionQuestion(
+                'call-1',
+                [{ questionIndex: 0, selectedLabels: ['a.txt'], skipped: false }],
+                record.decisionId
+            )
+        ).toBe(true);
+        await expect(wait).resolves.toEqual([
+            { questionIndex: 0, selectedLabels: ['a.txt'], skipped: false },
+        ]);
     });
 
     it('user answers and the answers reach the caller', async () => {
-        const { projection } = withToolCall();
-        const promise = projection.requestUserQuestions('call-1', questions as never);
+        const state = withToolCall();
+        const { record, wait } = requestQuestion(state);
 
-        const answers = [{ answers: ['a.txt'] } as never];
-        expect(projection.settleUserQuestion('call-1', answers)).toBe(true);
+        const answers = [{ questionIndex: 0, selectedLabels: ['a.txt'], skipped: false }];
+        expect(
+            state.projection.settleInteractionQuestion('call-1', answers, record.decisionId)
+        ).toBe(true);
 
-        await expect(promise).resolves.toEqual(answers);
+        await expect(wait).resolves.toEqual(answers);
     });
 
     it('user dismisses the question and the caller gets null', async () => {
-        const { projection } = withToolCall();
-        const promise = projection.requestUserQuestions('call-1', questions as never);
+        const state = withToolCall();
+        const { record, wait } = requestQuestion(state);
 
-        // Dismissing is not the same as answering; the caller has to tell them apart.
-        expect(projection.settleUserQuestion('call-1', null)).toBe(true);
+        expect(state.projection.settleInteractionQuestion('call-1', null, record.decisionId)).toBe(
+            true
+        );
 
-        await expect(promise).resolves.toBeNull();
+        await expect(wait).resolves.toBeNull();
     });
 
-    it('user gets false when settling a question that is not pending', () => {
-        const { projection } = createProjection();
+    it('user gets false when settling a question without its identity', () => {
+        const state = withToolCall();
+        const { wait } = requestQuestion(state);
 
-        expect(projection.settleUserQuestion('missing', null)).toBe(false);
+        expect(state.projection.settleInteractionQuestion('call-1', null)).toBe(false);
+        expect(state.snapshot.pendingUserQuestion?.callId).toBe('call-1');
+
+        state.projection.settleInteractionQuestion(
+            'call-1',
+            null,
+            state.snapshot.pendingUserQuestion?.decisionId
+        );
+        void wait;
     });
 
-    it('user gets no question asked before a task started', async () => {
-        const { projection } = createProjection();
+    it('user gets the pending question readable while it waits', async () => {
+        const state = withToolCall();
+        const { record, wait } = requestQuestion(state);
 
-        await expect(
-            projection.requestUserQuestions('call-1', questions as never)
-        ).resolves.toBeNull();
-    });
+        expect(state.projection.getPendingUserQuestion()).toMatchObject({ callId: 'call-1' });
 
-    it('user gets the pending question readable while it waits', () => {
-        const { projection } = withToolCall();
-        const promise = projection.requestUserQuestions('call-1', questions as never);
-
-        expect(projection.getPendingUserQuestion()).toMatchObject({ callId: 'call-1' });
-
-        projection.settleUserQuestion('call-1', null);
-        void promise;
+        state.projection.settleInteractionQuestion('call-1', null, record.decisionId);
+        await expect(wait).resolves.toBeNull();
     });
 });

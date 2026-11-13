@@ -2,12 +2,15 @@ import { shallowMount, type VueWrapper } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent, h, nextTick, type Ref, ref, watch } from 'vue';
 
-import type { SessionMessage } from '@/types/session';
+import type { AskUserQuestion } from '@/services/AgentService/contracts/tooling';
+import type { PendingUserQuestionView } from '@/services/AgentService/task/types';
+import type { PendingToolApproval, SessionMessage } from '@/types/session';
 import type { SkillPickerState } from '@/views/SearchView/components/SearchBar/composables/useSkillAutocomplete';
 import SearchView from '@/views/SearchView/index.vue';
 import type { SearchSurfacePreparationControllerOptions } from '@/views/SearchView/searchSurfacePreparation';
 
 const {
+    askUserState,
     controllerMock,
     clipboardState,
     currentWindowMock,
@@ -22,6 +25,13 @@ const {
     startupState,
     surfacePreparationState,
 } = vi.hoisted(() => ({
+    askUserState: {
+        current: null,
+        cancelByApprovalCallId: vi.fn(),
+        cancelByQuestionCallId: vi.fn(),
+        enqueueApproval: vi.fn(),
+        enqueueQuestion: vi.fn(),
+    },
     controllerMock: {
         closeQuickSearch: vi.fn(),
         focusSearchInput: vi.fn(),
@@ -73,6 +83,11 @@ const {
             abandonHistorySelection: ReturnType<typeof vi.fn>;
             sessionHistory: Ref<SessionMessage[]>;
             currentSessionId: Ref<number | null>;
+            pendingToolApproval: Ref<PendingToolApproval | null>;
+            pendingUserQuestion: Ref<PendingUserQuestionView | null>;
+            approvePendingToolApproval: ReturnType<typeof vi.fn>;
+            rejectPendingToolApproval: ReturnType<typeof vi.fn>;
+            settleUserQuestion: ReturnType<typeof vi.fn>;
         } | null,
     },
     resizeState: {
@@ -173,13 +188,7 @@ vi.mock('@/services/ClipboardService', () => ({
 }));
 
 vi.mock('@/stores/askUser', () => ({
-    useAskUserStore: () => ({
-        current: null,
-        cancelByApprovalCallId: vi.fn(),
-        cancelByQuestionCallId: vi.fn(),
-        enqueueApproval: vi.fn(),
-        enqueueQuestion: vi.fn(),
-    }),
+    useAskUserStore: () => askUserState,
 }));
 
 vi.mock('@/stores/mcp', () => ({
@@ -733,6 +742,85 @@ describe('SearchView async overlay and listener lifecycle', () => {
 
         controllerMock.hasInputContent.mockReturnValue(true);
         expect(shouldClear()).toBe(false);
+    });
+
+    it('user gets the replacement approval prompt when a reused call id has a new decision', async () => {
+        mountSearchView();
+        await flushPromises();
+        const approval = {
+            callId: 'call-approval',
+            messageId: 'message-1',
+            title: 'Run command',
+            description: 'Review the command',
+            command: 'printf test',
+            riskLabel: 'Low',
+            reason: 'Test',
+            approveLabel: 'Run',
+            rejectLabel: 'Cancel',
+            enterHint: 'Enter to approve',
+            escHint: 'Esc to reject',
+            keyboardApproveAt: Date.now() + 450,
+            decisionId: 'decision-1',
+        } satisfies PendingToolApproval;
+        requestFlowState.current!.pendingToolApproval.value = approval;
+        await flushPromises();
+
+        requestFlowState.current!.pendingToolApproval.value = {
+            ...approval,
+            decisionId: 'decision-2',
+        };
+        await flushPromises();
+
+        expect(askUserState.cancelByApprovalCallId).toHaveBeenCalledWith('call-approval');
+        expect(askUserState.enqueueApproval).toHaveBeenCalledTimes(2);
+        const resolveCurrentApproval = askUserState.enqueueApproval.mock.calls[1]![1] as (
+            approved: boolean
+        ) => void;
+        resolveCurrentApproval(true);
+        expect(requestFlowState.current!.approvePendingToolApproval).toHaveBeenCalledWith(
+            'call-approval',
+            'decision-2'
+        );
+    });
+
+    it('user gets the replacement question prompt when a reused call id has a new decision', async () => {
+        mountSearchView();
+        await flushPromises();
+        const question: AskUserQuestion = {
+            question: 'Which environment?',
+            header: 'Environment',
+            options: [{ label: 'Staging' }, { label: 'Production' }],
+        };
+        requestFlowState.current!.pendingUserQuestion.value = {
+            callId: 'call-question',
+            sourceMessageId: 'message-1',
+            questions: [question],
+            createdAt: 1,
+            decisionId: 'decision-1',
+        };
+        await flushPromises();
+
+        requestFlowState.current!.pendingUserQuestion.value = {
+            callId: 'call-question',
+            sourceMessageId: 'message-2',
+            questions: [question],
+            createdAt: 2,
+            decisionId: 'decision-2',
+        };
+        await flushPromises();
+
+        expect(askUserState.cancelByQuestionCallId).toHaveBeenCalledWith('call-question');
+        expect(askUserState.enqueueQuestion).toHaveBeenCalledTimes(2);
+        const resolveCurrentQuestion = askUserState.enqueueQuestion.mock.calls[1]![1] as (
+            answers: Array<{ questionIndex: number; selectedLabels: string[]; skipped: boolean }>
+        ) => void;
+        const answers = [{ questionIndex: 0, selectedLabels: ['Staging'], skipped: false }];
+        resolveCurrentQuestion(answers);
+        expect(requestFlowState.current!.settleUserQuestion).toHaveBeenCalledWith(
+            'call-question',
+            answers,
+            'decision-2'
+        );
     });
 
     it('remeasures the host when positioned overlay bounds change the required viewport height', async () => {

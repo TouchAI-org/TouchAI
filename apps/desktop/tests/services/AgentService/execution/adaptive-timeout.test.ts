@@ -103,6 +103,7 @@ function persister() {
         getContextMessageSource: async () => undefined,
         persistCheckpoint: vi.fn().mockResolvedValue(undefined),
         getSessionId: vi.fn(() => 1),
+        getAttemptGeneration: vi.fn(() => 1),
     } as never;
 }
 

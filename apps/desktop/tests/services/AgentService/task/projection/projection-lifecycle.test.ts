@@ -17,15 +17,12 @@ function createSnapshot(): SessionTaskSnapshot {
         turnId: null,
         status: 'running',
         executionMode: 'foreground',
-        prompt: 'Prompt',
         sessionHistory: [],
         pendingToolApproval: null,
         pendingApprovals: [],
         pendingUserQuestion: null,
         error: null,
         currentModel: null,
-        promptSnapshot: null,
-        lastCheckpoint: null,
         startedAt: 1,
         updatedAt: 1,
         modelSwitchCount: 0,
@@ -283,7 +280,7 @@ describe('user gets task metadata synchronised', () => {
         expect(snapshot.error).toBeNull();
     });
 
-    it('user gets the prompt snapshot stored when it is ready', () => {
+    it('user never sees prompt snapshot internals in the task view', () => {
         const { snapshot, projection } = createProjection();
 
         projection.syncTaskMetadata({
@@ -292,11 +289,11 @@ describe('user gets task metadata synchronised', () => {
             snapshot: { messages: [] },
         } as never);
 
-        expect(snapshot.promptSnapshot).toEqual({ messages: [] });
+        expect(snapshot).not.toHaveProperty('promptSnapshot');
     });
 
-    it('user gets the last checkpoint stored', () => {
-        const { snapshot, projection } = createProjection();
+    it('user never sees checkpoint internals in the task view', () => {
+        const { snapshot, publish, projection } = createProjection();
 
         projection.syncTaskMetadata({
             type: 'checkpoint_committed',
@@ -304,24 +301,24 @@ describe('user gets task metadata synchronised', () => {
             checkpoint: { attempt: 1, messages: [] },
         } as never);
 
-        expect(snapshot.lastCheckpoint).toEqual({ attempt: 1, messages: [] });
+        expect(snapshot).not.toHaveProperty('lastCheckpoint');
+        expect(publish).toHaveBeenCalled();
     });
 
     it.each(['checkpoint_committed', 'retry_scheduled'] as const)(
-        'user receives %s and later edits cannot corrupt its saved model context',
+        'user receives %s without checkpoint internals entering the task view',
         (type) => {
-            const { snapshot, projection } = createProjection();
-            const messages = [{ role: 'user', content: 'Preserve the archive' }];
+            const { snapshot, publish, projection } = createProjection();
             projection.syncTaskMetadata({
                 type,
                 taskId: 'task-1',
-                checkpoint: { iteration: 1, messages },
+                checkpoint: {
+                    iteration: 1,
+                    messages: [{ role: 'user', content: 'Preserve the archive' }],
+                },
             } as never);
-            messages[0]!.content = 'Changed later';
-            expect(snapshot.lastCheckpoint?.messages[0]?.content).toBe('Preserve the archive');
-            expect(() => {
-                snapshot.lastCheckpoint!.messages[0]!.content = 'Corrupted';
-            }).toThrow(TypeError);
+            expect(snapshot).not.toHaveProperty('lastCheckpoint');
+            expect(publish).toHaveBeenCalled();
         }
     );
 

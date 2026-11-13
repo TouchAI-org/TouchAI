@@ -389,8 +389,19 @@
     const searchEntryPolicy = createSearchEntryPolicy();
     const suppressQuickSearchAutoOpenOnce = ref(false);
     const askUserStore = useAskUserStore();
-    let lastBridgedApprovalCallId: string | null = null;
-    let lastBridgedQuestionCallId: string | null = null;
+    type BridgedInteractionIdentity = {
+        callId: string;
+        decisionId?: string;
+    };
+    let lastBridgedApproval: BridgedInteractionIdentity | null = null;
+    let lastBridgedQuestion: BridgedInteractionIdentity | null = null;
+
+    function isSameBridgedInteraction(
+        current: BridgedInteractionIdentity | null,
+        next: BridgedInteractionIdentity
+    ): boolean {
+        return current?.callId === next.callId && current.decisionId === next.decisionId;
+    }
 
     function scheduleSearchWindowRegionSync(force = false, immediate = false) {
         searchWindowRegionReporter.schedule('geometry', force, immediate);
@@ -2279,12 +2290,15 @@
         }
 
         if (payload.action === 'approve') {
-            approvePendingToolApproval(payload.callId ?? undefined);
+            approvePendingToolApproval(
+                payload.callId ?? undefined,
+                payload.decisionId ?? undefined
+            );
             return;
         }
 
         if (payload.action === 'reject') {
-            rejectPendingToolApproval(payload.callId ?? undefined);
+            rejectPendingToolApproval(payload.callId ?? undefined, payload.decisionId ?? undefined);
             return;
         }
 
@@ -2548,8 +2562,15 @@
         pendingToolApproval,
         (approval) => {
             if (approval) {
-                if (lastBridgedApprovalCallId === approval.callId) return;
-                lastBridgedApprovalCallId = approval.callId;
+                const identity = {
+                    callId: approval.callId,
+                    decisionId: approval.decisionId,
+                };
+                if (isSameBridgedInteraction(lastBridgedApproval, identity)) return;
+                if (lastBridgedApproval) {
+                    askUserStore.cancelByApprovalCallId(lastBridgedApproval.callId);
+                }
+                lastBridgedApproval = identity;
                 controller.closeQuickSearch();
                 void hideAllOverlays().catch((error) => {
                     log.error('[SearchView] failed to hide overlays before approval prompt', error);
@@ -2573,17 +2594,17 @@
                     },
                     (approved) => {
                         if (approved) {
-                            approvePendingToolApproval(approval.callId);
+                            approvePendingToolApproval(approval.callId, approval.decisionId);
                         } else {
-                            rejectPendingToolApproval(approval.callId);
+                            rejectPendingToolApproval(approval.callId, approval.decisionId);
                         }
                     }
                 );
             } else {
                 // Approval resolved externally (e.g. task cancelled)
-                if (lastBridgedApprovalCallId) {
-                    askUserStore.cancelByApprovalCallId(lastBridgedApprovalCallId);
-                    lastBridgedApprovalCallId = null;
+                if (lastBridgedApproval) {
+                    askUserStore.cancelByApprovalCallId(lastBridgedApproval.callId);
+                    lastBridgedApproval = null;
                 }
             }
         },
@@ -2595,8 +2616,15 @@
         pendingUserQuestion,
         (question) => {
             if (question) {
-                if (lastBridgedQuestionCallId === question.callId) return;
-                lastBridgedQuestionCallId = question.callId;
+                const identity = {
+                    callId: question.callId,
+                    decisionId: question.decisionId,
+                };
+                if (isSameBridgedInteraction(lastBridgedQuestion, identity)) return;
+                if (lastBridgedQuestion) {
+                    askUserStore.cancelByQuestionCallId(lastBridgedQuestion.callId);
+                }
+                lastBridgedQuestion = identity;
                 controller.closeQuickSearch();
                 void hideAllOverlays().catch((error) => {
                     log.error('[SearchView] failed to hide overlays before question prompt', error);
@@ -2604,14 +2632,14 @@
                 askUserStore.enqueueQuestion(
                     question.questions,
                     (answers) => {
-                        settleUserQuestion(question.callId, answers);
+                        settleUserQuestion(question.callId, answers, question.decisionId);
                     },
                     { sourceCallId: question.callId }
                 );
             } else {
-                if (lastBridgedQuestionCallId) {
-                    askUserStore.cancelByQuestionCallId(lastBridgedQuestionCallId);
-                    lastBridgedQuestionCallId = null;
+                if (lastBridgedQuestion) {
+                    askUserStore.cancelByQuestionCallId(lastBridgedQuestion.callId);
+                    lastBridgedQuestion = null;
                 }
             }
         },

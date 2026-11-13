@@ -17,6 +17,7 @@ import type {
     AttemptCheckpoint,
     RequestPrivateState,
 } from '@/services/AgentService/execution/executor';
+import { dispatchToolCall } from '@/services/AgentService/infrastructure/tools';
 
 const providerMock = vi.hoisted(() => ({
     stream: vi.fn(),
@@ -82,6 +83,16 @@ vi.mock('@/services/AgentService/infrastructure/providers/drivers', async (impor
     >()),
     createProviderFromRegistry: createProviderFromRegistryMock,
 }));
+
+function deferred<T>() {
+    let resolve!: (value: T | PromiseLike<T>) => void;
+    let reject!: (reason?: unknown) => void;
+    const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+        resolve = resolvePromise;
+        reject = rejectPromise;
+    });
+    return { promise, resolve, reject };
+}
 
 function createCheckpoint(): AttemptCheckpoint {
     return {
@@ -296,6 +307,7 @@ describe('user sends a prompt and receives a streamed answer', () => {
             const persisted: unknown[] = [];
             const persister = {
                 getSessionId: () => 42,
+                getAttemptGeneration: () => 1,
                 persistContextSummary: async (summary: unknown) => {
                     persisted.push(summary);
                     return 1;
@@ -370,6 +382,8 @@ describe('user sends a prompt and receives a streamed answer', () => {
                 getSessionId: () => 42,
 
                 persistContextSummary: async () => 1,
+                validateContextSummary: async () => undefined,
+                persistCheckpoint: async () => undefined,
                 persistOutputProgress: async () => undefined,
                 persistToolCallMessage: async (parts: PersistedOutputPart[]) => {
                     storedToolParts.push(parts);
@@ -377,7 +391,7 @@ describe('user sends a prompt and receives a streamed answer', () => {
                 },
                 persistToolResult: async () => undefined,
                 getContextMessageSource: async () => undefined,
-                persistCheckpoint: async () => undefined,
+                getAttemptGeneration: () => 1,
             } as never,
         });
         expect(result.type).toBe('failed');
@@ -398,6 +412,7 @@ describe('user sends a prompt and receives a streamed answer', () => {
         const persister = {
             getSessionId: () => 42,
             persistOutputProgress: async () => undefined,
+            getAttemptGeneration: () => 1,
         };
         const failed = await executor.runAttempt({
             startCheckpoint: createCheckpoint(),
@@ -461,7 +476,10 @@ describe('user sends a prompt and receives a streamed answer', () => {
                 getSessionId: () => 42,
 
                 persistContextSummary: async () => 1,
+                validateContextSummary: async () => undefined,
+                persistCheckpoint: async () => undefined,
                 persistOutputProgress: async () => undefined,
+                getAttemptGeneration: () => 1,
             } as never,
         });
         expect(result.type).toBe('completed');
@@ -505,7 +523,10 @@ describe('user sends a prompt and receives a streamed answer', () => {
                 getSessionId: () => 42,
 
                 persistContextSummary: async () => 1,
+                validateContextSummary: async () => undefined,
+                persistCheckpoint: async () => undefined,
                 persistOutputProgress: async () => undefined,
+                getAttemptGeneration: () => 1,
             } as never,
         });
         expect(result.type).toBe('completed');
@@ -538,6 +559,8 @@ describe('user sends a prompt and receives a streamed answer', () => {
             signal: controller.signal,
             persister: {
                 getSessionId: () => 42,
+                persistOutputProgress: async () => undefined,
+                getAttemptGeneration: () => 1,
             } as never,
         });
         expect(result.type).toBe('failed');
@@ -579,7 +602,10 @@ describe('user sends a prompt and receives a streamed answer', () => {
                         getSessionId: () => 42,
 
                         persistContextSummary: async () => 1,
+                        validateContextSummary: async () => undefined,
+                        persistCheckpoint: async () => undefined,
                         persistOutputProgress: async () => undefined,
+                        getAttemptGeneration: () => 1,
                     } as never,
                 });
                 if (cancel) {
@@ -622,6 +648,10 @@ describe('user sends a prompt and receives a streamed answer', () => {
             startCheckpoint: createLongCheckpoint(),
             persister: {
                 getSessionId: () => 42,
+                validateContextSummary: async () => undefined,
+                persistCheckpoint: async () => undefined,
+                persistOutputProgress: async () => undefined,
+                getAttemptGeneration: () => 1,
             } as never,
         });
         expect(result.type).toBe('failed');
@@ -640,7 +670,11 @@ describe('user sends a prompt and receives a streamed answer', () => {
 
         const outcome = await new AiRequestExecutor().runAttempt({
             startCheckpoint: createCheckpoint(),
-            persister: { getSessionId: () => 42 } as never,
+            persister: {
+                getSessionId: () => 42,
+                persistOutputProgress: vi.fn().mockResolvedValue(undefined),
+                getAttemptGeneration: () => 1,
+            } as never,
         });
 
         expect(outcome.type).toBe('completed');
@@ -666,6 +700,7 @@ describe('user sends a prompt and receives a streamed answer', () => {
                 getSessionId: () => 42,
                 persistCheckpoint,
                 persistOutputProgress: vi.fn().mockResolvedValue(undefined),
+                getAttemptGeneration: () => 1,
             } as never,
         });
         expect(result).toMatchObject({
@@ -682,63 +717,88 @@ describe('user sends a prompt and receives a streamed answer', () => {
     it('user sees reasoning saved before the next stream event arrives', async () => {
         vi.useFakeTimers();
         vi.setSystemTime(1000);
-        const persistOutputProgress = vi.fn().mockResolvedValue(undefined);
-        const firstSaved = new Promise<void>((resolve) => {
-            persistOutputProgress.mockImplementationOnce(async () => resolve());
+        const firstWriteStarted = deferred<void>();
+        const releaseFirstWrite = deferred<void>();
+        let writeCount = 0;
+        const persistOutputProgress = vi.fn(async () => {
+            writeCount += 1;
+            if (writeCount === 1) {
+                firstWriteStarted.resolve();
+                await releaseFirstWrite.promise;
+            }
         });
         providerMock.stream.mockImplementation(async function* () {
             yield { content: '', reasoningState: 'start', done: false };
-            await firstSaved;
-            expect(persistOutputProgress).toHaveBeenCalledWith([
-                { type: 'reasoning', content: '', startedAt: 1000 },
-            ]);
+            await firstWriteStarted.promise;
+            expect(persistOutputProgress).toHaveBeenCalledWith(
+                [{ type: 'reasoning', content: '', startedAt: 1000 }],
+                { attemptGeneration: 1, step: 0 }
+            );
+            releaseFirstWrite.resolve();
             vi.setSystemTime(6000);
             yield { content: '', reasoning: 'Plan', done: false };
             yield { content: 'Answer', done: true };
         });
         const outcome = await new AiRequestExecutor().runAttempt({
             startCheckpoint: createCheckpoint(),
-            persister: { getSessionId: () => 42, persistOutputProgress } as never,
+            persister: {
+                getSessionId: () => 42,
+                persistOutputProgress,
+                getAttemptGeneration: () => 1,
+            } as never,
         });
         expect(outcome.type).toBe('completed');
-        expect(persistOutputProgress).toHaveBeenLastCalledWith([
-            { type: 'reasoning', content: 'Plan', startedAt: 1000, endedAt: 6000 },
-            { type: 'text', content: 'Answer' },
-        ]);
+        expect(persistOutputProgress).toHaveBeenLastCalledWith(
+            [
+                { type: 'reasoning', content: 'Plan', startedAt: 1000, endedAt: 6000 },
+                { type: 'text', content: 'Answer' },
+            ],
+            { attemptGeneration: 1, step: 0 }
+        );
         expect(vi.getTimerCount()).toBe(0);
     });
 
     it('user sees the finished answer saved without a temporary snapshot', async () => {
         vi.useFakeTimers();
         vi.setSystemTime(1000);
-        const persistOutputProgress = vi.fn().mockResolvedValue(undefined);
-        const reasoningSaved = new Promise<void>((resolve) => {
-            persistOutputProgress.mockImplementation(async (parts: PersistedOutputPart[]) => {
-                if (parts.some((part) => part.type === 'reasoning' && part.endedAt !== undefined))
-                    resolve();
-            });
+        const completedReasoningWriteStarted = deferred<void>();
+        const releaseCompletedReasoningWrite = deferred<void>();
+        const persistOutputProgress = vi.fn(async (parts: Array<{ endedAt?: number }>) => {
+            if (parts[0]?.endedAt === 6000) {
+                completedReasoningWriteStarted.resolve();
+                await releaseCompletedReasoningWrite.promise;
+            }
         });
         providerMock.stream.mockImplementation(async function* () {
             yield { content: '', reasoning: 'Plan', done: false };
             vi.setSystemTime(6000);
             yield { content: 'Answer', done: false };
             // The completed reasoning fragment must survive before the reply finishes.
-            await reasoningSaved;
-            expect(persistOutputProgress).toHaveBeenCalledWith([
-                { type: 'reasoning', content: 'Plan', startedAt: 1000, endedAt: 6000 },
-            ]);
+            await completedReasoningWriteStarted.promise;
+            expect(persistOutputProgress).toHaveBeenCalledWith(
+                [{ type: 'reasoning', content: 'Plan', startedAt: 1000, endedAt: 6000 }],
+                { attemptGeneration: 1, step: 0 }
+            );
+            releaseCompletedReasoningWrite.resolve();
             yield { content: ' complete', textState: 'end', done: false };
             yield { content: '', done: true };
         });
         const result = await new AiRequestExecutor().runAttempt({
             startCheckpoint: createCheckpoint(),
-            persister: { getSessionId: () => 42, persistOutputProgress } as never,
+            persister: {
+                getSessionId: () => 42,
+                persistOutputProgress,
+                getAttemptGeneration: () => 1,
+            } as never,
         });
         expect(result.type).toBe('completed');
-        expect(persistOutputProgress).toHaveBeenLastCalledWith([
-            { type: 'reasoning', content: 'Plan', startedAt: 1000, endedAt: 6000 },
-            { type: 'text', content: 'Answer complete' },
-        ]);
+        expect(persistOutputProgress).toHaveBeenLastCalledWith(
+            [
+                { type: 'reasoning', content: 'Plan', startedAt: 1000, endedAt: 6000 },
+                { type: 'text', content: 'Answer complete' },
+            ],
+            { attemptGeneration: 1, step: 0 }
+        );
         expect(vi.getTimerCount()).toBe(0);
     });
 
@@ -801,6 +861,7 @@ describe('user sends a prompt and receives a streamed answer', () => {
                 persistToolResult: vi.fn().mockResolvedValue(undefined),
                 getContextMessageSource: async () => undefined,
                 persistCheckpoint: vi.fn().mockResolvedValue(undefined),
+                getAttemptGeneration: () => 1,
             } as never,
         });
         expect(outcome.type).toBe('completed');
@@ -830,7 +891,7 @@ describe('user sends a prompt and receives a streamed answer', () => {
         const executor = new AiRequestExecutor();
         const result = await executor.runAttempt({
             startCheckpoint: createCheckpoint(),
-            persister: { getSessionId: () => 42 } as never,
+            persister: { getSessionId: () => 42, getAttemptGeneration: () => 1 } as never,
         });
 
         expect(result.type).toBe('failed');
@@ -845,26 +906,11 @@ describe('user sends a prompt and receives a streamed answer', () => {
     });
 });
 
-type TestExecutor = {
-    executeMcpToolCall(options: {
-        toolCall: AiToolCall;
-        toolArgs: Record<string, unknown>;
-        iteration: number;
-        sessionId: number | null;
-        toolCallMessageId: number | null;
-        onChunk?: (chunk: unknown) => void;
-    }): Promise<{
-        result: string;
-        isError: boolean;
-        toolLogKind: string | null;
-    }>;
-};
-
 function createToolCall(): AiToolCall {
     return {
         id: 'call-mcp-1',
         name: 'mcp__1__search',
-        arguments: '{}',
+        arguments: '{"query":"alpha"}',
     };
 }
 
@@ -882,18 +928,14 @@ describe('user runs a tool call and watches it start', () => {
             isError: false,
         });
 
-        const executor = new AiRequestExecutor();
-        const chunks: unknown[] = [];
-
-        const result = await (executor as unknown as TestExecutor).executeMcpToolCall({
+        const events: Array<{ type?: string }> = [];
+        const result = await dispatchToolCall({
             toolCall: createToolCall(),
-            toolArgs: {
-                query: 'alpha',
-            },
             iteration: 0,
+            currentModel: {} as never,
             sessionId: null,
             toolCallMessageId: null,
-            onChunk: (chunk: unknown) => chunks.push(chunk),
+            emitToolEvent: (event) => events.push(event as { type?: string }),
         });
 
         expect(result).toMatchObject({
@@ -901,16 +943,11 @@ describe('user runs a tool call and watches it start', () => {
             result: 'done',
         });
 
-        const callStartChunk = chunks.find((chunk) => {
-            return (
-                typeof chunk === 'object' &&
-                chunk !== null &&
-                'toolEvent' in chunk &&
-                (chunk as { toolEvent?: { type?: string } }).toolEvent?.type === 'call_start'
-            );
-        }) as { toolEvent: Record<string, unknown> } | undefined;
+        const callStartEvent = events.find((event) => event.type === 'call_start') as
+            | Record<string, unknown>
+            | undefined;
 
-        expect(callStartChunk?.toolEvent).toMatchObject({
+        expect(callStartEvent).toMatchObject({
             type: 'call_start',
             callId: 'call-mcp-1',
             toolName: 'search',
@@ -938,13 +975,18 @@ describe('user runs a tool call and watches it start', () => {
             isError: false,
         });
 
-        const executor = new AiRequestExecutor();
-        await (executor as unknown as TestExecutor).executeMcpToolCall({
-            toolCall: createToolCall(),
-            toolArgs: { query: 'alpha', accessToken: 'argument-secret' },
+        const toolCall = createToolCall();
+        toolCall.arguments = JSON.stringify({
+            query: 'alpha',
+            accessToken: 'argument-secret',
+        });
+        await dispatchToolCall({
+            toolCall,
             iteration: 0,
+            currentModel: {} as never,
             sessionId: null,
             toolCallMessageId: null,
+            emitToolEvent: vi.fn(),
         });
 
         const storedInput = createMcpToolLogMock.mock.calls[0]?.[0] as { input: string };
@@ -983,6 +1025,7 @@ describe('user calls a tool the agent does not have', () => {
     function persisterStub() {
         return {
             persistOutputProgress: vi.fn().mockResolvedValue(undefined),
+            getAttemptGeneration: () => 1,
             getSessionId: vi.fn(() => 1),
             persistToolCallMessage: vi.fn().mockResolvedValue(1),
             persistToolResult: vi.fn().mockResolvedValue(undefined),
@@ -990,6 +1033,165 @@ describe('user calls a tool the agent does not have', () => {
             persistCheckpoint: vi.fn().mockResolvedValue(undefined),
         };
     }
+
+    it('user sees the executor forward a started MCP call to the stream', async () => {
+        resolveToolCallMock.mockResolvedValue({
+            serverId: 1,
+            originalName: 'search',
+            toolTimeout: 30000,
+        });
+        createMcpToolLogMock.mockResolvedValue({ id: 23 });
+        updateMcpToolLogByIdMock.mockResolvedValue(undefined);
+        executeToolMock.mockResolvedValue({ result: 'found', isError: false });
+        providerMock.stream
+            .mockImplementationOnce(
+                streamOneToolCall({
+                    id: 'call-start',
+                    name: 'mcp__1__search',
+                    arguments: '{"query":"alpha"}',
+                })
+            )
+            .mockImplementationOnce(async function* () {
+                yield { content: 'Done', done: true };
+            });
+
+        const chunks: Array<{ toolEvent?: Record<string, unknown> }> = [];
+        const outcome = await new AiRequestExecutor().runAttempt({
+            startCheckpoint: createCheckpoint(),
+            persister: persisterStub() as never,
+            onChunk: (chunk) => chunks.push(chunk as never),
+        });
+
+        expect(outcome.type).toBe('completed');
+        expect(chunks).toContainEqual(
+            expect.objectContaining({
+                toolEvent: expect.objectContaining({
+                    type: 'call_start',
+                    callId: 'call-start',
+                    toolName: 'search',
+                    namespacedName: 'mcp__1__search',
+                    source: 'mcp',
+                    serverId: 1,
+                }),
+            })
+        );
+    });
+
+    it('user waits for a pending sibling before a failed parallel round settles', async () => {
+        const siblingStarted = deferred<void>();
+        const siblingObservedAbort = deferred<void>();
+        const releaseSibling = deferred<void>();
+        builtInExecuteToolMock.mockImplementation(
+            async (options: { toolCall: AiToolCall; signal?: AbortSignal }) => {
+                if (options.toolCall.name === 'builtin__fail') {
+                    throw new Error('first tool failed');
+                }
+                siblingStarted.resolve();
+                options.signal?.addEventListener('abort', () => siblingObservedAbort.resolve(), {
+                    once: true,
+                });
+                await releaseSibling.promise;
+                return {
+                    toolCall: options.toolCall,
+                    builtInToolId: 'bash',
+                    result: 'sibling finished',
+                    isError: false,
+                    toolLogId: null,
+                };
+            }
+        );
+        providerMock.classifyError.mockImplementationOnce(
+            () => new AiError(AiErrorCode.NETWORK_ERROR)
+        );
+        providerMock.stream.mockImplementationOnce(async function* () {
+            yield {
+                content: '',
+                done: true,
+                finishReason: 'tool_calls',
+                toolCalls: [
+                    { id: 'call-fail', name: 'builtin__fail', arguments: '{}' },
+                    { id: 'call-sibling', name: 'builtin__sibling', arguments: '{}' },
+                ],
+            };
+        });
+
+        const attempt = new AiRequestExecutor().runAttempt({
+            startCheckpoint: createCheckpoint(),
+            persister: persisterStub() as never,
+        });
+        let settled = false;
+        void attempt.finally(() => {
+            settled = true;
+        });
+
+        await siblingStarted.promise;
+        await siblingObservedAbort.promise;
+        expect(settled).toBe(false);
+
+        releaseSibling.resolve();
+        const outcome = await attempt;
+        expect(outcome.type).toBe('failed');
+    });
+
+    it('user cancellation is not recorded as rejection when a parallel tool fails', async () => {
+        const approvalRequested = deferred<void>();
+        const approvalWait = deferred<boolean>();
+        const siblingObservedCancellation = deferred<boolean>();
+        builtInExecuteToolMock.mockImplementation(
+            async (options: {
+                toolCall: AiToolCall;
+                signal?: AbortSignal;
+                requestToolApproval?: (payload: { callId: string }) => Promise<boolean>;
+            }) => {
+                if (options.toolCall.name === 'builtin__fail') {
+                    await approvalRequested.promise;
+                    throw new Error('first tool failed');
+                }
+                const approved = await options.requestToolApproval?.({
+                    callId: options.toolCall.id,
+                });
+                siblingObservedCancellation.resolve(
+                    approved === false && options.signal?.aborted === true
+                );
+                if (options.signal?.aborted) {
+                    throw new AiError(AiErrorCode.REQUEST_CANCELLED);
+                }
+                return {
+                    toolCall: options.toolCall,
+                    builtInToolId: 'bash',
+                    result: 'approved',
+                    isError: false,
+                    toolLogId: null,
+                };
+            }
+        );
+        providerMock.classifyError.mockImplementationOnce(
+            () => new AiError(AiErrorCode.NETWORK_ERROR)
+        );
+        providerMock.stream.mockImplementationOnce(async function* () {
+            yield {
+                content: '',
+                done: true,
+                finishReason: 'tool_calls',
+                toolCalls: [
+                    { id: 'call-fail', name: 'builtin__fail', arguments: '{}' },
+                    { id: 'call-await-approval', name: 'builtin__approval', arguments: '{}' },
+                ],
+            };
+        });
+
+        const outcome = await new AiRequestExecutor().runAttempt({
+            startCheckpoint: createCheckpoint(),
+            persister: persisterStub() as never,
+            requestToolApproval: async () => {
+                approvalRequested.resolve();
+                return approvalWait.promise;
+            },
+        });
+
+        expect(outcome.type).toBe('failed');
+        expect(await siblingObservedCancellation.promise).toBe(true);
+    });
 
     it('user sees the tool reported as missing when no tool matches the call', async () => {
         resolveToolCallMock.mockResolvedValue(null);
@@ -1069,13 +1271,32 @@ describe('user calls a tool the agent does not have', () => {
             });
 
         const persister = persisterStub();
+        const chunks: Array<{ toolEvent?: Record<string, unknown> }> = [];
         const outcome = await new AiRequestExecutor().runAttempt({
             startCheckpoint: createCheckpoint(),
             persister: persister as never,
+            onChunk: (chunk) => chunks.push(chunk as never),
         });
 
         expect(outcome.type).toBe('completed');
         expect(builtInExecuteToolMock).not.toHaveBeenCalled();
+        expect(chunks).toContainEqual(
+            expect.objectContaining({
+                toolEvent: expect.objectContaining({
+                    type: 'call_end',
+                    callId: 'call-1',
+                    isError: true,
+                    finalStatus: 'error',
+                }),
+            })
+        );
+        expect(persister.persistToolResult).toHaveBeenCalledWith(
+            expect.objectContaining({
+                result: expect.stringContaining('builtin__bash'),
+                toolCallId: 'call-1',
+                toolCallPartId: expect.any(Number),
+            })
+        );
         if (outcome.type !== 'completed') {
             return;
         }
@@ -1167,6 +1388,7 @@ describe('user asks the agent to switch to a stronger model', () => {
     function persisterStub() {
         return {
             persistOutputProgress: vi.fn().mockResolvedValue(undefined),
+            getAttemptGeneration: () => 1,
             getSessionId: vi.fn(() => 1),
             persistToolCallMessage: vi.fn().mockResolvedValue(1),
             persistToolResult: vi.fn().mockResolvedValue(undefined),

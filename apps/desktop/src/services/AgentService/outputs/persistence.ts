@@ -220,6 +220,16 @@ export class PersistenceProjector {
     private attemptState: AttemptState | null;
     // 复用同一消息时，记录上一次已写入的 parts，跳过未变化的边界写入。
     private readonly lastPartDrafts = new Map<number, MessagePartCreateData[]>();
+    /**
+     * 单调递增的 attempt 归属代次。
+     *
+     * 在每次权威 attempt 边界（`recordTurnStart` / `beginNextAttempt`）推进。
+     * 有界进度写入携带创建时的代次，落库前校验：一次迟到的、属于旧 attempt 的
+     * 进度快照不会写进新的 attempt。
+     */
+    private attemptGeneration = 0;
+    /** 当前 attempt 内已接受的最大进度 step，用于拒绝旧 step 的迟到写入。 */
+    private lastProgressStep = -1;
 
     constructor(options: PersistenceProjectorOptions) {
         this.prompt = options.prompt;
@@ -239,6 +249,11 @@ export class PersistenceProjector {
         this.turn = null;
         this.turnStartedAtMs = null;
         this.attemptState = null;
+    }
+
+    /** 当前 attempt 归属代次；进度写入用它校验自己仍属于当前 attempt。 */
+    getAttemptGeneration(): number {
+        return this.attemptGeneration;
     }
 
     /**
@@ -306,6 +321,8 @@ export class PersistenceProjector {
                 contextSource: result.source,
             };
         }
+        this.attemptGeneration += 1;
+        this.lastProgressStep = -1;
     }
 
     /**
@@ -609,6 +626,8 @@ export class PersistenceProjector {
             this.deliveryManifest = emptyDeliveryManifest;
             this.attemptState = result.attemptState;
             this.turn = result.turn;
+            this.attemptGeneration += 1;
+            this.lastProgressStep = -1;
         } catch (error) {
             log.error('[PersistenceProjector] Failed to begin next attempt:', error);
             throw error;
@@ -1043,9 +1062,21 @@ export class PersistenceProjector {
         });
     }
 
-    /** 片段边界写入正式 parts（推理开始/结束、正文结束）；没有定时快照。 */
-    async persistOutputProgress(parts: PersistedOutputPart[]): Promise<void> {
+    /**
+     * 片段边界写入正式 parts（推理开始/结束、正文结束）；没有定时快照。
+     *
+     * `identity.attemptGeneration` 必须等于当前 attempt 代次：一次在 attempt 切换
+     * 之后才落地的迟到快照会被直接丢弃，不会写进新 attempt 的消息。
+     */
+    async persistOutputProgress(
+        parts: PersistedOutputPart[],
+        identity: { attemptGeneration: number; step: number }
+    ): Promise<void> {
         if (!this.attemptState || parts.length === 0) return;
+        if (identity.attemptGeneration !== this.attemptGeneration) return;
+        // A snapshot from an older model step must not land after a newer step wrote.
+        if (identity.step < this.lastProgressStep) return;
+        this.lastProgressStep = identity.step;
         const normalized = normalizeOutputParts(parts);
         if (normalized.length === 0) return;
         const result = await this.persistOutputTransaction(async (tx, pendingPartDrafts) => {
