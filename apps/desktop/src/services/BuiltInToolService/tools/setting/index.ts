@@ -4,6 +4,7 @@ import { log } from '@services/ObservabilityService';
 
 import { t, tt } from '@/i18n';
 import type { ToolApprovalRequest } from '@/services/AgentService/contracts/tooling';
+import { unconfirmedMessage } from '@/services/SettingsService/messages';
 import { SettingsErrorCode } from '@/services/SettingsService/types';
 import { truncateText } from '@/utils/text';
 
@@ -149,13 +150,12 @@ export async function executeSettingTool(
             };
         }
         if (result.status === 'unknown' || result.status === 'recovery-required') {
+            const message = unconfirmedMessage();
             return {
-                result: [tt('设置修改失败。'), formatSingleUpdate(request.key, request.value)].join(
-                    '\n'
-                ),
+                result: [formatSingleUpdate(request.key, request.value), message].join('\n'),
                 isError: true,
                 status: 'error',
-                errorMessage: tt('设置修改失败。'),
+                errorMessage: message,
             };
         }
         if (

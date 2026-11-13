@@ -14,6 +14,9 @@ function createPatch(base: unknown, draft: unknown): unknown | typeof NO_CHANGES
     if (Object.is(base, draft)) {
         return NO_CHANGES;
     }
+    if (Array.isArray(base) && Array.isArray(draft)) {
+        return JSON.stringify(base) === JSON.stringify(draft) ? NO_CHANGES : cloneJsonValue(draft);
+    }
     if (!isJsonObject(base) || !isJsonObject(draft)) {
         return cloneJsonValue(draft);
     }

@@ -211,9 +211,9 @@ describe('user changes app settings through the assistant', () => {
         expect(result).toMatchObject({
             isError: true,
             status: 'error',
-            errorMessage: 'Setting update failed.',
+            errorMessage: 'The setting result is unconfirmed. Re-check settings before retrying.',
         });
-        expect(result.result).toContain('Setting update failed');
+        expect(result.result).toContain('The setting result is unconfirmed');
         expect(result.result).not.toContain('database timeout');
     });
 

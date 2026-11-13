@@ -307,7 +307,7 @@
             await nextTick();
             saveState.value = 'saved';
             syncedConfig = cloneConfig(settings.value.searchSettings);
-            if (hasSettingsDraftChanges(syncedConfig, draft.value)) {
+            if (hasSettingsDraftChanges(syncedConfig, cloneConfig(draft.value))) {
                 scheduleAutoSave();
             }
         } catch (error) {
