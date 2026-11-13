@@ -9,10 +9,14 @@ export {
     buildAttachmentPromptMetas,
     bytesToArrayBuffer,
     formatAttachmentAnchorText,
+    formatAttachmentNotInlined,
     readAttachmentAsBase64,
     readAttachmentAsText,
     readAttachmentBuffer,
+    readAttachmentHead,
+    readAttachmentImageForTransport,
 } from './content';
+export { type NormalizedImageBytes, normalizeImageBytes } from './imageNormalization';
 export { type AttachmentInspection, inspectAttachment, inspectAttachments } from './inspect';
 export {
     createAttachmentDeliveryManifestRequest,

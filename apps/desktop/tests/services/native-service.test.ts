@@ -775,6 +775,25 @@ describe('user searches files and shortcuts', () => {
         ).resolves.toEqual(response);
     });
 
+    it('user lists a directory with its page offset', async () => {
+        const response: QuickSearchResult = {
+            shortcuts: [],
+            files: [{ name: 'notes.md', path: 'D:/docs/notes.md', source: 'file' }],
+            total_files: 1,
+            total_results: 1,
+            next_offset: 1,
+        };
+        mockTauriCommand('quick_search_list_directory', response);
+
+        await expect(
+            callAndExpectInvoke(
+                () => quickSearch.listDirectory('D:/docs/', 60, 30),
+                'quick_search_list_directory',
+                { query: 'D:/docs/', limit: 60, offset: 30 }
+            )
+        ).resolves.toEqual(response);
+    });
+
     it('user searches files with shortcut inclusion sent in snake case', async () => {
         const response: QuickSearchFileItem[] = [{ name: 'README.md', path: 'D:/README.md' }];
         mockTauriCommand('quick_search_search_files', response);

@@ -191,7 +191,11 @@ export function useAssetLoader(
      * @returns 可展示路径提示文本；非路径来源返回空字符串。
      */
     function getItemHoverTitle(item: QuickShortcutItem | null): string {
-        return item?.source === 'file' || item?.source === 'shortcut_file' ? item.path : '';
+        return item?.source === 'file' ||
+            item?.source === 'folder' ||
+            item?.source === 'shortcut_file'
+            ? item.path
+            : '';
     }
 
     /**

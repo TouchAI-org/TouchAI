@@ -110,3 +110,93 @@ describe('given the native file index contributes to shared search', () => {
         ).toBeNull();
     });
 });
+
+describe('given the user types a directory path after @', () => {
+    it('user gets only that directory files without an Everything fuzzy query', async () => {
+        const searchShortcuts = vi.fn();
+        const listDirectory = vi.fn().mockResolvedValue({
+            shortcuts: [],
+            files: [
+                { name: 'notes.md', path: 'D:/docs/notes.md', source: 'file' as const },
+                { name: 'plan.txt', path: 'D:/docs/plan.txt', source: 'file' as const },
+            ],
+            total_files: 2,
+            total_results: 2,
+            next_offset: 2,
+        });
+        const registry = new SearchProviderRegistry();
+        registry.registerProvider(createFileSearchProvider({ searchShortcuts, listDirectory }));
+        const session = registry.createSession();
+
+        await session.search({ query: 'D:/docs/', intent: 'file-reference' });
+
+        expect(listDirectory).toHaveBeenCalledWith('D:/docs/', 60, 0);
+        expect(searchShortcuts).not.toHaveBeenCalled();
+        expect(session.snapshot.items.map(({ result }) => result.label)).toEqual([
+            'notes.md',
+            'plan.txt',
+        ]);
+    });
+
+    it('user gets directory results from a quoted path', async () => {
+        const searchShortcuts = vi.fn();
+        const listDirectory = vi.fn().mockResolvedValue({
+            shortcuts: [],
+            files: [{ name: 'notes.md', path: 'D:/docs/notes.md', source: 'file' as const }],
+            total_files: 1,
+            total_results: 1,
+            next_offset: 1,
+        });
+        const registry = new SearchProviderRegistry();
+        registry.registerProvider(createFileSearchProvider({ searchShortcuts, listDirectory }));
+        const session = registry.createSession();
+
+        await session.search({ query: '"D:/docs/"', intent: 'file-reference' });
+
+        expect(listDirectory).toHaveBeenCalledWith('"D:/docs/"', 60, 0);
+        expect(searchShortcuts).not.toHaveBeenCalled();
+        expect(session.snapshot.items[0]?.result.description).toBe('D:/docs/notes.md');
+    });
+
+    it('user gets POSIX directory results on macOS or Linux', async () => {
+        const searchShortcuts = vi.fn();
+        const listDirectory = vi.fn().mockResolvedValue({
+            shortcuts: [],
+            files: [
+                { name: 'shots', path: '/Users/me/Documents/shots', source: 'folder' as const },
+                { name: 'plan.md', path: '/Users/me/Documents/plan.md', source: 'file' as const },
+            ],
+            total_files: 2,
+            total_results: 2,
+            next_offset: 2,
+        });
+        const registry = new SearchProviderRegistry();
+        registry.registerProvider(createFileSearchProvider({ searchShortcuts, listDirectory }));
+        const session = registry.createSession();
+
+        await session.search({ query: '/Users/me/Documents/', intent: 'file-reference' });
+
+        expect(listDirectory).toHaveBeenCalledWith('/Users/me/Documents/', 60, 0);
+        expect(session.snapshot.items.map(({ result }) => result.group)).toEqual(['file', 'file']);
+        expect(session.snapshot.items[0]?.result.label).toBe('shots');
+    });
+
+    it('user still gets Everything results for an ordinary name query', async () => {
+        const searchShortcuts = vi.fn().mockResolvedValue({
+            shortcuts: [],
+            files: [{ name: 'notes.md', path: 'D:/docs/notes.md', source: 'file' as const }],
+            total_files: 1,
+            total_results: 1,
+            next_offset: 1,
+        });
+        const listDirectory = vi.fn();
+        const registry = new SearchProviderRegistry();
+        registry.registerProvider(createFileSearchProvider({ searchShortcuts, listDirectory }));
+        const session = registry.createSession();
+
+        await session.search({ query: 'notes', intent: 'file-reference' });
+
+        expect(listDirectory).not.toHaveBeenCalled();
+        expect(searchShortcuts).toHaveBeenCalledWith('notes', 60, 0);
+    });
+});

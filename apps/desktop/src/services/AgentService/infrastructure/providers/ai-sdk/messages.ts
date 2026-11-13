@@ -28,6 +28,7 @@ import {
     type AttachmentDeliveryPlanEntry,
     createAttachmentDeliveryManifestRequest,
     formatAttachmentAnchorText,
+    formatAttachmentNotInlined,
     getAttachmentDeliveryPlanEntry,
     planAttachmentDeliveryForMessages,
     resolveDeliveredInlineTransportMode,
@@ -79,12 +80,14 @@ function renderFilePart(
     part: Extract<AiContentPart, { type: 'file' }>,
     meta?: AttachmentPromptMeta
 ): string {
-    const isBinary = part.base64Data !== undefined && part.textContent === undefined;
-    const content = part.textContent ?? part.base64Data ?? '';
-    const header = meta
-        ? `[Attachment ${meta.alias} content${isBinary ? ' | binary base64' : ''}]`
-        : `[文件: ${part.name}]`;
-    return isBinary && !meta ? `${header}\n(二进制 Base64)\n${content}` : `${header}\n${content}`;
+    // A file with only base64 data has no portable text form. Inlining the bytes
+    // burns the context without being readable; the local path is the usable reference.
+    if (part.base64Data !== undefined && part.textContent === undefined) {
+        return formatAttachmentNotInlined('binary content', meta?.originPath ?? part.sourcePath);
+    }
+
+    const header = meta ? `[Attachment ${meta.alias} content]` : `[文件: ${part.name}]`;
+    return `${header}\n${part.textContent ?? ''}`;
 }
 
 function parseToolCallArguments(argumentsJson: string): unknown {
@@ -199,7 +202,7 @@ async function mapUserAttachmentPart(
         };
     }
 
-    if (part.type === 'image') {
+    if (part.type === 'image' && part.data) {
         return {
             contentPart: {
                 type: 'image',
@@ -214,7 +217,12 @@ async function mapUserAttachmentPart(
         };
     }
 
-    if (part.kind === 'pdf' && capabilities.supportsDocumentInput && part.base64Data) {
+    if (
+        part.kind === 'pdf' &&
+        capabilities.supportsDocumentInput &&
+        part.base64Data &&
+        planEntry.decision.transportMode !== 'inline-text'
+    ) {
         return {
             contentPart: {
                 type: 'file',
@@ -230,6 +238,20 @@ async function mapUserAttachmentPart(
         };
     }
 
+    if (part.type === 'image') {
+        return {
+            contentPart: {
+                type: 'text',
+                text: formatAttachmentNotInlined('image data is unavailable', part.meta.originPath),
+            },
+            manifestEntry: buildManifestEntry({
+                planEntry,
+                resolvedRole: context.resolvedRole ?? 'user',
+                transportMode: 'inline-text',
+            }),
+        };
+    }
+
     return {
         contentPart: {
             type: 'text',
@@ -238,7 +260,10 @@ async function mapUserAttachmentPart(
         manifestEntry: buildManifestEntry({
             planEntry,
             resolvedRole: context.resolvedRole ?? 'user',
-            transportMode: resolveDeliveredInlineTransportMode(part),
+            transportMode:
+                planEntry.decision.transportMode === 'inline-text'
+                    ? 'inline-text'
+                    : resolveDeliveredInlineTransportMode(part),
         }),
     };
 }
@@ -316,7 +341,7 @@ async function mapToolAttachmentPart(
         };
     }
 
-    if (part.type === 'image' && capabilities.supportsImageInput) {
+    if (part.type === 'image' && capabilities.supportsImageInput && part.data) {
         return {
             type: 'media',
             output: {
@@ -332,7 +357,12 @@ async function mapToolAttachmentPart(
         };
     }
 
-    if (part.kind === 'pdf' && capabilities.supportsDocumentInput && part.base64Data) {
+    if (
+        part.kind === 'pdf' &&
+        capabilities.supportsDocumentInput &&
+        part.base64Data &&
+        planEntry.decision.transportMode !== 'inline-text'
+    ) {
         return {
             type: 'media',
             output: {
@@ -358,7 +388,10 @@ async function mapToolAttachmentPart(
         manifestEntry: buildManifestEntry({
             planEntry,
             resolvedRole: 'tool',
-            transportMode: resolveDeliveredInlineTransportMode(part),
+            transportMode:
+                planEntry.decision.transportMode === 'inline-text'
+                    ? 'inline-text'
+                    : resolveDeliveredInlineTransportMode(part),
         }),
     };
 }

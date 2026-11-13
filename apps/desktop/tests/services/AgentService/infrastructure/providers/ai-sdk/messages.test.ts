@@ -517,8 +517,32 @@ describe('user sends an attachment in the prompt', () => {
 
         expect(messages[0]).toEqual({
             role: 'user',
-            content: [{ type: 'text', text: '[Attachment A1 content | binary base64]\nJVBERi0=' }],
+            content: [
+                {
+                    type: 'text',
+                    text: '[Not inlined: binary content. Local path: C:\\Temp\\report.pdf. Use the Read tool with this path when the content is needed.]',
+                },
+            ],
         });
+    });
+
+    it('user with an oversized PDF gets its path instead of an inline document', async () => {
+        const { messages, manifestRequest } = await buildModelMessages({
+            providerDriver: 'openai',
+            modelId: 'gpt-4.1',
+            messages: [userMessage([pdfPart({ size: 9 * 1024 * 1024 })])],
+        });
+
+        expect(messages[0]).toEqual({
+            role: 'user',
+            content: [
+                {
+                    type: 'text',
+                    text: String.raw`[Not inlined: binary content. Local path: C:\Temp\report.pdf. Use the Read tool with this path when the content is needed.]`,
+                },
+            ],
+        });
+        expect(manifestRequest.entries[0]).toMatchObject({ transportMode: 'inline-text' });
     });
 
     it('user sees the PDF uploaded once and referenced by its provider id', async () => {

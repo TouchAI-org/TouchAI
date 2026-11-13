@@ -178,17 +178,22 @@ impl QuickSearchManager {
 
         // 等待 Everything 客户端锁可用（refresh_worker 可能正在占用）。
         let mut client = lock_mutex(&self.everything_client);
-        let everything_result =
-            match client.query_file_paths(trimmed_query, fetch_limit as u32, fetch_offset, false) {
-                Ok(result) => Some(result),
-                Err(error) => {
-                    debug!(
+        let everything_result = match client.query_file_paths(
+            trimmed_query,
+            fetch_limit as u32,
+            fetch_offset,
+            false,
+            true,
+        ) {
+            Ok(result) => Some(result),
+            Err(error) => {
+                debug!(
                     "[QuickSearch] foreground query failed, fallback to cached results only: {}",
                     error.message
                 );
-                    None
-                }
-            };
+                None
+            }
+        };
         drop(client);
 
         let mut total_results: u32 = 0;
@@ -206,7 +211,9 @@ impl QuickSearchManager {
                 let Some(name) = display_name_from_path(path_obj, is_shortcut) else {
                     continue;
                 };
-                let source = if is_shortcut {
+                let source = if path_obj.is_dir() {
+                    "folder".to_string()
+                } else if is_shortcut {
                     classify_shortcut_source(&path_norm, &self.roots).to_string()
                 } else {
                     "file".to_string()
@@ -217,8 +224,12 @@ impl QuickSearchManager {
             }
         }
 
-        // 文件按名称排序，保证分页稳定。
-        deduped_files.sort_by(|left, right| left.name.cmp(&right.name));
+        // 文件夹优先，同组内按名称排序，保证分页稳定。
+        deduped_files.sort_by(|left, right| {
+            (right.source == "folder")
+                .cmp(&(left.source == "folder"))
+                .then_with(|| left.name.cmp(&right.name))
+        });
 
         // 已按 offset 从 Everything 获取，直接取前 page_size 条（去重后可能少于 page_size）。
         let total_files = deduped_files.len();
@@ -274,7 +285,7 @@ impl QuickSearchManager {
             }
 
             client
-                .query_file_paths(trimmed_query, limit as u32, 0, include_shortcuts)
+                .query_file_paths(trimmed_query, limit as u32, 0, include_shortcuts, false)
                 .map_err(|error| self.map_everything_error(error))?
                 .paths
         };

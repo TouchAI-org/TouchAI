@@ -3,12 +3,26 @@
  */
 
 import { convertFileSrc } from '@tauri-apps/api/core';
+import { open, stat } from '@tauri-apps/plugin-fs';
 
 import type { AttachmentPromptMeta } from '../../contracts/protocol';
+import { normalizeImageBytes } from './imageNormalization';
+import { MAX_INLINE_IMAGE_BASE64_CHARS } from './limits';
 import type { AttachmentIndex } from './types';
 
 const BASE64_CHUNK_SIZE = 0x8000;
 const BINARY_REPLACEMENT_RATIO_THRESHOLD = 0.01;
+
+export interface AttachmentHead {
+    bytes: Uint8Array;
+    truncated: boolean;
+}
+
+export interface AttachmentTextPreview {
+    content: string;
+    isBinary: boolean;
+    truncated: boolean;
+}
 
 export async function readAttachmentBuffer(path: string): Promise<ArrayBuffer> {
     const response = await fetch(convertFileSrc(path));
@@ -16,6 +30,26 @@ export async function readAttachmentBuffer(path: string): Promise<ArrayBuffer> {
         throw new Error(`Failed to read attachment: ${response.statusText}`);
     }
     return response.arrayBuffer();
+}
+
+/** Read at most `maxBytes + 1` bytes so callers can distinguish a complete file from a window. */
+export async function readAttachmentHead(path: string, maxBytes: number): Promise<AttachmentHead> {
+    const file = await open(path, { read: true });
+    try {
+        const buffer = new Uint8Array(maxBytes + 1);
+        let total = 0;
+        while (total < buffer.length) {
+            const read = await file.read(buffer.subarray(total));
+            if (read === null || read === 0) break;
+            total += read;
+        }
+        return {
+            bytes: buffer.subarray(0, Math.min(total, maxBytes)),
+            truncated: total > maxBytes,
+        };
+    } finally {
+        await file.close();
+    }
 }
 
 export function bufferToBase64(buffer: ArrayBuffer): string {
@@ -44,8 +78,15 @@ export function bytesToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
 }
 
 export async function readAttachmentAsBase64(
-    attachment: AttachmentIndex
-): Promise<{ data: string; mimeType: string }> {
+    attachment: AttachmentIndex,
+    options: { maxBytes?: number } = {}
+): Promise<{ data: string; mimeType: string } | null> {
+    const maxBytes = options.maxBytes;
+    if (maxBytes !== undefined) {
+        const size = attachment.size ?? (await stat(attachment.path)).size;
+        if (size > maxBytes) return null;
+    }
+
     const buffer = await readAttachmentBuffer(attachment.path);
     return {
         data: bufferToBase64(buffer),
@@ -53,22 +94,55 @@ export async function readAttachmentAsBase64(
     };
 }
 
-export async function readAttachmentAsText(
+/**
+ * Read an image for inline transport, normalizing legacy cached copies that
+ * still exceed the byte budget. New attachments are normalized at persistence;
+ * this path keeps old sessions usable after the transport policy changes.
+ */
+export async function readAttachmentImageForTransport(
     attachment: AttachmentIndex
-): Promise<{ content: string; isBinary: boolean }> {
-    const buffer = await readAttachmentBuffer(attachment.path);
+): Promise<{ data: string; mimeType: string }> {
+    const base64 = await readAttachmentAsBase64(attachment);
+    if (!base64) throw new Error(`Failed to read attachment: ${attachment.path}`);
+    if (base64.data.length <= MAX_INLINE_IMAGE_BASE64_CHARS) return base64;
+
+    const normalized = await normalizeImageBytes({
+        bytes: base64ToUint8Array(base64.data),
+        mimeType: base64.mimeType,
+    });
+    if (!normalized.resized) return base64;
+
+    return {
+        data: bufferToBase64(bytesToArrayBuffer(normalized.bytes)),
+        mimeType: normalized.mimeType,
+    };
+}
+
+export async function readAttachmentAsText(
+    attachment: AttachmentIndex,
+    options: { maxBytes: number }
+): Promise<AttachmentTextPreview> {
+    const head = await readAttachmentHead(attachment.path, options.maxBytes);
     const decoder = new TextDecoder('utf-8', { fatal: false });
-    const text = decoder.decode(buffer);
+    const text = decoder.decode(head.bytes);
     const replacementCount = (text.match(/\uFFFD/g) || []).length;
     const isBinary =
         text.includes('\u0000') ||
         replacementCount > Math.max(text.length * BINARY_REPLACEMENT_RATIO_THRESHOLD, 2);
 
-    if (isBinary) {
-        return { content: bufferToBase64(buffer), isBinary: true };
-    }
+    return {
+        content: isBinary ? '' : text,
+        isBinary,
+        truncated: head.truncated,
+    };
+}
 
-    return { content: text, isBinary: false };
+export function formatAttachmentNotInlined(
+    reason: string,
+    path: string,
+    tool: 'Read' | 'Bash' = 'Read'
+): string {
+    return `[Not inlined: ${reason}. Local path: ${path}. Use the ${tool} tool with this path when the content is needed.]`;
 }
 
 export function buildAttachmentAlias(order: number): string {
@@ -89,11 +163,17 @@ export function buildAttachmentPromptMetas(attachments: AttachmentIndex[]): Atta
 }
 
 export function formatAttachmentAnchorText(meta: AttachmentPromptMeta): string {
-    return [
+    const lines = [
         `[Attachment ${meta.alias}]`,
         `name: ${meta.name}`,
         `type: ${meta.type}`,
         `origin_path: ${meta.originPath}`,
         `mime_type: ${meta.mimeType ?? 'unknown'}`,
-    ].join('\n');
+    ];
+    if (meta.type === 'image') {
+        lines.push(
+            'inline_copy_note: the inline image may be downscaled; use origin_path when full resolution is needed.'
+        );
+    }
+    return lines.join('\n');
 }

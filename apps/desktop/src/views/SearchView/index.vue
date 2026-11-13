@@ -12,6 +12,7 @@
     import { native } from '@services/NativeService';
     import { notify } from '@services/NotificationService';
     import { log } from '@services/ObservabilityService';
+    import { resolvePastedPathAttachment } from '@services/SearchService/pastedPath';
     import { getCurrentWindow } from '@tauri-apps/api/window';
     import { storeToRefs } from 'pinia';
     import { useStateMachine } from 'reka-ui';
@@ -1662,6 +1663,11 @@
         if (hasOnlyText && payload.text) {
             const trimmedText = trimClipboardPayloadTextBoundary(payload).text;
             if (trimmedText?.trim()) {
+                const pastedPath = await resolvePastedPathAttachment(trimmedText);
+                if (pastedPath) {
+                    await insertAttachmentAtCursor(pastedPath.type, pastedPath.path);
+                    return;
+                }
                 searchBar.value?.insertTextAtCursor(trimmedText);
             }
             return;
@@ -1685,23 +1691,27 @@
         }
 
         for (const { path, type } of attachmentsToInsert) {
-            try {
-                const attachment = await createAttachmentFromClipboardPath(type, path);
-                attachments.value.push(attachment);
-                searchBar.value?.insertAttachmentAtCursor(
-                    attachment.id,
-                    attachment.name ||
-                        t(
-                            type === 'image'
-                                ? 'conversation.attachment.unnamedImage'
-                                : 'conversation.attachment.unnamedFile'
-                        ),
-                    type,
-                    attachment.preview
-                );
-            } catch (error) {
-                log.error(`Failed to insert ${type} attachment:`, error);
-            }
+            await insertAttachmentAtCursor(type, path);
+        }
+    }
+
+    async function insertAttachmentAtCursor(type: 'image' | 'file', path: string) {
+        try {
+            const attachment = await createAttachmentFromClipboardPath(type, path);
+            attachments.value.push(attachment);
+            searchBar.value?.insertAttachmentAtCursor(
+                attachment.id,
+                attachment.name ||
+                    t(
+                        type === 'image'
+                            ? 'conversation.attachment.unnamedImage'
+                            : 'conversation.attachment.unnamedFile'
+                    ),
+                type,
+                attachment.preview
+            );
+        } catch (error) {
+            log.error(`Failed to insert ${type} attachment:`, error);
         }
     }
 
@@ -1719,26 +1729,7 @@
                 continue;
             }
 
-            try {
-                const attachment = await createAttachmentFromClipboardPath(
-                    fragment.type,
-                    fragment.path
-                );
-                attachments.value.push(attachment);
-                searchBar.value?.insertAttachmentAtCursor(
-                    attachment.id,
-                    attachment.name ||
-                        t(
-                            fragment.type === 'image'
-                                ? 'conversation.attachment.unnamedImage'
-                                : 'conversation.attachment.unnamedFile'
-                        ),
-                    fragment.type,
-                    attachment.preview
-                );
-            } catch (error) {
-                log.error(`Failed to insert ${fragment.type} attachment:`, error);
-            }
+            await insertAttachmentAtCursor(fragment.type, fragment.path);
         }
     }
 

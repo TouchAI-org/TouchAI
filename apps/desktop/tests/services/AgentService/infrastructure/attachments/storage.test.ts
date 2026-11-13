@@ -27,9 +27,11 @@ const mocks = vi.hoisted(() => ({
     exists: vi.fn(),
     mkdir: vi.fn(),
     writeFile: vi.fn(),
+    stat: vi.fn(),
     getFileName: vi.fn(),
     getFileIcon: vi.fn(),
     getFileSize: vi.fn(),
+    normalizeImageBytes: vi.fn(),
 }));
 
 vi.mock('@database', async (importOriginal) => ({
@@ -58,12 +60,17 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
     exists: mocks.exists,
     mkdir: mocks.mkdir,
     writeFile: mocks.writeFile,
+    stat: mocks.stat,
 }));
 
 vi.mock('tauri-plugin-fs-pro-api', () => ({
     fullName: mocks.getFileName,
     icon: mocks.getFileIcon,
     size: mocks.getFileSize,
+}));
+
+vi.mock('@/services/AgentService/infrastructure/attachments/imageNormalization', () => ({
+    normalizeImageBytes: mocks.normalizeImageBytes,
 }));
 
 /** A 32-byte payload; the real hash is computed by the platform crypto. */
@@ -85,9 +92,16 @@ beforeEach(() => {
     mocks.copyFile.mockResolvedValue(undefined);
     mocks.writeFile.mockResolvedValue(undefined);
     mocks.exists.mockResolvedValue(false);
+    mocks.stat.mockResolvedValue({ isFile: true, isDirectory: false });
     mocks.getFileName.mockResolvedValue('report.pdf');
     mocks.getFileIcon.mockResolvedValue('/icons/pdf.png');
     mocks.getFileSize.mockResolvedValue(2048);
+    mocks.normalizeImageBytes.mockImplementation(
+        async (input: { bytes: Uint8Array; mimeType: string }) => ({
+            ...input,
+            resized: false,
+        })
+    );
     mocks.findAttachmentByHash.mockResolvedValue(null);
     mocks.createAttachmentRecord.mockImplementation(async (record: { hash: string }) => ({
         id: 11,
@@ -145,6 +159,19 @@ describe('user attaches a file to a message', () => {
         expect(result.preview).toBe('asset:///icons/pdf.png');
     });
 
+    it('user gets a folder marked as a directory reference before sending', async () => {
+        mocks.stat.mockResolvedValue({ isFile: false, isDirectory: true });
+
+        const result = await createAttachment('file', '/docs');
+
+        expect(result).toMatchObject({
+            type: 'file',
+            mimeType: 'application/x-directory',
+            size: undefined,
+        });
+        expect(mocks.getFileSize).not.toHaveBeenCalled();
+    });
+
     it('user gets the file name and size shown before sending', async () => {
         const result = await createAttachment('file', '/downloads/report.pdf');
 
@@ -156,6 +183,35 @@ describe('user attaches a file to a message', () => {
         const result = await createAttachment('file', '/downloads/report.pdf');
 
         expect(result.supportStatus).toBe('supported');
+    });
+});
+
+describe('user sends a message with an image attachment', () => {
+    it('user gets the normalized image stored instead of the original bytes', async () => {
+        mocks.normalizeImageBytes.mockResolvedValue({
+            bytes: new Uint8Array([9, 9]),
+            mimeType: 'image/jpeg',
+            resized: true,
+        });
+        const index = attachment({
+            type: 'image',
+            path: '/pictures/photo.png',
+            originPath: '/pictures/photo.png',
+            name: 'photo.png',
+            mimeType: 'image/png',
+        });
+
+        await persistPreparedAttachment(index);
+
+        expect(mocks.writeFile).toHaveBeenCalledWith(
+            expect.stringContaining('/cache/attachments/images/'),
+            new Uint8Array([9, 9])
+        );
+        expect(mocks.createAttachmentRecord).toHaveBeenCalledWith(
+            expect.objectContaining({ mime_type: 'image/jpeg', size: 2 }),
+            expect.anything()
+        );
+        expect(index).toMatchObject({ mimeType: 'image/jpeg', size: 2 });
     });
 });
 
@@ -176,6 +232,26 @@ describe('user sends a message with attachments', () => {
             }),
             expect.anything()
         );
+    });
+
+    it('user gets a folder persisted without copying directory bytes', async () => {
+        mocks.stat.mockResolvedValue({ isFile: false, isDirectory: true });
+        const index = attachment({
+            type: 'file',
+            path: '/docs',
+            originPath: '/docs',
+            name: 'docs',
+            mimeType: 'application/x-directory',
+        });
+
+        await persistPreparedAttachment(index);
+
+        expect(mocks.copyFile).not.toHaveBeenCalled();
+        expect(mocks.createAttachmentRecord).toHaveBeenCalledWith(
+            expect.objectContaining({ mime_type: 'application/x-directory', size: null }),
+            expect.anything()
+        );
+        expect(index.path).toBe('/docs');
     });
 
     it('user gets the same bytes stored only once', async () => {
@@ -324,6 +400,30 @@ describe('user reopens a conversation with attachments', () => {
             supportStatus: 'supported',
         });
         expect(restored[0]!.path).toContain('/cache/attachments/images/');
+    });
+
+    it('user gets a stored folder restored at its original path', async () => {
+        const restored = await hydratePersistedAttachments([
+            {
+                id: 2,
+                hash: 'folder-hash',
+                type: 'file',
+                original_name: 'Documents',
+                origin_path: '/Users/me/Documents',
+                mime_type: 'application/x-directory',
+                size: null,
+                created_at: '2026-01-01T00:00:00Z',
+                message_id: 1,
+                sort_order: 0,
+                tool_call_id: null,
+                tool_kind: null,
+            },
+        ]);
+
+        expect(restored[0]).toMatchObject({
+            path: '/Users/me/Documents',
+            mimeType: 'application/x-directory',
+        });
     });
 
     it('user gets no attachment restored when the message had none', async () => {

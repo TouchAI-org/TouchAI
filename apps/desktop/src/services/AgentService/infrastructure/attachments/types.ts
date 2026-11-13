@@ -4,6 +4,8 @@
 
 export type AttachmentSupportStatus = 'supported' | 'unsupported-image' | 'unsupported-file';
 
+export const DIRECTORY_MIME_TYPE = 'application/x-directory';
+
 export interface AttachmentIndex {
     id: string;
     attachmentId?: number;

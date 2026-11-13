@@ -147,7 +147,10 @@ export async function loadSessionTransportMessages(options: {
                     ? await hydratePersistedAttachments(supported)
                     : [];
                 const attachmentParts = attachments.length
-                    ? await buildAttachmentParts(attachments, { includeAnchorText: false })
+                    ? await buildAttachmentParts(attachments, {
+                          includeAnchorText: false,
+                          inlineFileContents: true,
+                      })
                     : [];
                 const content =
                     typeof data.output === 'string' ? data.output : MISSING_TOOL_RESULT_PLACEHOLDER;
