@@ -191,7 +191,25 @@ async function submitWhileRunning(text, chord, delivery, expectedPendingCount) {
 
 async function clickMessageAction(message, testId) {
     const action = await $(`[data-message-id="${message.id}"] [data-testid="${testId}"]`);
+    await browser.execute((element) => {
+        element.scrollIntoView({ block: 'center', inline: 'nearest' });
+    }, action);
     await action.waitForClickable();
+    const hitTarget = await browser.execute((element) => {
+        const rect = element.getBoundingClientRect();
+        const x = rect.left + rect.width / 2;
+        const y = rect.top + rect.height / 2;
+        const target = document.elementFromPoint(x, y);
+        return {
+            hitsAction: Boolean(target && (target === element || element.contains(target))),
+            target: target?.outerHTML?.slice(0, 240) ?? null,
+            rect: { top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left },
+        };
+    }, action);
+    assertVisible(
+        hitTarget.hitsAction,
+        `The ${testId} action was covered at its click point: ${JSON.stringify(hitTarget)}.`
+    );
     await action.click();
 }
 
