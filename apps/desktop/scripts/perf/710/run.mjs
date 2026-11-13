@@ -1134,6 +1134,29 @@ export function measurementInvalidReasons({
     return reasons;
 }
 
+/**
+ * Records whether the memory sampler exited before the measurement ended.
+ * A WebDriver completion that happens later must never erase an earlier
+ * sampler exit, otherwise truncated memory evidence looks valid.
+ */
+export function createSamplerWatch() {
+    let exit = null;
+    return {
+        noteExit(code, signal) {
+            exit ??= { code, signal: signal ?? null };
+        },
+        earlyExit() {
+            return exit;
+        },
+    };
+}
+
+export function samplerFailureReason({ earlyExit, error }) {
+    if (error) return `failed: ${error.message}`;
+    if (!earlyExit) return null;
+    return `stopped before WebDriver completed (exit ${earlyExit.code ?? 'null'} signal ${earlyExit.signal ?? 'null'})`;
+}
+
 async function runOneMeasurement({
     arm,
     flow,
@@ -1205,14 +1228,10 @@ async function runOneMeasurement({
             stdio: ['ignore', samplerStdout, samplerStderr],
         }
     );
-    let samplerExited = false;
-    let samplerExit = null;
+    const samplerWatch = createSamplerWatch();
     let samplerError = null;
     sampler.once('exit', closeSamplerLog);
-    sampler.once('exit', (code, signal) => {
-        samplerExited = true;
-        samplerExit = { code, signal };
-    });
+    sampler.once('exit', (code, signal) => samplerWatch.noteExit(code, signal));
     sampler.once('error', (error) => {
         samplerError = error;
         closeSamplerLog();
@@ -1244,8 +1263,7 @@ async function runOneMeasurement({
         TOUCHAI_PERF_WARM_SAMPLES: String(options.warmSamples),
     };
     let result;
-    let webDriverCompleted = false;
-    let samplerExitedBeforeWebDriverCompleted;
+    let samplerEarlyExit;
     try {
         result = await runInCgroup({
             label: `run-${flow}`,
@@ -1255,19 +1273,18 @@ async function runOneMeasurement({
             env,
             log: wdioLog,
         });
-        webDriverCompleted = true;
     } finally {
-        samplerExitedBeforeWebDriverCompleted = samplerExited && !webDriverCompleted;
+        // Any sampler exit before WebDriver returns leaves the memory series
+        // truncated, even when WebDriver itself eventually finishes cleanly.
+        samplerEarlyExit = samplerWatch.earlyExit();
         await stopChild(sampler, 'SIGINT');
     }
     copyIfExists(path.join(appRoot, 'logs'), path.join(runLogDir, 'app-logs'));
     const notificationFailures = countNotificationFailures(runLogDir);
-    const samplerFailure =
-        samplerExitedBeforeWebDriverCompleted || samplerError
-            ? samplerError
-                ? `failed: ${samplerError.message}`
-                : `stopped before WebDriver completed (exit ${samplerExit?.code ?? 'null'} signal ${samplerExit?.signal ?? 'null'})`
-            : null;
+    const samplerFailure = samplerFailureReason({
+        earlyExit: samplerEarlyExit,
+        error: samplerError,
+    });
     const invalidReasons = measurementInvalidReasons({
         exitCode: result.exitCode,
         signal: result.signal,
@@ -1510,6 +1527,16 @@ function readOptions(args) {
 async function main() {
     const [command = 'all', ...rest] = process.argv.slice(2);
     const args = parseArgs(rest);
+
+    // `all` rebuilds both binaries and regenerates every fixture before it
+    // measures. Resuming must not silently compare against a new baseline, so
+    // resume is only supported on the `run` command.
+    if (command === 'all' && args.resume === 'true') {
+        throw new Error(
+            'Usage: run.mjs run --resume preserves the saved plan and fixtures; `all` rebuilds them.'
+        );
+    }
+
     ensureDirectory(logsRoot);
     ensureDirectory(evidenceRoot);
 
