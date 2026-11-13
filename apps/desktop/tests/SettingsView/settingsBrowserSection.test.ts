@@ -1,3 +1,4 @@
+import { DEFAULT_BROWSER_SETTINGS } from '@services/SettingsService/domain';
 import { getTauriInvokeCalls, mockTauriCommand } from '@tests/utils/tauri';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
@@ -75,7 +76,20 @@ describe('user edits the browser settings', () => {
         vi.useFakeTimers();
         resetBrowserRuntimeCacheForTests();
         updateBrowserSettingsMock.mockClear();
+        updateBrowserSettingsMock.mockImplementation(async (config: Record<string, unknown>) => {
+            updateStoredBrowserSettings(config);
+        });
         browserSettingsPatch.value = {};
+        if (settingsRefHolder.current) {
+            settingsRefHolder.current.value = {
+                browserSettings: {
+                    ...DEFAULT_BROWSER_SETTINGS,
+                    defaultHomepage: 'https://example.test/home',
+                    browserExecutablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe',
+                    browserDataPath: 'D:/TouchAI/BrowserData',
+                },
+            };
+        }
         mockTauriCommand('browser_discover_installed', [
             {
                 id: 'chrome',
@@ -194,7 +208,7 @@ describe('user edits the browser settings', () => {
         );
     });
 
-    it('user keeps a pending edit when another window refreshes the browser section', async () => {
+    it('user keeps a pending edit without reverting another window browser change', async () => {
         const wrapper = mount(BrowserSettingsView);
 
         await wrapper
@@ -211,7 +225,7 @@ describe('user edits the browser settings', () => {
         expect(updateBrowserSettingsMock).toHaveBeenCalledWith(
             expect.objectContaining({
                 defaultHomepage: 'https://example.test/pending',
-                headless: false,
+                headless: true,
             })
         );
     });

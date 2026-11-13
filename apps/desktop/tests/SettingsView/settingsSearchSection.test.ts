@@ -1,3 +1,4 @@
+import { DEFAULT_SEARCH_SETTINGS } from '@services/SettingsService/domain';
 import { mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -71,7 +72,23 @@ describe('user edits the search settings', () => {
         setActivePinia(createPinia());
         vi.useFakeTimers();
         updateSearchSettingsMock.mockClear();
+        updateSearchSettingsMock.mockImplementation(async (config: Record<string, unknown>) => {
+            updateStoredSearchSettings(config);
+        });
         updateBuiltInToolMock.mockClear();
+        if (settingsRefHolder.current) {
+            settingsRefHolder.current.value = {
+                searchSettings: {
+                    ...DEFAULT_SEARCH_SETTINGS,
+                    defaultProvider: 'brave',
+                    maxResults: 8,
+                    providers: {
+                        ...DEFAULT_SEARCH_SETTINGS.providers,
+                        brave: { enabled: true, apiKey: 'brave-key' },
+                    },
+                },
+            };
+        }
         findBuiltInToolByToolIdMock.mockResolvedValue({
             id: 7,
             tool_id: 'web_search',
@@ -173,7 +190,7 @@ describe('user edits the search settings', () => {
         expect(updateBuiltInToolMock).toHaveBeenCalledWith(7, { enabled: 0 });
     });
 
-    it('user keeps a pending edit when another window refreshes the search section', async () => {
+    it('user keeps a pending edit without reverting another window search change', async () => {
         const wrapper = mount(SearchSettingsView);
         await Promise.resolve();
 
@@ -184,7 +201,7 @@ describe('user edits the search settings', () => {
         await vi.advanceTimersByTimeAsync(300);
 
         expect(updateSearchSettingsMock).toHaveBeenCalledWith(
-            expect.objectContaining({ maxResults: 5, defaultProvider: 'brave' })
+            expect.objectContaining({ maxResults: 5, defaultProvider: 'wikipedia' })
         );
     });
 

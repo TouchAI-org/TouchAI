@@ -18,16 +18,19 @@
         serializeSearchSettingsConfig,
     } from '@services/SettingsService/domain';
     import { storeToRefs } from 'pinia';
-    import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+    import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
     import { type MessageKey, t } from '@/i18n';
     import { useSettingsStore } from '@/stores/settings';
+
+    import { hasSettingsDraftChanges, mergeSettingsDraft } from '../../settingsDraftSync';
 
     defineOptions({ name: 'SettingsSearchSection' });
 
     const settingsStore = useSettingsStore();
     const { settings } = storeToRefs(settingsStore);
     const draft = ref<SearchSettingsConfig>(cloneConfig(settings.value.searchSettings));
+    let syncedConfig = cloneConfig(settings.value.searchSettings);
     const toolRowId = ref<number | null>(null);
     const toolEnabled = ref(true);
     const savingToolEnabled = ref(false);
@@ -222,13 +225,10 @@
     watch(
         () => settings.value.searchSettings,
         (config) => {
-            if (autoSaveTimer) {
-                // The queued save owns the field until it reaches the owner. A refresh
-                // from another window must not replace the user's pending draft first.
-                return;
-            }
+            const incoming = cloneConfig(config);
             isSyncingFromStore = true;
-            draft.value = cloneConfig(config);
+            draft.value = mergeSettingsDraft(syncedConfig, draft.value, incoming);
+            syncedConfig = incoming;
             queueMicrotask(() => {
                 isSyncingFromStore = false;
             });
@@ -299,12 +299,17 @@
         if (!canSave.value) return;
         saveState.value = 'saving';
         try {
-            await settingsStore.updateSearchSettings({ ...draft.value });
+            const submitted = cloneConfig(draft.value);
+            const incoming = cloneConfig(settings.value.searchSettings);
+            await settingsStore.updateSearchSettings(
+                mergeSettingsDraft(syncedConfig, submitted, incoming)
+            );
+            await nextTick();
             saveState.value = 'saved';
-            isSyncingFromStore = true;
-            queueMicrotask(() => {
-                isSyncingFromStore = false;
-            });
+            syncedConfig = cloneConfig(settings.value.searchSettings);
+            if (hasSettingsDraftChanges(syncedConfig, draft.value)) {
+                scheduleAutoSave();
+            }
         } catch (error) {
             log.error('[SearchSettings] Failed to save search settings:', error);
             saveState.value = 'error';
