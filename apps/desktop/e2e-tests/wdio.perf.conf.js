@@ -84,6 +84,7 @@ export const config = {
     bail: 1,
     maxInstances: 1,
     waitforTimeout: 30000,
+    connectionRetryCount: 0,
     connectionRetryTimeout: 300000,
     capabilities: [
         {

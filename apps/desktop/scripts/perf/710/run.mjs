@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { pathToFileURL } from 'node:url';
 
 import { shouldRetryDisplayStartupFailure } from './display-retry.mjs';
 import { canonicalizeStartupCaches, deleteStartupBookkeeping } from './fixture-database.mjs';
@@ -602,6 +603,15 @@ async function buildBoth() {
     return results;
 }
 
+function readExpectedMigrationCount(snapshot) {
+    const journal = path.join(snapshot, 'apps/desktop/src/database/drizzle/meta/_journal.json');
+    const entries = JSON.parse(fs.readFileSync(journal, 'utf8')).entries;
+    if (!Array.isArray(entries) || entries.length === 0) {
+        throw new Error(`Migration journal is empty: ${journal}`);
+    }
+    return entries.length;
+}
+
 async function initializeDatabaseFromArm(arm) {
     const binary = binaryPathByArm[arm];
     if (!fs.existsSync(binary)) {
@@ -612,10 +622,13 @@ async function initializeDatabaseFromArm(arm) {
     ensureDirectory(initRoot);
     const log = path.join(logsRoot, `fixture-init-${arm}.log`);
     const displayLogDir = path.join(logsRoot, `fixture-init-display-${arm}`);
-    const readyQuery =
+    const snapshot = arm === 'baseline' ? baselineSnapshot : currentSnapshot;
+    const expectedMigrations = readExpectedMigrationCount(snapshot);
+    const baselineMetadataReady =
         arm === 'baseline'
-            ? 'SELECT (SELECT COUNT(*) > 0 FROM llm_metadata) AND (SELECT COUNT(*) > 0 FROM llm_metadata_aliases);'
+            ? ' AND (SELECT COUNT(*) > 0 FROM llm_metadata) AND (SELECT COUNT(*) > 0 FROM llm_metadata_aliases)'
             : '';
+    const readyQuery = `SELECT (SELECT COUNT(*) FROM migrations) = ${expectedMigrations}${baselineMetadataReady};`;
     const result = await runInCgroup({
         label: `fixture-init-${arm}`,
         command: xvfbRunWithWm,
@@ -1049,7 +1062,7 @@ function ensureEvidenceLayout(resume = false) {
 
 function stopChild(child, signal = 'SIGTERM') {
     return new Promise((resolve) => {
-        if (!child || child.exitCode !== null) {
+        if (!child || child.exitCode !== null || child.signalCode !== null) {
             resolve();
             return;
         }
@@ -1101,6 +1114,24 @@ function readDisplayFailureLog(runLogDir, wdioLog) {
         .filter((file) => fs.existsSync(file))
         .map((file) => fs.readFileSync(file, 'utf8'))
         .join('\n');
+}
+
+export function measurementInvalidReasons({
+    exitCode,
+    signal,
+    notificationFailures,
+    samplerFailure,
+}) {
+    const reasons = [];
+    if (signal) reasons.push(`WebDriver signal ${signal}`);
+    if (exitCode !== 0) reasons.push(`WebDriver exit ${exitCode}`);
+    if (notificationFailures > 0) {
+        reasons.push(
+            `${notificationFailures} native notification failure${notificationFailures === 1 ? '' : 's'}`
+        );
+    }
+    if (samplerFailure) reasons.push(`memory sampler ${samplerFailure}`);
+    return reasons;
 }
 
 async function runOneMeasurement({
@@ -1174,8 +1205,18 @@ async function runOneMeasurement({
             stdio: ['ignore', samplerStdout, samplerStderr],
         }
     );
+    let samplerExited = false;
+    let samplerExit = null;
+    let samplerError = null;
     sampler.once('exit', closeSamplerLog);
-    sampler.once('error', closeSamplerLog);
+    sampler.once('exit', (code, signal) => {
+        samplerExited = true;
+        samplerExit = { code, signal };
+    });
+    sampler.once('error', (error) => {
+        samplerError = error;
+        closeSamplerLog();
+    });
     await new Promise((resolve) => setTimeout(resolve, 250));
 
     const wdioLog = path.join(runLogDir, 'wdio.log');
@@ -1203,6 +1244,8 @@ async function runOneMeasurement({
         TOUCHAI_PERF_WARM_SAMPLES: String(options.warmSamples),
     };
     let result;
+    let webDriverCompleted = false;
+    let samplerExitedBeforeWebDriverCompleted;
     try {
         result = await runInCgroup({
             label: `run-${flow}`,
@@ -1212,23 +1255,25 @@ async function runOneMeasurement({
             env,
             log: wdioLog,
         });
+        webDriverCompleted = true;
     } finally {
+        samplerExitedBeforeWebDriverCompleted = samplerExited && !webDriverCompleted;
         await stopChild(sampler, 'SIGINT');
     }
     copyIfExists(path.join(appRoot, 'logs'), path.join(runLogDir, 'app-logs'));
     const notificationFailures = countNotificationFailures(runLogDir);
-    const invalidReasons = [];
-    if (result.signal) {
-        invalidReasons.push(`WebDriver signal ${result.signal}`);
-    }
-    if (result.exitCode !== 0) {
-        invalidReasons.push(`WebDriver exit ${result.exitCode}`);
-    }
-    if (notificationFailures > 0) {
-        invalidReasons.push(
-            `${notificationFailures} native notification failure${notificationFailures === 1 ? '' : 's'}`
-        );
-    }
+    const samplerFailure =
+        samplerExitedBeforeWebDriverCompleted || samplerError
+            ? samplerError
+                ? `failed: ${samplerError.message}`
+                : `stopped before WebDriver completed (exit ${samplerExit?.code ?? 'null'} signal ${samplerExit?.signal ?? 'null'})`
+            : null;
+    const invalidReasons = measurementInvalidReasons({
+        exitCode: result.exitCode,
+        signal: result.signal,
+        notificationFailures,
+        samplerFailure,
+    });
     const valid = invalidReasons.length === 0;
     const retryDisplayStartup =
         !valid &&
@@ -1351,9 +1396,48 @@ function measurementKey(item) {
     return [item.flow, item.block, item.sequenceIndex, item.arm, item.historyLevel || 0].join(':');
 }
 
+function protocolForOptions(options) {
+    return {
+        flows: options.flows,
+        latencyBlocks: options.latencyBlocks,
+        progressBlocks: options.progressBlocks,
+        longBlocks: options.longBlocks,
+        historyLevels: options.historyLevels,
+        warmSamples: options.warmSamples,
+        progressWarmups: options.progressWarmups,
+        progressTasks: options.progressTasks,
+        memoryIntervalMs: options.memoryIntervalMs,
+        startupSettleMs: Number(process.env.TOUCHAI_PERF_STARTUP_SETTLE_MS ?? 8000),
+        armOrder,
+        display: 'xvfb-openbox-dunst-dbus',
+        windowManager: 'openbox',
+        notificationDaemon: 'dunst',
+    };
+}
+
+function protocolMismatches(previous, requested) {
+    return Object.entries(requested)
+        .filter(([key, value]) => JSON.stringify(previous?.[key]) !== JSON.stringify(value))
+        .map(([key]) => key);
+}
+
 async function runMeasurements(options) {
-    ensureEvidenceLayout(options.resume);
     const plan = buildRunPlan(options);
+    const protocol = protocolForOptions(options);
+    const previousPlan = options.resume
+        ? readJsonFile(path.join(evidenceRoot, 'run-plan.json'))
+        : null;
+    if (options.resume) {
+        if (!previousPlan?.protocol) {
+            throw new Error('Cannot resume without a persisted RFC 710 run protocol.');
+        }
+        const mismatches = protocolMismatches(previousPlan.protocol, protocol);
+        if (mismatches.length > 0) {
+            throw new Error(
+                `Cannot resume with a different RFC 710 protocol: ${mismatches.join(', ')}.`
+            );
+        }
+    }
     const runsPath = path.join(rawRoot, 'runs.jsonl');
     const existingSuccessfulRuns = readJsonLines(runsPath).filter(
         (record) => record.type === 'run' && isValidRun(record)
@@ -1367,24 +1451,11 @@ async function runMeasurements(options) {
               plan.some((item) => measurementKey(item) === measurementKey(record))
           )
         : [];
-    const previousPlan = options.resume
-        ? readJsonFile(path.join(evidenceRoot, 'run-plan.json'))
-        : null;
-    const protocol = previousPlan?.protocol ?? {
-        flows: options.flows,
-        latencyBlocks: options.latencyBlocks,
-        progressBlocks: options.progressBlocks,
-        longBlocks: options.longBlocks,
-        historyLevels: options.historyLevels,
-        warmSamples: options.warmSamples,
-        progressWarmups: options.progressWarmups,
-        progressTasks: options.progressTasks,
-        startupSettleMs: Number(process.env.TOUCHAI_PERF_STARTUP_SETTLE_MS ?? 8000),
-        armOrder,
-        display: 'xvfb-openbox-dunst-dbus',
-        windowManager: 'openbox',
-        notificationDaemon: 'dunst',
-    };
+    if (options.dryRun) {
+        console.log(JSON.stringify(remainingPlan, null, 2));
+        return [];
+    }
+    ensureEvidenceLayout(options.resume);
     writeJson(path.join(evidenceRoot, 'run-plan.json'), {
         generatedAt: nowIso(),
         options,
@@ -1392,10 +1463,6 @@ async function runMeasurements(options) {
         plan,
         remainingPlan,
     });
-    if (options.dryRun) {
-        console.log(JSON.stringify(remainingPlan, null, 2));
-        return [];
-    }
     const server = await startPerfModelServer({
         port: DEFAULT_PORT,
         logFile: path.join(rawRoot, 'model-server.jsonl'),
@@ -1491,9 +1558,11 @@ async function main() {
     );
 }
 
-main().catch((error) => {
-    const log = path.join(logsRoot, 'runner-error.log');
-    appendLog(log, `\nat=${nowIso()}\n${error?.stack ?? String(error)}\n`);
-    console.error(error);
-    process.exitCode = 1;
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+    main().catch((error) => {
+        const log = path.join(logsRoot, 'runner-error.log');
+        appendLog(log, `\nat=${nowIso()}\n${error?.stack ?? String(error)}\n`);
+        console.error(error);
+        process.exitCode = 1;
+    });
+}

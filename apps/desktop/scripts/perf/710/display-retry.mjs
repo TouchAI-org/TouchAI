@@ -4,7 +4,6 @@ const DISPLAY_STARTUP_FAILURES = [
     'Cannot open X11 display',
     "Couldn't initialize X11 output",
     'X connection broke',
-    'Trace/breakpoint trap',
 ];
 
 export function shouldRetryDisplayStartupFailure({ runStarted, exitCode, signal, logText }) {

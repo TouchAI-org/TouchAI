@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
+import path from 'node:path';
 
 const DEFAULT_PORT = Number(process.env.TOUCHAI_PERF_PORT) || 3426;
 const DEFAULT_CHUNK_DELAY_MS = 16;
@@ -11,7 +12,11 @@ function sleep(ms) {
 
 function appendJsonLine(file, value) {
     if (!file) return;
-    fs.appendFileSync(file, `${JSON.stringify(value)}\n`);
+    try {
+        fs.appendFileSync(file, `${JSON.stringify(value)}\n`);
+    } catch (error) {
+        console.error('PERF710 model server could not append its log:', error);
+    }
 }
 
 function contentText(content) {
@@ -194,10 +199,14 @@ async function streamResponse(res, requestBody, options) {
 
 export async function startPerfModelServer(options = {}) {
     const port = Number(options.port) || DEFAULT_PORT;
+    const logFile = options.logFile ?? null;
+    if (logFile) {
+        fs.mkdirSync(path.dirname(logFile), { recursive: true });
+    }
     const state = {
         port,
         chunkDelayMs: Number(options.chunkDelayMs) || DEFAULT_CHUNK_DELAY_MS,
-        logFile: options.logFile ?? null,
+        logFile,
     };
 
     const server = http.createServer((req, res) => {

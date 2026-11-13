@@ -38,6 +38,17 @@ describe('user runs the RFC 710 performance protocol', () => {
         ).toBe(false);
     });
 
+    it('user does not retry an unexplained trace trap before the run starts', () => {
+        expect(
+            shouldRetryDisplayStartupFailure({
+                runStarted: false,
+                exitCode: 133,
+                signal: null,
+                logText: 'Trace/breakpoint trap',
+            })
+        ).toBe(false);
+    });
+
     it('user gets no retry when the scenario exited cleanly', () => {
         expect(
             shouldRetryDisplayStartupFailure({

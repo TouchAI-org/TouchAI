@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const DEFAULT_INTERVAL_MS = 250;
 const INCLUDED_PROCESS = /^(TouchAI|WebKit(?!WebDriver$)(Web|Network|Storage|GPU|Cache).*)$/;
@@ -55,11 +56,13 @@ function processCgroup(pid) {
     }
 }
 
-function readRollup(pid) {
+export function readRollup(pid) {
     try {
         const text = fs.readFileSync(`/proc/${pid}/smaps_rollup`, 'utf8');
-        const readKb = (key) =>
-            Number(text.match(new RegExp(`^${key}:\\s+(\\d+)\\s+kB$`, 'm'))?.[1] ?? 0);
+        const readKb = (key) => {
+            const raw = text.match(new RegExp(`^${key}:\\s+(\\d+)\\s+kB$`, 'm'))?.[1];
+            return raw === undefined ? null : Number(raw);
+        };
         return {
             pssKb: readKb('Pss'),
             rssKb: readKb('Rss'),
@@ -68,15 +71,47 @@ function readRollup(pid) {
     } catch {
         try {
             const status = fs.readFileSync(`/proc/${pid}/status`, 'utf8');
+            const rss = status.match(/^VmRSS:\s+(\d+)\s+kB$/m)?.[1];
             return {
-                pssKb: 0,
-                rssKb: Number(status.match(/^VmRSS:\s+(\d+)\s+kB$/m)?.[1] ?? 0),
-                privateDirtyKb: 0,
+                pssKb: null,
+                rssKb: rss === undefined ? null : Number(rss),
+                privateDirtyKb: null,
             };
         } catch {
             return null;
         }
     }
+}
+
+export function aggregateMemory(processes) {
+    const total = (key) => {
+        const values = processes.map((item) => item[key]);
+        if (
+            values.length === 0 ||
+            values.some((value) => typeof value !== 'number' || !Number.isFinite(value))
+        ) {
+            return null;
+        }
+        return values.reduce((sum, value) => sum + value, 0);
+    };
+    return {
+        totalPssKb: total('pssKb'),
+        totalRssKb: total('rssKb'),
+        totalPrivateDirtyKb: total('privateDirtyKb'),
+    };
+}
+
+export function processBelongsToRun(
+    candidate,
+    { appPids, appCgroups, environmentMarker, runTokenMarker }
+) {
+    if (appPids.has(candidate.pid)) return true;
+    const hasRunIdentity =
+        candidate.environment.includes(environmentMarker) ||
+        (runTokenMarker && candidate.environment.includes(runTokenMarker));
+    if (!hasRunIdentity) return false;
+    if (!candidate.cgroup || appCgroups.size === 0) return true;
+    return appCgroups.has(candidate.cgroup);
 }
 
 function processesForRoot(appRoot, runToken) {
@@ -111,11 +146,14 @@ function processesForRoot(appRoot, runToken) {
     const result = [];
 
     for (const candidate of candidates) {
-        const belongsByEnvironment =
-            candidate.environment.includes(marker) ||
-            (tokenMarker && candidate.environment.includes(tokenMarker));
-        const belongsByCgroup = candidate.cgroup && appCgroups.has(candidate.cgroup);
-        if (!appPids.has(candidate.pid) && !belongsByEnvironment && !belongsByCgroup) {
+        if (
+            !processBelongsToRun(candidate, {
+                appPids,
+                appCgroups,
+                environmentMarker: marker,
+                runTokenMarker: tokenMarker,
+            })
+        ) {
             continue;
         }
         const memory = readRollup(candidate.pid);
@@ -125,54 +163,58 @@ function processesForRoot(appRoot, runToken) {
     return result.sort((left, right) => left.pid - right.pid);
 }
 
-const args = readArgs();
-if (!args.appRoot || !args.out) {
-    throw new Error(
-        'Usage: process-memory.mjs --app-root <path> --out <jsonl> [--run-token <token>]'
+function main() {
+    const args = readArgs();
+    if (!args.appRoot || !args.out) {
+        throw new Error(
+            'Usage: process-memory.mjs --app-root <path> --out <jsonl> [--run-token <token>]'
+        );
+    }
+
+    fs.mkdirSync(path.dirname(args.out), { recursive: true });
+    let running = true;
+    let timer = null;
+    fs.appendFileSync(
+        args.out,
+        `${JSON.stringify({
+            type: 'sampler-start',
+            at: Date.now(),
+            runId: args.runId,
+            arm: args.arm,
+            flow: args.flow,
+            appRoot: args.appRoot,
+            runToken: args.runToken,
+        })}\n`
     );
-}
 
-fs.mkdirSync(path.dirname(args.out), { recursive: true });
-let running = true;
-let timer = null;
-fs.appendFileSync(
-    args.out,
-    `${JSON.stringify({
-        type: 'sampler-start',
-        at: Date.now(),
-        runId: args.runId,
-        arm: args.arm,
-        flow: args.flow,
-        appRoot: args.appRoot,
-        runToken: args.runToken,
-    })}\n`
-);
-
-function stop() {
-    running = false;
-    if (timer) clearTimeout(timer);
-}
-
-process.once('SIGINT', stop);
-process.once('SIGTERM', stop);
-
-function sample() {
-    if (!running) return;
-    const processes = processesForRoot(args.appRoot, args.runToken);
-    const record = {
-        type: 'memory',
-        at: Date.now(),
-        runId: args.runId,
-        arm: args.arm,
-        flow: args.flow,
-        appRoot: args.appRoot,
-        processes,
-        totalPssKb: processes.reduce((sum, item) => sum + item.pssKb, 0),
-        totalRssKb: processes.reduce((sum, item) => sum + item.rssKb, 0),
-        totalPrivateDirtyKb: processes.reduce((sum, item) => sum + item.privateDirtyKb, 0),
+    const stop = () => {
+        running = false;
+        if (timer) clearTimeout(timer);
     };
-    fs.appendFileSync(args.out, `${JSON.stringify(record)}\n`);
-    timer = setTimeout(sample, args.intervalMs);
+
+    process.once('SIGINT', stop);
+    process.once('SIGTERM', stop);
+
+    const sample = () => {
+        if (!running) return;
+        const processes = processesForRoot(args.appRoot, args.runToken);
+        const record = {
+            type: 'memory',
+            at: Date.now(),
+            runId: args.runId,
+            arm: args.arm,
+            flow: args.flow,
+            appRoot: args.appRoot,
+            processes,
+            ...aggregateMemory(processes),
+        };
+        fs.appendFileSync(args.out, `${JSON.stringify(record)}\n`);
+        timer = setTimeout(sample, args.intervalMs);
+    };
+
+    sample();
 }
 
-sample();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+    main();
+}

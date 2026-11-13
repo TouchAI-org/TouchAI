@@ -15,17 +15,20 @@ const fixtureManifestVersion = 1;
 
 function readJsonLines(file) {
     if (!fs.existsSync(file)) return [];
-    return fs
-        .readFileSync(file, 'utf8')
-        .split('\n')
-        .filter(Boolean)
-        .flatMap((line) => {
-            try {
-                return [JSON.parse(line)];
-            } catch {
-                return [];
-            }
-        });
+    const lines = fs.readFileSync(file, 'utf8').split('\n');
+    const records = [];
+    for (const [index, line] of lines.entries()) {
+        if (!line.trim()) continue;
+        try {
+            records.push(JSON.parse(line));
+        } catch (error) {
+            throw new Error(
+                `Invalid JSONL at ${file}:${index + 1}: ${error instanceof Error ? error.message : String(error)}`,
+                { cause: error }
+            );
+        }
+    }
+    return records;
 }
 
 function readJsonFile(file) {
@@ -167,6 +170,10 @@ function blockKeyForRun(run) {
     return `${run.flow ?? 'unknown'}:h${run.historyLevel ?? 0}:b${block}`;
 }
 
+function measurementKey(item) {
+    return [item.flow, item.block, item.sequenceIndex, item.arm, item.historyLevel || 0].join(':');
+}
+
 function appendCluster(clusters, key, runId, values) {
     const cluster = clusters.get(key) ?? { values: [], runIds: new Set() };
     cluster.values.push(...values);
@@ -174,7 +181,7 @@ function appendCluster(clusters, key, runId, values) {
     clusters.set(key, cluster);
 }
 
-function buildClusterModel(groupedByArm, runById) {
+function buildClusterModel(groupedByArm, runById, plannedItems = []) {
     const allRunIds = arms.flatMap((arm) => [...(groupedByArm[arm]?.keys() ?? [])]);
     const canPair =
         allRunIds.length > 0 &&
@@ -208,14 +215,39 @@ function buildClusterModel(groupedByArm, runById) {
         })
     );
     const allKeys = new Set(arms.flatMap((arm) => [...clustersByArm[arm].keys()]));
+    const availableKeysByArm = Object.fromEntries(
+        arms.map((arm) => {
+            const keys = new Set();
+            for (const runId of groupedByArm[arm]?.keys() ?? []) {
+                const run = runById.get(runId);
+                if (run) keys.add(measurementKey(run));
+            }
+            return [arm, keys];
+        })
+    );
+    const plannedByBlock = new Map();
+    for (const item of plannedItems) {
+        const key = blockKeyForRun(item);
+        if (!key) continue;
+        const items = plannedByBlock.get(key) ?? [];
+        items.push(item);
+        plannedByBlock.set(key, items);
+    }
     const clusterKeys = [...allKeys]
-        .filter((key) => arms.every((arm) => clustersByArm[arm].has(key)))
+        .filter((key) => {
+            if (!arms.every((arm) => clustersByArm[arm].has(key))) return false;
+            const planned = plannedByBlock.get(key);
+            if (!planned || planned.length === 0) return plannedItems.length === 0;
+            return planned.every((item) => availableKeysByArm[item.arm]?.has(measurementKey(item)));
+        })
         .sort();
+    const plannedKeys = new Set(plannedByBlock.keys());
+    for (const key of allKeys) plannedKeys.add(key);
     return {
         mode: 'paired-block',
         clustersByArm,
         clusterKeys,
-        excludedClusterCount: allKeys.size - clusterKeys.length,
+        excludedClusterCount: plannedKeys.size - clusterKeys.length,
     };
 }
 
@@ -291,8 +323,9 @@ function summarizeMetric({
     gate,
     seed,
     notes = '',
+    plannedItems = [],
 }) {
-    const model = buildClusterModel(groupedByArm, runById);
+    const model = buildClusterModel(groupedByArm, runById, plannedItems);
     const clusterKeysByArm =
         model.mode === 'paired-block'
             ? Object.fromEntries(arms.map((arm) => [arm, model.clusterKeys]))
@@ -346,7 +379,7 @@ function summarizeMetric({
     };
 }
 
-function buildLatencyStats(events, runs, modes) {
+function buildLatencyStats(events, runs, modes, plannedItems) {
     if (modes.length === 0) {
         return { status: 'NOT_RUN', modes, metrics: [] };
     }
@@ -387,6 +420,7 @@ function buildLatencyStats(events, runs, modes) {
                     metric,
                     gate: true,
                     seed: `latency-duration-${mode}-${metric}`,
+                    plannedItems,
                 })
             );
             metrics.push(
@@ -400,6 +434,7 @@ function buildLatencyStats(events, runs, modes) {
                     gate: false,
                     seed: `latency-first-text-${mode}-${metric}`,
                     notes: 'Auxiliary user-visible metric; the RFC gate is Enter-to-sentinel.',
+                    plannedItems,
                 })
             );
         }
@@ -418,6 +453,8 @@ function groupMemoryByRun(memory) {
     for (const record of memory) {
         if (
             record.type !== 'memory' ||
+            typeof record.totalPssKb !== 'number' ||
+            !Number.isFinite(record.totalPssKb) ||
             record.totalPssKb <= 0 ||
             !Array.isArray(record.processes) ||
             record.processes.length === 0
@@ -450,7 +487,7 @@ function nearestMemory(samples, at, maxDistanceMs = 3000) {
     return bestDistance <= maxDistanceMs ? best : null;
 }
 
-function buildProgressStats(events, memory, runs, enabled) {
+function buildProgressStats(events, memory, runs, enabled, plannedItems) {
     if (!enabled) {
         return { status: 'NOT_RUN', metrics: [], samples: [] };
     }
@@ -510,6 +547,7 @@ function buildProgressStats(events, memory, runs, enabled) {
         gate: true,
         seed: 'progress-steady-pss',
         notes: 'Median of the last half of the measured progress window, after warmups.',
+        plannedItems,
     });
     const peak = summarizeMetric({
         id: 'progress.peak.pss',
@@ -521,12 +559,20 @@ function buildProgressStats(events, memory, runs, enabled) {
         gate: false,
         seed: 'progress-peak-pss',
         notes: 'Auxiliary; peak is not the RFC steady-state budget.',
+        plannedItems,
     });
     const status = steady.status;
     return { status, metrics: [steady, peak], samples: steadyRows };
 }
 
-function buildLongSessionStats(events, memory, runs, expectedHistoryLevels = [], enabled = true) {
+function buildLongSessionStats(
+    events,
+    memory,
+    runs,
+    expectedHistoryLevels = [],
+    enabled = true,
+    plannedItems = []
+) {
     if (!enabled) {
         return { status: 'NOT_RUN', levels: [] };
     }
@@ -615,6 +661,7 @@ function buildLongSessionStats(events, memory, runs, expectedHistoryLevels = [],
                 gate: true,
                 seed: `long-${level}-retained-pss`,
                 notes: 'Steady-state post-open plateau PSS, app + WebKit. Compared directly across arms; history-only growth is reported separately.',
+                plannedItems,
             }),
             summarizeMetric({
                 id: `long-${level}.retained.dom`,
@@ -626,6 +673,7 @@ function buildLongSessionStats(events, memory, runs, expectedHistoryLevels = [],
                 gate: true,
                 seed: `long-${level}-retained-dom`,
                 notes: 'Rendered message-container DOM after opening the seeded history.',
+                plannedItems,
             }),
             summarizeMetric({
                 id: `long-${level}.history-growth.pss`,
@@ -637,6 +685,7 @@ function buildLongSessionStats(events, memory, runs, expectedHistoryLevels = [],
                 gate: false,
                 seed: `long-${level}-history-growth`,
                 notes: 'Post-open plateau minus idle baseline. Auxiliary because small histories can cancel into zero or negative deltas.',
+                plannedItems,
             }),
             summarizeMetric({
                 id: `long-${level}.open-peak.pss`,
@@ -648,6 +697,7 @@ function buildLongSessionStats(events, memory, runs, expectedHistoryLevels = [],
                 gate: false,
                 seed: `long-${level}-open-peak`,
                 notes: 'Auxiliary temporary clone/queue signal.',
+                plannedItems,
             }),
             summarizeMetric({
                 id: `long-${level}.stream-peak.pss`,
@@ -659,6 +709,7 @@ function buildLongSessionStats(events, memory, runs, expectedHistoryLevels = [],
                 gate: false,
                 seed: `long-${level}-stream-peak`,
                 notes: 'Auxiliary temporary work signal.',
+                plannedItems,
             }),
             summarizeMetric({
                 id: `long-${level}.settled.pss`,
@@ -670,6 +721,7 @@ function buildLongSessionStats(events, memory, runs, expectedHistoryLevels = [],
                 gate: false,
                 seed: `long-${level}-settled`,
                 notes: 'Auxiliary post-stream settled total memory, app + WebKit.',
+                plannedItems,
             }),
         ];
         const gates = metrics.filter((metric) => metric.gate);
@@ -853,19 +905,26 @@ export async function generateStats() {
     const runs = applyFixtureValidation(recordedRuns, fixtureManifest);
     const validRuns = runs.filter(isValidRun);
     const invalidRuns = runs.filter((run) => !isValidRun(run));
-    const latency = buildLatencyStats(events, validRuns, latencyModes);
+    const plannedRuns = Array.isArray(runPlan.plan) ? runPlan.plan : [];
+    const validRunKeys = new Set(validRuns.map(measurementKey));
+    const missingPlannedRuns = plannedRuns.filter(
+        (item) => !validRunKeys.has(measurementKey(item))
+    );
+    const latency = buildLatencyStats(events, validRuns, latencyModes, plannedRuns);
     const progress = buildProgressStats(
         events,
         memory,
         validRuns,
-        enabledFlows.includes('progress')
+        enabledFlows.includes('progress'),
+        plannedRuns
     );
     const longSession = buildLongSessionStats(
         events,
         memory,
         validRuns,
         expectedHistoryLevels,
-        enabledFlows.includes('long-session')
+        enabledFlows.includes('long-session'),
+        plannedRuns
     );
     const statuses = [
         enabledFlows.includes('latency') ? latency.status : null,
@@ -877,7 +936,7 @@ export async function generateStats() {
             ? 'BLOCKED'
             : statuses.includes('FAIL')
               ? 'FAIL'
-              : statuses.includes('BLOCKED')
+              : statuses.includes('BLOCKED') || missingPlannedRuns.length > 0
                 ? 'BLOCKED'
                 : 'PASS';
     const stats = {
@@ -897,10 +956,16 @@ export async function generateStats() {
             events: events.length,
             memorySamples: memory.filter((record) => record.type === 'memory').length,
             runs: runs.length,
+            plannedRuns: plannedRuns.length,
             validRuns: validRuns.length,
             invalidRuns: invalidRuns.length,
             successfulRuns: validRuns.length,
             failedRuns: invalidRuns.length,
+            missingPlannedRuns: missingPlannedRuns.length,
+        },
+        planCompleteness: {
+            expectedRuns: plannedRuns.length,
+            missingRuns: missingPlannedRuns.map(measurementKey),
         },
         fixtureManifest: {
             present: fixtureManifest !== null,

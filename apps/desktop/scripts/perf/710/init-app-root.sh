@@ -30,11 +30,31 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+stable_migration_count=""
+stable_ready_polls=0
 for _ in $(seq 1 $((timeout_seconds * 5))); do
     if [[ -s "$database" ]]; then
         if [[ -z "$ready_query" ]]; then
-            sleep 1
-            exit 0
+            integrity="$(sqlite3 "$database" 'PRAGMA quick_check;' 2>/dev/null || true)"
+            migration_count="$(
+                sqlite3 "$database" 'SELECT COUNT(*) FROM migrations;' 2>/dev/null || true
+            )"
+            if [[ "$integrity" == "ok" && "$migration_count" =~ ^[1-9][0-9]*$ ]]; then
+                if [[ "$migration_count" == "$stable_migration_count" ]]; then
+                    stable_ready_polls=$((stable_ready_polls + 1))
+                    if (( stable_ready_polls >= 2 )); then
+                        exit 0
+                    fi
+                else
+                    stable_migration_count="$migration_count"
+                    stable_ready_polls=0
+                fi
+            else
+                stable_migration_count=""
+                stable_ready_polls=0
+            fi
+            sleep 0.2
+            continue
         fi
         if [[ "$(sqlite3 "$database" "$ready_query" 2>/dev/null || true)" == "1" ]]; then
             # Let the writing transaction finish before the app is terminated.

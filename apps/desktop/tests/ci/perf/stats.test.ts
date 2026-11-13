@@ -88,7 +88,30 @@ function writeFixtureManifest(root: string): void {
     );
 }
 
-function writeSyntheticRuns(root: string, runs: SyntheticRun[]): void {
+function writeRunPlan(
+    root: string,
+    runs: Array<{
+        arm: 'baseline' | 'current';
+        flow?: string;
+        block: number;
+        sequenceIndex: number;
+        historyLevel?: number | null;
+    }>
+): void {
+    const planFile = path.join(root, 'run-plan.json');
+    const plan = JSON.parse(fs.readFileSync(planFile, 'utf8'));
+    plan.plan = runs.map((run) => ({
+        arm: run.arm,
+        flow: run.flow ?? 'latency',
+        block: run.block,
+        sequenceIndex: run.sequenceIndex,
+        fixture: 'base',
+        historyLevel: run.historyLevel ?? 0,
+    }));
+    fs.writeFileSync(planFile, `${JSON.stringify(plan, null, 4)}\n`);
+}
+
+function writeSyntheticRuns(root: string, runs: SyntheticRun[], plannedRuns = runs): void {
     const records = runs.map((run) => ({
         type: 'run',
         runId: run.runId,
@@ -127,6 +150,7 @@ function writeSyntheticRuns(root: string, runs: SyntheticRun[]): void {
             .join('\n') + '\n'
     );
     fs.writeFileSync(path.join(root, 'raw/formal/pss.jsonl'), '');
+    writeRunPlan(root, plannedRuns);
 }
 
 function writeSyntheticLongSessionRuns(root: string): void {
@@ -254,16 +278,24 @@ function writeSyntheticLongSessionRuns(root: string): void {
         path.join(root, 'raw/formal/pss.jsonl'),
         memory.map((record) => JSON.stringify(record)).join('\n') + '\n'
     );
+    writeRunPlan(
+        root,
+        runs.map((run) => ({ ...run, historyLevel: 100 }))
+    );
 }
 
 function runStats(root: string) {
-    const result = spawnSync(process.execPath, [STATS_CLI], {
+    const result = spawnStats(root);
+    expect(result.error).toBeUndefined();
+    return result;
+}
+
+function spawnStats(root: string) {
+    return spawnSync(process.execPath, [STATS_CLI], {
         encoding: 'utf8',
         env: { ...process.env, TOUCHAI_PERF_EVIDENCE: root },
         timeout: 30000,
     });
-    expect(result.error).toBeUndefined();
-    return result;
 }
 
 function readStats(root: string) {
@@ -456,6 +488,38 @@ describe('user reads the RFC 710 performance statistics', () => {
                 )
             ).toBe(true);
             expect(stats.rawCounts.validRuns).toBe(0);
+            expect(stats.overallStatus).toBe('BLOCKED');
+        });
+    });
+
+    describe('given malformed raw evidence', () => {
+        it('user sees the source file and line instead of a silently omitted record', () => {
+            const root = createEvidenceRoot();
+            const eventsPath = path.join(root, 'raw/formal/events.jsonl');
+            fs.writeFileSync(eventsPath, '{"type":"valid"}\nnot-json\n');
+
+            const result = spawnStats(root);
+
+            expect(result.status).toBe(1);
+            expect(result.stderr).toContain(`${eventsPath}:2`);
+            expect(result.stderr).toContain('Invalid JSONL');
+        });
+    });
+
+    describe('given only part of the persisted run plan', () => {
+        it('user sees incomplete planned blocks excluded from a passing gate', () => {
+            const root = createEvidenceRoot();
+            writeFixtureManifest(root);
+            const planned = coldOnlyRuns(4);
+            const completed = planned.filter((run) => run.block <= 2);
+            writeSyntheticRuns(root, completed, planned);
+
+            const result = runStats(root);
+            const stats = readStats(root);
+
+            expect(result.status).toBe(0);
+            expect(stats.rawCounts.missingPlannedRuns).toBe(8);
+            expect(stats.latency.metrics[0].excludedClusterCount).toBe(2);
             expect(stats.overallStatus).toBe('BLOCKED');
         });
     });
