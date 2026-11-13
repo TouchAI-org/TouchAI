@@ -1,0 +1,47 @@
+[
+    {
+        "rule": "services-runtime-ui",
+        "importer": "services/AppUpdateService/index",
+        "target": "stores/settings",
+        "kind": "value",
+        "reason": "AppUpdateService reads the settings Vue store directly. Refactoring the app-update flow onto the SettingsService command path is outside RFC #710's authorized scope; the other built-in-tool settings consumers are migrated in this RFC.",
+        "exit": "Remove when AppUpdateService consumes settings through the SettingsService contract instead of the Vue store.",
+        "issue": "#710"
+    },
+    {
+        "rule": "no-self-barrel",
+        "importer": "services/AppUpdateService/notifications",
+        "target": "services/AppUpdateService/index",
+        "kind": "value",
+        "reason": "Pre-existing edge: AppUpdateService/notifications.ts reads the appUpdateService singleton from its own module barrel. No RFC #710 phase targets this file, and it is not a cycle.",
+        "exit": "Remove when notifications.ts imports the singleton's defining module directly, or the singleton moves out of index.ts.",
+        "issue": "#710"
+    },
+    {
+        "rule": "database-no-service-reverse",
+        "importer": "database/sqlLogger",
+        "target": "services/ObservabilityService/index",
+        "kind": "value",
+        "reason": "The existing SQL debug logger writes through the observability service. The database runtime is removed by RFC #710's final database phase, so rewriting this temporary bridge would only add churn.",
+        "exit": "Remove together with the Drizzle database runtime and sqlLogger.",
+        "issue": "#710"
+    },
+    {
+        "rule": "no-self-barrel",
+        "importer": "services/AgentService/infrastructure/modelMetadata/syncEntry",
+        "target": "services/AgentService/infrastructure/modelMetadata/index",
+        "kind": "value",
+        "reason": "The metadata sync entry is a deliberate lightweight bootstrap facade; moving its exports would expand this RFC's scope without changing behavior.",
+        "exit": "Remove when the metadata refresh API moves out of index.ts or syncEntry becomes a concrete implementation module.",
+        "issue": "#710"
+    },
+    {
+        "rule": "no-self-barrel",
+        "importer": "services/AnalyticsService/admission",
+        "target": "services/AnalyticsService/index",
+        "kind": "value",
+        "reason": "The analytics admission budget intentionally consumes the service's public singleton boundary; this pre-existing edge is not a runtime cycle.",
+        "exit": "Remove when the analytics singleton moves to a concrete module outside index.ts.",
+        "issue": "#711"
+    }
+]
