@@ -144,16 +144,17 @@ describe('user reads the connection state of a server', () => {
         expect(wrapper.text()).toContain('连接错误');
     });
 
-    it('user sees the last error text when a connect attempt failed', () => {
+    it('user sees a generic connection error without the transport failure text', () => {
         setStatus('error');
         serverError.value = 'spawn npx ENOENT';
 
         const wrapper = mountHeader();
 
-        expect(wrapper.text()).toContain('spawn npx ENOENT');
+        expect(wrapper.text()).toContain('连接错误');
+        expect(wrapper.text()).not.toContain('spawn npx ENOENT');
     });
 
-    it('user does not see an error block for a stored error while the server is connected', () => {
+    it('user does not see a stored error while the server is connected', () => {
         setStatus('connected');
         serverError.value = 'a stale failure';
 
@@ -202,7 +203,7 @@ describe('user starts a stopped server', () => {
         expect(alertCalls(wrapper)[0]).toEqual(['服务器 "filesystem" 连接成功', 'success']);
     });
 
-    it('user gets the failure reason when the server refuses to start', async () => {
+    it('user gets a generic failure when the server refuses to start', async () => {
         connection.handleConnect.mockResolvedValue({
             success: false,
             error: 'no such command',
@@ -212,7 +213,8 @@ describe('user starts a stopped server', () => {
         await wrapper.get('button').trigger('click');
         await flushPromises();
 
-        expect(alertCalls(wrapper)[0]).toEqual(['连接失败: no such command', 'error']);
+        expect(alertCalls(wrapper)[0]).toEqual(['连接失败', 'error']);
+        expect(alertCalls(wrapper)[0]![0]).not.toContain('no such command');
     });
 
     it('user gets no alert when the connect was already in flight', async () => {
@@ -247,7 +249,7 @@ describe('user stops a running server', () => {
         expect(alertCalls(wrapper)[0]).toEqual(['服务器 "filesystem" 已断开', 'success']);
     });
 
-    it('user gets the failure reason when the server will not stop', async () => {
+    it('user gets a generic failure when the server will not stop', async () => {
         setStatus('connected');
         connection.handleDisconnect.mockResolvedValue({
             success: false,
@@ -258,7 +260,8 @@ describe('user stops a running server', () => {
         await wrapper.get('button').trigger('click');
         await flushPromises();
 
-        expect(alertCalls(wrapper)[0]).toEqual(['断开失败: timed out', 'error']);
+        expect(alertCalls(wrapper)[0]).toEqual(['断开失败', 'error']);
+        expect(alertCalls(wrapper)[0]![0]).not.toContain('timed out');
     });
 
     it('user gets no alert when the disconnect was already in flight', async () => {
@@ -295,7 +298,7 @@ describe('user reconnects a running server', () => {
         expect(alertCalls(wrapper)[0]).toEqual(['服务器 "filesystem" 重新连接成功', 'success']);
     });
 
-    it('user gets the failure reason when the reconnect fails', async () => {
+    it('user gets a generic failure when the reconnect fails', async () => {
         setStatus('connected');
         connection.handleReconnect.mockResolvedValue({
             success: false,
@@ -306,7 +309,8 @@ describe('user reconnects a running server', () => {
         await wrapper.findAll('button')[1]!.trigger('click');
         await flushPromises();
 
-        expect(alertCalls(wrapper)[0]).toEqual(['重新连接失败: handshake failed', 'error']);
+        expect(alertCalls(wrapper)[0]).toEqual(['重新连接失败', 'error']);
+        expect(alertCalls(wrapper)[0]![0]).not.toContain('handshake failed');
     });
 
     it('user gets no alert when the reconnect was already in flight', async () => {

@@ -78,7 +78,7 @@ describe('user searches in quick search', () => {
             last_refresh_ms: null,
             last_error: null,
         });
-        mockTauriCommand('database_query', { rows: [], rowsAffected: 0, lastInsertId: null });
+        mockTauriCommand('database_operation', {});
         mockTauriCommand('quick_search_get_shortcut_icons', {});
         mockTauriCommand('quick_search_get_image_thumbnails', {});
     });

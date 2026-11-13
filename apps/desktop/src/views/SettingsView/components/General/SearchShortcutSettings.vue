@@ -3,6 +3,7 @@
     import AppIcon from '@components/AppIcon.vue';
     import { type ShortcutCaptureSystemKeyEvent } from '@services/EventService';
     import { log } from '@services/ObservabilityService';
+    import { describeSettingsFailure } from '@services/SettingsService/messages';
     import { storeToRefs } from 'pinia';
     import { computed, ref } from 'vue';
 
@@ -365,9 +366,7 @@
                 settings.value.searchKeybindings[actionId]
             );
             alertMessage.value?.error(
-                error instanceof Error && error.message
-                    ? error.message
-                    : t('settings.general.saveSettingsFailed'),
+                describeSettingsFailure(error, t('settings.general.saveSettingsFailed')),
                 3000
             );
 

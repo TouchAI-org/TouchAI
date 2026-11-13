@@ -3,6 +3,7 @@
 import { tt } from '@/i18n';
 import { parseJsonWithSchema } from '@/utils/zod';
 
+import { ToolUserFacingError } from '../../errors';
 import { nonEmptyTrimmedStringSchema, z } from '../../utils/toolSchema';
 
 /**
@@ -34,7 +35,9 @@ export function isUpgradeModelChainEntry(value: unknown): value is UpgradeModelC
 export function normalizeUpgradeModelChainEntry(value: unknown): UpgradeModelChainEntry {
     const result = upgradeModelChainEntrySchema.safeParse(value);
     if (!result.success) {
-        throw new Error(tt('升级链条中的每一项都必须包含 providerId 和非空 modelId。'));
+        throw new ToolUserFacingError(
+            tt('升级链条中的每一项都必须包含 providerId 和非空 modelId。')
+        );
     }
 
     return result.data;
@@ -58,7 +61,7 @@ export function normalizeUpgradeModelChain(value: unknown): UpgradeModelChainEnt
             : value;
 
     if (!Array.isArray(rawEntries)) {
-        throw new Error(tt('升级链条必须是数组或可解析为数组的 JSON 字符串。'));
+        throw new ToolUserFacingError(tt('升级链条必须是数组或可解析为数组的 JSON 字符串。'));
     }
 
     const normalizedEntries = rawEntries.map((entry) => normalizeUpgradeModelChainEntry(entry));

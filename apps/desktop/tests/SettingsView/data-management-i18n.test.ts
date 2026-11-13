@@ -2,7 +2,6 @@ import { mount } from '@vue/test-utils';
 import { createPinia } from 'pinia';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { MetaKey } from '@/database/schema';
 import { setLocale } from '@/i18n';
 import BadgedLogo from '@/views/SettingsView/components/AiServices/components/BadgedLogo.vue';
 import ImportModeDialog from '@/views/SettingsView/components/DataManagement/components/ImportModeDialog.vue';
@@ -10,21 +9,26 @@ import ProgressDialog from '@/views/SettingsView/components/DataManagement/compo
 import DataManagement from '@/views/SettingsView/components/DataManagement/index.vue';
 
 const {
+    alertMock,
     countMessagesMock,
     countSessionsMock,
     countSessionTurnsMock,
+    exportDatabaseMock,
     getStatisticMock,
     importDatabaseMock,
     relaunchMock,
-    setMetaMock,
 } = vi.hoisted(() => ({
+    alertMock: {
+        error: vi.fn(),
+        success: vi.fn(),
+    },
     countMessagesMock: vi.fn(),
     countSessionsMock: vi.fn(),
     countSessionTurnsMock: vi.fn(),
+    exportDatabaseMock: vi.fn(),
     getStatisticMock: vi.fn(),
     importDatabaseMock: vi.fn(),
     relaunchMock: vi.fn(),
-    setMetaMock: vi.fn(),
 }));
 
 vi.mock('@database/queries', () => ({
@@ -37,13 +41,9 @@ vi.mock('@database/queries', () => ({
     getStatistic: getStatisticMock,
 }));
 
-vi.mock('@database/queries/touchaiMeta', () => ({
-    setMeta: setMetaMock,
-}));
-
 vi.mock('@database/backup', () => ({
     databaseBackup: {
-        exportDatabase: vi.fn(),
+        exportDatabase: exportDatabaseMock,
         importDatabase: importDatabaseMock,
     },
     isDatabaseBackupCancelledError: (error: unknown) =>
@@ -53,10 +53,7 @@ vi.mock('@database/backup', () => ({
 }));
 
 vi.mock('@composables/useAlert', () => ({
-    useAlert: () => ({
-        error: vi.fn(),
-        success: vi.fn(),
-    }),
+    useAlert: () => alertMock,
 }));
 
 vi.mock('@composables/useConfirm', () => ({
@@ -129,8 +126,6 @@ describe('user manages the app data', () => {
         countSessionTurnsMock.mockResolvedValue(3);
         getStatisticMock.mockResolvedValue('2026-05-20T12:34:00Z');
         importDatabaseMock.mockResolvedValue(true);
-
-        setMetaMock.mockResolvedValue(undefined);
     });
 
     it('user sees model metadata last-updated text in English with localized date formatting', async () => {
@@ -231,7 +226,60 @@ describe('user manages the app data', () => {
         expect(wrapper.text()).toContain('42%');
     });
 
-    it('user persists import-success startup notification as a source payload instead of translated text', async () => {
+    it('user gets a generic export failure without the internal database text', async () => {
+        exportDatabaseMock.mockRejectedValueOnce(
+            new Error('database is locked while opening /home/user/touchai.db')
+        );
+
+        const wrapper = mount(DataManagement, {
+            global: {
+                stubs: {
+                    ImportModeDialog: true,
+                    ProgressDialog: true,
+                },
+            },
+        });
+        await flushMountedPromises();
+
+        const exportButton = wrapper.findAll('button').find((button) => button.text() === '导出');
+        await exportButton?.trigger('click');
+        await flushMountedPromises();
+
+        expect(alertMock.error).toHaveBeenCalledWith('导出备份失败');
+        expect(alertMock.error).not.toHaveBeenCalledWith(
+            expect.stringContaining('database is locked')
+        );
+        wrapper.unmount();
+    });
+
+    it('user gets a generic import failure without the internal database text', async () => {
+        importDatabaseMock.mockRejectedValueOnce(
+            new Error('database is locked while importing /home/user/backup.db')
+        );
+
+        const wrapper = mount(DataManagement, {
+            global: {
+                stubs: {
+                    ImportModeDialog: true,
+                    ProgressDialog: true,
+                },
+            },
+        });
+        await flushMountedPromises();
+
+        const importButton = wrapper.findAll('button').find((button) => button.text() === '导入');
+        await importButton?.trigger('click');
+        await wrapper.getComponent(ImportModeDialog).vm.$emit('select', 'full');
+        await flushMountedPromises();
+
+        expect(alertMock.error).toHaveBeenCalledWith('导入备份失败');
+        expect(alertMock.error).not.toHaveBeenCalledWith(
+            expect.stringContaining('database is locked')
+        );
+        wrapper.unmount();
+    });
+
+    it('user starts the restart countdown after the import completes', async () => {
         setLocale('en-US');
         vi.useFakeTimers();
 
@@ -250,17 +298,10 @@ describe('user manages the app data', () => {
             await wrapper.getComponent(ImportModeDialog).vm.$emit('select', 'full');
             await flushMountedPromises();
 
-            expect(setMetaMock).toHaveBeenCalledWith({
-                key: MetaKey.IMPORT_SUCCESS,
-                value: JSON.stringify({
-                    type: 'import-success',
-                    version: 1,
-                    importMode: 'full',
-                }),
-            });
-            expect(JSON.stringify(setMetaMock.mock.calls)).not.toContain(
-                'Data imported successfully'
-            );
+            expect(importDatabaseMock).toHaveBeenCalledWith('full', expect.any(Function));
+            expect(relaunchMock).not.toHaveBeenCalled();
+            await vi.advanceTimersByTimeAsync(4000);
+            expect(relaunchMock).toHaveBeenCalledTimes(1);
 
             vi.clearAllTimers();
             wrapper.unmount();

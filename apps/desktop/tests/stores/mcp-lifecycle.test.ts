@@ -37,7 +37,11 @@ let pinia: ReturnType<typeof createPinia>;
 beforeEach(() => {
     pinia = createPinia();
     setActivePinia(pinia);
-    mockTauriCommand('database_query', () => ({ rows: [], rowsAffected: 0, lastInsertId: null }));
+    mockTauriCommand('database_operation', (payload: unknown) => {
+        const { request } = payload as { request?: { kind?: string } };
+        if (request?.kind === 'mcp_server_list') return [];
+        return null;
+    });
     mockTauriCommand('mcp_get_all_client_statuses', () => []);
 });
 
@@ -78,7 +82,7 @@ describe('user initializes and leaves the MCP status view', () => {
         const started = deferred();
         const read = deferred();
         interceptTauriInvoke(async (call, next) => {
-            if (call.cmd === 'database_query') {
+            if (call.cmd === 'database_operation') {
                 started.resolve();
                 await read.promise;
             }

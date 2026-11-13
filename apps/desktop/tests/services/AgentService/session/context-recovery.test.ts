@@ -1,5 +1,3 @@
-import { db } from '@database';
-import { syncOutputParts } from '@database/queries/messageParts';
 import {
     closeTestDatabases,
     openMigratedDatabase,
@@ -115,13 +113,11 @@ describe('given a saved context boundary and archived attachments', () => {
     );
 
     it('user receives more text in the current answer and continues reusing the checkpoint', async () => {
-        await db.transaction((tx) =>
-            syncOutputParts(
-                6,
-                [{ message_id: 6, type: 'text', content: 'Updated answer', sort_order: 1 }],
-                tx
+        database
+            .prepare(
+                "UPDATE message_parts SET content = 'Updated answer' WHERE message_id = 6 AND type = 'text'"
             )
-        );
+            .run();
         expect((await createSessionReadModel().getMessages(1)).map((row) => row.id)).toEqual([
             1, 5, 6,
         ]);

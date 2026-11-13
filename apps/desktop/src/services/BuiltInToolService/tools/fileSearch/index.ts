@@ -5,6 +5,7 @@ import { native } from '@services/NativeService';
 import { tt } from '@/i18n';
 import { normalizeOptionalString, truncateText } from '@/utils/text';
 
+import { resolveToolFailure } from '../../errors';
 import {
     type BaseBuiltInToolExecutionContext,
     BuiltInTool,
@@ -62,20 +63,20 @@ export async function executeFileSearchTool(
             status: 'success',
         };
     } catch (error) {
-        const fallbackMessage = error instanceof Error ? error.message : String(error);
-        const status = await native.quickSearch.getStatus().catch(() => null);
-        const errorMessage = status?.last_error?.trim() || fallbackMessage;
+        const failure = resolveToolFailure(error, {
+            toolId: 'file_search',
+            fallbackMessage: tt('本机文件搜索失败'),
+        });
 
         return {
             result: [
-                tt('本机文件搜索失败'),
+                failure.message,
                 `${tt('原始查询')}: ${queryContext.query}`,
                 `${tt('Everything 查询')}: ${queryContext.everythingQuery}`,
-                `${tt('原因')}: ${errorMessage}`,
             ].join('\n'),
             isError: true,
-            status: 'error',
-            errorMessage,
+            status: failure.status,
+            errorMessage: failure.message,
         };
     }
 }

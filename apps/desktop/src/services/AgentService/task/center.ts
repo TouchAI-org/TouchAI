@@ -628,7 +628,7 @@ export class SessionTaskCenter {
                 if (aiError.is(AiErrorCode.REQUEST_CANCELLED)) {
                     task.projection.markCancelled();
                 } else {
-                    task.projection.markFailed(aiError.message, aiError.getDisplayMessage());
+                    task.projection.markFailed(aiError.getDisplayMessage());
                 }
                 this.finalizeTaskLifecycle(taskId);
             }

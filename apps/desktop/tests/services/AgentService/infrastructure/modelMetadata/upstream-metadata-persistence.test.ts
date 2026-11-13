@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
-import type { DatabaseSync as SqliteDatabase, SQLInputValue } from 'node:sqlite';
+import type { DatabaseSync as SqliteDatabase } from 'node:sqlite';
 
-import { interceptTauriInvoke } from '@tests/utils/tauri';
+import { routeQueriesTo } from '@tests/database/sqliteHarness';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { persistRefreshedModels } from '@/services/AgentService/infrastructure/modelMetadata';
@@ -29,36 +29,6 @@ function openDatabase(): SqliteDatabase {
     return database;
 }
 
-function routeQueriesTo(database: SqliteDatabase) {
-    interceptTauriInvoke((call) => {
-        if (call.cmd === 'database_tx_begin') {
-            database.exec('BEGIN');
-            return 'test-tx';
-        }
-        if (call.cmd === 'database_tx_commit') {
-            database.exec('COMMIT');
-            return null;
-        }
-        if (call.cmd === 'database_tx_rollback') {
-            database.exec('ROLLBACK');
-            return null;
-        }
-        if (call.cmd !== 'database_query' && call.cmd !== 'database_tx_query') return undefined;
-        const { request } = call.payload as {
-            request: { sql: string; params: SQLInputValue[]; method: string };
-        };
-        const statement = database.prepare(request.sql);
-        if (request.method === 'run') {
-            const result = statement.run(...request.params);
-            return {
-                rows: [],
-                rowsAffected: Number(result.changes),
-                lastInsertId: Number(result.lastInsertRowid),
-            };
-        }
-        return { rows: statement.all(...request.params), rowsAffected: 0, lastInsertId: null };
-    });
-}
 afterEach(() => databases.splice(0).forEach((database) => database.close()));
 
 /** 网关 + models.dev 兜底：别名命中 `gpt-5-6-sol`，只有第一个模型能匹配上。 */

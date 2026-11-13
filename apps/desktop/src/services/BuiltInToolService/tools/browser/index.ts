@@ -9,10 +9,11 @@ import {
     evaluateBrowserPermission,
 } from '@services/SettingsService/domain/sections/browserPolicy';
 
-import { t } from '@/i18n';
+import { t, tt } from '@/i18n';
 import type { ToolApprovalRequest } from '@/services/AgentService/contracts/tooling';
 import type { BrowserExistingSession, BrowserStartRequest } from '@/services/NativeService/types';
 
+import { resolveToolFailure, ToolUserFacingError } from '../../errors';
 import { readEffectiveSettingValue } from '../../settingsReader';
 import {
     type BaseBuiltInToolExecutionContext,
@@ -45,7 +46,7 @@ import {
     BROWSER_TOOL_ID,
     BROWSER_TOOL_INPUT_SCHEMA,
 } from './constants';
-import { formatBrowserToolError, formatBrowserToolResult } from './format';
+import { formatBrowserToolResult } from './format';
 import { requireBrowserOperation, resolveBrowserOperationDescription } from './operation';
 
 export type BrowserToolId =
@@ -80,7 +81,7 @@ function requireKnownOperation<T extends readonly string[]>(
 ): T[number] {
     const operation = requireBrowserOperation(toolId, args);
     if (!isOneOf(operation, candidates)) {
-        throw new Error(`Unsupported ${toolId} operation: ${operation}`);
+        throw new ToolUserFacingError(`Unsupported ${toolId} operation: ${operation}`);
     }
 
     return operation;
@@ -104,7 +105,7 @@ function booleanArg(args: Record<string, unknown>, key: string): boolean | undef
 function rejectHiddenObserveFields(args: Record<string, unknown>): void {
     for (const key of ['includeScreenshot', 'includeDom']) {
         if (Object.prototype.hasOwnProperty.call(args, key)) {
-            throw new Error(`browser_observe does not accept hidden field ${key}`);
+            throw new ToolUserFacingError(`browser_observe does not accept hidden field ${key}`);
         }
     }
 }
@@ -139,20 +140,19 @@ async function ensureBrowserPermission(
 ): Promise<void> {
     const decision = evaluateBrowserPermission(config, operation, metadata);
     if (decision.decision === 'deny') {
-        throw new Error(`Browser permission denied: ${decision.reason}`);
+        throw new ToolUserFacingError(tt('浏览器权限不允许此操作'));
     }
     if (decision.decision === 'ask') {
-        await requestBrowserPermission(context, description ?? operation, decision.reason);
+        await requestBrowserPermission(context, description ?? operation);
     }
 }
 
 async function requestBrowserPermission(
     context: BaseBuiltInToolExecutionContext | undefined,
-    description: string,
-    reason: string
+    description: string
 ): Promise<void> {
     if (!context?.requestUserQuestions) {
-        throw new Error(`Browser permission requires user confirmation: ${reason}`);
+        throw new ToolUserFacingError(tt('需要用户确认浏览器操作'));
     }
 
     const approveLabel = t('builtInTools.browser.permission.approve');
@@ -174,7 +174,7 @@ async function requestBrowserPermission(
     ]);
     const selected = answers?.[0];
     if (!selected || selected.skipped || !selected.selectedLabels.includes(approveLabel)) {
-        throw new Error('Browser permission was not approved by the user');
+        throw new ToolUserFacingError(tt('用户未批准浏览器操作'));
     }
 }
 
@@ -188,7 +188,7 @@ async function chooseExistingSession(
     description: string
 ): Promise<BrowserExistingSession> {
     if (!context.requestUserQuestions) {
-        throw new Error('Connecting an existing browser session requires user confirmation');
+        throw new ToolUserFacingError(tt('需要用户确认浏览器操作'));
     }
 
     const options = sessions.map((session, index) => ({
@@ -210,12 +210,12 @@ async function chooseExistingSession(
     ]);
     const selectedLabel = answers?.[0]?.selectedLabels[0];
     if (!selectedLabel || selectedLabel === cancelLabel) {
-        throw new Error('Existing browser session connection was cancelled by the user');
+        throw new ToolUserFacingError(tt('用户未批准浏览器操作'));
     }
 
     const selectedIndex = options.findIndex((option) => option.label === selectedLabel);
     if (selectedIndex < 0 || selectedIndex >= sessions.length) {
-        throw new Error('Selected browser session was not found');
+        throw new ToolUserFacingError(tt('未找到可连接的已有浏览器会话'));
     }
     return sessions[selectedIndex] as BrowserExistingSession;
 }
@@ -226,21 +226,19 @@ async function resolveExistingSession(
     description: string
 ): Promise<BrowserExistingSession> {
     if (settings.existingSessionPolicy === 'deny') {
-        throw new Error('Browser permission denied: existing-browser-session-policy-deny');
+        throw new ToolUserFacingError(tt('浏览器权限不允许此操作'));
     }
 
     const sessions = await native.browser.discoverExisting();
     if (sessions.length === 0) {
-        throw new Error(
-            'No connectable existing browser session was found. Start a managed browser session, or open Chrome/Edge with a loopback remote debugging port if an existing session is required.'
-        );
+        throw new ToolUserFacingError(tt('未找到可连接的已有浏览器会话'));
     }
 
     const decision = evaluateBrowserPermission(settings, 'connect_existing', {
         availableSessionCount: sessions.length,
     });
     if (decision.decision === 'deny') {
-        throw new Error(`Browser permission denied: ${decision.reason}`);
+        throw new ToolUserFacingError(tt('浏览器权限不允许此操作'));
     }
     if (decision.decision === 'allow' && settings.existingSessionPolicy === 'auto') {
         return sessions[0] as BrowserExistingSession;
@@ -297,12 +295,15 @@ function success(operation: string, response: unknown): BuiltInToolExecutionResu
 }
 
 function errorResult(error: unknown): BuiltInToolExecutionResult {
-    const message = formatBrowserToolError(error);
+    const failure = resolveToolFailure(error, {
+        toolId: 'browser',
+        fallbackMessage: tt('工具执行失败'),
+    });
     return {
-        result: `Browser tool failed: ${message}`,
+        result: failure.message,
         isError: true,
-        status: 'error',
-        errorMessage: message,
+        status: failure.status,
+        errorMessage: failure.message,
     };
 }
 
@@ -393,7 +394,7 @@ export async function executeBrowserTool(
         return executeBrowserActTool(args, config, context);
     }
 
-    return errorResult(`Unsupported browser operation: ${operation}`);
+    return errorResult(new ToolUserFacingError(`Unsupported browser operation: ${operation}`));
 }
 
 export async function executeBrowserSessionTool(
@@ -461,7 +462,9 @@ export async function executeBrowserSessionTool(
                     })
                 );
             default:
-                throw new Error(`Unsupported browser_session operation: ${operation}`);
+                throw new ToolUserFacingError(
+                    `Unsupported browser_session operation: ${operation}`
+                );
         }
     } catch (error) {
         return errorResult(error);
@@ -570,7 +573,7 @@ export async function executeBrowserActTool(
         }
 
         if (!isNativeActOperation(operation)) {
-            throw new Error(`Unsupported browser_act operation: ${operation}`);
+            throw new ToolUserFacingError(`Unsupported browser_act operation: ${operation}`);
         }
 
         return success(

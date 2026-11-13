@@ -1,16 +1,13 @@
-import type { DatabaseSync } from 'node:sqlite';
-
-import { findMessagesBySessionId } from '@database/queries/messages';
-import {
-    closeTestDatabases,
-    openMigratedDatabase,
-    routeQueriesTo,
-} from '@tests/database/sqliteHarness';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AiRequestExecutor } from '@/services/AgentService/execution';
 import type { AttemptCheckpoint } from '@/services/AgentService/execution/executor';
 import { PersistenceProjector } from '@/services/AgentService/outputs/persistence';
+
+import {
+    createPersistenceDatabaseOperation,
+    type PersistenceDatabaseTelemetry,
+} from '../../../utils/persistenceDatabase';
 
 /**
  * Streamed progress is a replaceable snapshot written through a bounded writer.
@@ -23,6 +20,38 @@ vi.mock('@/services/AgentService/catalog', () => ({
     createProviderForModel: vi.fn(() => provider),
     resolveToolDefinitions: vi.fn(async () => []),
     getModel: vi.fn(),
+}));
+
+const queries = vi.hoisted(() => ({
+    createMessage: vi.fn(),
+    createSession: vi.fn(),
+    createMessageParts: vi.fn(),
+    updateMessage: vi.fn(),
+    syncOutputParts: vi.fn(),
+    createSessionTurn: vi.fn(),
+    createSessionTurnAttempt: vi.fn(),
+    updateSession: vi.fn(),
+    updateSessionTurn: vi.fn(),
+    updateSessionTurnAttempt: vi.fn(),
+    updateSessionTurnUsage: vi.fn(),
+    updateSessionTurnAttemptUsage: vi.fn(),
+    refreshSessionMetadata: vi.fn(),
+    findAllMcpTools: vi.fn(),
+    findAllBuiltInTools: vi.fn(),
+    mergeMessagePartData: vi.fn(),
+    findToolCallPartByCallId: vi.fn(),
+    createMessageAttachment: vi.fn(),
+    insertLlmCallParts: vi.fn(),
+}));
+
+const database = vi.hoisted(() => ({ operation: vi.fn() }));
+
+vi.mock('@database/queries', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@database/queries')>()),
+    ...queries,
+}));
+vi.mock('@services/NativeService', () => ({
+    native: { database: { operation: database.operation } },
 }));
 
 function createProjector() {
@@ -66,25 +95,23 @@ function createCheckpoint(): AttemptCheckpoint {
 }
 
 describe('user streams progress across an attempt boundary', () => {
-    let database: DatabaseSync;
-
     beforeEach(() => {
-        provider.stream.mockReset();
-        database = openMigratedDatabase();
-        routeQueriesTo(database);
-        database.exec(`
-            INSERT INTO providers (id, name, driver, api_endpoint, logo)
-            VALUES (1, 'Test', 'openai', 'https://example.com', 'openai');
-            INSERT INTO models (id, provider_id, name, model_id)
-            VALUES (1, 1, 'Test', 'test-model');
-            INSERT INTO sessions (id, session_id, title, model, provider_id)
-            VALUES (1, 'test-session', 'Test', 'test-model', 1);
-        `);
-    });
-
-    afterEach(() => {
-        vi.restoreAllMocks();
-        closeTestDatabases();
+        vi.resetAllMocks();
+        let messageId = 10;
+        queries.createMessage.mockImplementation(async (draft) => ({ ...draft, id: messageId++ }));
+        queries.createSessionTurn.mockImplementation(async (draft) => ({ ...draft, id: 2 }));
+        queries.createSessionTurnAttempt.mockImplementation(async (draft) => ({
+            ...draft,
+            attempt_index: draft.attempt_index,
+            id: 3,
+        }));
+        queries.findAllMcpTools.mockResolvedValue([]);
+        queries.findAllBuiltInTools.mockResolvedValue([]);
+        database.operation.mockImplementation(
+            createPersistenceDatabaseOperation({
+                ...queries,
+            } as unknown as PersistenceDatabaseTelemetry)
+        );
     });
 
     it('user does not see a stale progress snapshot written into the new attempt', async () => {
@@ -94,21 +121,24 @@ describe('user streams progress across an attempt boundary', () => {
 
         // A retry moves the projector to a new attempt before the stale write lands.
         await projector.beginNextAttempt('offline', createCheckpoint());
+        queries.syncOutputParts.mockClear();
 
         await projector.persistOutputProgress([{ type: 'text', content: 'stale output' }], {
             attemptGeneration: staleGeneration,
             step: 0,
         });
-        expect(await findMessagesBySessionId(1)).toHaveLength(1);
+        expect(queries.syncOutputParts).not.toHaveBeenCalled();
 
         // A write scoped to the current attempt still lands.
         await projector.persistOutputProgress([{ type: 'text', content: 'fresh output' }], {
             attemptGeneration: projector.getAttemptGeneration(),
             step: 0,
         });
-        const messages = await findMessagesBySessionId(1);
-        expect(messages).toHaveLength(2);
-        expect(messages[1]!.parts).toMatchObject([{ type: 'text', content: 'fresh output' }]);
+        expect(queries.syncOutputParts).toHaveBeenCalledWith(
+            expect.anything(),
+            [expect.objectContaining({ type: 'text', content: 'fresh output' })],
+            expect.anything()
+        );
     });
 
     it('user does not see a snapshot from an older model step after a newer one wrote', async () => {
@@ -120,14 +150,13 @@ describe('user streams progress across an attempt boundary', () => {
             attemptGeneration: generation,
             step: 1,
         });
+        queries.syncOutputParts.mockClear();
 
         await projector.persistOutputProgress([{ type: 'text', content: 'late step 0' }], {
             attemptGeneration: generation,
             step: 0,
         });
-        const messages = await findMessagesBySessionId(1);
-        expect(messages).toHaveLength(2);
-        expect(messages[1]!.parts).toMatchObject([{ type: 'text', content: 'step 1' }]);
+        expect(queries.syncOutputParts).not.toHaveBeenCalled();
     });
 
     it('user sees no snapshot written after the model step closes', async () => {
@@ -152,11 +181,8 @@ describe('user streams progress across an attempt boundary', () => {
         ]);
 
         // Once the step returns, its writer is closed: no late snapshot can land.
-        const messagesAfterReturn = await findMessagesBySessionId(1);
-        expect(messagesAfterReturn[1]!.parts).toMatchObject([
-            { type: 'text', content: 'Hello world' },
-        ]);
+        const callsAfterReturn = queries.syncOutputParts.mock.calls.length;
         await new Promise((resolve) => setTimeout(resolve, 0));
-        expect(await findMessagesBySessionId(1)).toEqual(messagesAfterReturn);
+        expect(queries.syncOutputParts.mock.calls.length).toBe(callsAfterReturn);
     });
 });

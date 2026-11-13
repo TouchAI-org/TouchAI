@@ -8,6 +8,7 @@
         type ImportMode,
         isDatabaseBackupCancelledError,
     } from '@database/backup';
+    import { StatisticKey } from '@database/keys';
     import {
         countMessages,
         countSessions,
@@ -17,8 +18,6 @@
         deleteAllSessionTurns,
         getStatistic,
     } from '@database/queries';
-    import { setMeta } from '@database/queries/touchaiMeta';
-    import { MetaKey, StatisticKey } from '@database/schema';
     import { log } from '@services/ObservabilityService';
     import { relaunch } from '@tauri-apps/plugin-process';
     import { useStateMachine } from 'reka-ui';
@@ -27,7 +26,6 @@
     import { t, tt } from '@/i18n';
     import { formatDateTime } from '@/i18n/format';
     import { updateModelMetadata } from '@/services/AgentService/infrastructure/modelMetadata';
-    import { serializeImportSuccessStartupPayload } from '@/services/StartupService';
     import { useSettingsStore } from '@/stores/settings';
 
     defineOptions({
@@ -265,10 +263,8 @@
             log.error('Failed to export settings:', error);
             showProgressDialog.value = false;
 
-            const message =
-                error instanceof Error ? error.message : t('settings.dataManagement.exportFailed');
             if (!isDatabaseBackupCancelledError(error)) {
-                alert.error(translateDataManagementMessage(message));
+                alert.error(t('settings.dataManagement.exportFailed'));
             }
         } finally {
             isLoading.value = false;
@@ -332,12 +328,6 @@
                 return;
             }
 
-            // 保存源数据而不是当前语言文案；重启后按导入后的语言显示通知。
-            await setMeta({
-                key: MetaKey.IMPORT_SUCCESS,
-                value: serializeImportSuccessStartupPayload(mode),
-            });
-
             // 开始重启倒计时
             await startRestartCountdown();
         } catch (error) {
@@ -345,10 +335,8 @@
 
             showProgressDialog.value = false;
 
-            const message =
-                error instanceof Error ? error.message : t('settings.dataManagement.importFailed');
             if (!isDatabaseBackupCancelledError(error)) {
-                alert.error(translateDataManagementMessage(message));
+                alert.error(t('settings.dataManagement.importFailed'));
             }
         } finally {
             isLoading.value = false;

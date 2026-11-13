@@ -1,9 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { desc, eq, sql } from 'drizzle-orm';
-
-import { db } from '../index';
-import { quickSearchClickStats } from '../schema';
+import { native } from '@services/NativeService';
 
 export interface QuickSearchClickStatRow {
     query_norm: string;
@@ -25,17 +22,11 @@ export async function findQuickSearchClicksByQuery({
     queryNorm: string;
     limit: number;
 }): Promise<QuickSearchClickStatRow[]> {
-    return db
-        .select({
-            path_norm: quickSearchClickStats.path_norm,
-            click_count: quickSearchClickStats.click_count,
-            query_norm: quickSearchClickStats.query_norm,
-        })
-        .from(quickSearchClickStats)
-        .where(eq(quickSearchClickStats.query_norm, queryNorm))
-        .orderBy(desc(quickSearchClickStats.click_count), desc(quickSearchClickStats.updated_at))
-        .limit(limit)
-        .all();
+    return native.database.operation<QuickSearchClickStatRow[]>({
+        kind: 'quick_search_find',
+        queryNorm,
+        limit,
+    });
 }
 
 /**
@@ -49,22 +40,11 @@ export async function findRecentQuickSearchClicksByQuery({
     queryNorm: string;
     limit: number;
 }): Promise<QuickSearchRecentClickStatRow[]> {
-    return db
-        .select({
-            path_norm: quickSearchClickStats.path_norm,
-            click_count: quickSearchClickStats.click_count,
-            query_norm: quickSearchClickStats.query_norm,
-            updated_at: quickSearchClickStats.updated_at,
-        })
-        .from(quickSearchClickStats)
-        .where(eq(quickSearchClickStats.query_norm, queryNorm))
-        .orderBy(
-            desc(quickSearchClickStats.updated_at),
-            desc(quickSearchClickStats.click_count),
-            quickSearchClickStats.path_norm
-        )
-        .limit(limit)
-        .all();
+    return native.database.operation<QuickSearchRecentClickStatRow[]>({
+        kind: 'quick_search_find_recent',
+        queryNorm,
+        limit,
+    });
 }
 
 /**
@@ -80,23 +60,10 @@ export async function upsertQuickSearchClick({
     maxClickCount: number;
 }): Promise<void> {
     if (!queryNorm || !pathNorm) return;
-    await db
-        .insert(quickSearchClickStats)
-        .values({
-            query_norm: queryNorm,
-            path_norm: pathNorm,
-            click_count: 1,
-            updated_at: sql`strftime('%Y-%m-%d %H:%M:%f', 'now')`,
-        })
-        .onConflictDoUpdate({
-            target: [quickSearchClickStats.query_norm, quickSearchClickStats.path_norm],
-            set: {
-                click_count: sql`CASE
-                    WHEN ${quickSearchClickStats.click_count} >= ${maxClickCount} THEN ${maxClickCount}
-                    ELSE ${quickSearchClickStats.click_count} + 1
-                END`,
-                updated_at: sql`strftime('%Y-%m-%d %H:%M:%f', 'now')`,
-            },
-        })
-        .run();
+    await native.database.operation({
+        kind: 'quick_search_upsert',
+        queryNorm,
+        pathNorm,
+        maxClickCount,
+    });
 }

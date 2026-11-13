@@ -1,9 +1,8 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { formatShortcutRegistrationError } from '@services/SettingsService/messages';
-
 import { t, tt } from '@/i18n';
 
+import { ToolUserFacingError } from '../../errors';
 import { initializeSettingsService, type SettingsToolReader } from '../../settingsReader';
 import { parseToolArguments } from '../../utils/toolSchema';
 import {
@@ -16,8 +15,6 @@ import {
     type SupportedSettingKey,
     type SupportedSettingValue,
 } from './constants';
-
-export { formatShortcutRegistrationError };
 
 export type { SettingsToolReader };
 
@@ -41,7 +38,7 @@ export type ParsedSettingRequest =
 function normalizeUpdateValue(key: SupportedSettingKey, value: unknown): SupportedSettingValue {
     const result = settingValueSchemaByKey[key].safeParse(value);
     if (!result.success) {
-        throw new Error(
+        throw new ToolUserFacingError(
             `${t('builtInTools.setting.error.invalidValue', { key })}\n${result.error.issues
                 .map((issue) => `- ${issue.message}`)
                 .join('\n')}`

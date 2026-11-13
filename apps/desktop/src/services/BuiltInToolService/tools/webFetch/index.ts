@@ -4,6 +4,7 @@ import { t, tt } from '@/i18n';
 import { cancelResponseBody, createTauriFetch } from '@/services/HttpService';
 import { normalizeOptionalString, truncateText } from '@/utils/text';
 
+import { formatHttpStatus, resolveToolFailure, ToolUserFacingError } from '../../errors';
 import {
     type BaseBuiltInToolExecutionContext,
     BuiltInTool,
@@ -46,14 +47,13 @@ function throwIfAborted(signal: AbortSignal): void {
     }
 }
 
-class WebFetchControlError extends Error {}
-
-function toErrorMessage(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
-}
+class WebFetchControlError extends ToolUserFacingError {}
 
 function webFetchControlError(error: unknown): WebFetchControlError {
-    return new WebFetchControlError(toErrorMessage(error));
+    if (!(error instanceof ToolUserFacingError)) {
+        throw error;
+    }
+    return new WebFetchControlError(error.message, { cause: error });
 }
 
 function requestOrigin(url: URL): string {
@@ -243,11 +243,12 @@ export async function executeWebFetchTool(
 
         const result = formatFetchResult(request, response, contentType, payload);
         if (!response.ok) {
+            const errorMessage = formatHttpStatus(response.status, response.statusText);
             return {
                 result,
                 isError: true,
                 status: 'error',
-                errorMessage: `HTTP ${response.status} ${response.statusText}`.trim(),
+                errorMessage,
             };
         }
 
@@ -265,18 +266,21 @@ export async function executeWebFetchTool(
             }
         }
 
-        const errorMessage = toErrorMessage(error);
-        const isTimeout = error instanceof DOMException ? error.name === 'TimeoutError' : false;
+        const failure = resolveToolFailure(error, {
+            toolId: 'web_fetch',
+            fallbackMessage: tt('网页抓取失败'),
+            timeoutMessage: tt('请求超时，请稍后重试'),
+        });
+        const resultLines = [tt('网页抓取失败'), `${tt('请求 URL')}: ${request.url.toString()}`];
+        if (error instanceof ToolUserFacingError || failure.status === 'timeout') {
+            resultLines.push(`${tt('原因')}: ${failure.message}`);
+        }
 
         return {
-            result: [
-                tt('网页抓取失败'),
-                `${tt('请求 URL')}: ${request.url.toString()}`,
-                `${tt('原因')}: ${errorMessage}`,
-            ].join('\n'),
+            result: resultLines.join('\n'),
             isError: true,
-            status: isTimeout ? 'timeout' : 'error',
-            errorMessage,
+            status: failure.status,
+            errorMessage: failure.message,
         };
     } finally {
         cleanup();
@@ -300,11 +304,12 @@ async function executeJinaReaderFallback(
         const contentType = getContentType(response);
         if (!response.ok || !isTextualContentType(contentType)) {
             await cancelResponseBody(response, 'WebFetch response discarded');
+            const errorMessage = formatHttpStatus(response.status, response.statusText);
             return {
-                result: `Fallback: Jina Reader\nHTTP ${response.status} ${response.statusText}`.trim(),
+                result: `Fallback: Jina Reader\n${errorMessage}`,
                 isError: true,
                 status: 'error',
-                errorMessage: `Jina Reader HTTP ${response.status} ${response.statusText}`.trim(),
+                errorMessage,
             };
         }
 
@@ -325,12 +330,20 @@ async function executeJinaReaderFallback(
             status: 'success',
         };
     } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const failure = resolveToolFailure(error, {
+            toolId: 'web_fetch_fallback',
+            fallbackMessage: tt('网页抓取失败'),
+            timeoutMessage: tt('请求超时，请稍后重试'),
+        });
+        const resultLines = [tt('网页抓取失败'), 'Fallback: Jina Reader'];
+        if (error instanceof ToolUserFacingError || failure.status === 'timeout') {
+            resultLines.push(`${tt('原因')}: ${failure.message}`);
+        }
         return {
-            result: `Fallback: Jina Reader failed\nReason: ${errorMessage}`,
+            result: resultLines.join('\n'),
             isError: true,
-            status: 'error',
-            errorMessage,
+            status: failure.status,
+            errorMessage: failure.message,
         };
     }
 }

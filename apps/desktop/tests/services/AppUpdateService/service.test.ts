@@ -247,7 +247,7 @@ describe('user checks for and installs app updates', () => {
 
     it('user is told the check failed when the very first settings-open check fails', async () => {
         const { controller } = createController({
-            checkError: new Error('network unavailable'),
+            checkError: new Error('database locked: /home/user/touchai.db'),
             lastCheckedAt: '2026-05-22T09:59:00.000Z',
         });
 
@@ -255,8 +255,9 @@ describe('user checks for and installs app updates', () => {
 
         expect(controller.getState()).toMatchObject({
             status: 'failed',
-            error: 'network unavailable',
+            error: '更新失败，请重试',
         });
+        expect(controller.getState().error).not.toContain('touchai.db');
     });
 
     it('user is told the check failed when joining a background check that fails', async () => {
@@ -275,7 +276,7 @@ describe('user checks for and installs app updates', () => {
         ]);
         expect(controller.getState()).toMatchObject({
             status: 'failed',
-            error: 'network unavailable',
+            error: '更新失败，请重试',
         });
     });
 
@@ -409,7 +410,7 @@ describe('user checks for and installs app updates', () => {
         expect(checked).toBe(false);
         expect(controller.getState()).toMatchObject({
             status: 'failed',
-            error: 'network unavailable',
+            error: '更新失败，请重试',
         });
     });
 
@@ -452,7 +453,7 @@ describe('user checks for and installs app updates', () => {
         expect(controller.getState()).toMatchObject({
             status: 'failed',
             availableUpdate,
-            error: 'connection lost',
+            error: '更新失败，请重试',
         });
 
         await expect(controller.download()).resolves.toBe(true);
@@ -479,7 +480,7 @@ describe('user checks for and installs app updates', () => {
         expect(controller.getState()).toMatchObject({
             status: 'failed',
             downloadedUpdate: availableUpdate,
-            error: 'file in use',
+            error: '更新失败，请重试',
         });
 
         await expect(controller.install()).resolves.toBe(true);
@@ -585,7 +586,7 @@ describe('user checks for and installs app updates', () => {
         expect(controller.getState()).toMatchObject({
             status: 'failed',
             downloadedUpdate: availableUpdate,
-            error: 'file in use',
+            error: '更新失败，请重试',
         });
         await expect(controller.install()).resolves.toBe(true);
     });

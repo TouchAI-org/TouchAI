@@ -64,14 +64,6 @@
         () => mcpStore.servers.length > 0 || selectedServer.value?.id === -1
     );
 
-    const getErrorMessage = (
-        error: unknown,
-        fallback = t('settings.mcp.status.unknown')
-    ): string => {
-        const message = error instanceof Error ? error.message : String(error);
-        return message && message !== '[object Object]' ? message : fallback;
-    };
-
     /**
      * 只在用户进入当前分区时初始化 MCP 状态仓库，避免设置页初次打开就提前刷新状态和订阅事件。
      */
@@ -84,10 +76,7 @@
             await mcpStore.initialize();
         } catch (error) {
             log.error('[McpToolsView] Failed to initialize MCP store:', error);
-            alertMessage.value?.error(
-                getErrorMessage(error, t('settings.mcp.messages.loadFailed')),
-                6000
-            );
+            alertMessage.value?.error(t('settings.mcp.messages.loadFailed'), 6000);
         }
     };
 
@@ -195,12 +184,7 @@
                     await mcpManager.connectServer(newServer);
                 } catch (error) {
                     log.error('Failed to auto-connect new server:', error);
-                    alertMessage.value?.error(
-                        t('settings.mcp.messages.autoConnectFailed', {
-                            error: getErrorMessage(error),
-                        }),
-                        6000
-                    );
+                    alertMessage.value?.error(t('settings.mcp.messages.autoConnectFailed'), 6000);
                     togglingServers.value.delete(newServer.id);
                 }
             }
@@ -249,12 +233,7 @@
                     await mcpManager.connectServer(server);
                 } catch (error) {
                     log.error('Failed to connect server:', error);
-                    alertMessage.value?.error(
-                        t('settings.mcp.messages.connectFailed', {
-                            error: getErrorMessage(error),
-                        }),
-                        6000
-                    );
+                    alertMessage.value?.error(t('settings.mcp.messages.connectFailed'), 6000);
                     togglingServers.value.delete(serverId);
                 }
             } else {

@@ -449,7 +449,7 @@
     },
     "src/views/SettingsView/components/General/UpdateSettingsSection.vue": {
         "tailwindcss/no-arbitrary-value": {
-            "count": 2
+            "count": 1
         },
         "vue/no-restricted-class": {
             "count": 2
@@ -488,7 +488,7 @@
     },
     "src/views/SettingsView/components/McpTools/components/McpServerHeader.vue": {
         "tailwindcss/no-arbitrary-value": {
-            "count": 3
+            "count": 2
         },
         "vue/no-restricted-class": {
             "count": 9

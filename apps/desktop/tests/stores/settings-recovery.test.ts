@@ -71,7 +71,7 @@ describe('user recovers settings after the first load fails', () => {
         // No owner yet: the client window's handshake fails.
         setActiveSettingsService(
             new SettingsService({
-                transport: bus.transport('win-settings'),
+                transport: bus.transport('settings'),
                 requestTimeoutMs: 20,
             })
         );
@@ -94,7 +94,7 @@ describe('user recovers settings after the first load fails', () => {
         // An explicit retry now succeeds and flips the gate.
         setActiveSettingsService(
             new SettingsService({
-                transport: bus.transport('win-settings'),
+                transport: bus.transport('settings'),
                 requestTimeoutMs: 50,
             })
         );
@@ -109,7 +109,7 @@ describe('user recovers settings after the first load fails', () => {
 
         setActiveSettingsService(
             new SettingsService({
-                transport: bus.transport('win-settings'),
+                transport: bus.transport('settings'),
                 requestTimeoutMs: 50,
             })
         );

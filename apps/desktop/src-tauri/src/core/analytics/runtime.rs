@@ -4242,7 +4242,7 @@ mod tests {
             .expect("matching source epoch");
         let backup_path = source_root.path().join("opt-out.db");
         source
-            .export_backup(backup_path.to_str().expect("backup path"))
+            .export_backup("main", backup_path.to_str().expect("backup path"))
             .await
             .expect("export backup");
 
@@ -4278,10 +4278,13 @@ mod tests {
         runtime
             .inner
             .database
-            .import_backup(DatabaseImportRequest {
-                source_path: backup_path.to_string_lossy().into_owned(),
-                mode: DatabaseImportMode::Full,
-            })
+            .import_backup(
+                "main",
+                DatabaseImportRequest {
+                    source_path: backup_path.to_string_lossy().into_owned(),
+                    mode: DatabaseImportMode::Full,
+                },
+            )
             .await
             .expect("full restore");
         runtime

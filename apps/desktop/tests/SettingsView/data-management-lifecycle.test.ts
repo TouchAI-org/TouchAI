@@ -1,4 +1,4 @@
-import type { DatabaseQueryRequest } from '@services/NativeService/database';
+import type { DatabaseOperation } from '@services/NativeService/database';
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import { createPinia, disposePinia } from 'pinia';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -35,13 +35,19 @@ beforeEach(() => {
     pinia = createPinia();
     setLocale('en-US');
     vi.stubGlobal('CSS', { escape: (value: string) => value });
-    mockTauriCommand('database_query', (payload: unknown) => {
-        const { request } = payload as { request: DatabaseQueryRequest };
-        return {
-            rows: request.sql.includes('count(') ? [{ count: 0 }] : [],
-            rowsAffected: 0,
-            lastInsertId: null,
-        };
+    mockTauriCommand('database_operation', (payload: unknown) => {
+        const { request } = payload as { request: DatabaseOperation };
+        if (
+            request.kind === 'session_count' ||
+            request.kind === 'message_count' ||
+            request.kind === 'session_turn_count'
+        ) {
+            return 0;
+        }
+        if (request.kind === 'statistic_get') {
+            return null;
+        }
+        return null;
     });
     mockTauriCommand('analytics_get_state', () => ({
         status: 'disabled',

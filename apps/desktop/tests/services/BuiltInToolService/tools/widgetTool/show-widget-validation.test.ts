@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { BaseBuiltInToolExecutionContext } from '@/services/BuiltInToolService';
+import { resolveToolFailure } from '@/services/BuiltInToolService/errors';
 import { executeShowWidgetTool } from '@/services/BuiltInToolService/tools/widgetTool/showWidget';
 
 function createContext(): BaseBuiltInToolExecutionContext {
@@ -108,6 +109,25 @@ describe('user asks for a widget and gets a visible one', () => {
                 createContext()
             )
         ).resolves.toMatchObject({ status: 'success' });
+    });
+
+    it('user gets actionable design validation text instead of a generic host failure', async () => {
+        const error = await executeShowWidgetTool(
+            {
+                is_read_widget_skill: true,
+                widget_code: '<svg><linearGradient id="g"></linearGradient></svg>',
+            },
+            {},
+            createContext()
+        ).catch((caught: unknown) => caught);
+        const failure = resolveToolFailure(error, {
+            toolId: 'show_widget',
+            fallbackMessage: 'Tool execution failed',
+        });
+
+        expect(failure.status).toBe('error');
+        expect(failure.message).toContain('ShowWidget design validation failed');
+        expect(failure.message).not.toBe('Tool execution failed');
     });
 
     it.each([

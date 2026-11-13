@@ -6,9 +6,11 @@ import {
     type SearchSettingsConfig,
 } from '@services/SettingsService/domain';
 
+import { tt } from '@/i18n';
 import { cancelResponseBody, createTauriFetch } from '@/services/HttpService';
 import { normalizeOptionalString, truncateText } from '@/utils/text';
 
+import { resolveToolFailure, ToolUserFacingError } from '../../errors';
 import { readEffectiveSettingValue } from '../../settingsReader';
 import {
     type BaseBuiltInToolExecutionContext,
@@ -273,7 +275,7 @@ async function runSearchProvider(
 ): Promise<WebSearchResult[]> {
     const adapter = getSearchProviderAdapter(provider);
     if (!adapter) {
-        throw new Error('No enabled search provider is configured.');
+        throw new ToolUserFacingError('No enabled search provider is configured.');
     }
 
     return adapter.search({ request, settings, signal, fetchJson, fetchText });
@@ -322,15 +324,20 @@ export async function executeWebSearchTool(
             },
         };
     } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const failure = resolveToolFailure(error, {
+            toolId: 'web_search',
+            fallbackMessage: tt('工具执行失败'),
+            timeoutMessage: tt('请求超时，请稍后重试'),
+        });
+        const resultLines = [tt('搜索失败'), `Query: ${request.query}`];
+        if (error instanceof ToolUserFacingError || failure.status === 'timeout') {
+            resultLines.push(`${tt('原因')}: ${failure.message}`);
+        }
         return {
-            result: `Web search failed\nQuery: ${request.query}\nReason: ${errorMessage}`,
+            result: resultLines.join('\n'),
             isError: true,
-            status:
-                error instanceof DOMException && error.name === 'TimeoutError'
-                    ? 'timeout'
-                    : 'error',
-            errorMessage,
+            status: failure.status,
+            errorMessage: failure.message,
             conversationSemantic: buildSearchSemanticForResults(args, provider),
         };
     } finally {

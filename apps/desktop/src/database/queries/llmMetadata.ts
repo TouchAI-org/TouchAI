@@ -1,11 +1,7 @@
 ﻿// Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { and, count, eq, inArray, isNotNull } from 'drizzle-orm';
+import { native } from '@services/NativeService';
 
-import { expandModelIdCandidates } from '@/domain/models/modelIdCandidates';
-
-import { db } from '../index';
-import { llmMetadata, llmMetadataAliases } from '../schema';
 import type { LlmMetadataCreateData, LlmMetadataEntity } from '../types';
 
 /**
@@ -16,13 +12,10 @@ export async function findLlmMetadataByModelId({
 }: {
     modelId: string;
 }): Promise<LlmMetadataEntity | null> {
-    const result = await db
-        .select()
-        .from(llmMetadata)
-        .where(eq(llmMetadata.model_id, modelId))
-        .get();
-
-    return result || null;
+    return native.database.operation<LlmMetadataEntity | null>({
+        kind: 'llm_metadata_find',
+        modelId,
+    });
 }
 
 /**
@@ -31,29 +24,24 @@ export async function findLlmMetadataByModelId({
  */
 export async function insertLlmMetadata(data: LlmMetadataCreateData[]): Promise<void> {
     if (data.length === 0) return;
-
-    await db
-        .insert(llmMetadata)
-        .values(data)
-        .onConflictDoNothing({ target: llmMetadata.model_id })
-        .run();
+    await native.database.operation({
+        kind: 'llm_metadata_insert',
+        data: data.map((item) => ({ ...item })),
+    });
 }
 
 /**
  * 清空 LLM 元数据表及其别名
  */
 export async function clearLlmMetadata(): Promise<void> {
-    await db.delete(llmMetadataAliases).run();
-    await db.delete(llmMetadata).run();
+    await native.database.operation({ kind: 'llm_metadata_clear' });
 }
 
 /**
  * 检查 LLM 元数据表是否为空
  */
 export async function isLlmMetadataEmpty(): Promise<boolean> {
-    const result = await db.select({ count: count() }).from(llmMetadata).get();
-
-    return (result?.count ?? 0) === 0;
+    return native.database.operation<boolean>({ kind: 'llm_metadata_is_empty' });
 }
 
 /**
@@ -62,9 +50,7 @@ export async function isLlmMetadataEmpty(): Promise<boolean> {
  * 旧版本的缓存只有模型记录、没有别名，此时需要重新拉取一次远端目录。
  */
 export async function isLlmMetadataAliasEmpty(): Promise<boolean> {
-    const result = await db.select({ count: count() }).from(llmMetadataAliases).get();
-
-    return (result?.count ?? 0) === 0;
+    return native.database.operation<boolean>({ kind: 'llm_metadata_alias_is_empty' });
 }
 
 // ==================== 定价 ====================
@@ -93,42 +79,6 @@ export interface ModelPricing {
     tiers: ModelPricingTier[];
 }
 
-/** 解析入库的分级 JSON，容错返回空数组 */
-function parseCostTiers(raw: string | null): ModelPricingTier[] {
-    if (!raw) {
-        return [];
-    }
-
-    try {
-        const parsed = JSON.parse(raw) as Array<{
-            above: number;
-            input: number | null;
-            output: number | null;
-            cacheRead: number | null;
-            cacheWrite: number | null;
-            reasoning: number | null;
-        }>;
-        if (!Array.isArray(parsed)) {
-            return [];
-        }
-
-        return parsed
-            .filter((tier) => typeof tier.above === 'number' && tier.above > 0)
-            .sort((left, right) => left.above - right.above)
-            .map((tier) => ({
-                above: tier.above,
-                // 档位未给价时沿用基础价，传空串让调用方回退
-                inputPerMillion: tier.input?.toString() ?? '',
-                outputPerMillion: tier.output?.toString() ?? '',
-                cacheReadPerMillion: tier.cacheRead?.toString() ?? '',
-                cacheWritePerMillion: tier.cacheWrite?.toString() ?? '',
-                reasoningPerMillion: tier.reasoning?.toString() ?? '',
-            }));
-    } catch {
-        return [];
-    }
-}
-
 /**
  * 按候选 id 查定价。
  *
@@ -144,75 +94,13 @@ function parseCostTiers(raw: string | null): ModelPricingTier[] {
  * 必须有 input 与 output 才算有定价——四价齐全原则：缺一项会低估其余调用。
  */
 export async function findModelPricing(rawModelId: string): Promise<ModelPricing | null> {
-    const candidates = expandModelIdCandidates(rawModelId).map((item) => item.candidate);
-    if (candidates.length === 0) {
-        return null;
-    }
-
-    const aliasRows = await db
-        .select({ alias: llmMetadataAliases.alias, modelId: llmMetadataAliases.model_id })
-        .from(llmMetadataAliases)
-        .where(inArray(llmMetadataAliases.alias, candidates))
-        .all();
-
-    // 直接命中的优先级高于别名命中：模型 id 本身就在目录里时不需要绕路
-    const lookupOrder = [...candidates, ...aliasRows.map((row) => row.modelId)].filter(
-        (value, index, list) => list.indexOf(value) === index
-    );
-
-    const rows = await db
-        .select({
-            modelId: llmMetadata.model_id,
-            input: llmMetadata.input_cost_per_million,
-            output: llmMetadata.output_cost_per_million,
-            cacheRead: llmMetadata.cache_read_cost_per_million,
-            cacheWrite: llmMetadata.cache_write_cost_per_million,
-            reasoning: llmMetadata.reasoning_cost_per_million,
-            currency: llmMetadata.cost_currency,
-            tiers: llmMetadata.cost_tiers,
-        })
-        .from(llmMetadata)
-        .where(inArray(llmMetadata.model_id, lookupOrder))
-        .all();
-
-    const priced = rows.filter((row) => row.input !== null && row.output !== null);
-    if (priced.length === 0) {
-        return null;
-    }
-
-    const rank = new Map(lookupOrder.map((id, index) => [id, index]));
-    priced.sort(
-        (left, right) =>
-            (rank.get(left.modelId) ?? Number.MAX_SAFE_INTEGER) -
-            (rank.get(right.modelId) ?? Number.MAX_SAFE_INTEGER)
-    );
-
-    const best = priced[0]!;
-    return {
-        modelId: best.modelId,
-        inputPerMillion: best.input!,
-        outputPerMillion: best.output!,
-        cacheReadPerMillion: best.cacheRead ?? '0',
-        cacheWritePerMillion: best.cacheWrite ?? '0',
-        // 供应商不单独报推理价时，推理 token 按 output 价计
-        reasoningPerMillion: best.reasoning ?? best.output!,
-        currency: best.currency ?? 'USD',
-        tiers: parseCostTiers(best.tiers),
-    };
+    return native.database.operation<ModelPricing | null>({
+        kind: 'llm_metadata_find_pricing',
+        modelId: rawModelId,
+    });
 }
 
 /** 统计已入库的定价条目数（用于设置页展示覆盖情况） */
 export async function countPricedModels(): Promise<number> {
-    const result = await db
-        .select({ count: count() })
-        .from(llmMetadata)
-        .where(
-            and(
-                isNotNull(llmMetadata.input_cost_per_million),
-                isNotNull(llmMetadata.output_cost_per_million)
-            )
-        )
-        .get();
-
-    return result?.count ?? 0;
+    return native.database.operation<number>({ kind: 'llm_metadata_count_priced' });
 }

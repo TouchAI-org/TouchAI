@@ -247,14 +247,14 @@ export function useAgent(options: UseAiRequestOptions = {}) {
                 return;
             }
 
-            error.value =
-                requestError instanceof AiError
-                    ? new Error(requestError.getDisplayMessage())
-                    : requestError;
+            // The public error state is user-facing. Keep transport, provider, and
+            // database diagnostics on the thrown error/onError path instead of echoing
+            // an unclassified backend string into the UI.
+            const displayMessage = AiError.getDisplayMessage(requestError);
+            error.value = new Error(displayMessage);
 
             const isEmptyResponse =
                 requestError instanceof AiError && requestError.is(AiErrorCode.EMPTY_RESPONSE);
-            const displayMessage = AiError.getDisplayMessage(requestError);
 
             if (!startedTaskId) {
                 try {

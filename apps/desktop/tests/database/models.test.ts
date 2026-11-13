@@ -1,73 +1,77 @@
 import { recordUpstreamModelMetadata, setDefaultModel } from '@database/queries/models';
-import type { InvokeArgs } from '@tauri-apps/api/core';
-import { getTauriInvokeCalls, interceptTauriInvoke } from '@tests/utils/tauri';
-import { describe, expect, it } from 'vitest';
+import {
+    closeTestDatabases,
+    openMigratedDatabase,
+    routeQueriesTo,
+} from '@tests/database/sqliteHarness';
+import { afterEach, describe, expect, it } from 'vitest';
 
-function getRequest(payload: InvokeArgs | undefined) {
-    return (payload as { request?: { sql: string; params?: unknown[]; method: string } })?.request;
+afterEach(closeTestDatabases);
+
+function openRoutedDatabase() {
+    const database = openMigratedDatabase();
+    routeQueriesTo(database);
+    database.exec(`
+        INSERT INTO providers (id, name, driver, api_endpoint, logo, enabled)
+        VALUES
+            (7, 'OpenAI', 'openai', 'https://openai.example/v1', 'openai.png', 1),
+            (8, 'Disabled', 'openai', 'https://disabled.example/v1', 'openai.png', 0);
+    `);
+    return database;
 }
 
-describe('when the app changes which model is in use', () => {
+function defaultModelIds(database: ReturnType<typeof openMigratedDatabase>): number[] {
+    return (
+        database.prepare('SELECT id FROM models WHERE is_default = 1 ORDER BY id').all() as Array<{
+            id: number;
+        }>
+    ).map((row) => Number(row.id));
+}
+
+describe('when the user changes which model is in use', () => {
     it('user gets exactly one default model after switching', async () => {
-        interceptTauriInvoke((call) => {
-            if (call.cmd === 'database_tx_begin') {
-                return 'tx_issue_72';
-            }
+        const database = openRoutedDatabase();
+        database.exec(`
+            INSERT INTO models (id, provider_id, name, model_id, is_default)
+            VALUES
+                (1, 7, 'Old default', 'old-model', 1),
+                (2, 7, 'New default', 'new-model', 0);
+        `);
 
-            if (call.cmd === 'database_tx_commit' || call.cmd === 'database_tx_rollback') {
-                return undefined;
-            }
+        await expect(setDefaultModel({ modelId: 2 })).resolves.toBeUndefined();
 
-            if (call.cmd === 'database_tx_query') {
-                const request = getRequest(call.payload);
-
-                if (request?.method === 'get') {
-                    return {
-                        rows: [{ id: 211, enabled: 1, provider_name: 'OpenAI' }],
-                        rowsAffected: 0,
-                        lastInsertId: null,
-                    };
-                }
-
-                if (request?.sql.toLowerCase().includes('case when')) {
-                    throw new Error(
-                        `Failed query: ${request.sql} params: ${(request.params ?? []).join(',')}`
-                    );
-                }
-
-                return { rows: [], rowsAffected: 1, lastInsertId: null };
-            }
-
-            return undefined;
-        });
-
-        await expect(setDefaultModel({ modelId: 211 })).resolves.toBeUndefined();
-
-        const updateQueries = getTauriInvokeCalls('database_tx_query')
-            .map((call) => getRequest(call.payload))
-            .filter((request) => request?.method === 'run');
-
-        expect(updateQueries).toHaveLength(2);
-        expect(updateQueries.map((request) => request?.sql.toLowerCase())).toEqual([
-            expect.stringContaining(
-                'update "models" set "is_default" = ? where "models"."is_default" = ?'
-            ),
-            expect.stringContaining('update "models" set "is_default" = ? where "models"."id" = ?'),
-        ]);
-        expect(updateQueries.map((request) => request?.params)).toEqual([
-            [0, 1],
-            [1, 211],
-        ]);
+        expect(defaultModelIds(database)).toEqual([2]);
     });
 
-    it('user keeps their own model edits while refreshing a provider', async () => {
-        interceptTauriInvoke((call) => {
-            if (call.cmd === 'database_query') {
-                return { rows: [], rowsAffected: 1, lastInsertId: null };
-            }
+    it('user keeps the previous default when the target provider is disabled', async () => {
+        const database = openRoutedDatabase();
+        database.exec(`
+            INSERT INTO models (id, provider_id, name, model_id, is_default)
+            VALUES
+                (1, 7, 'Current', 'current-model', 1),
+                (2, 8, 'Disabled', 'disabled-model', 0);
+        `);
 
-            return undefined;
-        });
+        const error = await setDefaultModel({ modelId: 2 }).catch((caught: unknown) => caught);
+
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toBe('无法设置默认模型：服务商未启用');
+        expect((error as Error).message).not.toContain('Disabled');
+        expect((error as Error).message).not.toContain('The model provider is disabled');
+
+        expect(defaultModelIds(database)).toEqual([1]);
+    });
+
+    it('user sees upstream declarations only on matching non-custom rows', async () => {
+        const database = openRoutedDatabase();
+        database.exec(`
+            INSERT INTO models (
+                id, provider_id, name, model_id, is_custom_metadata, upstream_metadata
+            ) VALUES
+                (1, 7, 'Synced', 'group/auto-gpt-5-6-sol', 0, NULL),
+                (2, 7, 'Custom', 'group/auto-gpt-5-6-sol', 1, NULL),
+                (3, 8, 'Other provider', 'group/auto-gpt-5-6-sol', 0, NULL);
+        `);
 
         await expect(
             recordUpstreamModelMetadata({
@@ -81,42 +85,30 @@ describe('when the app changes which model is in use', () => {
             })
         ).resolves.toBeUndefined();
 
-        const request = getTauriInvokeCalls('database_query')
-            .map((call) => getRequest(call.payload))
-            .find((candidate) => candidate?.method === 'run');
-        const normalizedSql = request?.sql.replace(/\s+/g, ' ').trim() ?? '';
-
-        expect(normalizedSql).toContain('FROM json_each(?) AS entry');
-        expect(normalizedSql).toContain(
-            "upstream_metadata = json_patch( COALESCE(upstream_metadata, '{}'), COALESCE(("
-        );
-        // 元数据列只由 syncAllModelsMetadata 重建，这里不重复写列。
-        expect(normalizedSql).not.toContain('context_limit =');
-        expect(normalizedSql).toContain('AND is_custom_metadata = 0');
-        expect(request?.params).toEqual([
-            JSON.stringify([
-                {
-                    model_id: 'group/auto-gpt-5-6-sol',
-                    metadata: { context_limit: 400_000, reasoning: 1 },
-                },
-            ]),
-            7,
-        ]);
+        const rows = database
+            .prepare('SELECT id, upstream_metadata FROM models ORDER BY id')
+            .all() as Array<{ id: number; upstream_metadata: string | null }>;
+        expect(JSON.parse(String(rows[0]!.upstream_metadata))).toEqual({
+            context_limit: 400_000,
+            reasoning: 1,
+        });
+        expect(rows[1]!.upstream_metadata).toBeNull();
+        expect(rows[2]!.upstream_metadata).toBeNull();
     });
 
-    it('user gets no upstream record written when the provider declares nothing', async () => {
-        interceptTauriInvoke((call) => {
-            if (call.cmd === 'database_query') {
-                return { rows: [], rowsAffected: 1, lastInsertId: null };
-            }
-
-            return undefined;
-        });
+    it('user sees no upstream write when the provider declares nothing', async () => {
+        const database = openRoutedDatabase();
+        database.exec(`
+            INSERT INTO models (id, provider_id, name, model_id, upstream_metadata)
+            VALUES (1, 7, 'Synced', 'group/auto-gpt-5-6-sol', '{"context_limit":128000}');
+        `);
 
         await expect(
             recordUpstreamModelMetadata({ providerId: 7, entries: [] })
         ).resolves.toBeUndefined();
 
-        expect(getTauriInvokeCalls('database_query')).toHaveLength(0);
+        expect(database.prepare('SELECT upstream_metadata FROM models WHERE id = 1').get()).toEqual(
+            { upstream_metadata: '{"context_limit":128000}' }
+        );
     });
 });

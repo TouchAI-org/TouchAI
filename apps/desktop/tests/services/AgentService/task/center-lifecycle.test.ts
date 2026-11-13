@@ -296,6 +296,21 @@ describe('user watches a task reach its end', () => {
         expect(snapshot?.error).toBe(new AiError(AiErrorCode.STREAM_ERROR, {}).getDisplayMessage());
     });
 
+    it('user never sees a raw internal cause in the failed task surface', async () => {
+        const rawCause = 'database is locked while persisting tool output';
+        runtimeState.run.mockRejectedValue(new AiError(AiErrorCode.STREAM_ERROR, {}, rawCause));
+
+        const center = createCenter();
+        const started = await center.startTask({ prompt: 'Hi', sessionId: 1 });
+
+        await expect(started.completion).rejects.toMatchObject({ message: rawCause });
+
+        const snapshot = center.getTaskSnapshot(started.taskId);
+        expect(snapshot?.status).toBe('failed');
+        expect(snapshot?.error).toBe(new AiError(AiErrorCode.STREAM_ERROR).getDisplayMessage());
+        expect(snapshot?.error).not.toContain(rawCause);
+    });
+
     it('user sees the task cancelled rather than failed when they cancel it', async () => {
         // The runtime watches the signal the center hands it, so the stub must do the same.
         runtimeState.run.mockImplementation(() => {

@@ -7,6 +7,7 @@ import { log } from '@services/ObservabilityService';
 import { tt } from '@/i18n';
 import type { ToolApprovalRequest } from '@/services/AgentService/contracts/tooling';
 
+import { resolveToolFailure, ToolUserFacingError } from '../../errors';
 import {
     type BaseBuiltInToolExecutionContext,
     BuiltInTool,
@@ -40,22 +41,18 @@ async function resolveChainTargets(
     // 避免同一次工具调用在不同阶段看到不一致的目标模型。
     const resolvedEntries = await Promise.all(
         chainEntries.map(async (chainEntry) => {
-            try {
-                const model = await findModelByProviderAndModelId({
-                    providerId: chainEntry.providerId,
-                    modelId: chainEntry.modelId,
-                });
-                if (!model || model.provider_enabled === 0) {
-                    throw new Error('Target model is unavailable');
-                }
-                return {
-                    chainEntry,
-                    model,
-                };
-            } catch (error) {
-                log.warn('[UpgradeModel] Skip invalid chain entry:', chainEntry, error);
+            const model = await findModelByProviderAndModelId({
+                providerId: chainEntry.providerId,
+                modelId: chainEntry.modelId,
+            });
+            if (!model || model.provider_enabled === 0) {
+                log.warn('[UpgradeModel] Skip unavailable chain entry:', chainEntry);
                 return null;
             }
+            return {
+                chainEntry,
+                model,
+            };
         })
     );
 
@@ -67,7 +64,7 @@ function selectUpgradeTarget(
     chainTargets: ResolvedUpgradeTarget[]
 ): ResolvedUpgradeTarget {
     if (chainTargets.length === 0) {
-        throw new Error(tt('请先在 UpgradeModel 配置中设置模型升级链。'));
+        throw new ToolUserFacingError(tt('请先在 UpgradeModel 配置中设置模型升级链。'));
     }
 
     if (!currentModel) {
@@ -87,7 +84,7 @@ function selectUpgradeTarget(
     if (currentIndex >= 0) {
         const nextTarget = chainTargets[currentIndex + 1];
         if (!nextTarget) {
-            throw new Error(tt('当前模型已经位于升级链末尾，没有更高一级模型可用。'));
+            throw new ToolUserFacingError(tt('当前模型已经位于升级链末尾，没有更高一级模型可用。'));
         }
 
         return nextTarget;
@@ -101,7 +98,7 @@ function selectUpgradeTarget(
             target.model.model_id !== currentModel.model_id
     );
     if (!firstDifferentTarget) {
-        throw new Error(tt('升级链中没有比当前模型不同的可用模型。'));
+        throw new ToolUserFacingError(tt('升级链中没有比当前模型不同的可用模型。'));
     }
 
     return firstDifferentTarget;
@@ -186,10 +183,10 @@ export async function executeUpgradeModelTool(
     config: UpgradeModelToolConfig,
     context: BaseBuiltInToolExecutionContext
 ): Promise<BuiltInToolExecutionResult> {
-    parseUpgradeModelArgs(args);
     void context.signal;
 
     try {
+        parseUpgradeModelArgs(args);
         const { chainEntries, target } = await resolveUpgradeTarget(context.currentModel, config);
 
         // 工具本身不直接修改前端状态，而是返回统一的控制信号。
@@ -209,17 +206,23 @@ export async function executeUpgradeModelTool(
             },
         };
     } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const failure = resolveToolFailure(error, {
+            toolId: 'upgrade_model',
+            fallbackMessage: tt('模型升级失败'),
+        });
+        const resultLines = [
+            tt('模型升级失败'),
+            `${tt('当前模型')}: ${formatCurrentModelLabel(context.currentModel)}`,
+            `${tt('升级链')}: ${formatUpgradeModelChain(config.chain)}`,
+        ];
+        if (error instanceof ToolUserFacingError) {
+            resultLines.push(`${tt('原因')}: ${failure.message}`);
+        }
         return {
-            result: [
-                tt('模型升级失败'),
-                `${tt('当前模型')}: ${formatCurrentModelLabel(context.currentModel)}`,
-                `${tt('升级链')}: ${formatUpgradeModelChain(config.chain)}`,
-                `${tt('原因')}: ${errorMessage}`,
-            ].join('\n'),
+            result: resultLines.join('\n'),
             isError: true,
-            status: 'error',
-            errorMessage,
+            status: failure.status,
+            errorMessage: failure.message,
         };
     }
 }

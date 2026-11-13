@@ -148,6 +148,9 @@
 
         return '';
     });
+    const updateFailureMessage = computed(() =>
+        updateState.value.status === 'failed' ? t('settings.general.update.status.failed') : null
+    );
 
     const primaryDetailsActionText = computed(() => {
         if (isDownloading.value) {
@@ -332,12 +335,6 @@
                     >
                         {{ statusDescription }}
                     </div>
-                    <div
-                        v-if="updateState.status === 'failed' && updateState.error"
-                        class="mt-0.5 text-[12px] leading-5 text-red-600"
-                    >
-                        {{ updateState.error }}
-                    </div>
                 </template>
                 <div class="flex items-center justify-end gap-2">
                     <button
@@ -384,7 +381,7 @@
             :action-text="primaryDetailsActionText"
             :busy="isBusy"
             :download-progress="isDownloading ? (updateState.downloadProgress ?? 0) : null"
-            :error="updateState.error"
+            :error="updateFailureMessage"
             @close="detailsOpen = false"
             @action="runDetailsAction"
         />

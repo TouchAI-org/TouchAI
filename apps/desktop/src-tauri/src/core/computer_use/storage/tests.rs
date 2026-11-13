@@ -42,12 +42,10 @@ async fn user_given_a_saved_default_location_when_opening_then_removes_it_and_re
 ) {
     let (temporary, database, storage) = fixture().await;
     let default = temporary.path().join("assets/bin/computer-use-drivers");
-    database
-        .query(DatabaseQueryRequest {
-            sql: "INSERT INTO settings (key, value) VALUES (?, ?)".into(),
-            params: vec![json!(DIRECTORY_KEY), json!(default.to_string_lossy())],
-            method: DatabaseQueryMethod::Run,
-        })
+    sqlx::query("INSERT INTO settings (key, value) VALUES (?, ?)")
+        .bind(DIRECTORY_KEY)
+        .bind(default.to_string_lossy().as_ref())
+        .execute(database.pool())
         .await
         .expect("old default");
     assert!(storage
@@ -129,11 +127,15 @@ async fn user_given_a_failed_preference_delete_when_restoring_default_then_keeps
         .relocate(custom.clone())
         .await
         .expect("custom location");
-    database.query(DatabaseQueryRequest {
-        sql: "CREATE TRIGGER reject_driver_reset BEFORE DELETE ON settings WHEN OLD.key = 'computer_use.driver_directory' BEGIN SELECT RAISE(FAIL, 'test reset failure'); END".into(),
-        params: vec![],
-        method: DatabaseQueryMethod::Run,
-    }).await.expect("reject reset");
+    sqlx::query(
+        "CREATE TRIGGER reject_driver_reset
+         BEFORE DELETE ON settings
+         WHEN OLD.key = 'computer_use.driver_directory'
+         BEGIN SELECT RAISE(FAIL, 'test reset failure'); END",
+    )
+    .execute(database.pool())
+    .await
+    .expect("reject reset");
     assert!(storage.relocate(PathBuf::new()).await.is_err());
     assert_eq!(storage.location().await.expect("location"), custom);
     assert!(custom
@@ -315,11 +317,15 @@ async fn user_given_a_settings_write_failure_when_relocating_then_keeps_original
     let (temporary, database, storage) = fixture().await;
     let original = storage.read().await.expect("root").clone();
     let binary = seed(&original, "cua-driver");
-    database.query(DatabaseQueryRequest {
-        sql: "CREATE TRIGGER reject_driver_location BEFORE INSERT ON settings WHEN NEW.key = 'computer_use.driver_directory' BEGIN SELECT RAISE(FAIL, 'test storage failure'); END".into(),
-        params: vec![],
-        method: DatabaseQueryMethod::Run,
-    }).await.expect("reject writes");
+    sqlx::query(
+        "CREATE TRIGGER reject_driver_location
+         BEFORE INSERT ON settings
+         WHEN NEW.key = 'computer_use.driver_directory'
+         BEGIN SELECT RAISE(FAIL, 'test storage failure'); END",
+    )
+    .execute(database.pool())
+    .await
+    .expect("reject writes");
     let destination = temporary.path().join("destination");
     assert!(storage.relocate(destination.clone()).await.is_err());
     assert!(binary.exists());

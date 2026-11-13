@@ -1,7 +1,7 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3.
 
+import { MetaKey } from '@database/keys';
 import { deleteMeta, getMeta } from '@database/queries/touchaiMeta';
-import { MetaKey } from '@database/schema';
 import { notify } from '@services/NotificationService';
 import { log } from '@services/ObservabilityService';
 
@@ -59,7 +59,10 @@ function getImportModeNotificationText(importMode: ImportMode): string {
 function notifyImportSuccess(value: string): void {
     const payload = parseImportSuccessStartupPayload(value);
     if (!payload) {
-        notify({ title: 'TouchAI', body: value });
+        // The marker is internal state. Never put an unreadable/raw marker in a
+        // user notification; keep the raw value in diagnostics only.
+        log.warn('[StartupService] Ignoring unreadable import success marker:', value);
+        notify({ title: 'TouchAI', body: t('startup.import.successGeneric') });
         return;
     }
 

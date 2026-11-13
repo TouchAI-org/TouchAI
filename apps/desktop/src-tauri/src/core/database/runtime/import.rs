@@ -94,6 +94,23 @@ pub(crate) async fn run_import_backup(
                     adopt_restored_consent(&mut *connection, consent).await?;
                 }
             }
+            // The startup notification belongs to the import transaction, not
+            // to the settings window that initiated it. Persisting it here
+            // keeps settings writes owned by the main runtime while preserving
+            // the post-restart notification after the import commits.
+            let payload = serde_json::json!({
+                "type": "import-success",
+                "version": 1,
+                "importMode": request.mode.as_str(),
+            });
+            sqlx::query(
+                "INSERT INTO touchai_meta (key, value) VALUES ('import_success', ?)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            )
+            .bind(payload.to_string())
+            .execute(&mut *connection)
+            .await
+            .map_err(|error| format!("Failed to persist import completion: {error}"))?;
             sqlx::query("COMMIT")
                 .execute(&mut *connection)
                 .await
@@ -199,6 +216,7 @@ mod tests {
     use super::*;
     use crate::core::analytics::ANALYTICS_STATE_SETTING;
     use crate::core::database::contract::{create_sqlite_pool, migrate_database};
+    use crate::core::database::typed::{execute, DatabaseOperation};
     use serde_json::{json, Value};
 
     fn contract() -> DatabaseContractSource {
@@ -462,6 +480,117 @@ mod tests {
         .unwrap();
         assert_eq!(next_id, 102);
         // The source pool stays open above: data still in its WAL must be included.
+        source.close().await;
+        target.close().await;
+    }
+
+    #[tokio::test]
+    async fn user_gets_complete_state_when_a_full_import_races_an_agent_write() {
+        let root = tempfile::tempdir().unwrap();
+        let source_path = root.path().join("source.db");
+        let source = backup(&source_path, 5).await;
+        sqlx::raw_sql(
+            "INSERT INTO sessions (id, session_id, title, model)
+             VALUES (1, 'import-race-session', 'Imported', 'test');",
+        )
+        .execute(&source)
+        .await
+        .unwrap();
+
+        let target_path = root.path().join("target.db");
+        let target = create_sqlite_pool(&target_path).await.unwrap();
+        migrate_database(&mut *target.acquire().await.unwrap(), &contract())
+            .await
+            .unwrap();
+        sqlx::raw_sql(
+            "INSERT INTO providers (id, name, driver, api_endpoint, logo)
+             VALUES (7101, 'Race provider', 'openai', 'https://race.example/v1', 'openai.png');
+             INSERT INTO models (id, provider_id, name, model_id)
+             VALUES (7102, 7101, 'Race model', 'race-model');",
+        )
+        .execute(&target)
+        .await
+        .unwrap();
+
+        let import = run_import_backup(
+            target.clone(),
+            target_path,
+            contract(),
+            DatabaseImportRequest {
+                source_path: source_path.to_string_lossy().into_owned(),
+                mode: DatabaseImportMode::Full,
+            },
+        );
+        let agent_operation = serde_json::from_value::<DatabaseOperation>(serde_json::json!({
+            "kind": "task_record_start",
+            "input": {
+                "sessionId": null,
+                "sessionTitle": "Raced agent task",
+                "modelId": 7102,
+                "modelName": "race-model",
+                "providerId": 7101,
+                "taskId": "import-race-task",
+                "executionMode": "foreground",
+                "prompt": "Keep this write complete",
+                "promptSnapshotJson": "{}",
+                "promptBreakdownJson": null,
+                "checkpointJson": "{}",
+                "deliveryManifestJson": "{}",
+                "startedAt": "2026-11-05 10:00:00",
+                "maxRetries": 0,
+                "existingUserMessageId": null,
+                "existingTurnId": null,
+                "existingAttemptId": null,
+                "attachments": []
+            }
+        }))
+        .unwrap();
+        let agent_write = execute(&target, "main", agent_operation);
+        let (imported, written) = tokio::join!(import, agent_write);
+        imported.expect("full import");
+        written.expect("typed write");
+
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT count(*) FROM sessions WHERE session_id = 'import-race-session'"
+            )
+            .fetch_one(&target)
+            .await
+            .unwrap(),
+            1
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT count(*) FROM sessions WHERE title = 'Raced agent task'"
+            )
+            .fetch_one(&target)
+            .await
+            .unwrap(),
+            1
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT count(*) FROM messages
+                 WHERE session_id = (SELECT id FROM sessions WHERE title = 'Raced agent task')"
+            )
+            .fetch_one(&target)
+            .await
+            .unwrap(),
+            1
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, String>("PRAGMA integrity_check")
+                .fetch_one(&target)
+                .await
+                .unwrap(),
+            "ok"
+        );
+        assert!(sqlx::query("PRAGMA foreign_key_check")
+            .fetch_all(&target)
+            .await
+            .unwrap()
+            .is_empty());
+
         source.close().await;
         target.close().await;
     }
@@ -787,6 +916,15 @@ mod tests {
             .unwrap(),
             1
         );
+        assert_eq!(
+            sqlx::query_scalar::<_, String>(
+                "SELECT value FROM touchai_meta WHERE key = 'import_success'"
+            )
+            .fetch_one(&target)
+            .await
+            .unwrap(),
+            "{\"type\":\"import-success\",\"version\":1,\"importMode\":\"full\"}"
+        );
         source.close().await;
         target.close().await;
     }
@@ -985,6 +1123,15 @@ mod tests {
                 .await
                 .unwrap(),
                 1
+            );
+            assert_eq!(
+                sqlx::query_scalar::<_, String>(
+                    "SELECT value FROM touchai_meta WHERE key = 'import_success'"
+                )
+                .fetch_one(&target)
+                .await
+                .unwrap(),
+                "{\"type\":\"import-success\",\"version\":1,\"importMode\":\"chat_only\"}"
             );
             source.close().await;
             target.close().await;

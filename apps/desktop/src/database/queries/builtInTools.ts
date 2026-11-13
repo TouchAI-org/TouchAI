@@ -1,37 +1,35 @@
 ﻿// Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { asc, count, desc, eq } from 'drizzle-orm';
+import { native } from '@services/NativeService';
 
-import { db } from '../index';
-import { builtInTools } from '../schema';
 import type { BuiltInToolCreateData, BuiltInToolEntity, BuiltInToolUpdateData } from '../types';
 
 /**
  * 查询全部内置工具。
  */
 export const findAllBuiltInTools = async (): Promise<BuiltInToolEntity[]> =>
-    db
-        .select()
-        .from(builtInTools)
-        .orderBy(desc(builtInTools.enabled), asc(builtInTools.display_name))
-        .all();
+    native.database.operation<BuiltInToolEntity[]>({
+        kind: 'built_in_tool_list',
+        enabledOnly: false,
+    });
 
 /**
  * 查询全部启用的内置工具。
  */
 export const findEnabledBuiltInTools = async (): Promise<BuiltInToolEntity[]> =>
-    db
-        .select()
-        .from(builtInTools)
-        .where(eq(builtInTools.enabled, 1))
-        .orderBy(asc(builtInTools.display_name))
-        .all();
+    native.database.operation<BuiltInToolEntity[]>({
+        kind: 'built_in_tool_list',
+        enabledOnly: true,
+    });
 
 /**
  * 根据数据库 ID 查询内置工具。
  */
 export const findBuiltInToolById = async (id: number): Promise<BuiltInToolEntity | undefined> =>
-    await db.select().from(builtInTools).where(eq(builtInTools.id, id)).get();
+    (await native.database.operation<BuiltInToolEntity | null>({
+        kind: 'built_in_tool_find_by_id',
+        id,
+    })) ?? undefined;
 
 /**
  * 根据 tool_id 查询内置工具。
@@ -39,7 +37,10 @@ export const findBuiltInToolById = async (id: number): Promise<BuiltInToolEntity
 export const findBuiltInToolByToolId = async (
     toolId: string
 ): Promise<BuiltInToolEntity | undefined> =>
-    await db.select().from(builtInTools).where(eq(builtInTools.tool_id, toolId)).get();
+    (await native.database.operation<BuiltInToolEntity | null>({
+        kind: 'built_in_tool_find_by_tool_id',
+        toolId,
+    })) ?? undefined;
 
 /**
  * 创建内置工具记录。
@@ -47,9 +48,12 @@ export const findBuiltInToolByToolId = async (
 export const createBuiltInTool = async (
     data: BuiltInToolCreateData
 ): Promise<BuiltInToolEntity> => {
-    const createdTool = await db.insert(builtInTools).values(data).returning().get();
+    const createdTool = await native.database.operation<BuiltInToolEntity | null>({
+        kind: 'built_in_tool_create',
+        data: { ...data },
+    });
 
-    if (!createdTool || createdTool.id === undefined) {
+    if (!createdTool) {
         throw new Error('Failed to create built-in tool');
     }
 
@@ -63,14 +67,13 @@ export const updateBuiltInTool = async (
     id: number,
     data: BuiltInToolUpdateData
 ): Promise<BuiltInToolEntity | undefined> => {
-    const updatedTool = await db
-        .update(builtInTools)
-        .set(data)
-        .where(eq(builtInTools.id, id))
-        .returning()
-        .get();
-
-    return updatedTool && updatedTool.id !== undefined ? updatedTool : undefined;
+    return (
+        (await native.database.operation<BuiltInToolEntity | null>({
+            kind: 'built_in_tool_update',
+            id,
+            data: { ...data },
+        })) ?? undefined
+    );
 };
 
 /**
@@ -84,21 +87,10 @@ export const updateBuiltInTools = async (
         return [];
     }
 
-    return await db.transaction(async (tx) => {
-        const updatedTools: BuiltInToolEntity[] = [];
-        for (const id of ids) {
-            const updatedTool = await tx
-                .update(builtInTools)
-                .set(data)
-                .where(eq(builtInTools.id, id))
-                .returning()
-                .get();
-            if (!updatedTool || updatedTool.id === undefined) {
-                throw new Error(`Built-in tool not found after update: ${id}`);
-            }
-            updatedTools.push(updatedTool);
-        }
-        return updatedTools;
+    return native.database.operation<BuiltInToolEntity[]>({
+        kind: 'built_in_tool_update_many',
+        ids,
+        data: { ...data },
     });
 };
 
@@ -109,22 +101,16 @@ export const touchBuiltInToolLastUsed = async (
     toolId: string,
     lastUsedAt = new Date().toISOString()
 ): Promise<void> => {
-    await db
-        .update(builtInTools)
-        .set({ last_used_at: lastUsedAt })
-        .where(eq(builtInTools.tool_id, toolId))
-        .run();
+    await native.database.operation({
+        kind: 'built_in_tool_touch',
+        toolId,
+        lastUsedAt,
+    });
 };
 
 /**
  * 统计启用中的内置工具数量。
  */
 export const countEnabledBuiltInTools = async (): Promise<number> => {
-    const result = await db
-        .select({ count: count() })
-        .from(builtInTools)
-        .where(eq(builtInTools.enabled, 1))
-        .get();
-
-    return result?.count || 0;
+    return native.database.operation<number>({ kind: 'built_in_tool_count_enabled' });
 };

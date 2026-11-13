@@ -1,61 +1,35 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3.
 
-//! 数据库运行时状态与事务托管。
+//! 数据库运行时状态与基础设施。
 
 mod analytics_snapshot;
-mod executor;
+mod export;
 mod import;
 
-use std::{
-    collections::HashMap,
-    path::PathBuf,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{path::PathBuf, sync::Arc};
 
-use log::{info, warn};
-use sqlx::{Sqlite, SqlitePool};
-use tokio::sync::Mutex;
+use log::info;
+use sqlx::SqlitePool;
 
 use crate::core::system::paths::{app_directory_path, AppDirectory};
 
-use self::{
-    executor::{execute_request, reject_top_level_transaction_sql},
-    import::run_import_backup,
-};
+use self::{export::run_export_backup, import::run_import_backup};
 use super::{
     contract::{
-        apply_seed, create_sqlite_pool, ensure_runtime_guards, migrate_database, now_millis,
+        apply_seed, create_sqlite_pool, ensure_runtime_guards, migrate_database,
         resolve_database_contract, DatabaseContractSource,
     },
-    protocol::types::{
-        DatabaseImportRequest, DatabaseQueryRequest, DatabaseQueryResponse,
-        DatabaseTransactionBehavior,
-    },
+    protocol::types::DatabaseImportRequest,
+    typed::DatabaseOperationError,
 };
 
 const DATABASE_FILE_NAME: &str = "touchai.db";
-const TX_IDLE_TIMEOUT: Duration = Duration::from_secs(120);
-const TX_CLEANUP_INTERVAL: Duration = Duration::from_secs(30);
-
-type SharedTxEntry = Arc<Mutex<TransactionEntry>>;
-
-/// 已开启事务在 Rust 运行时中的托管记录。
-///
-/// 这里不暴露业务语义，只保存事务归属窗口、独占连接和空闲过期时间。
-struct TransactionEntry {
-    window_label: String,
-    connection: Option<sqlx::pool::PoolConnection<Sqlite>>,
-    expires_at: Instant,
-}
 
 #[derive(Clone)]
 /// 统一数据库运行时。
 ///
-/// 前端通过 Drizzle 负责业务编排，Rust 只负责：
-/// 1. 启动时初始化数据库
-/// 2. 提供通用 query / batch / transaction 执行能力
-/// 3. 提供导入导出等基础设施能力
+/// Rust owns schema migration, typed repositories, business transactions,
+/// backup/import, and the only production SQLite write path.
 pub struct DatabaseRuntime {
     inner: Arc<DatabaseRuntimeInner>,
 }
@@ -64,7 +38,6 @@ struct DatabaseRuntimeInner {
     pool: SqlitePool,
     database_path: PathBuf,
     database_contract: DatabaseContractSource,
-    tx_registry: Mutex<HashMap<String, SharedTxEntry>>,
 }
 
 impl DatabaseRuntime {
@@ -75,7 +48,7 @@ impl DatabaseRuntime {
     pub async fn initialize(app: &tauri::App) -> Result<Self, String> {
         let database_path = app_directory_path(AppDirectory::Data)?.join(DATABASE_FILE_NAME);
         let database_contract = resolve_database_contract(app)?;
-        Self::initialize_with_paths(database_path, database_contract, true).await
+        Self::initialize_with_paths(database_path, database_contract).await
     }
 
     #[doc(hidden)]
@@ -88,15 +61,16 @@ impl DatabaseRuntime {
                 .join("src")
                 .join("database"),
         )?;
-        Self::initialize_with_paths(database_path, database_contract, false).await
+        Self::initialize_with_paths(database_path, database_contract).await
     }
 
-    pub async fn query(
+    /// Execute one named, typed database operation owned by this runtime.
+    pub(crate) async fn execute_operation(
         &self,
-        request: DatabaseQueryRequest,
-    ) -> Result<DatabaseQueryResponse, String> {
-        reject_top_level_transaction_sql(&request.sql)?;
-        execute_request(&self.inner.pool, request).await
+        window_label: &str,
+        operation: crate::core::database::typed::DatabaseOperation,
+    ) -> Result<serde_json::Value, crate::core::database::typed::DatabaseOperationError> {
+        crate::core::database::typed::execute(&self.inner.pool, window_label, operation).await
     }
 
     /// The single shared SQLite pool over `touchai.db`.
@@ -107,153 +81,27 @@ impl DatabaseRuntime {
         &self.inner.pool
     }
 
-    pub async fn batch(
+    pub(crate) async fn export_backup(
         &self,
-        requests: Vec<DatabaseQueryRequest>,
-    ) -> Result<Vec<DatabaseQueryResponse>, String> {
-        let mut responses = Vec::with_capacity(requests.len());
-        for request in requests {
-            responses.push(self.query(request).await?);
+        window_label: &str,
+        target_path: &str,
+    ) -> Result<(), DatabaseOperationError> {
+        if !crate::core::database::typed::backup_allows(window_label) {
+            return Err(DatabaseOperationError::forbidden(window_label));
         }
-        Ok(responses)
-    }
 
-    /// 为前端开启一个显式事务，并返回事务句柄。
-    ///
-    /// 事务生命周期由前端驱动控制，但实际连接由 Rust 托管，
-    /// 从而避免通过普通 SQL 字符串模拟事务。
-    pub async fn begin_transaction(
-        &self,
-        window_label: String,
-        behavior: Option<DatabaseTransactionBehavior>,
-    ) -> Result<String, String> {
-        let mut connection = self
-            .inner
-            .pool
-            .acquire()
+        run_export_backup(&self.inner.pool, &self.inner.database_path, target_path)
             .await
-            .map_err(|error| format!("Failed to acquire sqlite connection: {error}"))?;
-
-        sqlx::query(
-            behavior
-                .unwrap_or(DatabaseTransactionBehavior::Deferred)
-                .begin_sql(),
-        )
-        .execute(&mut *connection)
-        .await
-        .map_err(|error| format!("Failed to begin sqlite transaction: {error}"))?;
-
-        let tx_id = format!("tx_{}_{}", now_millis(), next_counter());
-        let entry = Arc::new(Mutex::new(TransactionEntry {
-            window_label,
-            connection: Some(connection),
-            expires_at: Instant::now() + TX_IDLE_TIMEOUT,
-        }));
-
-        self.inner
-            .tx_registry
-            .lock()
-            .await
-            .insert(tx_id.clone(), entry);
-        Ok(tx_id)
+            .map_err(DatabaseOperationError::backup_failed)
     }
 
-    pub async fn tx_query(
+    pub(crate) async fn import_backup(
         &self,
-        tx_id: &str,
-        request: DatabaseQueryRequest,
-    ) -> Result<DatabaseQueryResponse, String> {
-        let entry = {
-            let registry = self.inner.tx_registry.lock().await;
-            registry
-                .get(tx_id)
-                .cloned()
-                .ok_or_else(|| format!("Transaction '{tx_id}' was not found"))?
-        };
-
-        let mut guard = entry.lock().await;
-        guard.expires_at = Instant::now() + TX_IDLE_TIMEOUT;
-        let connection = guard
-            .connection
-            .as_mut()
-            .ok_or_else(|| format!("Transaction '{tx_id}' is already closed"))?;
-        execute_request(&mut **connection, request).await
-    }
-
-    pub async fn tx_batch(
-        &self,
-        tx_id: &str,
-        requests: Vec<DatabaseQueryRequest>,
-    ) -> Result<Vec<DatabaseQueryResponse>, String> {
-        let mut responses = Vec::with_capacity(requests.len());
-        for request in requests {
-            responses.push(self.tx_query(tx_id, request).await?);
-        }
-        Ok(responses)
-    }
-
-    pub async fn commit_transaction(&self, tx_id: &str) -> Result<(), String> {
-        self.finish_transaction(tx_id, "COMMIT").await
-    }
-
-    pub async fn rollback_transaction(&self, tx_id: &str) -> Result<(), String> {
-        self.finish_transaction(tx_id, "ROLLBACK").await
-    }
-
-    /// 在窗口关闭或销毁时回收其遗留事务，避免悬挂写锁。
-    pub async fn abort_transactions_for_window(&self, window_label: &str) {
-        let tx_ids = {
-            let registry = self.inner.tx_registry.lock().await;
-            registry
-                .iter()
-                .filter_map(|(tx_id, entry)| {
-                    entry.try_lock().ok().and_then(|guard| {
-                        (guard.window_label == window_label).then_some(tx_id.clone())
-                    })
-                })
-                .collect::<Vec<_>>()
-        };
-
-        for tx_id in tx_ids {
-            if let Err(error) = self.rollback_transaction(&tx_id).await {
-                warn!(
-                    "Failed to rollback abandoned transaction {}: {}",
-                    tx_id, error
-                );
-            }
-        }
-    }
-
-    pub async fn export_backup(&self, target_path: &str) -> Result<(), String> {
-        // A snapshot taken by VACUUM INTO is transactionally consistent with the
-        // live database and cannot race a checkpoint-then-copy. Analytics identity,
-        // consent epoch and queued payloads are scrubbed from the offline copy,
-        // never from the live tables, so the exported schema stays valid and
-        // restorable while the explicit consent choice travels with the user.
-        let parent = self
-            .inner
-            .database_path
-            .parent()
-            .ok_or_else(|| "数据库路径没有父目录".to_string())?;
-        let snapshot = tempfile::tempdir_in(parent)
-            .map_err(|error| format!("Failed to create export workspace: {error}"))?;
-        let snapshot_path = snapshot.path().join(DATABASE_FILE_NAME);
-        sqlx::query("VACUUM INTO ?")
-            .bind(snapshot_path.to_string_lossy().as_ref())
-            .execute(&self.inner.pool)
-            .await
-            .map_err(|error| format!("Failed to snapshot database for export: {error}"))?;
-        // The returned consent choice matters to an import, never to an export.
-        let _ = analytics_snapshot::sanitize_analytics_snapshot(&snapshot_path).await?;
-        std::fs::copy(&snapshot_path, target_path)
-            .map_err(|error| format!("Failed to export database backup: {error}"))?;
-        Ok(())
-    }
-
-    /// 导入备份前先确认没有活动事务，避免和前端写入并发冲突。
-    pub async fn import_backup(&self, request: DatabaseImportRequest) -> Result<(), String> {
-        if !self.inner.tx_registry.lock().await.is_empty() {
-            return Err("当前仍有进行中的数据库事务，请稍后重试导入".to_string());
+        window_label: &str,
+        request: DatabaseImportRequest,
+    ) -> Result<(), DatabaseOperationError> {
+        if !crate::core::database::typed::backup_allows(window_label) {
+            return Err(DatabaseOperationError::forbidden(window_label));
         }
 
         run_import_backup(
@@ -263,62 +111,18 @@ impl DatabaseRuntime {
             request,
         )
         .await
+        .map_err(DatabaseOperationError::import_failed)
     }
 
-    fn spawn_tx_cleanup(&self) {
-        let runtime = self.clone();
-        tauri::async_runtime::spawn(async move {
-            loop {
-                tokio::time::sleep(TX_CLEANUP_INTERVAL).await;
-
-                // 定期回收超时事务，避免异常路径一直占用连接和锁。
-                let tx_ids = {
-                    let registry = runtime.inner.tx_registry.lock().await;
-                    registry
-                        .iter()
-                        .filter_map(|(tx_id, entry)| {
-                            entry.try_lock().ok().and_then(|guard| {
-                                (guard.expires_at <= Instant::now()).then_some(tx_id.clone())
-                            })
-                        })
-                        .collect::<Vec<_>>()
-                };
-
-                for tx_id in tx_ids {
-                    if let Err(error) = runtime.rollback_transaction(&tx_id).await {
-                        warn!("Failed to cleanup expired transaction {}: {}", tx_id, error);
-                    }
-                }
-            }
-        });
-    }
-
-    async fn finish_transaction(&self, tx_id: &str, sql: &str) -> Result<(), String> {
-        let entry = self
-            .inner
-            .tx_registry
-            .lock()
-            .await
-            .remove(tx_id)
-            .ok_or_else(|| format!("Transaction '{tx_id}' was not found"))?;
-
-        let mut guard = entry.lock().await;
-        let mut connection = guard
-            .connection
-            .take()
-            .ok_or_else(|| format!("Transaction '{tx_id}' is already closed"))?;
-
-        sqlx::query(sqlx::AssertSqlSafe(sql))
-            .execute(&mut *connection)
-            .await
-            .map_err(|error| format!("Failed to finalize sqlite transaction '{tx_id}': {error}"))?;
-        Ok(())
+    /// Returns the database path to test-only harness code.
+    #[doc(hidden)]
+    pub fn database_path_for_tests(&self) -> &std::path::Path {
+        &self.inner.database_path
     }
 
     async fn initialize_with_paths(
         database_path: PathBuf,
         database_contract: DatabaseContractSource,
-        spawn_tx_cleanup: bool,
     ) -> Result<Self, String> {
         let pool = create_sqlite_pool(&database_path).await?;
 
@@ -338,26 +142,14 @@ impl DatabaseRuntime {
                 pool,
                 database_path,
                 database_contract,
-                tx_registry: Mutex::new(HashMap::new()),
             }),
         };
-        if spawn_tx_cleanup {
-            runtime.spawn_tx_cleanup();
-        }
-
         info!(
             "Database runtime initialized at {}",
             runtime.inner.database_path.display()
         );
         Ok(runtime)
     }
-}
-
-fn next_counter() -> u64 {
-    use std::sync::atomic::{AtomicU64, Ordering};
-
-    static COUNTER: AtomicU64 = AtomicU64::new(1);
-    COUNTER.fetch_add(1, Ordering::Relaxed)
 }
 
 #[cfg(test)]
@@ -399,7 +191,7 @@ mod tests {
 
         let target = root.path().join("exported.db");
         runtime
-            .export_backup(target.to_string_lossy().as_ref())
+            .export_backup("main", target.to_string_lossy().as_ref())
             .await
             .expect("export");
 

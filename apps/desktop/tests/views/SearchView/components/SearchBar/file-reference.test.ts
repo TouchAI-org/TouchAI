@@ -99,6 +99,7 @@ beforeEach(() => {
     setLocale('en-US');
     installSkillCommands();
     mockTauriCommand('database_query', { rows: [], rowsAffected: 0, lastInsertId: null });
+    mockTauriCommand('database_operation', []);
     mockTauriCommand('quick_search_prepare_index', undefined);
     mockTauriCommand('quick_search_get_status', { db_loaded: true, index_warmed: true });
     mockTauriCommand('quick_search_get_shortcut_icons', {});
@@ -467,7 +468,7 @@ describe('given file results beside the main input', () => {
         expect(document.activeElement).toBe(editor.view.dom);
         await vi.waitFor(() => {
             expect(
-                getTauriInvokeCalls('database_query').some((call) => {
+                getTauriInvokeCalls('database_operation').some((call) => {
                     const payload = JSON.stringify(call.payload);
                     return payload.includes('@reference') && payload.includes('Recent.md');
                 })

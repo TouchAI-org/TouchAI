@@ -263,7 +263,7 @@ mod tests {
         fs::create_dir(&restored_root).unwrap();
         let backup = restored_root.join("touchai.db");
         runtime
-            .export_backup(backup.to_str().unwrap())
+            .export_backup("main", backup.to_str().unwrap())
             .await
             .unwrap();
         let snapshot = DatabaseRuntime::initialize_for_tests(&restored_root)

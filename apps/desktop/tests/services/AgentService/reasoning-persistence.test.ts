@@ -1,25 +1,53 @@
-import type { DatabaseSync } from 'node:sqlite';
-
-import { createAttachmentRecord } from '@database/queries/attachments';
-import { findMessagesBySessionId } from '@database/queries/messages';
-import { createToolPart, findToolPartById } from '@database/queries/toolParts';
-import {
-    closeTestDatabases,
-    openMigratedDatabase,
-    routeQueriesTo,
-} from '@tests/database/sqliteHarness';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AiRequestExecutor } from '@/services/AgentService/execution';
 import type { AttemptCheckpoint } from '@/services/AgentService/execution/executor';
 import { PersistenceProjector } from '@/services/AgentService/outputs/persistence';
 import { log } from '@/services/ObservabilityService';
 
+import {
+    createPersistenceDatabaseOperation,
+    type PersistenceDatabaseTelemetry,
+} from '../../utils/persistenceDatabase';
+
 const provider = vi.hoisted(() => ({ stream: vi.fn() }));
 vi.mock('@/services/AgentService/catalog', () => ({
     createProviderForModel: vi.fn(() => provider),
     resolveToolDefinitions: vi.fn(async () => []),
     getModel: vi.fn(),
+}));
+
+const queries = vi.hoisted(() => ({
+    createMessage: vi.fn(),
+    createSession: vi.fn(),
+    createMessageParts: vi.fn(),
+    updateMessage: vi.fn(),
+    syncOutputParts: vi.fn(),
+    createSessionTurn: vi.fn(),
+    createSessionTurnAttempt: vi.fn(),
+    updateSession: vi.fn(),
+    updateSessionTurn: vi.fn(),
+    updateSessionTurnAttempt: vi.fn(),
+    updateSessionTurnUsage: vi.fn(),
+    updateSessionTurnAttemptUsage: vi.fn(),
+    refreshSessionMetadata: vi.fn(),
+    findAllMcpTools: vi.fn(),
+    findAllBuiltInTools: vi.fn(),
+    appendMessagePart: vi.fn(),
+    findToolCallPartByCallId: vi.fn(),
+    mergeMessagePartData: vi.fn(),
+    createMessageAttachment: vi.fn(),
+    insertLlmCallParts: vi.fn(),
+}));
+
+const database = vi.hoisted(() => ({ operation: vi.fn() }));
+
+vi.mock('@database/queries', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@database/queries')>()),
+    ...queries,
+}));
+vi.mock('@services/NativeService', () => ({
+    native: { database: { operation: database.operation } },
 }));
 
 function createProjector() {
@@ -73,172 +101,158 @@ function persistProgress(
     });
 }
 
-describe('given a session with streamed reasoning and answer parts', () => {
-    let database: DatabaseSync;
-
+describe('reasoning and the answer are saved as they stream', () => {
     beforeEach(() => {
-        provider.stream.mockReset();
-        database = openMigratedDatabase();
-        routeQueriesTo(database);
-        database.exec(`
-            INSERT INTO providers (id, name, driver, api_endpoint, logo)
-            VALUES (1, 'Test', 'openai', 'https://example.com', 'openai');
-            INSERT INTO models (id, provider_id, name, model_id)
-            VALUES (1, 1, 'Test', 'test-model');
-            INSERT INTO sessions (id, session_id, title, model, provider_id)
-            VALUES (1, 'test-session', 'Test', 'test-model', 1);
-        `);
+        vi.resetAllMocks();
+        let messageId = 10;
+        queries.createMessage.mockImplementation(async (draft) => ({ ...draft, id: messageId++ }));
+        queries.createSessionTurn.mockImplementation(async (draft) => ({ ...draft, id: 2 }));
+        queries.createSessionTurnAttempt.mockImplementation(async (draft) => ({
+            ...draft,
+            id: 3,
+        }));
+        queries.findAllMcpTools.mockResolvedValue([]);
+        queries.findAllBuiltInTools.mockResolvedValue([]);
+        database.operation.mockImplementation(
+            createPersistenceDatabaseOperation({
+                ...queries,
+            } as unknown as PersistenceDatabaseTelemetry)
+        );
     });
-
-    afterEach(() => {
-        vi.restoreAllMocks();
-        closeTestDatabases();
-    });
-
-    function readCheckpointJson(): string {
-        return database.prepare('SELECT checkpoint_json FROM session_turn_attempts').get()!
-            .checkpoint_json as string;
-    }
-
-    function readTurn() {
-        return database.prepare('SELECT status, response_message_id FROM session_turns').get();
-    }
-
-    it('user recovers ordered output without a temporary attempt payload when streaming finishes', async () => {
+    it('user sees no temporary attempt output written while streaming', async () => {
+        queries.updateSessionTurnAttempt.mockClear();
         const projector = createProjector();
-        const checkpoint = createCheckpoint();
-        await projector.recordTurnStart(checkpoint);
-        const savedCheckpoint = readCheckpointJson();
+        await projector.recordTurnStart(createCheckpoint());
+        queries.updateSessionTurnAttempt.mockClear();
         provider.stream.mockImplementation(async function* () {
             yield { content: '', reasoning: 'Plan', done: false };
             yield { content: '', reasoningState: 'end', done: false };
             yield { content: 'Answer', done: true };
         });
-
         const result = await new AiRequestExecutor().runAttempt({
-            startCheckpoint: checkpoint,
+            startCheckpoint: createCheckpoint(),
             persister: projector,
         });
-
+        expect(result.type).toBe('completed');
+        expect(queries.updateSessionTurnAttempt).not.toHaveBeenCalled();
         expect(result).toMatchObject({
-            type: 'completed',
             finalStepOutputParts: [
                 { type: 'reasoning', content: 'Plan' },
                 { type: 'text', content: 'Answer' },
             ],
         });
-        if (result.type !== 'completed') throw new Error('Expected a completed attempt');
-        expect(readCheckpointJson()).toBe(savedCheckpoint);
-        await projector.markCompleted({
-            durationMs: 1,
-            outputParts: result.finalStepOutputParts,
-            calls: result.calls,
-        });
-        const messages = await findMessagesBySessionId(1);
-        expect(messages).toHaveLength(2);
-        expect(
-            messages[1]!.parts.filter((part) => part.type === 'reasoning' || part.type === 'text')
-        ).toMatchObject([
-            { type: 'reasoning', content: 'Plan' },
-            { type: 'text', content: 'Answer' },
-        ]);
     });
 
     it.each(['failed', 'cancelled'] as const)(
-        'user retains the assistant link and reasoning boundaries when the turn is %s before the first delta',
+        'user keeps the assistant link when the turn is %s before the first reasoning delta',
         async (status) => {
             const projector = createProjector();
             await projector.recordTurnStart(createCheckpoint());
             const start = { type: 'reasoning' as const, content: '', startedAt: 1000 };
             await persistProgress(projector, [start]);
             const closed = [{ ...start, endedAt: 1500 }];
-
             if (status === 'failed') {
                 await projector.markFailed('offline', closed);
             } else {
                 await projector.markCancelled(closed);
             }
-
-            const messages = await findMessagesBySessionId(1);
-            expect(messages).toHaveLength(2);
-            expect(messages[1]!.parts).toMatchObject([
-                { type: 'reasoning', content: '', started_at: 1000, ended_at: 1500 },
-            ]);
-            expect(readTurn()).toEqual({ status, response_message_id: messages[1]!.id });
+            expect(queries.createMessage).toHaveBeenCalledTimes(2);
+            expect(queries.syncOutputParts).toHaveBeenLastCalledWith(
+                11,
+                [
+                    expect.objectContaining({
+                        message_id: 11,
+                        type: 'reasoning',
+                        content: '',
+                        started_at: 1000,
+                        ended_at: 1500,
+                    }),
+                ],
+                expect.anything()
+            );
+            expect(queries.updateSessionTurn).toHaveBeenLastCalledWith(
+                expect.objectContaining({
+                    turnPatch: expect.objectContaining({ status, response_message_id: 11 }),
+                })
+            );
         }
     );
 
-    it('user retains stable output parts when a boundary repeats and sees later content changes', async () => {
+    it('user sees ordered tool-call parts saved without a temporary snapshot', async () => {
         const projector = createProjector();
         await projector.recordTurnStart(createCheckpoint());
-        await persistProgress(projector, [{ type: 'text', content: 'Partial answer' }]);
-        const saved = (await findMessagesBySessionId(1))[1]!;
-
-        await persistProgress(projector, [{ type: 'text', content: 'Partial answer' }]);
-        expect((await findMessagesBySessionId(1))[1]!.parts).toEqual(saved.parts);
-
-        await persistProgress(projector, [{ type: 'text', content: 'Partial answer v2' }]);
-        const updated = await findMessagesBySessionId(1);
-        expect(updated).toHaveLength(2);
-        expect(updated[1]).toMatchObject({
-            id: saved.id,
-            parts: [{ type: 'text', content: 'Partial answer v2' }],
-        });
-    });
-
-    it('user recovers ordered parts without a temporary snapshot when a tool-call step is saved', async () => {
-        const projector = createProjector();
-        await projector.recordTurnStart(createCheckpoint());
-        const savedCheckpoint = readCheckpointJson();
-
-        const messageId = await projector.persistToolCallMessage([
-            { type: 'reasoning', content: 'Plan', startedAt: 1000, endedAt: 2000 },
-            { type: 'text', content: 'Checking' },
-        ]);
-
-        expect(readCheckpointJson()).toBe(savedCheckpoint);
-        const messages = await findMessagesBySessionId(1);
-        expect(messages).toHaveLength(2);
-        expect(messages[1]).toMatchObject({
-            id: messageId,
-            role: 'tool_call',
-            parts: [
-                { type: 'reasoning', content: 'Plan', started_at: 1000, ended_at: 2000 },
-                { type: 'text', content: 'Checking', started_at: null, ended_at: null },
+        queries.updateSessionTurnAttempt.mockClear();
+        const parts = [
+            { type: 'reasoning' as const, content: 'Plan', startedAt: 1000, endedAt: 2000 },
+            { type: 'text' as const, content: 'Checking' },
+        ];
+        await projector.persistToolCallMessage(parts);
+        expect(queries.updateSessionTurnAttempt).not.toHaveBeenCalled();
+        expect(queries.syncOutputParts).toHaveBeenLastCalledWith(
+            11,
+            [
+                {
+                    message_id: 11,
+                    type: 'reasoning',
+                    content: 'Plan',
+                    started_at: 1000,
+                    ended_at: 2000,
+                    sort_order: 0,
+                },
+                {
+                    message_id: 11,
+                    type: 'text',
+                    content: 'Checking',
+                    started_at: null,
+                    ended_at: null,
+                    sort_order: 1,
+                },
             ],
-        });
+            {}
+        );
     });
 
     it.each(['failed', 'cancelled'] as const)(
-        'user recovers partial ordered output when the turn is %s with final parts',
+        'user keeps partial ordered output when the turn is %s without a temporary snapshot',
         async (status) => {
             const projector = createProjector();
             await projector.recordTurnStart(createCheckpoint());
-            const savedCheckpoint = readCheckpointJson();
             const parts = [
                 { type: 'reasoning' as const, content: 'Plan', startedAt: 1000, endedAt: 2000 },
                 { type: 'text' as const, content: 'Partial answer' },
             ];
-
             if (status === 'failed') {
                 await projector.markFailed('Offline', parts);
             } else {
                 await projector.markCancelled(parts);
             }
-
-            const messages = await findMessagesBySessionId(1);
-            expect(messages).toHaveLength(2);
-            expect(messages[1]!.parts).toMatchObject([
-                { type: 'reasoning', content: 'Plan', started_at: 1000, ended_at: 2000 },
-                { type: 'text', content: 'Partial answer', started_at: null, ended_at: null },
-            ]);
-            expect(readTurn()).toEqual({ status, response_message_id: messages[1]!.id });
-            expect(readCheckpointJson()).toBe(savedCheckpoint);
+            expect(queries.syncOutputParts).toHaveBeenLastCalledWith(
+                11,
+                [
+                    {
+                        message_id: 11,
+                        type: 'reasoning',
+                        content: 'Plan',
+                        started_at: 1000,
+                        ended_at: 2000,
+                        sort_order: 0,
+                    },
+                    {
+                        message_id: 11,
+                        type: 'text',
+                        content: 'Partial answer',
+                        started_at: null,
+                        ended_at: null,
+                        sort_order: 1,
+                    },
+                ],
+                {}
+            );
         }
     );
 
     it.each(['failed', 'cancelled'] as const)(
-        'user keeps durable output when the turn is %s without final parts',
+        'user keeps durable output when the turn is %s without a final snapshot',
         async (status) => {
             const projector = createProjector();
             await projector.recordTurnStart(createCheckpoint());
@@ -246,42 +260,57 @@ describe('given a session with streamed reasoning and answer parts', () => {
                 { type: 'reasoning', content: 'Saved thought', startedAt: 1000, endedAt: 2000 },
                 { type: 'text', content: 'Saved answer' },
             ]);
-            const saved = (await findMessagesBySessionId(1))[1]!;
-
+            queries.syncOutputParts.mockClear();
             if (status === 'failed') {
                 await projector.markFailed('Unexpected runtime error');
             } else {
                 await projector.markCancelled();
             }
-
-            const messages = await findMessagesBySessionId(1);
-            expect(messages).toHaveLength(2);
-            expect(messages[1]!.parts).toEqual(saved.parts);
-            expect(readTurn()).toEqual({ status, response_message_id: saved.id });
+            expect(queries.syncOutputParts).not.toHaveBeenCalled();
+            expect(queries.updateSessionTurn).toHaveBeenLastCalledWith(
+                expect.objectContaining({
+                    turnPatch: expect.objectContaining({ status, response_message_id: 11 }),
+                })
+            );
         }
     );
 
-    it('user recovers wall-clock reasoning boundaries when the turn completes', async () => {
+    it('user sees wall-clock boundaries saved in the completed message', async () => {
         const projector = createProjector();
         await projector.recordTurnStart(createCheckpoint());
-
+        const completed = [{ content: 'Thought', startedAt: 1000, endedAt: 6500 }];
         await projector.markCompleted({
             durationMs: 6000,
             outputParts: [
-                { type: 'reasoning', content: 'Thought', startedAt: 1000, endedAt: 6500 },
+                { type: 'reasoning', ...completed[0]! },
                 { type: 'text', content: 'Answer' },
             ],
         });
-
-        const messages = await findMessagesBySessionId(1);
-        expect(messages).toHaveLength(2);
-        expect(messages[1]!.parts).toMatchObject([
-            { type: 'reasoning', content: 'Thought', started_at: 1000, ended_at: 6500 },
-            { type: 'text', content: 'Answer', started_at: null, ended_at: null },
-        ]);
+        expect(queries.syncOutputParts).toHaveBeenLastCalledWith(
+            11,
+            [
+                {
+                    message_id: 11,
+                    type: 'reasoning',
+                    content: 'Thought',
+                    started_at: 1000,
+                    ended_at: 6500,
+                    sort_order: 0,
+                },
+                {
+                    message_id: 11,
+                    type: 'text',
+                    content: 'Answer',
+                    started_at: null,
+                    ended_at: null,
+                    sort_order: 1,
+                },
+            ],
+            {}
+        );
     });
 
-    it('user sees one assistant message when a streamed turn completes', async () => {
+    it('user sees the streaming message reused when the turn completes', async () => {
         const projector = createProjector();
         await projector.recordTurnStart(createCheckpoint());
         const thought = {
@@ -291,24 +320,32 @@ describe('given a session with streamed reasoning and answer parts', () => {
             endedAt: 2000,
         };
         await persistProgress(projector, [thought]);
-        const saved = (await findMessagesBySessionId(1))[1]!;
-
         await projector.markCompleted({
             durationMs: 5000,
             outputParts: [thought, { type: 'text', content: 'Answer' }],
         });
-
-        const messages = await findMessagesBySessionId(1);
-        expect(messages).toHaveLength(2);
-        expect(messages[1]).toMatchObject({
-            id: saved.id,
-            role: 'assistant',
-            parts: [
-                { type: 'reasoning', content: 'Plan' },
-                { type: 'text', content: 'Answer' },
-            ],
-        });
-        expect(readTurn()).toEqual({ status: 'completed', response_message_id: saved.id });
+        expect(queries.createMessage).toHaveBeenCalledTimes(2); // prompt + one assistant
+        expect(queries.updateMessage).toHaveBeenCalledWith(
+            11,
+            expect.objectContaining({ role: 'assistant' }),
+            {}
+        );
+        expect(queries.syncOutputParts).toHaveBeenCalledTimes(2);
+        expect(queries.syncOutputParts).toHaveBeenLastCalledWith(
+            11,
+            expect.arrayContaining([
+                expect.objectContaining({ message_id: 11, type: 'text', content: 'Answer' }),
+            ]),
+            {}
+        );
+        expect(queries.updateSessionTurn).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+                turnPatch: expect.objectContaining({
+                    response_message_id: 11,
+                    status: 'completed',
+                }),
+            })
+        );
     });
 
     it('user keeps streamed output when completion brings no final parts', async () => {
@@ -317,88 +354,85 @@ describe('given a session with streamed reasoning and answer parts', () => {
         await persistProgress(projector, [
             { type: 'reasoning', content: 'Saved thought', startedAt: 1000, endedAt: 2000 },
         ]);
-        const saved = (await findMessagesBySessionId(1))[1]!;
+        queries.syncOutputParts.mockClear();
 
         await projector.markCompleted({ durationMs: 5000, outputParts: [] });
 
-        const messages = await findMessagesBySessionId(1);
-        expect(messages).toHaveLength(2);
-        expect(messages[1]!.parts).toEqual(saved.parts);
-        expect(readTurn()).toEqual({ status: 'completed', response_message_id: saved.id });
+        expect(queries.syncOutputParts).not.toHaveBeenCalled();
+        expect(queries.updateSessionTurn).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+                turnPatch: expect.objectContaining({
+                    response_message_id: 11,
+                    status: 'completed',
+                }),
+            })
+        );
     });
 
-    it('user sees a separate final reply when the streaming message becomes a tool-call step', async () => {
+    it('user sees the streaming message reused as a tool-call step without leaking into the reply', async () => {
         const projector = createProjector();
         await projector.recordTurnStart(createCheckpoint());
         const parts = [
             { type: 'reasoning' as const, content: 'Plan', startedAt: 1000, endedAt: 2000 },
         ];
         await persistProgress(projector, parts);
-        const saved = (await findMessagesBySessionId(1))[1]!;
-
-        expect(await projector.persistToolCallMessage(parts)).toBe(saved.id);
+        expect(await projector.persistToolCallMessage(parts)).toBe(11);
         await projector.markCompleted({
             durationMs: 5000,
             outputParts: [{ type: 'text', content: 'Answer' }],
         });
-
-        const messages = await findMessagesBySessionId(1);
-        expect(messages).toMatchObject([
-            { role: 'user' },
-            { id: saved.id, role: 'tool_call', parts: [{ type: 'reasoning', content: 'Plan' }] },
-            { role: 'assistant', parts: [{ type: 'text', content: 'Answer' }] },
-        ]);
-        expect(readTurn()).toEqual({ status: 'completed', response_message_id: messages[2]!.id });
+        expect(queries.createMessage).toHaveBeenCalledTimes(3); // prompt, tool step, final reply
+        expect(queries.updateMessage).toHaveBeenCalledWith(
+            11,
+            expect.objectContaining({ role: 'tool_call' }),
+            {}
+        );
     });
 
-    it('user recovers a tool result in its owning part when the result is saved', async () => {
+    it('user sees the tool result written back into its tool-call part', async () => {
         const projector = createProjector();
         await projector.recordTurnStart(createCheckpoint());
-        const call = await createToolPart('builtin', {
-            session_id: 1,
+        queries.mergeMessagePartData.mockResolvedValue({
+            id: 42,
+            message_id: 11,
             tool_call_id: 'call-1',
-            tool_id: 'test-tool',
-            input: '{}',
+            tool_kind: 'builtin',
         });
 
         await projector.persistToolResult({
             result: 'done',
-            toolCallPartId: call.id,
-            toolCallMessageId: call.message_id,
+            toolCallPartId: 42,
+            toolCallMessageId: 11,
         });
 
-        expect(await findToolPartById('builtin', call.id)).toMatchObject({ output: 'done' });
-        expect((await findMessagesBySessionId(1))[1]!.parts).toMatchObject([
-            { id: call.id, type: 'tool_call', content: '' },
-        ]);
+        expect(queries.mergeMessagePartData).toHaveBeenCalledWith(
+            42,
+            { output: 'done' },
+            expect.anything()
+        );
+        expect(queries.refreshSessionMetadata).toHaveBeenLastCalledWith(1, expect.anything());
     });
 
-    it('user recovers tool-result attachments with their owning call when the result is saved', async () => {
+    it('user sees tool-result attachments saved with their owning call', async () => {
         const projector = createProjector();
         await projector.recordTurnStart(createCheckpoint());
-        const call = await createToolPart('mcp', {
-            session_id: 1,
+        queries.mergeMessagePartData.mockResolvedValue({
+            id: 42,
+            message_id: 11,
             tool_call_id: 'call-1',
-            server_id: 1,
-            tool_name: 'test-tool',
-            input: '{}',
+            tool_kind: 'mcp',
         });
-        const attachment = await createAttachmentRecord({
-            hash: 'hash-7',
-            type: 'file',
-            original_name: 'seven.txt',
-            origin_path: 'D:/origin/seven.txt',
-        });
+        queries.createMessageAttachment.mockResolvedValue({ id: 5 });
 
         await projector.persistToolResult({
             result: 'file ready',
-            toolCallPartId: call.id,
-            toolCallMessageId: call.message_id,
+            toolCallPartId: 42,
+            toolCallMessageId: 11,
             attachments: [
                 {
                     id: 'attachment-1',
-                    attachmentId: attachment.id,
-                    hash: attachment.hash,
+                    attachmentId: 7,
+                    hash: 'hash-7',
                     type: 'file',
                     path: 'D:/cache/seven.txt',
                     originPath: 'D:/origin/seven.txt',
@@ -407,61 +441,48 @@ describe('given a session with streamed reasoning and answer parts', () => {
             ],
         });
 
-        const messages = await findMessagesBySessionId(1);
-        expect(messages).toHaveLength(2);
-        expect(messages[0]!.attachments).toEqual([]);
-        expect(messages[1]!.attachments).toMatchObject([
+        expect(queries.createMessageAttachment).toHaveBeenCalledWith(
             {
-                id: attachment.id,
-                message_id: call.message_id,
+                message_id: 11,
+                attachment_id: 7,
                 origin_path: 'D:/origin/seven.txt',
                 tool_call_id: 'call-1',
                 tool_kind: 'mcp',
             },
-        ]);
-        expect(await findToolPartById('mcp', call.id)).toMatchObject({ output: 'file ready' });
+            expect.anything()
+        );
     });
 
-    it('user recovers the result on the correct message when a part id is missing and call ids repeat', async () => {
+    it('user sees the tool-call part recovered by call id instead of as assistant text', async () => {
+        // 工具结果只能落在 tool_call 片段上。主键丢了就按 tool_call_id 反查，
+        // 绝不把结果写成一条助手文本（那会在对话里渲染成大段原始工具输出）。
+        queries.findToolCallPartByCallId.mockResolvedValueOnce({ id: 77 } as never);
         const projector = createProjector();
         await projector.recordTurnStart(createCheckpoint());
-        const callData = {
-            session_id: 1,
-            tool_call_id: 'call-77',
-            tool_id: 'test-tool',
-            input: '{}',
-        };
-        const earlier = await createToolPart('builtin', callData);
-        const current = await createToolPart('builtin', callData);
 
         await projector.persistToolResult({
             result: 'recovered output',
             toolCallId: 'call-77',
             toolCallPartId: null,
-            toolCallMessageId: current.message_id,
+            toolCallMessageId: 11,
         });
 
-        expect(await findToolPartById('builtin', earlier.id)).toMatchObject({ output: null });
-        expect(await findToolPartById('builtin', current.id)).toMatchObject({
-            output: 'recovered output',
-        });
-        expect((await findMessagesBySessionId(1))[2]!.parts).toMatchObject([
-            { id: current.id, type: 'tool_call', content: '' },
-        ]);
+        // 只在拿到消息 id 时才反查，避免命中更早消息里的同 id 片段。
+        expect(queries.findToolCallPartByCallId).toHaveBeenCalledWith('call-77', 11);
+        expect(queries.mergeMessagePartData).toHaveBeenCalledWith(
+            77,
+            { output: 'recovered output' },
+            expect.anything()
+        );
+        expect(queries.appendMessagePart).not.toHaveBeenCalled();
     });
 
-    it('user keeps earlier tool results unchanged when the result has no owning message', async () => {
-        vi.spyOn(log, 'error').mockImplementation(() => undefined);
+    it('user sees no call-id lookup when the tool-call message is unknown', async () => {
+        // 没有消息 id 就不做不限定的反查：`tool_call_id` 只保证在单条消息内唯一，
+        // 命中了更早消息里的同 id 片段会把结果写错地方。
+        const errorSpy = vi.spyOn(log, 'error').mockImplementation(() => undefined);
         const projector = createProjector();
         await projector.recordTurnStart(createCheckpoint());
-        await createToolPart('builtin', {
-            session_id: 1,
-            tool_call_id: 'call-77',
-            tool_id: 'test-tool',
-            input: '{}',
-            output: 'earlier output',
-        });
-        const saved = await findMessagesBySessionId(1);
 
         await projector.persistToolResult({
             result: 'no message to attach to',
@@ -470,62 +491,57 @@ describe('given a session with streamed reasoning and answer parts', () => {
             toolCallMessageId: null,
         });
 
-        expect(await findMessagesBySessionId(1)).toEqual(saved);
+        expect(queries.findToolCallPartByCallId).not.toHaveBeenCalled();
+        expect(queries.mergeMessagePartData).not.toHaveBeenCalled();
+        errorSpy.mockRestore();
     });
 
-    it.each(['unmatched output', ''])(
-        'user sees no extra assistant text when the unmatched tool result is %j',
-        async (result) => {
-            vi.spyOn(log, 'error').mockImplementation(() => undefined);
-            const projector = createProjector();
-            await projector.recordTurnStart(createCheckpoint());
-            const messageId = await projector.persistToolCallMessage([]);
-            const saved = await findMessagesBySessionId(1);
+    it('user sees an unmatched tool result dropped rather than stored as assistant text', async () => {
+        queries.findToolCallPartByCallId.mockResolvedValueOnce(undefined as never);
+        const errorSpy = vi.spyOn(log, 'error').mockImplementation(() => undefined);
+        const projector = createProjector();
+        await projector.recordTurnStart(createCheckpoint());
 
-            await projector.persistToolResult({
-                result,
-                toolCallId: 'call-missing',
-                toolCallPartId: null,
-                toolCallMessageId: messageId,
-            });
+        await projector.persistToolResult({
+            result: 'unmatched output',
+            toolCallId: 'call-missing',
+            toolCallPartId: null,
+            toolCallMessageId: 11,
+        });
 
-            expect(await findMessagesBySessionId(1)).toEqual(saved);
-        }
-    );
+        expect(queries.appendMessagePart).not.toHaveBeenCalled();
+        expect(queries.mergeMessagePartData).not.toHaveBeenCalled();
+        errorSpy.mockRestore();
+    });
 
-    it('user retains the transcript when a safe boundary updates only checkpoint metadata', async () => {
+    it('user sees an unmatched empty tool result ignored', async () => {
+        const projector = createProjector();
+        await projector.recordTurnStart(createCheckpoint());
+
+        await projector.persistToolResult({
+            result: '',
+            toolCallPartId: null,
+            toolCallMessageId: 11,
+        });
+
+        expect(queries.appendMessagePart).not.toHaveBeenCalled();
+    });
+
+    it('user sees only the checkpoint updated at a safe boundary', async () => {
         const projector = createProjector();
         const checkpoint = createCheckpoint();
         await projector.recordTurnStart(checkpoint);
-        const saved = await findMessagesBySessionId(1);
-        checkpoint.iteration = 2;
-        checkpoint.response = 'Answer';
-        checkpoint.reasoning = 'Plan';
-        checkpoint.outputParts = [
-            { type: 'reasoning', content: 'Plan' },
-            { type: 'text', content: 'Answer' },
-        ];
-
         await projector.persistCheckpoint(checkpoint);
-
-        expect(JSON.parse(readCheckpointJson())).toEqual({
-            activeModelId: 1,
-            iteration: 2,
-            modelSwitchCount: 0,
-            modelLanguageContext: { locale: 'zh-CN', label: 'Simplified Chinese' },
-            executedBuiltInToolIds: [],
-            outputBoundary: { textLength: 6, reasoningLength: 4, partCount: 2 },
+        expect(queries.updateSessionTurnAttempt).toHaveBeenLastCalledWith({
+            id: 3,
+            attemptPatch: { checkpoint_json: expect.any(String) },
+            database: {},
         });
-        expect(await findMessagesBySessionId(1)).toEqual(saved);
     });
 
-    it('user recovers reasoning provider options when the completed message is reloaded', async () => {
+    it('user sees reasoning provider options saved into the message part', async () => {
         const projector = createProjector();
         await projector.recordTurnStart(createCheckpoint());
-        const providerOptions = {
-            openai: { itemId: 'rs_1', reasoningEncryptedContent: 'enc' },
-        };
-
         await projector.markCompleted({
             durationMs: 5000,
             outputParts: [
@@ -534,18 +550,27 @@ describe('given a session with streamed reasoning and answer parts', () => {
                     content: 'Thought',
                     startedAt: 1000,
                     endedAt: 6500,
-                    providerOptions,
+                    providerOptions: {
+                        openai: { itemId: 'rs_1', reasoningEncryptedContent: 'enc' },
+                    },
                 },
                 { type: 'text', content: 'Answer' },
             ],
         });
-
-        const messages = await findMessagesBySessionId(1);
-        expect(messages).toHaveLength(2);
-        expect(messages[1]!.parts).toMatchObject([
-            { type: 'reasoning', content: 'Thought' },
-            { type: 'text', content: 'Answer' },
-        ]);
-        expect(JSON.parse(messages[1]!.parts[0]!.data)).toEqual(providerOptions);
+        expect(queries.syncOutputParts).toHaveBeenLastCalledWith(
+            11,
+            [
+                expect.objectContaining({
+                    message_id: 11,
+                    type: 'reasoning',
+                    content: 'Thought',
+                    data: JSON.stringify({
+                        openai: { itemId: 'rs_1', reasoningEncryptedContent: 'enc' },
+                    }),
+                }),
+                expect.objectContaining({ message_id: 11, type: 'text', content: 'Answer' }),
+            ],
+            {}
+        );
     });
 });

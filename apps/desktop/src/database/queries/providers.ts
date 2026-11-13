@@ -1,33 +1,8 @@
 ﻿// Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { eq } from 'drizzle-orm';
+import { native } from '@services/NativeService';
 
-import { db } from '../index';
-import { models, providers } from '../schema';
 import type { ProviderCreateData, ProviderEntity, ProviderUpdateData } from '../types';
-
-const BUILTIN_PROVIDER_DISPLAY_ORDER = new Map<string, number>([
-    ['OpenAI', 0],
-    ['Anthropic', 1],
-    ['Gemini', 2],
-    ['Xiaomi MiMo', 3],
-    ['DeepSeek', 4],
-    ['火山引擎', 5],
-    ['Grok', 6],
-    ['腾讯混元', 7],
-    ['MiniMax', 8],
-    ['月之暗面', 9],
-    ['阿里云百炼', 10],
-    ['智谱', 11],
-]);
-
-function getProviderDisplayOrder(provider: ProviderEntity): number {
-    if (provider.is_builtin !== 1) {
-        return Number.MAX_SAFE_INTEGER;
-    }
-
-    return BUILTIN_PROVIDER_DISPLAY_ORDER.get(provider.name) ?? Number.MAX_SAFE_INTEGER - 1;
-}
 
 /**
  * 查找所有服务商，按优先级排序
@@ -38,41 +13,7 @@ function getProviderDisplayOrder(provider: ProviderEntity): number {
  * 4. 其他按 ID 排序
  */
 export const findAllProvidersSorted = async (): Promise<ProviderEntity[]> => {
-    const drizzle = db;
-    const allProviders = await drizzle.select().from(providers).all();
-    const allModels = await drizzle.select().from(models).all();
-
-    // 找出有默认模型的服务商 ID
-    const defaultModelProviderId = allModels.find((m) => m.is_default === 1)?.provider_id;
-
-    // 排序
-    return allProviders.sort((a, b) => {
-        // 1. 启用的排前面
-        if (a.enabled !== b.enabled) {
-            return b.enabled - a.enabled;
-        }
-
-        // 2. 启用的服务商中，有默认模型的排最前面
-        if (a.enabled === 1) {
-            const aHasDefault = a.id === defaultModelProviderId ? 1 : 0;
-            const bHasDefault = b.id === defaultModelProviderId ? 1 : 0;
-            if (aHasDefault !== bHasDefault) {
-                return bHasDefault - aHasDefault;
-            }
-        }
-
-        if (a.enabled === 1 && a.is_builtin !== b.is_builtin) {
-            return a.is_builtin - b.is_builtin;
-        }
-
-        const providerOrderDelta = getProviderDisplayOrder(a) - getProviderDisplayOrder(b);
-        if (providerOrderDelta !== 0) {
-            return providerOrderDelta;
-        }
-
-        // 4. 其他按 ID 排序
-        return a.id - b.id;
-    });
+    return native.database.operation<ProviderEntity[]>({ kind: 'provider_list' });
 };
 
 /**
@@ -83,7 +24,8 @@ export const findProviderById = async ({
 }: {
     id: number;
 }): Promise<ProviderEntity | undefined> =>
-    await db.select().from(providers).where(eq(providers.id, id)).get();
+    (await native.database.operation<ProviderEntity | null>({ kind: 'provider_find', id })) ??
+    undefined;
 
 /**
  * 创建服务商
@@ -91,7 +33,10 @@ export const findProviderById = async ({
 export const createProvider = async (
     providerDraft: ProviderCreateData
 ): Promise<ProviderEntity> => {
-    const createdProvider = await db.insert(providers).values(providerDraft).returning().get();
+    const createdProvider = await native.database.operation<ProviderEntity | null>({
+        kind: 'provider_create',
+        data: { ...providerDraft },
+    });
 
     if (!createdProvider || createdProvider.id === undefined) {
         throw new Error('Failed to create provider');
@@ -110,13 +55,16 @@ export const updateProvider = async ({
     id: number;
     providerPatch: ProviderUpdateData;
 }): Promise<void> => {
-    await db.update(providers).set(providerPatch).where(eq(providers.id, id)).run();
+    await native.database.operation({
+        kind: 'provider_update',
+        id,
+        data: { ...providerPatch },
+    });
 };
 
 /**
  * 删除服务商
  */
 export const deleteProvider = async ({ id }: { id: number }): Promise<boolean> => {
-    await db.delete(providers).where(eq(providers.id, id)).run();
-    return true;
+    return native.database.operation<boolean>({ kind: 'provider_delete', id });
 };

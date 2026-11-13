@@ -226,20 +226,21 @@ describe('user reads built-in tool activity in their own language', () => {
         ).resolves.toBeNull();
     });
 
-    it('user reads generic execution failures in the active language before they are stored', async () => {
+    it('user reads a generic execution failure without the host cause in the active language', async () => {
         fakeTool.execute.mockRejectedValueOnce(new Error('boom'));
 
         const result = await builtInToolService.executeTool(createExecutionOptions());
 
         expect(result).toMatchObject({
-            result: '工具执行失败：boom',
+            result: '工具执行失败',
             isError: true,
         });
+        expect(result?.result).not.toContain('boom');
         expect(updateBuiltInToolLogByIdMock).toHaveBeenLastCalledWith(
             11,
             expect.objectContaining({
-                output: '工具执行失败：boom',
-                error_message: 'boom',
+                output: '工具执行失败',
+                error_message: '工具执行失败',
                 status: 'error',
             })
         );

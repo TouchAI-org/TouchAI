@@ -1,16 +1,14 @@
-import type { SQLInputValue } from 'node:sqlite';
-
 import {
     countSessions,
     createSession,
     deleteAllSessions,
     findSessionById,
     listSessions,
+    updateSession,
 } from '@database/queries/sessions';
-import { interceptTauriInvoke } from '@tests/utils/tauri';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { openMigratedDatabase } from './sqliteHarness';
+import { openMigratedDatabase, routeQueriesTo } from './sqliteHarness';
 
 /**
  * The conversation list is the app's home screen. A wrong order hides the conversation the user
@@ -22,37 +20,6 @@ function openDatabase() {
     const database = openMigratedDatabase();
     databases.push(database);
     return database;
-}
-
-function routeQueriesTo(database: ReturnType<typeof openMigratedDatabase>) {
-    interceptTauriInvoke((call) => {
-        if (call.cmd === 'database_tx_begin') {
-            database.exec('BEGIN');
-            return 'test-tx';
-        }
-        if (call.cmd === 'database_tx_commit') {
-            database.exec('COMMIT');
-            return null;
-        }
-        if (call.cmd === 'database_tx_rollback') {
-            database.exec('ROLLBACK');
-            return null;
-        }
-        if (call.cmd !== 'database_query' && call.cmd !== 'database_tx_query') return undefined;
-        const { request } = call.payload as {
-            request: { sql: string; params: SQLInputValue[]; method: string };
-        };
-        const statement = database.prepare(request.sql);
-        if (request.method === 'run') {
-            const result = statement.run(...request.params);
-            return {
-                rows: [],
-                rowsAffected: Number(result.changes),
-                lastInsertId: Number(result.lastInsertRowid),
-            };
-        }
-        return { rows: statement.all(...request.params), rowsAffected: 0, lastInsertId: null };
-    });
 }
 
 function seed(database: ReturnType<typeof openMigratedDatabase>) {
@@ -200,6 +167,22 @@ describe('user creates and reads a conversation', () => {
 
         await expect(findSessionById(2)).resolves.toMatchObject({ title: 'Budget review' });
         await expect(findSessionById(99)).resolves.toBeUndefined();
+    });
+
+    it('user sees updated conversation details when they rename and pin it', async () => {
+        const database = openDatabase();
+        routeQueriesTo(database);
+        seed(database);
+
+        await updateSession({
+            id: 2,
+            sessionPatch: { title: 'Budget approved', pinned_at: '2026-01-06T00:00:00Z' },
+        });
+
+        await expect(findSessionById(2)).resolves.toMatchObject({
+            title: 'Budget approved',
+            pinned_at: '2026-01-06T00:00:00Z',
+        });
     });
 
     it('user gets the conversation count', async () => {

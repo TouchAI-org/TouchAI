@@ -1,8 +1,9 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import { t } from '@/i18n';
+import { t, tt } from '@/i18n';
 import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
 import type { AskUserAnswer, AskUserQuestion } from '@/services/AgentService/contracts/tooling';
+import { log } from '@/services/ObservabilityService';
 
 import {
     type BaseBuiltInToolExecutionContext,
@@ -141,11 +142,13 @@ class AskUserTool extends BuiltInTool {
         const { questions } = parsed;
 
         if (!context.requestUserQuestions) {
+            const errorMessage = tt('工具执行失败');
+            log.error('[AskUserTool] User question context is unavailable');
             return {
-                result: 'Error: ask_user_question is not available in this context',
+                result: errorMessage,
                 isError: true,
                 status: 'error',
-                errorMessage: 'ask_user_question is not available in this context',
+                errorMessage,
             };
         }
 

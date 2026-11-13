@@ -10,6 +10,8 @@ import {
     z,
 } from '@/utils/zod';
 
+import { ToolUserFacingError } from '../errors';
+
 export {
     arrayFromScalarSchema,
     integerInRangeSchema,
@@ -38,7 +40,7 @@ export function parseToolArguments<T>(toolName: string, schema: z.ZodType<T>, ar
         return result.data;
     }
 
-    throw new Error(
+    throw new ToolUserFacingError(
         `${toolName} tool received invalid arguments.\n${formatZodError(result.error)}`
     );
 }

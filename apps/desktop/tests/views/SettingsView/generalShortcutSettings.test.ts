@@ -2,6 +2,7 @@ import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
+import { SettingsErrorCode, SettingsServiceError } from '@/services/SettingsService/types';
 import GeneralShortcutSettings from '@/views/SettingsView/components/General/GeneralShortcutSettings.vue';
 
 /*
@@ -274,6 +275,38 @@ describe('user records a new activation shortcut', () => {
         expect(alertMock.error).toHaveBeenCalled();
         expect(settingsMock.settings.value.globalShortcut).toBe('Alt+Space');
         expect(fieldValue(wrapper)).toBe('Alt+Space');
+    });
+
+    it('user is told the owner rejected the shortcut because it conflicts with a search action', async () => {
+        settingsMock.updateGlobalShortcut.mockRejectedValueOnce(
+            new SettingsServiceError(SettingsErrorCode.Rejected, {
+                rejection: { kind: 'shortcut-global-conflict' },
+            })
+        );
+        const wrapper = await mountSection();
+        await startCapture(wrapper);
+
+        await pressKeys({ key: 'n', ctrlKey: true });
+
+        expect(alertMock.error).toHaveBeenCalledWith(
+            '该快捷键与全局唤起快捷键冲突，请换一个组合',
+            4000
+        );
+        expect(fieldValue(wrapper)).toBe('Alt+Space');
+    });
+
+    it('user gets the generic save message for an internal owner failure', async () => {
+        settingsMock.updateGlobalShortcut.mockRejectedValueOnce(
+            new SettingsServiceError(SettingsErrorCode.PersistenceFailed, {
+                cause: new Error('database is locked: /root/touchai.db'),
+            })
+        );
+        const wrapper = await mountSection();
+        await startCapture(wrapper);
+
+        await pressKeys({ key: 'n', ctrlKey: true });
+
+        expect(alertMock.error).toHaveBeenCalledWith('保存快捷键失败', 4000);
     });
 
     it('user keeps the old shortcut when the system refuses to register the new one', async () => {

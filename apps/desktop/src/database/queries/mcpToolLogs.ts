@@ -1,6 +1,3 @@
-import { eq } from 'drizzle-orm';
-
-import { messageParts } from '../schema';
 import type { McpToolLogCreateData, McpToolLogEntity, McpToolLogUpdateData } from '../types';
 import {
     createToolPart,
@@ -17,14 +14,19 @@ export type McpToolLogSummary = ToolPartSummaryRow;
 export const findMcpToolLogsByServerId = async (
     id: number,
     options?: { limit?: number; offset?: number }
-) => (await findToolParts('mcp', eq(messageParts.server_id, id), options)) as McpToolLogEntity[];
+) =>
+    (await findToolParts(
+        'mcp',
+        { kind: 'server_id', serverId: id },
+        options
+    )) as McpToolLogEntity[];
 
 /** 列表轻量投影：只读取展示字段与输入摘要。 */
 export const findMcpToolLogSummariesByServerId = async (
     id: number,
     options?: { limit?: number; offset?: number }
 ): Promise<McpToolLogSummary[]> =>
-    await findToolPartSummaries('mcp', eq(messageParts.server_id, id), options);
+    await findToolPartSummaries('mcp', { kind: 'server_id', serverId: id }, options);
 
 /** 展开时按主键读取完整日志正文。 */
 export const findMcpToolLogById = async (id: number) =>
@@ -33,3 +35,7 @@ export const createMcpToolLog = async (data: McpToolLogCreateData) =>
     (await createToolPart('mcp', { ...data })) as McpToolLogEntity;
 export const updateMcpToolLogById = async (id: number, data: McpToolLogUpdateData) =>
     (await updateToolPart('mcp', id, data)) as McpToolLogEntity | undefined;
+export const updateMcpToolLogByCallId = async (id: string, data: McpToolLogUpdateData) =>
+    (await updateToolPart('mcp', { kind: 'tool_call_id', toolCallId: id }, { ...data })) as
+        | McpToolLogEntity
+        | undefined;

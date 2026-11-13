@@ -68,6 +68,20 @@ function findNearestPrecedingUserMessage(
     return null;
 }
 
+/** Whether a session open failed because the row no longer exists. */
+export function isSessionNotFoundError(error: unknown, sessionId: number): boolean {
+    const code =
+        error && typeof error === 'object' && 'code' in error
+            ? String((error as { code?: unknown }).code)
+            : null;
+    // Rust owns the stable error category; keep the legacy text fallback for
+    // older callers and tests that cross a string-only boundary.
+    return (
+        code === 'database-not-found' ||
+        (error instanceof Error && error.message === `Session ${sessionId} not found`)
+    );
+}
+
 /**
  * 搜索页请求流。
  * 负责 AI 请求排队、提交校验、历史会话切换和会话目录操作。
@@ -565,10 +579,6 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
 
     function clearLastClosedSessionId() {
         lastClosedSessionId.value = null;
-    }
-
-    function isSessionNotFoundError(error: unknown, sessionId: number): boolean {
-        return error instanceof Error && error.message === `Session ${sessionId} not found`;
     }
 
     async function reopenLastClosedSession(): Promise<LoadedSessionInfo | null> {

@@ -519,7 +519,7 @@ describe('user reopens a conversation whose turn was cancelled', () => {
         expect(assistant.statusText).toBeTruthy();
     });
 
-    it('user sees a failed turn with nothing visible shown as a failure message', async () => {
+    it('user sees an unknown failure cause as a generic failure message', async () => {
         const history = await build(
             [userRow(1, 'run it')],
             [
@@ -540,7 +540,8 @@ describe('user reopens a conversation whose turn was cancelled', () => {
         );
 
         expect(history[1]).toMatchObject({ role: 'assistant', isError: true });
-        expect(history[1]?.content).toContain('Provider returned 500');
+        expect(history[1]?.content).toContain('未知错误');
+        expect(history[1]?.content).not.toContain('Provider returned 500');
     });
 
     it('user does not see an error message for a turn that failed without a reason', async () => {
@@ -1041,7 +1042,7 @@ describe('user reopens a conversation that stopped before replying', () => {
         expect(toolCalls[1]?.status).toBe('cancelled');
     });
 
-    it('user sees the failure noted beside the reply that already arrived', async () => {
+    it('user sees an unknown failure cause hidden beside the reply that already arrived', async () => {
         const history = await build(
             [userRow(1, 'run it'), assistantRow(2, 'partial answer')],
             [
@@ -1063,7 +1064,8 @@ describe('user reopens a conversation that stopped before replying', () => {
 
         expect(history).toHaveLength(2);
         expect(history[1]?.content).toBe('partial answer');
-        expect(history[1]?.statusText).toContain('Provider returned 500');
+        expect(history[1]?.statusText).toContain('未知错误');
+        expect(history[1]?.statusText).not.toContain('Provider returned 500');
     });
 });
 

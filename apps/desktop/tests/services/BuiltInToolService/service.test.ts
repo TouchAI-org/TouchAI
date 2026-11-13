@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
 import type { AiToolCall } from '@/services/AgentService/contracts/tooling';
+import { ToolUserFacingError } from '@/services/BuiltInToolService/errors';
 
 const {
     createBuiltInToolLogMock,
@@ -440,6 +441,81 @@ describe('user still runs a built-in tool when bookkeeping fails', () => {
         const result = await executeBuiltInTool(builtInToolService);
 
         expect(result).toMatchObject({ result: 'alpha', isError: false });
+    });
+
+    it('user gets a generic failure when the tool throws a host error', async () => {
+        registryGetMock.mockReturnValue(
+            createRegistryTool({
+                execute: vi.fn(async () => {
+                    throw new Error('database is locked while writing provider credentials');
+                }),
+            })
+        );
+        const builtInToolService = await loadBuiltInToolService();
+
+        const result = await executeBuiltInTool(builtInToolService);
+
+        expect(result).toMatchObject({ result: '工具执行失败', isError: true });
+        expect(result?.result).not.toContain('database is locked');
+        expect(result?.result).not.toContain('provider credentials');
+        expect(updateBuiltInToolLogByIdMock).toHaveBeenLastCalledWith(
+            21,
+            expect.objectContaining({
+                error_message: '工具执行失败',
+                output: '工具执行失败',
+            })
+        );
+    });
+
+    it('user gets a safe tool validation message when the tool marks its own failure', async () => {
+        registryGetMock.mockReturnValue(
+            createRegistryTool({
+                execute: vi.fn(async () => {
+                    throw new ToolUserFacingError('Working directory is outside the allowed scope');
+                }),
+            })
+        );
+        const builtInToolService = await loadBuiltInToolService();
+
+        const result = await executeBuiltInTool(builtInToolService);
+
+        expect(result).toMatchObject({
+            result: 'Working directory is outside the allowed scope',
+            isError: true,
+        });
+        expect(updateBuiltInToolLogByIdMock).toHaveBeenLastCalledWith(
+            21,
+            expect.objectContaining({
+                error_message: 'Working directory is outside the allowed scope',
+                output: 'Working directory is outside the allowed scope',
+            })
+        );
+    });
+
+    it('user gets a stable timeout message when an unhandled tool timeout escapes', async () => {
+        registryGetMock.mockReturnValue(
+            createRegistryTool({
+                execute: vi.fn(async () => {
+                    throw new DOMException('native deadline exceeded', 'TimeoutError');
+                }),
+            })
+        );
+        const builtInToolService = await loadBuiltInToolService();
+
+        const result = await executeBuiltInTool(builtInToolService);
+
+        expect(result).toMatchObject({
+            result: '工具执行超时，请稍后重试',
+            isError: true,
+        });
+        expect(result?.result).not.toContain('native deadline exceeded');
+        expect(updateBuiltInToolLogByIdMock).toHaveBeenLastCalledWith(
+            21,
+            expect.objectContaining({
+                status: 'timeout',
+                error_message: '工具执行超时，请稍后重试',
+            })
+        );
     });
 
     it('user gets the cancellation reported when the cancelled state cannot be saved', async () => {

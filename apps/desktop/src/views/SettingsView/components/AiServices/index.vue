@@ -271,7 +271,7 @@
 
             await ensureProviderSelected();
         } catch (err) {
-            error.value = err instanceof Error ? err.message : t('settings.ai.loadFailed');
+            error.value = t('settings.ai.loadFailed');
             log.error('Failed to load providers:', err);
         } finally {
             loading.value = false;
@@ -335,7 +335,8 @@
                 alert.info(t('settings.ai.providerDisabled'));
             }
         } catch (err) {
-            alert.error(err instanceof Error ? err.message : t('settings.ai.operationFailed'));
+            log.error('Failed to toggle provider:', err);
+            alert.error(t('settings.ai.operationFailed'));
         }
     };
 
@@ -415,7 +416,8 @@
                 await refreshSelectedProviderModelsAfterConfigChange();
             }
         } catch (err) {
-            alert.error(err instanceof Error ? err.message : t('settings.ai.saveFailed'));
+            log.error('Failed to update provider:', err);
+            alert.error(t('settings.ai.saveFailed'));
         }
     };
 
@@ -504,7 +506,8 @@
             showAddDialog.value = false;
             await refreshSelectedProviderModelsAfterConfigChange();
         } catch (err) {
-            alert.error(err instanceof Error ? err.message : t('settings.ai.createFailed'));
+            log.error('Failed to create provider:', err);
+            alert.error(t('settings.ai.createFailed'));
         }
     };
 
@@ -537,7 +540,8 @@
             showEditDialog.value = false;
             await refreshSelectedProviderModelsAfterConfigChange();
         } catch (err) {
-            alert.error(err instanceof Error ? err.message : t('settings.ai.saveFailed'));
+            log.error('Failed to update provider info:', err);
+            alert.error(t('settings.ai.saveFailed'));
         }
     };
 
@@ -556,7 +560,8 @@
             if (editingProvider.value?.id === providerId) showEditDialog.value = false;
             alert.success(t('settings.ai.deleteSucceeded'));
         } catch (err) {
-            alert.error(err instanceof Error ? err.message : t('settings.ai.deleteFailed'));
+            log.error('Failed to delete provider:', err);
+            alert.error(t('settings.ai.deleteFailed'));
         }
     };
 
@@ -577,7 +582,8 @@
             await broadcastModelsUpdated();
             alert.success(t('settings.ai.createSucceeded'));
         } catch (err) {
-            alert.error(err instanceof Error ? err.message : t('settings.ai.createFailed'));
+            log.error('Failed to create model:', err);
+            alert.error(t('settings.ai.createFailed'));
         }
     };
 
@@ -588,7 +594,8 @@
             await broadcastModelsUpdated();
             alert.success(t('common.saved'));
         } catch (err) {
-            alert.error(err instanceof Error ? err.message : t('settings.ai.saveFailed'));
+            log.error('Failed to update model:', err);
+            alert.error(t('settings.ai.saveFailed'));
         }
     };
 
@@ -605,7 +612,8 @@
                 alert.success(t('settings.ai.deleteSucceeded'));
             }
         } catch (err) {
-            alert.error(err instanceof Error ? err.message : t('settings.ai.deleteFailed'));
+            log.error('Failed to delete model:', err);
+            alert.error(t('settings.ai.deleteFailed'));
         }
     };
 
@@ -664,7 +672,8 @@
             await broadcastModelsUpdated();
             alert.success(t('settings.ai.setSucceeded'));
         } catch (err) {
-            alert.error(err instanceof Error ? err.message : t('settings.ai.setFailed'));
+            log.error('Failed to set default model:', err);
+            alert.error(t('settings.ai.setFailed'));
         }
     };
 
@@ -767,7 +776,7 @@
 
             log.error('Failed to refresh models:', err);
             if (notifications.failure) {
-                alert.error(t('settings.ai.refreshModelsFailed', { error: String(err) }));
+                alert.error(t('settings.ai.refreshModelsFailed'));
             }
         } finally {
             if (refreshingProviderId.value === currentProviderId) {

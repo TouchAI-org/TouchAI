@@ -27,7 +27,6 @@ import {
     updater,
     window as windowCommands,
 } from '@services/NativeService';
-import type { DatabaseQueryResponse } from '@services/NativeService/database';
 import type { SearchWindowState } from '@services/NativeService/types';
 import { getLastTauriInvokeCall, interceptTauriInvoke, mockTauriCommand } from '@tests/utils/tauri';
 import { describe, expect, expectTypeOf, it } from 'vitest';
@@ -476,131 +475,25 @@ describe('user works with app windows', () => {
     });
 });
 
-describe('user data is read and written through the database', () => {
-    it('user gets rows back from a database query', async () => {
-        const response: DatabaseQueryResponse = {
-            rows: [{ id: 1, title: 'TouchAI' }],
-            rowsAffected: 1,
-            lastInsertId: 1,
-        };
-        mockTauriCommand('database_query', response);
+describe('user data is read and written through typed database operations', () => {
+    it('user sends one typed operation to the database runtime', async () => {
+        mockTauriCommand('database_operation', 'zh-CN');
 
         await expect(
             callAndExpectInvoke(
-                () =>
-                    database.query({
-                        sql: 'select * from sessions where id = ?',
-                        params: [1],
-                        method: 'get',
-                    }),
-                'database_query',
-                {
-                    request: {
-                        sql: 'select * from sessions where id = ?',
-                        params: [1],
-                        method: 'get',
-                    },
-                }
+                () => database.operation({ kind: 'setting_get', key: 'language' }),
+                'database_operation',
+                { request: { kind: 'setting_get', key: 'language' } }
             )
-        ).resolves.toEqual(response);
-    });
-
-    it('user gets results back from a database batch', async () => {
-        const response: DatabaseQueryResponse[] = [
-            { rows: [], rowsAffected: 1, lastInsertId: 1 },
-            { rows: [{ count: 1 }], rowsAffected: 0, lastInsertId: null },
-        ];
-        mockTauriCommand('database_batch', response);
-
-        await expect(
-            callAndExpectInvoke(
-                () =>
-                    database.batch([
-                        {
-                            sql: 'insert into sessions(title) values (?)',
-                            params: ['TouchAI'],
-                            method: 'run',
-                        },
-                        {
-                            sql: 'select count(*) as count from sessions',
-                            method: 'get',
-                        },
-                    ]),
-                'database_batch',
-                {
-                    requests: [
-                        {
-                            sql: 'insert into sessions(title) values (?)',
-                            params: ['TouchAI'],
-                            method: 'run',
-                        },
-                        {
-                            sql: 'select count(*) as count from sessions',
-                            method: 'get',
-                        },
-                    ],
-                }
-            )
-        ).resolves.toEqual(response);
-    });
-
-    it('user gets a transaction id for the requested transaction behavior', async () => {
-        mockTauriCommand('database_tx_begin', 'tx_123');
-
-        await expect(
-            callAndExpectInvoke(() => database.txBegin('immediate'), 'database_tx_begin', {
-                behavior: 'immediate',
-            })
-        ).resolves.toBe('tx_123');
-    });
-
-    it('user gets transactional query results against the tracked transaction', async () => {
-        const response: DatabaseQueryResponse = {
-            rows: [{ applied: true }],
-            rowsAffected: 1,
-            lastInsertId: null,
-        };
-        mockTauriCommand('database_tx_query', response);
-
-        await expect(
-            callAndExpectInvoke(
-                () =>
-                    database.txQuery('tx_123', {
-                        sql: 'update sessions set pinned = ? where id = ?',
-                        params: [true, 7],
-                        method: 'run',
-                    }),
-                'database_tx_query',
-                {
-                    txId: 'tx_123',
-                    request: {
-                        sql: 'update sessions set pinned = ? where id = ?',
-                        params: [true, 7],
-                        method: 'run',
-                    },
-                }
-            )
-        ).resolves.toEqual(response);
+        ).resolves.toBe('zh-CN');
     });
 
     it.each([
         {
-            name: 'user commits a transaction',
-            call: () => database.txCommit('tx_123'),
-            cmd: 'database_tx_commit',
-            payload: { txId: 'tx_123' },
-        },
-        {
-            name: 'user rolls back a transaction',
-            call: () => database.txRollback('tx_123'),
-            cmd: 'database_tx_rollback',
-            payload: { txId: 'tx_123' },
-        },
-        {
             name: 'user exports a database backup',
             call: () => database.exportBackup('D:/backup/touchai.db'),
             cmd: 'database_export_backup',
-            payload: { targetPath: 'D:/backup/touchai.db' },
+            payload: { request: { targetPath: 'D:/backup/touchai.db' } },
         },
         {
             name: 'user imports a database backup',
@@ -621,10 +514,11 @@ describe('user data is read and written through the database', () => {
         await callAndExpectInvoke(call, cmd, payload);
     });
 
-    it('user sees a database failure instead of a silent success', async () => {
+    it('user sees the stable database error code and message', async () => {
         const backendError = new Error('database busy');
+        Object.assign(backendError, { code: 'database-busy' });
         interceptTauriInvoke((call, next) => {
-            if (call.cmd === 'database_query') {
+            if (call.cmd === 'database_operation') {
                 throw backendError;
             }
 
@@ -632,11 +526,91 @@ describe('user data is read and written through the database', () => {
         });
 
         await expect(
-            database.query({
-                sql: 'select 1',
-                method: 'get',
-            })
-        ).rejects.toThrow(backendError);
+            database.operation({ kind: 'setting_get', key: 'language' })
+        ).rejects.toMatchObject({
+            message: 'database busy',
+            code: 'database-busy',
+        });
+    });
+
+    it.each([
+        {
+            name: 'user sees a structured native error object as an Error',
+            backendError: { message: 'database locked', code: 'database-locked' },
+            message: 'database locked',
+            code: 'database-locked',
+        },
+        {
+            name: 'user sees a structured native error without a code',
+            backendError: { message: 'database closed' },
+            message: 'database closed',
+            code: undefined,
+        },
+        {
+            name: 'user sees an object without a message as a stable Error',
+            backendError: { code: 'database-unknown' },
+            message: '[object Object]',
+            code: undefined,
+        },
+        {
+            name: 'user sees a primitive native error as an Error',
+            backendError: 'database offline',
+            message: 'database offline',
+            code: undefined,
+        },
+        {
+            name: 'user sees a missing native error as a stable Error',
+            backendError: null,
+            message: 'null',
+            code: undefined,
+        },
+    ])('$name', async ({ backendError, message, code }) => {
+        interceptTauriInvoke((call, next) => {
+            if (call.cmd === 'database_operation') {
+                throw backendError;
+            }
+
+            return next();
+        });
+
+        const error = await database
+            .operation({ kind: 'setting_get', key: 'language' })
+            .catch((caught: unknown) => caught);
+
+        expect(error).toBeInstanceOf(Error);
+        expect(error).toMatchObject({ message });
+        if (code) {
+            expect(error).toMatchObject({ code });
+        }
+    });
+
+    it.each([
+        {
+            command: 'database_export_backup',
+            code: 'database-backup-failed',
+            message: 'Database backup export failed',
+            call: () => database.exportBackup('D:/private/backup.db'),
+        },
+        {
+            command: 'database_import_backup',
+            code: 'database-import-failed',
+            message: 'Database backup import failed',
+            call: () =>
+                database.importBackup({
+                    sourcePath: 'D:/private/import.db',
+                    mode: 'full',
+                }),
+        },
+    ])('user sees a stable backup error for $command', async ({ command, code, message, call }) => {
+        interceptTauriInvoke((invokeCall, next) => {
+            if (invokeCall.cmd === command) {
+                throw { code, message };
+            }
+
+            return next();
+        });
+
+        await expect(call()).rejects.toMatchObject({ code, message });
     });
 });
 

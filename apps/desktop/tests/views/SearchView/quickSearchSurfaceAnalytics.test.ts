@@ -50,12 +50,26 @@ beforeEach(() => {
             disconnect() {}
         }
     );
-    mockTauriCommand('database_query', (payload: unknown) => {
-        const { request } = payload as { request: { sql: string; params: unknown[] } };
-        const rows = request.sql.startsWith('insert into "settings"')
-            ? [{ key: request.params[0], value: request.params[1] }]
-            : [];
-        return { rows, rowsAffected: 0, lastInsertId: null };
+    mockTauriCommand('database_operation', (payload: unknown) => {
+        const { request } = payload as {
+            request:
+                | { kind: 'setting_get_many'; keys: string[] }
+                | { kind: 'setting_get'; key: string }
+                | { kind: 'setting_set'; key: string; value: string };
+        };
+        if (request.kind === 'setting_get_many') {
+            return Object.fromEntries(request.keys.map((key) => [key, null]));
+        }
+        if (request.kind === 'setting_get') {
+            return null;
+        }
+        return {
+            id: 1,
+            key: request.key,
+            value: request.value,
+            created_at: '',
+            updated_at: '',
+        };
     });
     mockTauriCommand('get_runtime_info', { isE2eTestMode: true });
 

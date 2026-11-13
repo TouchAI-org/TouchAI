@@ -1,5 +1,5 @@
 import { AppEvent, eventService } from '@services/EventService';
-import type { DatabaseQueryRequest } from '@services/NativeService/database';
+import type { DatabaseOperation } from '@services/NativeService/database';
 import { setActiveSettingsService } from '@services/SettingsService';
 import { SettingsService } from '@services/SettingsService/service';
 import { installSearchSurfaceBoundary } from '@tests/utils/searchSurface';
@@ -54,9 +54,9 @@ beforeEach(() => {
         }
     );
     mockTauriCommand('get_runtime_info', { isE2eTestMode: true });
-    mockTauriCommand('database_query', async (payload: unknown) => {
-        const { request } = payload as { request: DatabaseQueryRequest };
-        if (request.method === 'all' && request.sql.includes('from "models" inner join')) {
+    mockTauriCommand('database_operation', async (payload: unknown) => {
+        const { request } = payload as { request: DatabaseOperation };
+        if (request.kind === 'model_list_with_provider') {
             const rows = await new Promise<Array<Record<string, unknown>>>((resolve) => {
                 reads.push((name) =>
                     resolve([
@@ -79,12 +79,12 @@ beforeEach(() => {
                     ])
                 );
             });
-            return { rows, rowsAffected: 0, lastInsertId: null };
+            return rows;
         }
-        const rows = request.sql.startsWith('insert into "settings"')
-            ? [{ key: request.params?.[0], value: request.params?.[1] }]
-            : [];
-        return { rows, rowsAffected: 0, lastInsertId: null };
+        if (request.kind === 'setting_get_many') {
+            return Object.fromEntries(request.keys.map((key) => [key, null]));
+        }
+        return null;
     });
 });
 

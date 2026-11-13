@@ -1,11 +1,9 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { native } from '@services/NativeService';
 
 import { tt } from '@/i18n';
 
-import { type DatabaseExecutor, db } from '../index';
-import { models, providers } from '../schema';
 import type {
     FindModelsWithProviderPayload,
     ModelCreateData,
@@ -18,115 +16,46 @@ import type {
 
 export type { ModelWithProvider } from '../types';
 
-export const modelWithProviderSelection = {
-    id: models.id,
-    created_at: models.created_at,
-    updated_at: models.updated_at,
-    provider_id: models.provider_id,
-    model_id: models.model_id,
-    name: models.name,
-    is_default: models.is_default,
-    last_used_at: models.last_used_at,
-    attachment: models.attachment,
-    modalities: models.modalities,
-    open_weights: models.open_weights,
-    reasoning: models.reasoning,
-    reasoning_options: models.reasoning_options,
-    release_date: models.release_date,
-    temperature: models.temperature,
-    tool_call: models.tool_call,
-    knowledge: models.knowledge,
-    context_limit: models.context_limit,
-    output_limit: models.output_limit,
-    is_custom_metadata: models.is_custom_metadata,
-    upstream_metadata: models.upstream_metadata,
-    provider_name: sql<string>`${providers.name}`.as('provider_name'),
-    provider_driver: sql<ModelWithProvider['provider_driver']>`${providers.driver}`.as(
-        'provider_driver'
-    ),
-    api_endpoint: sql<string>`${providers.api_endpoint}`.as('api_endpoint'),
-    api_key: sql<string | null>`${providers.api_key}`.as('api_key'),
-    provider_config_json: sql<string | null>`${providers.config_json}`.as('provider_config_json'),
-    provider_enabled: sql<number>`${providers.enabled}`.as('provider_enabled'),
-    provider_logo: sql<string>`${providers.logo}`.as('provider_logo'),
-};
-
 /**
  * 查找全局默认模型。
  */
 export const findDefaultModel = async (): Promise<ModelEntity | undefined> =>
-    await db.select().from(models).where(eq(models.is_default, 1)).get();
+    (await native.database.operation<ModelEntity | null>({ kind: 'model_find_default' })) ??
+    undefined;
 
 /**
  * 查找默认模型且服务商已启用（包含服务商信息）。
  */
-export const findDefaultModelWithProvider = async (): Promise<ModelWithProvider | null> => {
-    const result = await db
-        .select(modelWithProviderSelection)
-        .from(models)
-        .innerJoin(providers, eq(providers.id, models.provider_id))
-        .where(and(eq(models.is_default, 1), eq(providers.enabled, 1)))
-        .orderBy(models.id)
-        .limit(1)
-        .get();
-
-    if (!result || result.id === undefined) {
-        return null;
-    }
-
-    return result as ModelWithProvider;
-};
+export const findDefaultModelWithProvider = async (): Promise<ModelWithProvider | null> =>
+    native.database.operation<ModelWithProvider | null>({
+        kind: 'model_find_default_with_provider',
+    });
 
 /**
  * 查找模型并关联服务商信息。
  */
 export const findModelsWithProvider = async (
     payload: FindModelsWithProviderPayload = {}
-): Promise<ModelWithProvider[]> => {
-    const { providerId } = payload;
-    const query = db
-        .select(modelWithProviderSelection)
-        .from(models)
-        .innerJoin(providers, eq(providers.id, models.provider_id));
-
-    if (providerId !== undefined) {
-        return (await query
-            .where(eq(models.provider_id, providerId))
-            .orderBy(desc(models.is_default), models.id)
-            .all()) as ModelWithProvider[];
-    }
-
-    return (await query.orderBy(desc(models.is_default), models.id).all()) as ModelWithProvider[];
-};
+): Promise<ModelWithProvider[]> =>
+    native.database.operation<ModelWithProvider[]>({
+        kind: 'model_list_with_provider',
+        providerId: payload.providerId,
+    });
 
 /**
  * 创建模型。
  */
-export const createModel = async (
-    modelDraft: ModelCreateData,
-    database: DatabaseExecutor = db
-): Promise<ModelEntity> => {
-    const createdModel = await database.insert(models).values(modelDraft).returning().get();
+export const createModel = async (modelDraft: ModelCreateData): Promise<ModelEntity> => {
+    const createdModel = await native.database.operation<ModelEntity | null>({
+        kind: 'model_create',
+        data: { ...modelDraft },
+    });
 
-    if (!createdModel || createdModel.id === undefined) {
+    if (!createdModel) {
         throw new Error('Failed to create model');
     }
 
     return createdModel;
-};
-
-/**
- * 批量创建模型。
- */
-export const createModels = async (
-    modelList: ModelCreateData[],
-    database: DatabaseExecutor = db
-): Promise<void> => {
-    if (modelList.length === 0) {
-        return;
-    }
-
-    await database.insert(models).values(modelList).run();
 };
 
 /**
@@ -139,7 +68,11 @@ export const updateModel = async ({
     id: number;
     modelPatch: ModelUpdateData;
 }): Promise<void> => {
-    await db.update(models).set(modelPatch).where(eq(models.id, id)).run();
+    await native.database.operation({
+        kind: 'model_update',
+        id,
+        data: { ...modelPatch },
+    });
 };
 
 /**
@@ -152,43 +85,30 @@ export const updateModelLastUsed = async ({ id }: { id: number }): Promise<void>
  * 设置全局默认模型，并清除其他模型的默认标记。
  */
 export const setDefaultModel = async ({ modelId }: { modelId: number }): Promise<void> => {
-    await db.transaction(async (tx) => {
-        const modelWithProvider = await tx
-            .select({
-                id: models.id,
-                enabled: providers.enabled,
-                provider_name: providers.name,
-            })
-            .from(models)
-            .innerJoin(providers, eq(providers.id, models.provider_id))
-            .where(eq(models.id, modelId))
-            .get();
-
-        if (!modelWithProvider) {
-            throw new Error(tt('模型不存在'));
+    try {
+        await native.database.operation({ kind: 'model_set_default', modelId });
+    } catch (error) {
+        const code =
+            error && typeof error === 'object' && 'code' in error
+                ? String((error as { code?: unknown }).code)
+                : '';
+        if (code === 'model-not-found') {
+            throw Object.assign(new Error(tt('模型不存在')), { cause: error });
         }
-
-        if (modelWithProvider.enabled === 0) {
-            throw new Error(
-                tt('无法设置默认模型：服务商 "{provider}" 未启用', {
-                    provider: modelWithProvider.provider_name,
-                })
-            );
+        if (code === 'provider-disabled') {
+            throw Object.assign(new Error(tt('无法设置默认模型：服务商未启用')), {
+                cause: error,
+            });
         }
-
-        await tx.update(models).set({ is_default: 0 }).where(eq(models.is_default, 1)).run();
-
-        await tx.update(models).set({ is_default: 1 }).where(eq(models.id, modelId)).run();
-    });
+        throw error;
+    }
 };
 
 /**
  * 删除模型。
  */
-export const deleteModel = async ({ id }: { id: number }): Promise<boolean> => {
-    await db.delete(models).where(eq(models.id, id)).run();
-    return true;
-};
+export const deleteModel = async ({ id }: { id: number }): Promise<boolean> =>
+    native.database.operation<boolean>({ kind: 'model_delete', id });
 
 /**
  * 根据 provider_id 和 model_id 查找模型（包含服务商信息）。
@@ -197,54 +117,29 @@ export const findModelByProviderAndModelId = async ({
     providerId,
     modelId,
 }: ProviderModelLookupPayload): Promise<ModelWithProvider | undefined> =>
-    (await db
-        .select(modelWithProviderSelection)
-        .from(models)
-        .innerJoin(providers, eq(providers.id, models.provider_id))
-        .where(and(eq(models.provider_id, providerId), eq(models.model_id, modelId)))
-        .get()) as ModelWithProvider | undefined;
+    (await native.database.operation<ModelWithProvider | null>({
+        kind: 'model_find_by_provider_and_model_id',
+        providerId,
+        modelId,
+    })) ?? undefined;
 
 /**
  * 记下上游 `/v1/models` 声明的能力，交给 `syncAllModelsMetadata` 按
  * 「上游 > models.dev > 已有值」统一重建模型列。
- *
- * 只写 `is_custom_metadata = 0` 且属于该 provider 的行；重复刷新按字段合并，
- * 同名字段以最后一次声明为准。
  */
-export const recordUpstreamModelMetadata = async (
-    { providerId, entries }: RecordUpstreamModelMetadataPayload,
-    database: DatabaseExecutor = db
-): Promise<void> => {
+export const recordUpstreamModelMetadata = async ({
+    providerId,
+    entries,
+}: RecordUpstreamModelMetadataPayload): Promise<void> => {
     if (entries.length === 0) {
         return;
     }
-
-    const payload = JSON.stringify(entries);
-
-    await database.run(sql`
-        WITH upstream_model_metadata AS (
-            SELECT
-                json_extract(entry.value, '$.model_id') AS model_id,
-                json_extract(entry.value, '$.metadata') AS metadata
-            FROM json_each(${payload}) AS entry
-        )
-        UPDATE models
-        SET
-            upstream_metadata = json_patch(
-                COALESCE(upstream_metadata, '{}'),
-                COALESCE((
-                    SELECT upstream_model_metadata.metadata
-                    FROM upstream_model_metadata
-                    WHERE upstream_model_metadata.model_id = models.model_id
-                ), '{}')
-            ),
-            updated_at = datetime('now')
-        WHERE provider_id = ${providerId}
-          AND is_custom_metadata = 0
-          AND EXISTS (
-            SELECT 1
-            FROM upstream_model_metadata
-            WHERE upstream_model_metadata.model_id = models.model_id
-          )
-    `);
+    await native.database.operation({
+        kind: 'model_record_upstream_metadata',
+        providerId,
+        entries: entries.map((entry) => ({
+            model_id: entry.model_id,
+            metadata: { ...entry.metadata },
+        })),
+    });
 };

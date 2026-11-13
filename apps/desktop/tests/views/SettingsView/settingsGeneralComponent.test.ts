@@ -375,7 +375,7 @@ describe('user changes general settings', () => {
         await flushPromises();
 
         expect(wrapper.text()).toContain('更新检查失败');
-        expect(wrapper.text()).toContain('Network error');
+        expect(wrapper.text()).not.toContain('Network error');
         expect(wrapper.get('[data-testid="settings-update-primary-action"]').text()).toContain(
             '检查更新'
         );

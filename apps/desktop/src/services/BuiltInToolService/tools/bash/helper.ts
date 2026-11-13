@@ -5,6 +5,7 @@ import { desktopDir } from '@tauri-apps/api/path';
 
 import { t, tt } from '@/i18n';
 
+import { ToolUserFacingError } from '../../errors';
 import { parseToolArguments, parseToolConfigJson } from '../../utils/toolSchema';
 import {
     BASH_TOOL_NAME,
@@ -94,7 +95,7 @@ export async function resolveCommandContext(args: Record<string, unknown>, confi
     const workingDirectory = requestedDirectory || (await resolveDefaultWorkingDirectory(config));
 
     if (!isWithinAllowedDirectory(workingDirectory, config.allowedWorkingDirectories)) {
-        throw new Error(
+        throw new ToolUserFacingError(
             t('builtInTools.bash.error.workingDirectoryOutsideAllowlist', {
                 workingDirectory,
             })

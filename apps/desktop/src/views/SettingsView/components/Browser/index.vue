@@ -305,7 +305,8 @@
             if (isUnmounted) {
                 return;
             }
-            browserDiscoveryError.value = error instanceof Error ? error.message : String(error);
+            log.error('[BrowserSettings] Failed to discover installed browsers:', error);
+            browserDiscoveryError.value = t('settings.browser.discoveryFailed');
             if (!preserveCurrentBrowsers) {
                 installedBrowsers.value = [];
             }

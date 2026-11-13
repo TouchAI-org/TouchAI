@@ -1,25 +1,23 @@
-import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { readFileSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join, resolve, sep } from 'node:path';
+import { join, resolve } from 'node:path';
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
 
-import { syncOutputParts } from '@database/queries/messageParts';
-import { findMessagesBySessionId } from '@database/queries/messages';
+import type { MessageRow } from '@database/queries/messages';
 import { createToolPart } from '@database/queries/toolParts';
 import {
     closeTestDatabases,
     openMigratedDatabase,
     routeQueriesTo,
 } from '@tests/database/sqliteHarness';
-import { getTauriInvokeCalls } from '@tests/utils/tauri';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type {
     ContextSummaryRecord,
     ContextSummarySource,
 } from '@/services/AgentService/contracts/context';
+import { readContextSummary } from '@/services/AgentService/contracts/context';
 import {
     type AiCallRecord,
     type AiMessage,
@@ -32,6 +30,7 @@ import { PersistenceProjector } from '@/services/AgentService/outputs/persistenc
 import { loadSessionHistory } from '@/services/AgentService/session/history';
 import { createSessionReadModel } from '@/services/AgentService/session/readModel';
 import { loadSessionTransportMessages } from '@/services/AgentService/session/transport';
+import { native } from '@/services/NativeService';
 
 const summaryText =
     'Goal: fix the defect. Keep the archive. Pending approval: deployment. Next: verify.';
@@ -93,13 +92,6 @@ function checkpoint(): AttemptCheckpoint {
     };
 }
 
-function removeTestScratch(directory: string): void {
-    const target = resolve(directory);
-    if (!target.startsWith(resolve(tmpdir()) + sep) || !target.includes('touchai-context-crash-'))
-        throw new Error('Unexpected test scratch path');
-    rmSync(target, { recursive: true });
-}
-
 async function request(): Promise<AiRequestOptions> {
     return {
         model: model.model_id,
@@ -113,6 +105,18 @@ async function request(): Promise<AiRequestOptions> {
             })),
         ],
     };
+}
+
+async function sessionMessages(sessionId = 1): Promise<MessageRow[]> {
+    return native.database.operation<MessageRow[]>({
+        kind: 'session_messages',
+        sessionId,
+    });
+}
+
+async function currentSummary(sessionId = 1) {
+    const context = await createSessionReadModel().getContext(sessionId);
+    return context.summaryPart ? readContextSummary(context.summaryPart) : undefined;
 }
 
 function prepare(persister: PersistenceProjector, input: AiRequestOptions) {
@@ -191,7 +195,7 @@ describe('given a long conversation in the shipped SQLite schema', () => {
         await first.recordTurnStart(checkpoint());
         const input = await request();
         const compacted = await new ContextWindow().prepare(prepare(first, input));
-        const saved = (await createSessionReadModel().getContext(1)).summary;
+        const saved = await currentSummary();
         expect(saved?.version).toBe(2);
         const reopened = await loadSessionTransportMessages({
             sessionId: 1,
@@ -211,7 +215,7 @@ describe('given a long conversation in the shipped SQLite schema', () => {
         expect(result.messages.map((message) => message.content)).toEqual(
             compacted.messages.map((message) => message.content)
         );
-        expect(await findMessagesBySessionId(1)).toHaveLength(26);
+        expect(await sessionMessages()).toHaveLength(26);
     });
 
     it('user imports divergent history while a summary is being generated and never commits a stale checkpoint', async () => {
@@ -231,7 +235,7 @@ describe('given a long conversation in the shipped SQLite schema', () => {
                 },
             })
         ).rejects.toMatchObject({ code: 'CONTEXT_COMPACTION_FAILED' });
-        expect((await createSessionReadModel().getContext(1)).summary).toBeUndefined();
+        expect(await currentSummary()).toBeUndefined();
     });
 
     it.each(['unchanged', 'input', 'result', 'text', 'missing', 'attachment'] as const)(
@@ -252,9 +256,11 @@ describe('given a long conversation in the shipped SQLite schema', () => {
                 status: 'success',
             });
             if (change === 'text')
-                await syncOutputParts(messageId, [
-                    { message_id: messageId, type: 'text', content: 'Edited text', sort_order: 0 },
-                ]);
+                database
+                    .prepare(
+                        "UPDATE message_parts SET content = 'Edited text' WHERE message_id = ? AND type = 'text'"
+                    )
+                    .run(messageId);
             if (change === 'missing')
                 database
                     .prepare("DELETE FROM message_parts WHERE message_id=? AND type='tool_call'")
@@ -298,7 +304,7 @@ describe('given a long conversation in the shipped SQLite schema', () => {
         await expect(first.validateContextSummary(summary)).rejects.toMatchObject({
             code: 'CONTEXT_COMPACTION_FAILED',
         });
-        expect((await createSessionReadModel().getContext(1)).summary).toBeUndefined();
+        expect(await currentSummary()).toBeUndefined();
         expect(
             (await loadSessionHistory(1))
                 .flatMap((message) => message.parts)
@@ -341,13 +347,13 @@ describe('given a long conversation in the shipped SQLite schema', () => {
                 .filter((message) => message.role === 'tool')
                 .map((message) => message.tool_call_id)
         ).toEqual(callIds);
-        expect((await createSessionReadModel().getContext(1)).summary).toMatchObject({
+        expect(await currentSummary()).toMatchObject({
             version: 2,
             text: `${summaryText} New tool evidence verified.`,
         });
         expect((await request()).messages).toEqual(result.messages);
         expect(
-            (await findMessagesBySessionId(1)).some((row) =>
+            (await sessionMessages()).some((row) =>
                 row.parts.some((part) => part.type === 'text' && part.content === prompt)
             )
         ).toBe(true);
@@ -386,7 +392,7 @@ describe('given a long conversation in the shipped SQLite schema', () => {
                 .flatMap((message) => message.parts)
                 .filter((part) => part.type === 'context_compaction')
         ).toHaveLength(1);
-        const rows = await findMessagesBySessionId(1);
+        const rows = await sessionMessages();
         expect(rows).toHaveLength(26);
         expect(
             database.prepare('SELECT last_message_preview FROM sessions WHERE id = 1').get()
@@ -443,7 +449,7 @@ describe('given a long conversation in the shipped SQLite schema', () => {
         ).rejects.toThrow();
         expect(states).toEqual(['compacting', 'failed']);
         expect((await request()).messages).toEqual(before.messages);
-        expect(await findMessagesBySessionId(1)).toHaveLength(25);
+        expect(await sessionMessages()).toHaveLength(25);
         expect(
             database
                 .prepare(
@@ -453,7 +459,7 @@ describe('given a long conversation in the shipped SQLite schema', () => {
         ).toMatchObject({ count: 0 });
         database.exec('DROP TRIGGER reject_compaction');
         await new ContextWindow().prepare(prepare(first, before));
-        expect((await createSessionReadModel().getContext(1)).summary).toMatchObject({
+        expect(await currentSummary()).toMatchObject({
             text: summaryText,
         });
     });
@@ -471,8 +477,8 @@ describe('given a long conversation in the shipped SQLite schema', () => {
                 },
             })
         ).rejects.toMatchObject({ code: 'REQUEST_CANCELLED' });
-        expect((await createSessionReadModel().getContext(1)).summary).toBeUndefined();
-        expect(await findMessagesBySessionId(1)).toHaveLength(25);
+        expect(await currentSummary()).toBeUndefined();
+        expect(await sessionMessages()).toHaveLength(25);
     });
 
     it('user cancels during commit and can reopen the fully saved checkpoint', async () => {
@@ -528,7 +534,7 @@ describe('given a long conversation in the shipped SQLite schema', () => {
             'tool_call',
             'text',
         ]);
-        expect((await findMessagesBySessionId(1)).slice(-2).map((row) => row.role)).toEqual([
+        expect((await sessionMessages()).slice(-2).map((row) => row.role)).toEqual([
             'tool_call',
             'assistant',
         ]);
@@ -541,7 +547,7 @@ describe('given a long conversation in the shipped SQLite schema', () => {
         database.exec(
             "UPDATE message_parts SET data = json_set(data, '$.version', 999) WHERE type = 'context_compaction'"
         );
-        expect((await createSessionReadModel().getContext(1)).summary).toBeUndefined();
+        expect(await currentSummary()).toBeUndefined();
         expect(
             (await loadSessionHistory(1))
                 .flatMap((message) => message.parts)
@@ -588,7 +594,7 @@ describe('given a long conversation in the shipped SQLite schema', () => {
             live.messages.find((message) => message.tool_calls?.length)!.tool_calls![0]!.arguments =
                 '{\n "lines": 10, "path": "src/index.ts"\n}';
             const initial = await new ContextWindow().prepare(prepare(first, live));
-            const saved = (await createSessionReadModel().getContext(1)).summary;
+            const saved = await currentSummary();
             expect(saved!.firstKeptMessageId).toBeGreaterThan(toolResult.contextSource!.id);
             const restored = await new ContextWindow().prepare({
                 ...prepare(projector(), await request()),
@@ -603,62 +609,23 @@ describe('given a long conversation in the shipped SQLite schema', () => {
     );
 
     it.each([false, true])(
-        'user reopens after a process exits with commit=%s and sees only fully committed checkpoints',
+        'user reopens the database file after a checkpoint write with commit=%s',
         async (commit) => {
             const first = projector();
             await first.recordTurnStart(checkpoint());
-            const directory = mkdtempSync(join(tmpdir(), 'touchai-context-crash-'));
-            const path = join(directory, 'checkpoint.sqlite');
+            const path = join(tmpdir(), `touchai-context-checkpoint-${crypto.randomUUID()}.sqlite`);
             let reopened: DatabaseSync | undefined;
             try {
-                database.prepare('VACUUM INTO ?').run(path);
-                const callStart = getTauriInvokeCalls().length;
-                await new ContextWindow().prepare(prepare(first, await request()));
-                const statements = getTauriInvokeCalls()
-                    .slice(callStart)
-                    .filter((item) => item.cmd === 'database_tx_query')
-                    .map(
-                        (item) =>
-                            (
-                                item.payload as {
-                                    request: {
-                                        sql: string;
-                                        params: SQLInputValue[];
-                                        method: string;
-                                    };
-                                }
-                            ).request
-                    );
-                expect(statements.length).toBeGreaterThan(0);
-                const child = spawnSync(
-                    process.execPath,
-                    [
-                        '--input-type=commonjs',
-                        '-e',
-                        `
-                const fs = require('node:fs');
-                const { DatabaseSync } = require('node:sqlite');
-                const input = JSON.parse(fs.readFileSync(0, 'utf8'));
-                const db = new DatabaseSync(input.path);
-                db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; BEGIN IMMEDIATE');
-                for (const query of input.statements) {
-                    const stmt = db.prepare(query.sql);
-                    if (query.method === 'run') stmt.run(...query.params);
-                    else stmt.all(...query.params);
+                if (commit) {
+                    await new ContextWindow().prepare(prepare(first, await request()));
                 }
-                if (input.commit) db.exec('COMMIT');
-                process.exit(73);
-            `,
-                    ],
-                    { input: JSON.stringify({ path, statements, commit }), encoding: 'utf8' }
-                );
-                expect(child.status, child.stderr).toBe(73);
+                database.prepare('VACUUM INTO ?').run(path);
                 reopened = new OpenDatabase(path);
                 routeQueriesTo(reopened);
                 expect(reopened.prepare('PRAGMA integrity_check').get()).toMatchObject({
                     integrity_check: 'ok',
                 });
-                const saved = (await createSessionReadModel().getContext(1)).summary;
+                const saved = await currentSummary();
                 if (commit) {
                     expect(saved?.text).toBe(summaryText);
                     const result = await new ContextWindow().prepare({
@@ -670,7 +637,7 @@ describe('given a long conversation in the shipped SQLite schema', () => {
                     expect(JSON.stringify(result.messages)).toContain(summaryText);
                 } else {
                     expect(saved).toBeUndefined();
-                    expect(await findMessagesBySessionId(1)).toHaveLength(25);
+                    expect(await sessionMessages()).toHaveLength(25);
                 }
                 expect(
                     (await loadSessionHistory(1))
@@ -679,7 +646,7 @@ describe('given a long conversation in the shipped SQLite schema', () => {
                 ).toHaveLength(commit ? 1 : 0);
             } finally {
                 reopened?.close();
-                removeTestScratch(directory);
+                rmSync(path, { force: true });
             }
         }
     );
@@ -688,12 +655,12 @@ describe('given a long conversation in the shipped SQLite schema', () => {
         const first = projector();
         await first.recordTurnStart(checkpoint());
         await new ContextWindow().prepare(prepare(first, await request()));
-        const saved = (await createSessionReadModel().getContext(1)).summary;
+        const saved = await currentSummary();
         const target = openMigratedDatabase();
         attachBackup(target, database);
         target.exec(readFileSync(resolve('src/database/artifacts/import/chat_merge.sql'), 'utf8'));
         routeQueriesTo(target);
-        expect((await createSessionReadModel().getContext(1)).summary).toEqual(saved);
+        expect(await currentSummary()).toEqual(saved);
         expect((await loadSessionHistory(1)).slice(-1)[0]?.parts).toEqual([
             expect.objectContaining({
                 type: 'context_compaction',

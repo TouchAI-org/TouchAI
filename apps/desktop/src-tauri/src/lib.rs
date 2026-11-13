@@ -6,7 +6,6 @@ mod core;
 pub mod testing;
 
 use core::built_in_tools::BuiltInProcessExecutionRegistry;
-use core::database::DatabaseRuntime;
 use core::mcp::McpClientManager;
 use core::setup;
 use log::{error, warn};
@@ -252,19 +251,13 @@ pub fn run() {
             }
 
             if matches!(event, WindowEvent::Destroyed) {
+                let app_handle = window.app_handle().clone();
                 let window_label = window.label().to_string();
-                core::window::webview_recovery::forget_window(window.app_handle(), &window_label);
+                core::window::webview_recovery::forget_window(&app_handle, &window_label);
                 if window_label == "main" {
-                    if let Err(error) = core::window::computer_use_glow::clear(window.app_handle())
-                    {
+                    if let Err(error) = core::window::computer_use_glow::clear(&app_handle) {
                         warn!("Failed to clear computer-use feedback on window close: {error}");
                     }
-                }
-                if let Some(runtime) = window.app_handle().try_state::<DatabaseRuntime>() {
-                    let runtime = runtime.inner().clone();
-                    tauri::async_runtime::spawn(async move {
-                        runtime.abort_transactions_for_window(&window_label).await;
-                    });
                 }
             }
         })

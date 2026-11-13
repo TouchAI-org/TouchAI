@@ -4,24 +4,36 @@ Read this before any non-trivial change.
 
 ## Stack and layout
 
-| Area          | Path                         | Stack                                              |
-| ------------- | ---------------------------- | -------------------------------------------------- |
-| Desktop app   | `apps/desktop/`              | Vue 3 + TypeScript + Tailwind + Vite               |
-| Native shell  | `apps/desktop/src-tauri/`    | Rust + Tauri 2                                     |
-| Database      | `apps/desktop/src/database/` | SQLite, Drizzle ORM over a Rust `sqlx` IPC runtime |
-| Official site | `apps/site/`                 | Astro + Starlight                                  |
+| Area | Path | Stack |
+| --- | --- | --- |
+| Desktop app | `apps/desktop/` | Vue 3 + TypeScript + Tailwind + Vite |
+| Native shell | `apps/desktop/src-tauri/` | Rust + Tauri 2 |
+| Database | `apps/desktop/src/database/`, `apps/desktop/src-tauri/src/core/database/` | SQLite owned by Rust `sqlx`; Drizzle schema is an offline development and audit input |
+| Official site | `apps/site/` | Astro + Starlight |
 
 ```text
 views / components
     -> composables / stores
         -> services (AgentService, EventService, NativeService, ...)
-            -> Tauri invoke commands (src-tauri/src/commands)
-                -> Rust core (src-tauri/src/core)
-                    -> SQLite
+            -> typed NativeService database operations
+                -> Tauri commands (src-tauri/src/commands)
+                    -> private Rust repositories and transactions
+                        -> SQLite
 ```
 
-- Do not skip layers. UI code reaches SQL and Rust only through existing service and `NativeService` contracts.
-- The Rust runtime owns the SQLite pool, migrations, transactions, backup/import, and query execution. The frontend owns business orchestration through Drizzle. Do not add a second schema definition on the Rust side.
+- Do not skip layers. UI code reaches persisted data only through existing service,
+  `NativeService`, and typed database operation contracts.
+- Rust owns the SQLite pool, migrations, private repositories, complete business
+  transactions, validation, stable error mapping, backup/import, and the only
+  production SQLite write path.
+- TypeScript may own view models and business orchestration, but it does not
+  construct SQL or own a transaction span. It calls named
+  `database_operation` variants; there is no generic SQL, batch, or transaction
+  IPC fallback.
+- `src/database/schema.ts`, Drizzle, and the committed migrations are the offline
+  schema/audit input. Do not add a second schema definition in Rust. The runtime
+  executes the byte-identical migration and SQL artifacts under
+  `apps/desktop/src/database/`.
 
 Code lives in `apps/desktop/src/{views,components,composables,stores}/` for UI, `services/` for services, `database/` for data, and `apps/desktop/src-tauri/src/{commands,core}/` for native.
 
@@ -37,15 +49,15 @@ No implementation without an accepted RFC issue and explicit user direction: `Ag
 
 Read the owning code first and expect cross-window or cross-process consequences.
 
-| Surface                    | Path                                                                                        | Main risk                                                                                                         |
-| -------------------------- | ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| Agent orchestration        | `apps/desktop/src/services/AgentService/`                                                   | Message ordering, streaming, cancellation, tool loops, final vs intermediate state                                |
-| Built-in tools             | `apps/desktop/src/services/BuiltInToolService/`                                             | Sandbox escape, unbounded output, approval bypass, resource leaks                                                 |
-| Search overlays and events | `apps/desktop/src/views/SearchView/components/SearchOverlayHost/`, `services/EventService/` | Stale async results, duplicate listeners, focus restoration, open/close races                                     |
-| Native bridge              | `apps/desktop/src/services/NativeService/`, `apps/desktop/src-tauri/src/commands/`          | TypeScript/Rust type drift, timeout and cancel semantics                                                          |
-| Multi-window shell         | `apps/desktop/src-tauri/src/core/window/`                                                   | Window lifecycle, resize feedback loops, focus restoration, tray state                                            |
-| Database runtime           | `apps/desktop/src-tauri/src/core/database/`, `apps/desktop/src/database/`                   | Migration order, WAL/locking, transaction ownership, backup/import                                                |
-| Attachments                | `apps/desktop/src/services/AgentService/infrastructure/attachments/`                        | Draft state, cached copies, and database rows drifting apart; a failed read silently changing what the model sees |
+| Surface | Path | Main risk |
+| --- | --- | --- |
+| Agent orchestration | `apps/desktop/src/services/AgentService/` | Message ordering, streaming, cancellation, tool loops, final vs intermediate state |
+| Built-in tools | `apps/desktop/src/services/BuiltInToolService/` | Sandbox escape, unbounded output, approval bypass, resource leaks |
+| Search overlays and events | `apps/desktop/src/views/SearchView/components/SearchOverlayHost/`, `services/EventService/` | Stale async results, duplicate listeners, focus restoration, open/close races |
+| Native bridge | `apps/desktop/src/services/NativeService/`, `apps/desktop/src-tauri/src/commands/` | TypeScript/Rust type drift, timeout and cancel semantics |
+| Multi-window shell | `apps/desktop/src-tauri/src/core/window/` | Window lifecycle, resize feedback loops, focus restoration, tray state |
+| Database runtime | `apps/desktop/src-tauri/src/core/database/`, `apps/desktop/src/database/` | Migration order, WAL/locking, transaction ownership, backup/import, offline schema drift |
+| Attachments | `apps/desktop/src/services/AgentService/infrastructure/attachments/` | Draft state, cached copies, and database rows drifting apart; a failed read silently changing what the model sees |
 
 Window labels, event ordering, and session identity are cross-window contracts. Search overlays share the main Vue tree and its state; they have no standalone popup window or event transport. Duplicate listeners, stale IDs, and races are correctness bugs, not polish.
 
@@ -76,6 +88,9 @@ value and dynamic imports are classified separately:
   executor checkpoints stay internal.
 - **The database layer must not depend on business services**; the `NativeService`
   IPC bridge is the only allowed service dependency.
+- **Production runtime code must not import `drizzle-orm` or
+  `@database/schema`** outside `src/database/schema.ts`; type-only schema imports
+  are allowed and erased from the runtime bundle.
 - **A neutral domain module (`src/domain/`) must not import** Vue/Pinia/Tauri
   runtime packages, the UI layers, or services.
 - **An internal module must not import its own public barrel** (`index`).
@@ -116,9 +131,10 @@ argument casing.
 are the reviewed contract. The gate never writes into the worktree — the
 generation check copies `schema.ts`, the committed migrations and a
 `node_modules` symlink into an out-of-tree temp directory, runs
-`drizzle-kit generate` there and fails if a new migration appears. `guards.sql`
-is hashed but still unversioned this round; that long-term risk is retained, not
-solved.
+`drizzle-kit generate` there and fails if a new migration appears. Production
+runtime code cannot import the offline schema or Drizzle; the boundary gate
+fails a value import while allowing a type-only import. `guards.sql` is hashed
+but still unversioned this round; that long-term risk is retained, not solved.
 
 ### When an RFC is still required
 

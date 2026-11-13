@@ -25,6 +25,11 @@ export type SettingsRejectionKind =
     | 'shortcut-conflict'
     | 'shortcut-global-conflict';
 
+export interface SettingsRejectionDescriptor {
+    kind: SettingsRejectionKind;
+    actionLabelKey?: MessageKey;
+}
+
 export class SettingsRejection extends Error {
     readonly kind: SettingsRejectionKind;
     readonly actionLabelKey?: MessageKey;
@@ -34,6 +39,12 @@ export class SettingsRejection extends Error {
         this.name = 'SettingsRejection';
         this.kind = kind;
         this.actionLabelKey = actionLabelKey;
+    }
+
+    toDescriptor(): SettingsRejectionDescriptor {
+        return this.actionLabelKey
+            ? { kind: this.kind, actionLabelKey: this.actionLabelKey }
+            : { kind: this.kind };
     }
 }
 

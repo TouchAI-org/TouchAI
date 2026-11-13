@@ -156,18 +156,19 @@ describe('user must update before continuing', () => {
         expect(openUrl).toHaveBeenCalledWith(latestUpdateWithoutDirectDownload.releaseUrl);
     });
 
-    it('user sees raw update errors only as localized details', async () => {
+    it('user sees a generic update failure without the internal cause', async () => {
         appUpdateServiceMock.state = {
             ...baseState,
             status: 'failed',
-            error: 'download failed: 504',
+            error: 'download failed: 504 at https://updates.example.test',
             updateRequirement: requiredRequirement,
         };
 
         const wrapper = mount(AppUpdateRequiredGate);
         await nextTick();
 
-        expect(wrapper.text()).toContain('原因：download failed: 504');
+        expect(wrapper.text()).toContain('更新失败，请重试');
+        expect(wrapper.text()).not.toContain('updates.example.test');
     });
 
     it('user can recheck an update while a package is already downloaded', async () => {
@@ -229,7 +230,8 @@ describe('user must update before continuing', () => {
                 appUpdateServiceMock[phase === 'install' ? 'download' : 'install']
             ).not.toHaveBeenCalled();
             expect(openUrl).not.toHaveBeenCalled();
-            expect(wrapper.text()).toContain('temporary failure');
+            expect(wrapper.text()).toContain('更新失败，请重试');
+            expect(wrapper.text()).not.toContain('temporary failure');
             wrapper.unmount();
         }
     );

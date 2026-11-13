@@ -44,20 +44,22 @@ describe('user reads live task statuses in their own language', () => {
         const projection = createProjection(snapshot);
 
         projection.bootstrap([], 'Hello', []);
-        projection.markFailed('Provider exploded');
+        projection.markFailed('The provider request failed.');
 
         const statusMessage = snapshot.sessionHistory[snapshot.sessionHistory.length - 1];
         expect(statusMessage).toMatchObject({
             role: 'assistant',
-            content: 'Request failed: Provider exploded',
+            content: 'Request failed: The provider request failed.',
             isError: true,
         });
         expect(statusMessage?.parts).toMatchObject([
-            { type: 'text', content: 'Request failed: Provider exploded' },
+            { type: 'text', content: 'Request failed: The provider request failed.' },
         ]);
+        expect(statusMessage?.content).not.toContain('secret diagnostic');
+        expect(snapshot.error).toBe('The provider request failed.');
     });
 
-    it('user reads known app-generated failure text in the active language', () => {
+    it('user keeps the runtime-provided failure copy in the active language', () => {
         setLocale('en-US');
         const snapshot = createSnapshot();
         const projection = createProjection(snapshot);
@@ -67,7 +69,7 @@ describe('user reads live task statuses in their own language', () => {
             type: 'task_failed',
             taskId: 'task-1',
             turnId: 1,
-            error: '模型返回了空回复，请尝试重新提问或更换模型',
+            error: 'The model returned an empty response. Try asking again or switch models.',
         });
 
         const statusMessage = snapshot.sessionHistory[snapshot.sessionHistory.length - 1];
@@ -82,8 +84,8 @@ describe('user reads live task statuses in their own language', () => {
         );
     });
 
-    it('user sees unsupported image endpoint errors replaced with a friendly capability message', () => {
-        setLocale('zh-CN');
+    it('user keeps an already-normalized unsupported-input message unchanged', () => {
+        setLocale('en-US');
         const snapshot = createSnapshot();
         const projection = createProjection(snapshot);
 
@@ -92,16 +94,19 @@ describe('user reads live task statuses in their own language', () => {
             type: 'task_failed',
             taskId: 'task-1',
             turnId: 1,
-            error: 'No endpoints found that support image input',
+            error: 'The selected model does not support image/file input. Choose another model.',
         });
 
         const statusMessage = snapshot.sessionHistory[snapshot.sessionHistory.length - 1];
         expect(statusMessage).toMatchObject({
             role: 'assistant',
-            content: '请求失败: 当前模型不支持图片/文件输入，请选择合适模型继续。',
+            content:
+                'Request failed: The selected model does not support image/file input. Choose another model.',
             isError: true,
         });
-        expect(snapshot.error).toBe('当前模型不支持图片/文件输入，请选择合适模型继续。');
+        expect(snapshot.error).toBe(
+            'The selected model does not support image/file input. Choose another model.'
+        );
     });
 
     it('user reads the cancelled request status in English', () => {

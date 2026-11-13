@@ -820,12 +820,12 @@ export class AiConversationRuntime {
                             taskId: this.options.taskId,
                             attempt: nextAttempt,
                             maxRetries: MAX_REQUEST_RETRIES,
-                            reason: attemptResult.error.message,
+                            reason: attemptResult.error.getDisplayMessage(),
                             checkpoint: resumeCheckpoint,
                         });
                     }
                     this.emitRetryEvent(
-                        attemptResult.error.message,
+                        attemptResult.error.getDisplayMessage(),
                         nextAttempt,
                         resumeCheckpoint,
                         attemptResult
@@ -874,7 +874,7 @@ export class AiConversationRuntime {
                         type: 'task_failed',
                         taskId: this.options.taskId,
                         turnId: context.persister.getTurn()?.id ?? null,
-                        error: attemptResult.error.message,
+                        error: attemptResult.error.getDisplayMessage(),
                     });
                 }
                 this.analyticsErrorCode = attemptResult.error.code;
@@ -935,7 +935,7 @@ export class AiConversationRuntime {
                             type: 'task_failed',
                             taskId: this.options.taskId,
                             turnId: context.persister.getTurn()?.id ?? null,
-                            error: aiError.message,
+                            error: aiError.getDisplayMessage(),
                         });
                     }
                 }
