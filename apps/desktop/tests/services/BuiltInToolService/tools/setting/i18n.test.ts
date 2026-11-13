@@ -17,7 +17,7 @@ import {
     parseSettingRequest,
 } from '@/services/BuiltInToolService/tools/setting/helper';
 import { setActiveSettingsService } from '@/services/SettingsService';
-import { replyErrorMessage, unknownKeyMessage } from '@/services/SettingsService/messages';
+import { replyErrorMessage } from '@/services/SettingsService/messages';
 import { SettingsService } from '@/services/SettingsService/service';
 import { SettingsErrorCode } from '@/services/SettingsService/types';
 
@@ -188,13 +188,13 @@ describe('user changes app settings through the assistant', () => {
         expect(service.getSnapshot().globalShortcut).toBe('Alt+Space');
     });
 
-    it('user reads an unconfirmed setting update without being told it failed', async () => {
+    it('user reads an unconfirmed setting update with stable failure copy', async () => {
         setLocale('en-US');
         vi.spyOn(service, 'mutate').mockResolvedValueOnce({
             status: 'unknown',
             key: 'start_minimized',
             code: SettingsErrorCode.Timeout,
-            message: 'Settings result unknown: re-check settings before retrying.',
+            message: 'database timeout on settings table',
         });
 
         const result = await executeSettingTool(
@@ -211,10 +211,37 @@ describe('user changes app settings through the assistant', () => {
         expect(result).toMatchObject({
             isError: true,
             status: 'error',
-            errorMessage: 'Settings result unknown: re-check settings before retrying.',
+            errorMessage: 'Setting update failed.',
         });
-        expect(result.result).toContain('Settings result unknown');
-        expect(result.result).not.toContain('Setting update failed');
+        expect(result.result).toContain('Setting update failed');
+        expect(result.result).not.toContain('database timeout');
+    });
+
+    it('user does not see internal setting failure details', async () => {
+        setLocale('en-US');
+        vi.spyOn(service, 'mutate').mockRejectedValueOnce(
+            new Error('database password and owner epoch details')
+        );
+
+        const result = await executeSettingTool(
+            {
+                action: 'set',
+                key: 'start_minimized',
+                value: false,
+                reason: 'User asked for it.',
+            },
+            {},
+            createExecutionContext()
+        );
+
+        expect(result).toMatchObject({
+            isError: true,
+            status: 'error',
+            errorMessage: 'Setting update failed.',
+        });
+        expect(result.result).toContain('Setting update failed');
+        expect(result.result).not.toContain('database password');
+        expect(result.result).not.toContain('owner epoch');
     });
 
     it('user cancels while the settings owner initializes and no setting is written', async () => {
@@ -404,23 +431,16 @@ describe('user changes app settings through the assistant', () => {
         ).toThrow(/Setting tool received an invalid value for "start_minimized"\.\n- /);
     });
 
-    it('user reads unknown-key and owner-reply messages in English', async () => {
+    it('user reads short owner-reply failure messages in English', async () => {
         setLocale('en-US');
 
-        expect(unknownKeyMessage('not_a_setting')).toBe('Unsupported setting key: not_a_setting');
         expect(replyErrorMessage(SettingsErrorCode.NotReady)).toBe(
-            'Settings are not ready yet; try again in a moment.'
+            'Settings are not ready yet. Try again shortly.'
         );
-        expect(replyErrorMessage(SettingsErrorCode.StaleEpoch)).toBe(
-            'Settings result unknown: the response came from a superseded settings owner.'
-        );
-        expect(replyErrorMessage(SettingsErrorCode.OwnerDisposed)).toBe(
-            'The settings owner was closed.'
-        );
-        expect(replyErrorMessage(SettingsErrorCode.TooManyPending)).toBe(
-            'Too many settings requests. Try again later.'
-        );
-        expect(replyErrorMessage('something-unknown')).toBe('The settings owner is unavailable.');
+        expect(replyErrorMessage(SettingsErrorCode.StaleEpoch)).toBe('Setting update failed.');
+        expect(replyErrorMessage(SettingsErrorCode.OwnerDisposed)).toBe('Setting update failed.');
+        expect(replyErrorMessage(SettingsErrorCode.TooManyPending)).toBe('Setting update failed.');
+        expect(replyErrorMessage('something-unknown')).toBe('Setting update failed.');
     });
 
     it('user sees a note when a setting saved but syncing to other windows failed', async () => {

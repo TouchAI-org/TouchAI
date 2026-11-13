@@ -26,32 +26,13 @@ import {
 } from './domain';
 import { createDefaultSettingsEffects, type SettingsEffects } from './effects';
 import {
-    compensationFailedMessage,
     describeRejection,
     formatShortcutRegistrationError,
-    invalidResponseMessage,
-    invalidValueMessage,
     mutationFailedMessage,
-    nativeFailedMessage,
-    nativeReconcilePendingMessage,
     notReadyMessage,
-    ownerChangedDuringWriteMessage,
-    ownerChangedMessage,
-    ownerClosedMessage,
-    ownerQueueFullMessage,
-    ownerUnavailableMessage,
-    persistenceUnconfirmedMessage,
     replyErrorMessage,
-    requestTimeoutMessage,
-    restoredMessage,
-    snapshotFailedMessage,
-    staleOwnerResponseMessage,
-    syncFailedMessage,
-    syncTimeoutMessage,
     syncWarningMessage,
-    tooManyPendingMessage,
-    unknownKeyMessage,
-    writeTimeoutMessage,
+    unconfirmedMessage,
 } from './messages';
 import { SettingsRejection, validateGlobalShortcut, validateSearchKeybindings } from './policy';
 import { SETTINGS_BROADCAST_TARGET, type SettingsTransport } from './transport';
@@ -316,7 +297,7 @@ export class SettingsService {
                         status: 'unknown',
                         key,
                         code: SettingsErrorCode.Timeout,
-                        message: writeTimeoutMessage(),
+                        message: unconfirmedMessage(),
                     };
                 }
                 if (error.code === SettingsErrorCode.StaleEpoch) {
@@ -325,7 +306,7 @@ export class SettingsService {
                         status: 'unknown',
                         key,
                         code: SettingsErrorCode.StaleEpoch,
-                        message: staleOwnerResponseMessage(),
+                        message: unconfirmedMessage(),
                     };
                 }
             }
@@ -352,7 +333,7 @@ export class SettingsService {
                 status: 'unknown',
                 key,
                 code: SettingsErrorCode.TransportFailed,
-                message: invalidResponseMessage(),
+                message: unconfirmedMessage(),
             };
         }
 
@@ -367,14 +348,11 @@ export class SettingsService {
                 status: 'unknown',
                 key,
                 code: reply.code as SettingsErrorCodeValue,
-                message: reply.message ?? staleOwnerResponseMessage(),
+                message: unconfirmedMessage(),
             };
         }
 
-        throw new SettingsServiceError(
-            reply.code as never,
-            reply.message ?? mutationFailedMessage()
-        );
+        throw new SettingsServiceError(reply.code as never, mutationFailedMessage());
     }
 
     dispose(): void {
@@ -403,7 +381,7 @@ export class SettingsService {
         this.subscribers.clear();
         this.recentMutations.clear();
         this.rejectAllPending(
-            new SettingsServiceError(SettingsErrorCode.OwnerDisposed, ownerClosedMessage())
+            new SettingsServiceError(SettingsErrorCode.OwnerDisposed, mutationFailedMessage())
         );
     }
 
@@ -582,6 +560,7 @@ export class SettingsService {
             );
             await this.reply(message.requestId, message.from, { ok: true, result });
         } catch (error) {
+            log.warn('[SettingsService] Settings mutation failed:', error);
             const code =
                 error instanceof SettingsServiceError
                     ? error.code
@@ -589,7 +568,7 @@ export class SettingsService {
             await this.reply(message.requestId, message.from, {
                 ok: false,
                 code,
-                message: error instanceof Error ? error.message : String(error),
+                message: mutationFailedMessage(),
             });
         }
     }
@@ -635,7 +614,7 @@ export class SettingsService {
     ): Promise<T> {
         if (this.authorityDepth >= this.maxOwnerQueue) {
             return Promise.reject(
-                new SettingsServiceError(SettingsErrorCode.TooManyPending, ownerQueueFullMessage())
+                new SettingsServiceError(SettingsErrorCode.TooManyPending, mutationFailedMessage())
             );
         }
         this.authorityDepth += 1;
@@ -668,7 +647,7 @@ export class SettingsService {
                 // A re-used request id for a different command must not receive another
                 // command's result, nor replay a different side effect.
                 return Promise.reject(
-                    new SettingsServiceError(SettingsErrorCode.Rejected, invalidResponseMessage())
+                    new SettingsServiceError(SettingsErrorCode.Rejected, mutationFailedMessage())
                 );
             }
             return existing.promise;
@@ -715,7 +694,7 @@ export class SettingsService {
                 status: 'unknown',
                 key,
                 code: SettingsErrorCode.OwnerDisposed,
-                message: ownerChangedMessage(),
+                message: unconfirmedMessage(),
             };
         }
 
@@ -724,7 +703,7 @@ export class SettingsService {
                 status: 'recovery-required',
                 key,
                 code: SettingsErrorCode.CompensationFailed,
-                message: nativeReconcilePendingMessage(),
+                message: unconfirmedMessage(),
             };
         }
 
@@ -734,19 +713,19 @@ export class SettingsService {
                 status: 'rejected',
                 key,
                 code: SettingsErrorCode.UnknownKey,
-                message: unknownKeyMessage(key),
+                message: mutationFailedMessage(),
             };
         }
 
         let parsed: unknown;
         try {
             parsed = parseGeneralSettingUpdateValue(key, value);
-        } catch (error) {
+        } catch {
             return {
                 status: 'rejected',
                 key,
                 code: SettingsErrorCode.InvalidValue,
-                message: invalidValueMessage(error),
+                message: mutationFailedMessage(),
             };
         }
 
@@ -765,7 +744,7 @@ export class SettingsService {
                 status: 'rejected',
                 key,
                 code: SettingsErrorCode.Rejected,
-                message: String(error),
+                message: mutationFailedMessage(),
             };
         }
 
@@ -780,13 +759,13 @@ export class SettingsService {
             this.osDirty = true;
             const reconciled = await this.ensureReconciled();
             const message =
-                error instanceof SettingsServiceError ? error.message : nativeFailedMessage(error);
+                error instanceof SettingsServiceError ? error.message : mutationFailedMessage();
             if (!reconciled) {
                 return {
                     status: 'recovery-required',
                     key,
                     code: SettingsErrorCode.NativeFailed,
-                    message: nativeReconcilePendingMessage(),
+                    message: unconfirmedMessage(),
                 };
             }
             return { status: 'rejected', key, code: SettingsErrorCode.NativeFailed, message };
@@ -800,7 +779,7 @@ export class SettingsService {
                 status: 'unknown',
                 key,
                 code: SettingsErrorCode.OwnerDisposed,
-                message: ownerChangedDuringWriteMessage(),
+                message: unconfirmedMessage(),
             };
         }
 
@@ -828,7 +807,7 @@ export class SettingsService {
                 status: 'unknown',
                 key,
                 code: SettingsErrorCode.PersistenceFailed,
-                message: persistenceUnconfirmedMessage(),
+                message: unconfirmedMessage(),
             };
         }
 
@@ -846,13 +825,13 @@ export class SettingsService {
                       status: 'restored',
                       key,
                       code: SettingsErrorCode.PersistenceFailed,
-                      message: restoredMessage(),
+                      message: mutationFailedMessage(),
                   }
                 : {
                       status: 'recovery-required',
                       key,
                       code: SettingsErrorCode.CompensationFailed,
-                      message: compensationFailedMessage(),
+                      message: unconfirmedMessage(),
                   };
         }
 
@@ -863,7 +842,7 @@ export class SettingsService {
                 status: 'unknown',
                 key,
                 code: SettingsErrorCode.OwnerDisposed,
-                message: ownerChangedDuringWriteMessage(),
+                message: unconfirmedMessage(),
             };
         }
 
@@ -972,7 +951,10 @@ export class SettingsService {
         await this.syncFromOwner();
         if (this.disposed) {
             this.releaseListeners();
-            throw new SettingsServiceError(SettingsErrorCode.OwnerDisposed, ownerClosedMessage());
+            throw new SettingsServiceError(
+                SettingsErrorCode.OwnerDisposed,
+                mutationFailedMessage()
+            );
         }
         this.ready = true;
     }
@@ -1003,7 +985,8 @@ export class SettingsService {
             }
         }
         throw (
-            lastError ?? new SettingsServiceError(SettingsErrorCode.Timeout, syncTimeoutMessage())
+            lastError ??
+            new SettingsServiceError(SettingsErrorCode.Timeout, mutationFailedMessage())
         );
     }
 
@@ -1046,15 +1029,12 @@ export class SettingsService {
         if (reply.hostEpoch === null) {
             return new SettingsServiceError(
                 SettingsErrorCode.TransportFailed,
-                invalidResponseMessage()
+                mutationFailedMessage()
             );
         }
         if (this.isStaleEpoch(reply.hostEpoch)) {
             // An answer from a superseded owner epoch must never settle this request.
-            return new SettingsServiceError(
-                SettingsErrorCode.StaleEpoch,
-                staleOwnerResponseMessage()
-            );
+            return new SettingsServiceError(SettingsErrorCode.StaleEpoch, unconfirmedMessage());
         }
         if (
             entry.kind === 'mutate' &&
@@ -1063,21 +1043,18 @@ export class SettingsService {
         ) {
             // A mutation must be answered by the same owner epoch that ran it; only a
             // snapshot may adopt a new epoch (owner restart).
-            return new SettingsServiceError(
-                SettingsErrorCode.StaleEpoch,
-                staleOwnerResponseMessage()
-            );
+            return new SettingsServiceError(SettingsErrorCode.StaleEpoch, unconfirmedMessage());
         }
         if (entry.kind === 'snapshot' && !reply.snapshot) {
             return new SettingsServiceError(
                 SettingsErrorCode.TransportFailed,
-                snapshotFailedMessage()
+                mutationFailedMessage()
             );
         }
         if (entry.kind === 'mutate' && !reply.result) {
             return new SettingsServiceError(
                 SettingsErrorCode.TransportFailed,
-                invalidResponseMessage()
+                mutationFailedMessage()
             );
         }
         if (
@@ -1088,7 +1065,7 @@ export class SettingsService {
         ) {
             return new SettingsServiceError(
                 SettingsErrorCode.TransportFailed,
-                invalidResponseMessage()
+                mutationFailedMessage()
             );
         }
         return null;
@@ -1104,7 +1081,7 @@ export class SettingsService {
             this.rejectAllPending(
                 new SettingsServiceError(
                     SettingsErrorCode.OwnerUnavailable,
-                    ownerUnavailableMessage()
+                    mutationFailedMessage()
                 )
             );
             return;
@@ -1170,12 +1147,9 @@ export class SettingsService {
             return reply.snapshot;
         }
         if (!reply.ok) {
-            throw new SettingsServiceError(
-                reply.code as never,
-                reply.message ?? syncFailedMessage()
-            );
+            throw new SettingsServiceError(reply.code as never, mutationFailedMessage());
         }
-        throw new SettingsServiceError(SettingsErrorCode.TransportFailed, snapshotFailedMessage());
+        throw new SettingsServiceError(SettingsErrorCode.TransportFailed, mutationFailedMessage());
     }
 
     private sendRequest(
@@ -1186,29 +1160,27 @@ export class SettingsService {
     ): Promise<SettingsWireReply> {
         if (this.disposed) {
             return Promise.reject(
-                new SettingsServiceError(SettingsErrorCode.OwnerDisposed, ownerClosedMessage())
+                new SettingsServiceError(SettingsErrorCode.OwnerDisposed, mutationFailedMessage())
             );
         }
         if (!allowUnavailable && !this.ownerAvailable) {
             return Promise.reject(
                 new SettingsServiceError(
                     SettingsErrorCode.OwnerUnavailable,
-                    ownerUnavailableMessage()
+                    mutationFailedMessage()
                 )
             );
         }
         if (this.pending.size >= this.maxPendingRequests) {
             return Promise.reject(
-                new SettingsServiceError(SettingsErrorCode.TooManyPending, tooManyPendingMessage())
+                new SettingsServiceError(SettingsErrorCode.TooManyPending, mutationFailedMessage())
             );
         }
 
         return new Promise((resolve, reject) => {
             const timer = setTimeout(() => {
                 this.pending.delete(message.requestId);
-                reject(
-                    new SettingsServiceError(SettingsErrorCode.Timeout, requestTimeoutMessage())
-                );
+                reject(new SettingsServiceError(SettingsErrorCode.Timeout, unconfirmedMessage()));
             }, this.requestTimeoutMs);
             this.pending.set(message.requestId, {
                 kind,
@@ -1225,7 +1197,13 @@ export class SettingsService {
                 }
                 clearTimeout(entry.timer);
                 this.pending.delete(message.requestId);
-                reject(new SettingsServiceError(SettingsErrorCode.TransportFailed, String(error)));
+                log.warn('[SettingsService] Failed to send settings request:', error);
+                reject(
+                    new SettingsServiceError(
+                        SettingsErrorCode.TransportFailed,
+                        mutationFailedMessage()
+                    )
+                );
             });
         });
     }
@@ -1354,14 +1332,20 @@ export class SettingsService {
 
     private assertNotDisposed(): void {
         if (this.disposed) {
-            throw new SettingsServiceError(SettingsErrorCode.OwnerDisposed, ownerClosedMessage());
+            throw new SettingsServiceError(
+                SettingsErrorCode.OwnerDisposed,
+                mutationFailedMessage()
+            );
         }
     }
 
     private assertAliveDuringInit(): void {
         if (this.disposed) {
             this.releaseListeners();
-            throw new SettingsServiceError(SettingsErrorCode.OwnerDisposed, ownerClosedMessage());
+            throw new SettingsServiceError(
+                SettingsErrorCode.OwnerDisposed,
+                mutationFailedMessage()
+            );
         }
     }
 

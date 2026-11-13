@@ -1,7 +1,10 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
+import { log } from '@services/ObservabilityService';
+
 import { t, tt } from '@/i18n';
 import type { ToolApprovalRequest } from '@/services/AgentService/contracts/tooling';
+import { SettingsErrorCode } from '@/services/SettingsService/types';
 import { truncateText } from '@/utils/text';
 
 import {
@@ -131,7 +134,7 @@ export async function executeSettingTool(
         };
     }
 
-    let errorMessage: string;
+    let rejectionMessage: string | null = null;
     try {
         if (context.signal?.aborted) return cancelledSettingResult();
         const result = await settingsService.mutate(request.key, request.value);
@@ -147,22 +150,34 @@ export async function executeSettingTool(
         }
         if (result.status === 'unknown' || result.status === 'recovery-required') {
             return {
-                result: [formatSingleUpdate(request.key, request.value), result.message].join('\n'),
+                result: [tt('设置修改失败。'), formatSingleUpdate(request.key, request.value)].join(
+                    '\n'
+                ),
                 isError: true,
                 status: 'error',
-                errorMessage: result.message,
+                errorMessage: tt('设置修改失败。'),
             };
         }
-        errorMessage = result.message;
+        if (
+            result.status === 'rejected' &&
+            (result.code === SettingsErrorCode.Rejected ||
+                result.code === SettingsErrorCode.NativeFailed)
+        ) {
+            rejectionMessage = result.message;
+        }
     } catch (error) {
-        errorMessage = error instanceof Error ? error.message : String(error);
+        log.warn('[SettingTool] Failed to update setting:', error);
     }
 
+    const resultLines = [tt('设置修改失败。'), formatSingleUpdate(request.key, request.value)];
+    if (rejectionMessage) {
+        resultLines.push(`${tt('原因')}: ${rejectionMessage}`);
+    }
     return {
-        result: `${tt('设置修改失败')}\n${formatSingleUpdate(request.key, request.value)}\n${tt('原因')}: ${errorMessage}`,
+        result: resultLines.join('\n'),
         isError: true,
         status: 'error',
-        errorMessage,
+        errorMessage: rejectionMessage ?? tt('设置修改失败。'),
     };
 }
 

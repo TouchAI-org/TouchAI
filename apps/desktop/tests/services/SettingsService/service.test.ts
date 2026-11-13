@@ -262,7 +262,7 @@ describe('user changes a setting through the single owner', () => {
         );
     });
 
-    it('user gets an unsupported-key rejection without changing anything', async () => {
+    it('user gets a generic unsupported-key rejection without changing anything', async () => {
         const effects = createEffects();
         const owner = createOwner(effects);
         await owner.initialize();
@@ -298,7 +298,7 @@ describe('user changes a setting through the single owner', () => {
                 code: SettingsErrorCode.UnknownKey,
             },
         });
-        expect(reply?.result?.message).toContain('not_a_setting');
+        expect(reply?.result?.message).toBe('设置修改失败。');
         expect(dbMock.setCalls).toHaveLength(0);
         expect(effects.setAutostart).not.toHaveBeenCalled();
     });
@@ -812,7 +812,7 @@ describe('user changes a setting through the single owner', () => {
             )
             .find((message) => message.requestId === 'req-not-ready');
         expect(reply).toMatchObject({ ok: false, code: SettingsErrorCode.NotReady });
-        expect(reply?.message).toContain('设置尚未就绪');
+        expect(reply?.message).toBe('设置尚未就绪，请稍后再试。');
 
         releaseHeldReads();
         await ownerInit;
