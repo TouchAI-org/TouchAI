@@ -369,6 +369,12 @@ describe('user opens a pull request that runs the preview', () => {
         expect(record).not.toContain('environment:');
     });
 
+    it('user gets no analytics from automated preview runs', () => {
+        for (const name of ['explore', 'record']) {
+            expect(jobBlock(name)).toContain("TOUCHAI_DISABLE_ANALYTICS: '1'");
+        }
+    });
+
     it('user gets the runtime library the embedded driver needs', () => {
         const recordPackages = installedPackages(jobBlock('record'));
 

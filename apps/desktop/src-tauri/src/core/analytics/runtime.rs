@@ -31,9 +31,9 @@ use super::transport::{
     SendOutcome,
 };
 use super::{
-    AnalyticsConsentStatus, AnalyticsLifecycleContext, AnalyticsOperationHandle,
-    AnalyticsStartupKind, AnalyticsState, AnalyticsSubmitResult, AnalyticsSubmitStatus,
-    AnalyticsTrackRequest,
+    AnalyticsConsentStatus, AnalyticsEnvironment, AnalyticsLifecycleContext,
+    AnalyticsOperationHandle, AnalyticsStartupKind, AnalyticsState, AnalyticsSubmitResult,
+    AnalyticsSubmitStatus, AnalyticsTrackRequest,
 };
 
 const POLICY_VERSION: i64 = 1;
@@ -355,6 +355,14 @@ impl AnalyticsRuntime {
     }
 
     pub fn spawn_sender(&self) {
+        if !self
+            .inner
+            .config
+            .as_ref()
+            .is_some_and(|config| config.transport.is_some())
+        {
+            return;
+        }
         let runtime = self.clone();
         tauri::async_runtime::spawn(async move {
             let mut interval = tokio::time::interval(SEND_INTERVAL);
@@ -373,6 +381,14 @@ impl AnalyticsRuntime {
     /// Starts the bounded hourly health reporter. The first report is one full
     /// interval after startup; missed ticks are skipped rather than replayed.
     pub fn spawn_health_reporter(&self) {
+        if !self
+            .inner
+            .config
+            .as_ref()
+            .is_some_and(|config| config.transport.is_some())
+        {
+            return;
+        }
         let runtime = self.clone();
         tauri::async_runtime::spawn(async move {
             let start = tokio::time::Instant::now() + HEALTH_INTERVAL;
@@ -2151,13 +2167,20 @@ fn resolve_analytics_config(
     })
 }
 
-fn resolve_config() -> Option<AnalyticsConfig> {
+fn resolve_config_for_environment(environment: AnalyticsEnvironment) -> Option<AnalyticsConfig> {
+    if environment.suppresses_collection() {
+        return None;
+    }
     let config = product_config().ok()?;
     config
         .services
         .analytics
         .as_ref()
         .and_then(|analytics| resolve_analytics_config(analytics, !cfg!(debug_assertions)))
+}
+
+fn resolve_config() -> Option<AnalyticsConfig> {
+    resolve_config_for_environment(AnalyticsEnvironment::current())
 }
 
 async fn resolve_release_channel(database: &DatabaseRuntime) -> String {
@@ -2480,6 +2503,16 @@ mod tests {
                 JsonValue::String("saved".to_string()),
             ),
         ])
+    }
+
+    #[test]
+    fn user_gets_no_analytics_configuration_when_ci_runs_the_app() {
+        let environment = AnalyticsEnvironment {
+            ci: true,
+            ..AnalyticsEnvironment::default()
+        };
+
+        assert!(resolve_config_for_environment(environment).is_none());
     }
 
     #[test]

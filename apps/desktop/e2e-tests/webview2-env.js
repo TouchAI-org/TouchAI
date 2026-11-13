@@ -28,6 +28,8 @@ export function resolveE2eWebView2AdditionalBrowserArguments(env = process.env) 
 export function withE2eWebView2Env(env = process.env, options = {}) {
     const next = {
         ...env,
+        TOUCHAI_E2E: '1',
+        TOUCHAI_DISABLE_ANALYTICS: '1',
         WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: resolveE2eWebView2AdditionalBrowserArguments(env),
     };
 
@@ -64,6 +66,7 @@ export function buildWindowsE2eLauncherSource({
         '    public static int Main(string[] args)',
         '    {',
         '        Environment.SetEnvironmentVariable("TOUCHAI_E2E", "1");',
+        '        Environment.SetEnvironmentVariable("TOUCHAI_DISABLE_ANALYTICS", "1");',
         '        Environment.SetEnvironmentVariable("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", ' +
             argsLiteral +
             ');',

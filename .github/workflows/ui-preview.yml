@@ -133,6 +133,7 @@ jobs:
         env:
             CARGO_TARGET_DIR: ${{ github.workspace }}/.ui-preview-target
             TOUCHAI_E2E: '1'
+            TOUCHAI_DISABLE_ANALYTICS: '1'
             UI_PREVIEW_PLATFORM: ${{ matrix.platform }}
         steps:
             - name: Check out the pull request
@@ -371,6 +372,7 @@ jobs:
             contents: read
         env:
             TOUCHAI_E2E: '1'
+            TOUCHAI_DISABLE_ANALYTICS: '1'
             UI_PREVIEW_PLATFORM: ${{ matrix.platform }}
         steps:
             - name: Check out trusted scripts

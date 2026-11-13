@@ -45,6 +45,7 @@ describe('E2E WebView2 launch environment', () => {
         );
         expect(withE2eWebView2Env(env)).toEqual({
             ...env,
+            TOUCHAI_DISABLE_ANALYTICS: '1',
             WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: '--remote-debugging-port=9333',
         });
     });
@@ -54,12 +55,14 @@ describe('E2E WebView2 launch environment', () => {
 
         expect(withE2eWebView2Env(env)).toEqual({
             TOUCHAI_E2E: '1',
+            TOUCHAI_DISABLE_ANALYTICS: '1',
             WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:
                 DEFAULT_E2E_WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS,
         });
 
         expect(withE2eWebView2Env(env, { userDataFolder: 'D:/e2e-user-data' })).toEqual({
             TOUCHAI_E2E: '1',
+            TOUCHAI_DISABLE_ANALYTICS: '1',
             WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:
                 DEFAULT_E2E_WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS,
             WEBVIEW2_USER_DATA_FOLDER: 'D:/e2e-user-data',
@@ -79,6 +82,7 @@ describe('E2E WebView2 launch environment', () => {
         expect(source).toContain('D:/app/TouchAI.exe');
         expect(source).toContain('WEBVIEW2_USER_DATA_FOLDER');
         expect(source).toContain('TOUCHAI_APP_ROOT');
+        expect(source).toContain('TOUCHAI_DISABLE_ANALYTICS');
         expect(source).toContain('Process.Start');
     });
 
@@ -102,6 +106,7 @@ describe('E2E WebView2 launch environment', () => {
         expect(launcherPath.endsWith('TouchAI-e2e-launcher.cs')).toBe(true);
         const content = fs.readFileSync(launcherPath, 'utf8');
         expect(content).toContain('WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS');
+        expect(content).toContain('TOUCHAI_DISABLE_ANALYTICS');
         expect(content).toContain('--remote-debugging-port=9222');
         expect(content).toContain('Process.Start');
         expect(content).toContain('.exe');

@@ -77,6 +77,10 @@ Consent and local metadata live in one JSON value under
 - A deployment change drops queued events bound to the old endpoint.
 - Full restore preserves an explicit consent choice but never carries the
   exporting machine's identity, epoch, queue, or pending delivery metadata.
+- CI, E2E, and UI-preview processes resolve no analytics transport, so they
+  cannot create an installation identity or emit events. Automated launches set
+  `TOUCHAI_DISABLE_ANALYTICS=1`; `CI`, `TOUCHAI_E2E`, and
+  `TOUCHAI_UI_PREVIEW` are also treated as suppression signals.
 
 ## Sessions And Operations
 
