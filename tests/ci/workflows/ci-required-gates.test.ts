@@ -27,6 +27,7 @@ const ciResultVariables = [
     'CI_TESTS_RESULT',
     'SITE_BUILD_RESULT',
     'RUST_CHECKS_RESULT',
+    'ARCHITECTURE_RESULT',
     'BUILD_WINDOWS_RESULT',
     'RELEASE_NOTES_RESULT',
 ] as const;
@@ -68,6 +69,11 @@ const ciRequiredJobs = [
     { name: 'ci-tests', variable: 'CI_TESTS_RESULT', label: 'CI contract tests' },
     { name: 'site-build', variable: 'SITE_BUILD_RESULT', label: 'site build' },
     { name: 'rust-checks', variable: 'RUST_CHECKS_RESULT', label: 'Rust checks' },
+    {
+        name: 'architecture',
+        variable: 'ARCHITECTURE_RESULT',
+        label: 'architecture boundaries',
+    },
 ] as const;
 
 const ciObservedJobs = [
@@ -104,6 +110,11 @@ const ciObservedJobs = [
     { name: 'ci-tests', variable: 'CI_TESTS_RESULT', label: 'CI contract tests' },
     { name: 'site-build', variable: 'SITE_BUILD_RESULT', label: 'site build' },
     { name: 'rust-checks', variable: 'RUST_CHECKS_RESULT', label: 'Rust checks' },
+    {
+        name: 'architecture',
+        variable: 'ARCHITECTURE_RESULT',
+        label: 'architecture boundaries',
+    },
     {
         name: 'build-windows',
         variable: 'BUILD_WINDOWS_RESULT',
@@ -286,6 +297,7 @@ function ciAllApplicableSuccess(overrides: GateEnvironment = {}) {
         CI_TESTS_RESULT: 'success',
         SITE_BUILD_RESULT: 'success',
         RUST_CHECKS_RESULT: 'success',
+        ARCHITECTURE_RESULT: 'success',
         BUILD_WINDOWS_RESULT: 'skipped',
         RELEASE_NOTES_RESULT: 'success',
         ...overrides,
@@ -404,6 +416,7 @@ describe('user completes required CI validation', () => {
                 FRONTEND_QUALITY_RESULT: 'success',
                 FRONTEND_TESTS_RESULT: 'success',
                 RUST_CHECKS_RESULT: 'success',
+                ARCHITECTURE_RESULT: 'success',
                 BUILD_WINDOWS_RESULT: 'success',
             })
         );
@@ -427,6 +440,7 @@ describe('user completes required CI validation', () => {
                 FRONTEND_QUALITY_RESULT: 'success',
                 FRONTEND_TESTS_RESULT: 'success',
                 RUST_CHECKS_RESULT: 'success',
+                ARCHITECTURE_RESULT: 'success',
                 BUILD_WINDOWS_RESULT: 'skipped',
             })
         );
@@ -481,6 +495,7 @@ describe('user cannot hide a failed or cancelled CI job behind routing', () => {
                     FRONTEND_QUALITY_RESULT: 'success',
                     FRONTEND_TESTS_RESULT: 'success',
                     RUST_CHECKS_RESULT: 'success',
+                    ARCHITECTURE_RESULT: 'success',
                     BUILD_WINDOWS_RESULT: result,
                 })
             );

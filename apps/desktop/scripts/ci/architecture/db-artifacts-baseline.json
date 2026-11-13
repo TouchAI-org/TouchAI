@@ -1,0 +1,18 @@
+{
+    "apps/desktop/src/database/drizzle/0000_lyrical_toad.sql": "663b63080b723ab0ba40c9b9c262ebaf5a3f9d7078254e8cf1f1941abf5699a9",
+    "apps/desktop/src/database/drizzle/0001_silent_reasoning.sql": "9d0e364bed170a6d573e9cdbd2a8c4385b12d1329ae3908846cf713d60573466",
+    "apps/desktop/src/database/drizzle/0002_quick_search_click_stats_unique.sql": "179c75aa9cd7804f72e4787e97dd65b01d5769e2834267286e8235b8be828935",
+    "apps/desktop/src/database/drizzle/0003_tough_amazoness.sql": "e10eb50c3ee92057d74510e58c06ccb7a9f890251fa03787342233a280d033ba",
+    "apps/desktop/src/database/drizzle/0004_ordinary_solo.sql": "4fbc68fc97819d9f8936a0186631566dba67e8bf673652c0eb49513380fd94b8",
+    "apps/desktop/src/database/drizzle/0005_performance_query_indexes.sql": "1f6727dca0494cf9c9d2d5e2fd10d5b18231b20f5bb5c15f5f933584fea345eb",
+    "apps/desktop/src/database/drizzle/meta/0000_snapshot.json": "74ae0cab5e7df5b581daecf4788257a5f77505f7b2b6219ffd7f38a8dc0f4ce5",
+    "apps/desktop/src/database/drizzle/meta/0002_snapshot.json": "8c18ac39f32650389a4c6777daf97a9c1e5075a8e7ec0ddec7c0197886158384",
+    "apps/desktop/src/database/drizzle/meta/0003_snapshot.json": "ecbbfcf3b5a95779475a3ba2ed83ef9375d2ef6208d27ba31050b23fa0d55a09",
+    "apps/desktop/src/database/drizzle/meta/0004_snapshot.json": "315f0329e45dc0b75e54f9195de51f64e1a031e92c031c77738f6bb2aa2a2a6d",
+    "apps/desktop/src/database/drizzle/meta/0005_snapshot.json": "57a1dc45d5e58f6b87dceb9ea4345dfd9f4d4cb84b6e7fe24a117426d435c0f6",
+    "apps/desktop/src/database/drizzle/meta/_journal.json": "5ba273ddfa459f1fe93a485491b30270de4f8f208d9b3fdd0dcbe9901bef5545",
+    "apps/desktop/src/database/artifacts/import/chat_merge.sql": "35ad7217e1cdf922501baeed579e47b5c33d55e401ab649544f0e3661cb710b2",
+    "apps/desktop/src/database/artifacts/import/full_prelude.sql": "da107ee3a6bec5ac0d6755bcb9d5e5132b7ccaa7cc7d17ccc2a671b67932bb08",
+    "apps/desktop/src/database/artifacts/runtime/guards.sql": "03c131a547b18f39c3265eb223dd14439f388454715bb84391fe24839c9cb62a",
+    "apps/desktop/src/database/artifacts/runtime/seed.sql": "02e7b820b4e7dfc5b0065b37c7ee1284b9d04fcd94de74707eef78333e6b13f0"
+}
