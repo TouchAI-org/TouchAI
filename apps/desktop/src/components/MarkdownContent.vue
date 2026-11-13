@@ -263,17 +263,18 @@
     }));
     const markdownRenderKey = computed(() => `${markdownParseInput.value.locale}:${props.variant}`);
 
-    // 外层滚动 owner 由会话面板 provide；只有存在时才启用 markstream 的虚拟适配，
-    // 避免渲染器把溢出的 pre 误判为自己的滚动根；独立使用（设置页等）保持原样。
+    // 流式内容必须首段立即可见；markstream 的虚拟适配会先挂载高度探针并等待汇总，
+    // 因此只在终态且存在外层滚动 owner 时启用，避免把首段文本拖到流结束之后。
+    // 独立使用（设置页等）没有外层 owner，保持原样。
     const scrollRootResolver = inject<MarkdownScrollRootResolver | null>(
         MARKDOWN_SCROLL_ROOT_KEY,
         null
     );
     const virtualScrollOptions = computed(() =>
-        scrollRootResolver
+        scrollRootResolver && props.final
             ? {
                   enabled: true,
-                  sessionKey: `touchai:${props.variant}:${props.final ? 'final' : 'stream'}`,
+                  sessionKey: `touchai:${props.variant}:final`,
                   scrollRoot: scrollRootResolver,
                   settleMode: 'auto' as const,
               }

@@ -1,0 +1,201 @@
+name: Performance Nightly
+
+# The 5% gate needs more independent cold launches than a PR job can afford.
+# GitHub Actions is the canonical RFC 710 performance environment. The workflow
+# is not a required branch-protection check yet, but it still fails the job when
+# the harness produces invalid samples or an enabled performance gate fails.
+on:
+    schedule:
+        - cron: '17 18 * * *'
+    pull_request:
+        types: [labeled, synchronize, reopened]
+    workflow_dispatch:
+        inputs:
+            latency-blocks:
+                description: Latency blocks (4 app launches per block)
+                required: false
+                default: '60'
+            long-blocks:
+                description: Long-session blocks per history level (4 app launches per block)
+                required: false
+                default: '6'
+            startup-settle-ms:
+                description: Symmetric startup settle before the cold prompt
+                required: false
+                default: '12000'
+            performance-scope:
+                description: Which RFC 710 performance flows to measure
+                required: true
+                default: cold-latency
+                type: choice
+                options:
+                    - cold-latency
+                    - steady-state-memory
+                    - full
+
+permissions:
+    contents: read
+
+concurrency:
+    group: perf-nightly-${{ github.event.pull_request.number || github.ref }}
+    cancel-in-progress: false
+
+jobs:
+    performance:
+        name: RFC 710 performance (GitHub-hosted)
+        if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'perf:rfc710')
+        runs-on: ubuntu-24.04
+        timeout-minutes: 360
+        env:
+            CARGO_BUILD_JOBS: 4
+            TOUCHAI_PERF_CARGO_JOBS: 4
+            TOUCHAI_PERF_DISABLE_CGROUP: '1'
+            TOUCHAI_PERF_STARTUP_SETTLE_MS: ${{ inputs['startup-settle-ms'] || '12000' }}
+            TOUCHAI_PERF_EVIDENCE: /tmp/touchai-perf-evidence
+            TOUCHAI_PERF_ARTIFACTS: /tmp/touchai-perf-artifacts
+            GDK_BACKEND: x11
+            LIBGL_ALWAYS_SOFTWARE: '1'
+            NO_AT_BRIDGE: '1'
+            LATENCY_BLOCKS: ${{ inputs['latency-blocks'] || '60' }}
+            PROGRESS_BLOCKS: '3'
+            LONG_BLOCKS: ${{ inputs['long-blocks'] || '6' }}
+            HISTORY_LEVELS: '100,500,1000'
+            PERF_SCOPE: ${{ inputs['performance-scope'] || (github.event_name == 'schedule' && 'full') || 'cold-latency' }}
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  fetch-depth: 0
+
+            - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6
+
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+              with:
+                  node-version: 22
+                  cache: pnpm
+
+            - name: Install Linux GUI and build dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y \
+                    build-essential \
+                    curl \
+                    dbus-x11 \
+                    dunst \
+                    file \
+                    libayatana-appindicator3-dev \
+                    libglib2.0-dev \
+                    librsvg2-dev \
+                    libssl-dev \
+                    libwebkit2gtk-4.1-dev \
+                    libxdo-dev \
+                    pkg-config \
+                    openbox \
+                    sqlite3 \
+                    wget \
+                    webkit2gtk-driver \
+                    wmctrl \
+                    xvfb
+
+            - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+
+            - uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+              with:
+                  workspaces: apps/desktop/src-tauri -> target
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Install tauri-driver
+              run: cargo install tauri-driver --version 2.1.0 --locked
+
+            - name: Validate inputs
+              run: |
+                  case "$LATENCY_BLOCKS" in
+                    ''|*[!0-9]*)
+                      echo "latency-blocks must be a positive integer" >&2
+                      exit 1
+                      ;;
+                  esac
+                  if [ "$LATENCY_BLOCKS" -lt 3 ]; then
+                    echo "latency-blocks must be at least 3" >&2
+                    exit 1
+                  fi
+                  case "$PERF_SCOPE" in
+                    cold-latency|steady-state-memory|full) ;;
+                    *)
+                      echo "performance-scope must be cold-latency, steady-state-memory or full" >&2
+                      exit 1
+                      ;;
+                  esac
+                  case "$LONG_BLOCKS" in
+                    ''|*[!0-9]*)
+                      echo "long-blocks must be a positive integer" >&2
+                      exit 1
+                      ;;
+                  esac
+                  if [ "$PERF_SCOPE" != "cold-latency" ] && [ "$LONG_BLOCKS" -lt 6 ]; then
+                    echo "long-blocks must be at least 6 for memory and full scopes" >&2
+                    exit 1
+                  fi
+
+            - name: Run RFC 710 performance protocol
+              run: |
+                  case "$PERF_SCOPE" in
+                    cold-latency) flows=latency ;;
+                    steady-state-memory) flows=progress,long-session ;;
+                    full) flows=latency,progress,long-session ;;
+                  esac
+                  pnpm perf:710 all \
+                    --flows "$flows" \
+                    --latency-blocks "$LATENCY_BLOCKS" \
+                    --progress-blocks "$PROGRESS_BLOCKS" \
+                    --long-blocks "$LONG_BLOCKS" \
+                    --history-levels "$HISTORY_LEVELS" \
+                    --warm-samples 0
+
+            - name: Summarize gate
+              if: always()
+              run: |
+                  stats="$TOUCHAI_PERF_EVIDENCE/stats.json"
+                  {
+                    echo "## RFC 710 performance"
+                    echo ""
+                    echo "Scope: **$PERF_SCOPE**"
+                    echo ""
+                    if [ ! -f "$stats" ]; then
+                      echo "No stats.json was produced. See the evidence artifact."
+                    else
+                      jq -r '"Enabled flows: **\(.enabledFlows | join(", "))**; valid runs: \(.rawCounts.validRuns)/\(.rawCounts.runs); invalid runs: \(.rawCounts.invalidRuns)"' "$stats"
+                      echo ""
+                      cat "$TOUCHAI_PERF_EVIDENCE/summary.md"
+                    fi
+                  } >> "$GITHUB_STEP_SUMMARY"
+
+            - name: Upload performance evidence
+              if: always()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: rfc710-performance-${{ github.run_id }}
+                  path: ${{ env.TOUCHAI_PERF_EVIDENCE }}
+                  if-no-files-found: warn
+                  retention-days: 30
+
+            - name: Enforce RFC 710 performance gate
+              if: always()
+              run: |
+                  stats="$TOUCHAI_PERF_EVIDENCE/stats.json"
+                  if [ ! -f "$stats" ]; then
+                    echo "::error::RFC 710 performance evidence is missing stats.json."
+                    exit 1
+                  fi
+                  invalid_runs="$(jq -r '.rawCounts.invalidRuns' "$stats")"
+                  if [ "$invalid_runs" -ne 0 ]; then
+                    echo "::error::RFC 710 performance protocol recorded $invalid_runs invalid run(s)."
+                    exit 1
+                  fi
+                  status="$(jq -r '.overallStatus' "$stats")"
+                  if [ "$status" != "PASS" ]; then
+                    echo "::error::RFC 710 performance gate is $status."
+                    exit 1
+                  fi
+                  echo "RFC 710 performance gate passed."
