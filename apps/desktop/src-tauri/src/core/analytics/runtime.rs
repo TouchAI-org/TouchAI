@@ -411,6 +411,9 @@ impl AnalyticsRuntime {
     /// change outside the analytics command during a full import, so the queue
     /// and native bindings must be invalidated before the next read or send.
     pub(crate) async fn synchronize_after_restore(&self) -> Result<(), String> {
+        if self.inner.config.is_none() {
+            return Ok(());
+        }
         let _state = self.inner.state_lock.lock().await;
         let row = store::load_state(self.inner.database.pool())
             .await?
@@ -4259,6 +4262,30 @@ mod tests {
                 }
             );
         }
+    }
+
+    #[tokio::test]
+    async fn user_restores_a_backup_while_analytics_is_suppressed_then_restore_sync_succeeds() {
+        let (_root, mut runtime) = test_runtime(Arc::new(RecordingSender::new())).await;
+        let inner = Arc::get_mut(&mut runtime.inner).expect("sole test runtime owner");
+        inner.config = None;
+        inner.transport_ready = false;
+        inner.build_eligible = false;
+        sqlx::query("DELETE FROM settings WHERE key = ?")
+            .bind(store::ANALYTICS_STATE_SETTING)
+            .execute(runtime.inner.database.pool())
+            .await
+            .expect("remove analytics state");
+
+        runtime
+            .synchronize_after_restore()
+            .await
+            .expect("restore synchronization");
+
+        assert_eq!(
+            runtime.state().await.expect("state").status,
+            AnalyticsConsentStatus::Uninitialized
+        );
     }
 
     #[tokio::test]
