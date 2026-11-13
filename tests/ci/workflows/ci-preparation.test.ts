@@ -252,6 +252,7 @@ describe('user runs desktop E2E from one freshly built application', () => {
 
         expect(node.with?.cache).toBeUndefined();
         expect(node.with?.['package-manager-cache']).toBe(false);
+        expect(job.env).toMatchObject({ TOUCHAI_DISABLE_ANALYTICS: '1' });
         expect(build.if).toBeUndefined();
         expect(buildIndex).toBeGreaterThan(getStepIndex(job, 'Install frontend dependencies'));
         expect(buildIndex).toBeGreaterThan(getStepIndex(job, 'Install tauri-driver'));

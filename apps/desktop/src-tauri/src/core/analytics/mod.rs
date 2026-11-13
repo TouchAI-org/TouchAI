@@ -30,6 +30,40 @@ use serde_json::{Map as JsonMap, Value as JsonValue};
 /// initialization.
 static PROCESS_STARTED_AT: OnceLock<Instant> = OnceLock::new();
 
+const TOUCHAI_DISABLE_ANALYTICS_ENV: &str = "TOUCHAI_DISABLE_ANALYTICS";
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct AnalyticsEnvironment {
+    ci: bool,
+    e2e: bool,
+    ui_preview: bool,
+    explicitly_disabled: bool,
+}
+
+impl AnalyticsEnvironment {
+    pub(crate) fn current() -> Self {
+        Self {
+            ci: environment_flag("CI"),
+            e2e: environment_flag("TOUCHAI_E2E"),
+            ui_preview: environment_flag("TOUCHAI_UI_PREVIEW"),
+            explicitly_disabled: environment_flag(TOUCHAI_DISABLE_ANALYTICS_ENV),
+        }
+    }
+
+    pub(crate) fn suppresses_collection(self) -> bool {
+        self.ci || self.e2e || self.ui_preview || self.explicitly_disabled
+    }
+}
+
+fn environment_flag(name: &str) -> bool {
+    environment_flag_value(std::env::var(name).ok().as_deref())
+}
+
+fn environment_flag_value(value: Option<&str>) -> bool {
+    let normalized = value.map(|value| value.trim().to_ascii_lowercase());
+    matches!(normalized.as_deref(), Some("1" | "true" | "yes" | "on"))
+}
+
 /// Records the process-start instant. Called once from the app entry point.
 pub(crate) fn mark_process_start(instant: Instant) {
     let _ = PROCESS_STARTED_AT.set(instant);
@@ -180,7 +214,7 @@ impl AnalyticsSubmitResult {
 
 #[cfg(test)]
 mod tests {
-    use super::startup_source_from_args;
+    use super::{environment_flag_value, startup_source_from_args, AnalyticsEnvironment};
 
     #[test]
     fn user_gets_an_autostart_classification_from_the_real_launch_argument() {
@@ -192,5 +226,44 @@ mod tests {
             startup_source_from_args(["--profile".to_string(), "default".to_string()]),
             "foreground"
         );
+    }
+
+    #[test]
+    fn user_gets_no_analytics_from_ci_or_automation_environments() {
+        for environment in [
+            AnalyticsEnvironment {
+                ci: true,
+                ..AnalyticsEnvironment::default()
+            },
+            AnalyticsEnvironment {
+                e2e: true,
+                ..AnalyticsEnvironment::default()
+            },
+            AnalyticsEnvironment {
+                ui_preview: true,
+                ..AnalyticsEnvironment::default()
+            },
+            AnalyticsEnvironment {
+                explicitly_disabled: true,
+                ..AnalyticsEnvironment::default()
+            },
+        ] {
+            assert!(environment.suppresses_collection());
+        }
+    }
+
+    #[test]
+    fn user_keeps_analytics_available_in_a_normal_release_environment() {
+        assert!(!AnalyticsEnvironment::default().suppresses_collection());
+    }
+
+    #[test]
+    fn user_gets_automation_detection_only_from_an_enabled_flag() {
+        for value in ["1", "true", "YES", " on "] {
+            assert!(environment_flag_value(Some(value)), "{value:?}");
+        }
+        for value in [None, Some(""), Some("0"), Some("false"), Some("off")] {
+            assert!(!environment_flag_value(value), "{value:?}");
+        }
     }
 }
