@@ -3,6 +3,7 @@
 import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
 import type { InputHistorySnapshot, PendingToolApproval, SessionMessage } from '@/types/session';
 
+import type { SelectableReasoningLevel } from '../contracts/reasoning';
 import type {
     SessionTaskStatus,
     TaskExecutionMode,
@@ -45,6 +46,7 @@ export interface StartSessionTaskOptions {
     sessionId?: number;
     modelId?: string;
     providerId?: number;
+    reasoningLevel?: SelectableReasoningLevel;
     attachments?: AttachmentIndex[];
     inputSnapshot?: InputHistorySnapshot;
     executionMode?: TaskExecutionMode;

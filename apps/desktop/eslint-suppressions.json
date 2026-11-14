@@ -229,19 +229,13 @@
         }
     },
     "src/views/SearchView/components/ModelDropdownPopup/index.vue": {
-        "tailwindcss/no-arbitrary-value": {
-            "count": 4
-        },
         "tailwindcss/no-custom-classname": {
-            "count": 6
-        },
-        "vue/no-restricted-class": {
-            "count": 15
+            "count": 2
         }
     },
     "src/views/SearchView/components/SearchBar/index.vue": {
         "tailwindcss/no-custom-classname": {
-            "count": 4
+            "count": 10
         }
     },
     "src/views/SearchView/components/SearchBar/tags/attachment/AttachmentTagView.vue": {

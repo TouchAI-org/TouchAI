@@ -463,7 +463,8 @@ describe('when a model is picked while a prompt is queued', () => {
             [],
             expect.objectContaining({ text: 'queued prompt' }),
             'picked-model',
-            12
+            12,
+            undefined
         );
 
         unmount();
@@ -681,7 +682,8 @@ describe('when the user regenerates a reply', () => {
             [],
             expect.objectContaining({ text: 'original prompt' }),
             'gpt-5',
-            2
+            2,
+            undefined
         );
 
         unmount();
@@ -702,6 +704,7 @@ describe('when the user regenerates a reply', () => {
             'the real prompt',
             [],
             expect.anything(),
+            undefined,
             undefined,
             undefined
         );
@@ -752,6 +755,7 @@ describe('when the user regenerates a reply', () => {
             'prompt with file',
             [attachment],
             expect.objectContaining({ text: 'prompt with file' }),
+            undefined,
             undefined,
             undefined
         );

@@ -20,6 +20,7 @@ import type { InputHistorySnapshot } from '@/types/session';
 
 import { AiError, AiErrorCode } from '../contracts/errors';
 import type { AiCallRecord, AiMessage } from '../contracts/protocol';
+import type { SelectableReasoningLevel } from '../contracts/reasoning';
 import type { TaskEvent, TaskExecutionMode, TaskResult } from '../contracts/task';
 import { summarizeTaskModel, summarizeTaskTurn } from '../contracts/task';
 import {
@@ -151,6 +152,7 @@ export interface ExecuteRequestOptions extends RequestExecutionCallbacks {
     sessionId?: number;
     modelId?: string;
     providerId?: number;
+    reasoningLevel?: SelectableReasoningLevel;
     attachments?: AttachmentIndex[];
     inputSnapshot?: InputHistorySnapshot;
     executionMode?: TaskExecutionMode;
@@ -693,6 +695,7 @@ export class AiConversationRuntime {
                         (attemptSpan) =>
                             this.executor.runAttempt({
                                 startCheckpoint: resumeCheckpoint,
+                                reasoningLevel: this.options.reasoningLevel,
                                 privateState: this.privateState,
                                 persister: context.persister,
                                 taskId: this.options.taskId,

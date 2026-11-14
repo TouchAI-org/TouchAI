@@ -4,7 +4,7 @@ import { createMinimax } from 'vercel-minimax-ai-provider';
 
 import { z } from '@/utils/zod';
 
-import type { ReasoningProtocol } from '../../../contracts/reasoning';
+import type { ReasoningProtocol, SelectableReasoningLevel } from '../../../contracts/reasoning';
 import { AiSdkProviderBase } from '../ai-sdk/base';
 import { toModelInfo } from '../modelList';
 import type { ProviderApiTargets } from '../types';
@@ -78,6 +78,11 @@ export class MiniMaxProviderAdapter extends AiSdkProviderBase {
 
     protected override getReasoningProviderOptionsKey(): string {
         return 'minimax';
+    }
+
+    protected override filterReasoningLevels(): SelectableReasoningLevel[] {
+        // createMinimax().chat() uses the Anthropic transport and ignores reasoningEffort.
+        return [];
     }
 
     getApiTargets(): ProviderApiTargets {

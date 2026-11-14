@@ -117,6 +117,17 @@ describe('user starts a conversation task', () => {
         expect(center.getSessionStatus(7)).toEqual({ status: 'running', taskId: started.taskId });
     });
 
+    it('user starts a low-depth task and the runtime receives that request choice', async () => {
+        runtimeState.run.mockImplementation(completesInSession(7));
+        const started = await createCenter().startTask({
+            prompt: 'Explain',
+            sessionId: 7,
+            reasoningLevel: 'low',
+        });
+        await started.completion;
+        expect(latestOptions().reasoningLevel).toBe('low');
+    });
+
     it('user sees the earlier messages loaded into the task before it runs', async () => {
         historyState.loadSessionHistory.mockResolvedValue([
             { id: 'msg-1', role: 'user', content: 'earlier', parts: [], timestamp: 1 },

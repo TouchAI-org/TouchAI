@@ -97,6 +97,7 @@ interface SearchKeyboardRouteInput {
     code?: string;
     repeat?: boolean;
     inlineOverlayInput?: boolean;
+    localControl?: boolean;
     keyCode?: number;
     isComposing?: boolean;
     shiftKey?: boolean;
@@ -829,6 +830,9 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
         }
 
         const modified = input.ctrlKey || input.metaKey || input.altKey || input.shiftKey;
+        // DOM controls and the picker own navigation and activation. Global shortcuts
+        // and Escape above keep working without submitting the editor draft.
+        if (input.localControl) return false;
         if (getActiveSurface() !== 'search-surface') {
             if (!modified && ['ArrowUp', 'ArrowDown', 'Enter'].includes(input.key)) {
                 onForwardToOverlay(input.key);
@@ -1162,6 +1166,9 @@ export function createSearchKeydownHandler(
         }
 
         const eventTarget = event.target;
+        const isLocalControl =
+            eventTarget instanceof Element &&
+            eventTarget.closest('[data-search-controls="true"]') !== null;
         const isInlineOverlayInput =
             (eventTarget instanceof HTMLInputElement ||
                 eventTarget instanceof HTMLTextAreaElement) &&
@@ -1171,6 +1178,7 @@ export function createSearchKeydownHandler(
             code: event.code,
             repeat: event.repeat,
             inlineOverlayInput: isInlineOverlayInput,
+            localControl: isLocalControl,
             keyCode: event.keyCode,
             isComposing: event.isComposing,
             shiftKey: event.shiftKey,
@@ -1184,13 +1192,7 @@ export function createSearchKeydownHandler(
             return;
         }
 
-        if (isInlineOverlayInput) {
-            return;
-        }
-
-        if (event.key === 'Tab' && sessionHistory.value.length > 0) {
-            event.preventDefault();
-            controller.focusConversation();
+        if (isInlineOverlayInput || isLocalControl) {
             return;
         }
 

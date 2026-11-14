@@ -50,6 +50,9 @@
                 ghost: 'text-gray-600 hover:bg-gray-100',
                 'ghost-neutral': 'text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700',
                 link: 'text-primary-600 underline-offset-4 hover:underline',
+                toolbar:
+                    'text-muted-foreground hover:bg-surface-active hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus aria-expanded:bg-surface-active aria-pressed:bg-surface-active',
+                picker: 'w-full justify-start text-foreground hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-focus data-[highlighted=true]:bg-surface-active aria-checked:bg-surface-active',
             },
             size: {
                 default: 'h-9 px-4 py-2',

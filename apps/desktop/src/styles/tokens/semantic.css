@@ -41,6 +41,8 @@
     --color-surface-raised: var(--color-ui-50);
     --color-surface-floating: var(--color-white);
     --color-surface-sunken: var(--color-ui-400);
+    /* The mat and footer around the search surface: one step deeper so the white panel reads as raised. */
+    --color-surface-matte: var(--color-ui-500);
     --color-surface-hover: var(--color-ui-300);
     --color-surface-hover-soft: var(--color-ui-500);
     --color-surface-active: var(--color-ui-600);

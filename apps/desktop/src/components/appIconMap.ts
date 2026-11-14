@@ -9,6 +9,7 @@ import IconBoxes from '~icons/lucide/boxes';
 import IconBriefcase from '~icons/lucide/briefcase';
 import IconBug from '~icons/lucide/bug';
 import IconChartColumn from '~icons/lucide/chart-column';
+import IconCheck from '~icons/lucide/check';
 import IconChevronDown from '~icons/lucide/chevron-down';
 import IconChevronRight from '~icons/lucide/chevron-right';
 import IconChevronUp from '~icons/lucide/chevron-up';
@@ -39,6 +40,7 @@ import IconWindowRestore from '~icons/lucide/minimize';
 import IconCompress from '~icons/lucide/minimize-2';
 import IconMinus from '~icons/lucide/minus';
 import IconPointer from '~icons/lucide/mouse-pointer-2';
+import IconPaperclip from '~icons/lucide/paperclip';
 import IconEdit from '~icons/lucide/pencil';
 import IconPin from '~icons/lucide/pin';
 import IconPlay from '~icons/lucide/play';
@@ -55,6 +57,8 @@ import IconWrench from '~icons/lucide/wrench';
 import IconX from '~icons/lucide/x';
 
 export const appIconMap = {
+    check: IconCheck,
+    paperclip: IconPaperclip,
     'arrow-down': IconArrowDown,
     'arrow-left': IconArrowLeft,
     'arrow-right': IconArrowRight,

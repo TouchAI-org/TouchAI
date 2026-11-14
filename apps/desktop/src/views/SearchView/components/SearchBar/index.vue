@@ -6,61 +6,181 @@
     <div
         ref="searchBarContainerRef"
         data-testid="search-bar"
-        class="search-bar-container relative flex min-h-14 w-full shrink-0 gap-2 p-3"
-        :class="isMultiLine ? 'items-start' : 'items-center'"
-        @mousedown="handleContainerMouseDown"
+        class="search-bar-container relative flex w-full shrink-0 flex-col"
     >
         <div
-            :ref="assignLogoContainerRef"
-            class="logo-container flex shrink-0 cursor-pointer items-center justify-center"
-            data-tauri-drag-region="false"
-            @mouseenter="handleModelDropdownPrefetchRequest"
-            @mousedown.stop.prevent="handleModelDropdownToggleRequest"
+            data-testid="search-input-row"
+            class="search-bar-input relative flex min-h-14 w-full gap-2 px-3 pt-3 pb-4"
+            :class="isMultiLine ? 'items-start' : 'items-center'"
+            @mousedown="handleContainerMouseDown"
         >
-            <ModelLogo
-                v-if="selectedModel || activeModel"
-                :model-id="selectedModel?.model_id || activeModel?.model_id || ''"
-                :name="selectedModel?.name || activeModel?.name || 'model'"
-                class="border-2 border-model-logo-border transition-colors hover:border-model-logo-border-hover"
-            />
-            <img v-else :src="searchLogo" alt="TouchAI" class="h-8 w-8 select-none" />
-        </div>
+            <div class="flex shrink-0 items-center justify-center" data-tauri-drag-region="false">
+                <ModelLogo
+                    v-if="selectedModel || activeModel"
+                    :model-id="selectedModel?.model_id || activeModel?.model_id || ''"
+                    :name="selectedModel?.name || activeModel?.name || 'model'"
+                    class="border-2 border-model-logo-border"
+                />
+                <img v-else :src="searchLogo" alt="TouchAI" class="h-8 w-8 select-none" />
+            </div>
 
-        <div
-            ref="editorHostRef"
-            data-testid="search-editor-host"
-            class="search-bar-editor-host custom-scrollbar-thin flex min-h-0 flex-1 cursor-default self-stretch overflow-y-auto"
-            :class="[
-                disabled ? 'pointer-events-none opacity-60' : '',
-                isMultiLine ? 'items-start' : 'items-center',
-            ]"
-            :style="{ maxHeight: 'calc(1.5em * 7 + 8px)' }"
-            @click="onEditorClick"
-            @mousedown.capture="handleEditorSelectionMouseDown"
-        >
-            <!--
+            <div
+                ref="editorHostRef"
+                data-testid="search-editor-host"
+                class="search-bar-editor-host custom-scrollbar-thin flex min-h-0 flex-1 cursor-default self-stretch overflow-y-auto"
+                :class="[
+                    disabled ? 'pointer-events-none opacity-60' : '',
+                    isMultiLine ? 'items-start' : 'items-center',
+                ]"
+                :style="{ maxHeight: 'calc(1.5em * 7 + 8px)' }"
+                @click="onEditorClick"
+                @mousedown.capture="handleEditorSelectionMouseDown"
+            >
+                <!--
               Keep the mounted Tiptap wrapper stretchable in the flex host.
               Without this, an empty line can collapse to ~0px and the caret becomes invisible
               until the user types a real character.
             -->
-            <div class="search-bar-editor-content w-full min-w-0 flex-1">
-                <EditorContent v-if="editor" :editor="editor" />
+                <div class="search-bar-editor-content w-full min-w-0 flex-1">
+                    <EditorContent v-if="editor" :editor="editor" />
+                </div>
+            </div>
+            <button
+                type="button"
+                data-testid="search-toolbar-handle"
+                class="search-toolbar-handle"
+                :class="{ 'search-toolbar-handle--expanded': toolbarOpen }"
+                :aria-expanded="toolbarOpen"
+                aria-controls="search-toolbar"
+                :aria-label="t(toolbarOpen ? 'search.toolbar.collapse' : 'search.toolbar.expand')"
+                :title="t(toolbarOpen ? 'search.toolbar.collapse' : 'search.toolbar.expand')"
+                @mousedown.stop
+                @click.stop="emit('requestToggleToolbar')"
+            >
+                <span class="search-toolbar-handle__glyph" aria-hidden="true">
+                    <span></span>
+                    <span></span>
+                </span>
+            </button>
+        </div>
+        <div
+            id="search-toolbar"
+            data-testid="search-toolbar"
+            role="toolbar"
+            :aria-label="t('search.toolbar.label')"
+            class="search-bar-toolbar"
+            :class="{ 'search-bar-toolbar--open': toolbarOpen }"
+            :inert="toolbarOpen ? undefined : true"
+            :aria-hidden="toolbarOpen ? undefined : 'true'"
+        >
+            <div
+                data-testid="search-extension-bar"
+                data-search-controls="true"
+                class="search-bar-toolbar__content flex min-h-10 items-center gap-1 px-3 py-1"
+                @mousedown.stop
+            >
+                <div :ref="assignLogoContainerRef" class="min-w-0">
+                    <Button
+                        variant="toolbar"
+                        size="sm"
+                        class="max-w-full gap-1 px-2"
+                        data-model-trigger="true"
+                        :disabled="disabled"
+                        :aria-label="t('search.toolbar.selectModel')"
+                        :aria-expanded="modelDropdownOpen"
+                        aria-haspopup="dialog"
+                        :title="actionHint(t('search.toolbar.selectModel'), modelShortcut)"
+                        @mouseenter="handleModelDropdownPrefetchRequest"
+                        @focus="handleModelDropdownPrefetchRequest"
+                        @click="handleModelDropdownToggleRequest"
+                    >
+                        <span
+                            class="truncate text-compact font-medium text-foreground"
+                            data-no-i18n="true"
+                            translate="no"
+                        >
+                            {{
+                                selectedModel?.name ||
+                                activeModel?.name ||
+                                t('search.toolbar.selectModel')
+                            }}
+                        </span>
+                        <AppIcon
+                            name="chevron-down"
+                            class="size-3.5 shrink-0 text-muted-foreground"
+                        />
+                    </Button>
+                </div>
+                <div class="flex-1" />
+                <Button
+                    variant="toolbar"
+                    size="icon-sm"
+                    data-history-trigger="true"
+                    class="text-muted-foreground"
+                    :disabled="disabled"
+                    :aria-label="t('search.toolbar.history')"
+                    :title="actionHint(t('search.toolbar.history'), historyShortcut)"
+                    :aria-expanded="historyOpen"
+                    aria-haspopup="dialog"
+                    @mouseenter="emit('requestPrefetchHistory')"
+                    @focus="emit('requestPrefetchHistory')"
+                    @click="emit('requestToggleHistory', $event.currentTarget as HTMLElement)"
+                >
+                    <AppIcon name="history" class="size-4" />
+                </Button>
+                <Button
+                    variant="toolbar"
+                    size="icon-sm"
+                    data-attachment-trigger="true"
+                    class="text-muted-foreground"
+                    :disabled="disabled || attachmentBusy"
+                    :aria-busy="attachmentBusy"
+                    :aria-label="t('search.toolbar.addAttachment')"
+                    :title="t('search.toolbar.addAttachment')"
+                    @click="emit('requestAddAttachment')"
+                >
+                    <AppIcon v-if="attachmentBusy" name="loader" class="size-4 animate-spin" />
+                    <AppIcon v-else name="paperclip" class="size-4" />
+                </Button>
+                <Button
+                    variant="toolbar"
+                    size="icon-sm"
+                    data-settings-trigger="true"
+                    class="text-muted-foreground"
+                    :disabled="disabled"
+                    :aria-label="t('search.toolbar.settings')"
+                    :title="t('search.toolbar.settings')"
+                    @click="emit('requestOpenSettings')"
+                >
+                    <AppIcon name="settings" class="size-4" />
+                </Button>
             </div>
         </div>
+        <p
+            v-if="attachmentError"
+            role="alert"
+            class="bg-surface-sunken px-3 pb-2 text-xs text-text-danger"
+        >
+            {{ attachmentError }}
+        </p>
     </div>
     <slot name="results" :skill-picker="skillPickerState" :select-skill="selectSkillCandidate" />
 </template>
 
 <script setup lang="ts">
     import searchLogo from '@assets/logo.svg';
+    import AppIcon from '@components/AppIcon.vue';
     import ModelLogo from '@components/ModelLogo.vue';
     import { log } from '@services/ObservabilityService';
     import { EditorContent } from '@tiptap/vue-3';
     import type { ComponentPublicInstance } from 'vue';
     import { computed, onMounted, onUnmounted, ref, toRefs, useId, watch } from 'vue';
 
+    import { Button } from '@/components/ui/button';
+    import { t } from '@/i18n';
     import type { Index } from '@/services/AgentService/infrastructure/attachments';
     import type { SelectedSkill, SkillMetadata } from '@/services/AgentService/skills';
+    import { formatShortcutForDisplay } from '@/utils/shortcuts';
 
     import { type ModelCapabilities, useSearchInput } from './composables/useSearchLogic';
     import type { SkillPickerState } from './composables/useSkillAutocomplete';
@@ -86,6 +206,13 @@
         completeFile?: (index?: number) => Index | null;
         moveFileSelection?: (direction: 'up' | 'down' | 'left' | 'right') => boolean;
         filePickerContext?: FilePickerContext | null;
+        modelDropdownOpen?: boolean;
+        historyOpen?: boolean;
+        toolbarOpen?: boolean;
+        modelShortcut?: string | null;
+        historyShortcut?: string | null;
+        attachmentBusy?: boolean;
+        attachmentError?: string;
         startDragging: (event: MouseEvent) => Promise<void>;
     }
 
@@ -93,6 +220,13 @@
         disabled: false,
         autoSelectFirst: false,
         showEmptyResults: false,
+        modelDropdownOpen: false,
+        historyOpen: false,
+        toolbarOpen: false,
+        modelShortcut: null,
+        historyShortcut: null,
+        attachmentBusy: false,
+        attachmentError: '',
         queryText: '',
         attachments: () => [],
         completeFile: undefined,
@@ -134,7 +268,16 @@
         skillsChange: [skills: SelectedSkill[]];
         requestPrefetchModelDropdown: [];
         requestToggleModelDropdown: [];
+        requestToggleHistory: [anchorElement: HTMLElement];
+        requestPrefetchHistory: [];
+        requestAddAttachment: [];
+        requestToggleToolbar: [];
+        requestOpenSettings: [];
     }>();
+
+    function actionHint(label: string, shortcut?: string | null) {
+        return shortcut ? `${label} (${formatShortcutForDisplay(shortcut)})` : label;
+    }
 
     const searchInput = useSearchInput({
         searchBarContainerRef,
@@ -426,7 +569,8 @@
         fileName: string,
         fileType: 'image' | 'file',
         preview?: string,
-        alias?: string
+        alias?: string,
+        options?: { focus?: boolean }
     ) {
         const ed = editor.value;
         if (!ed) return;
@@ -441,7 +585,7 @@
                     preview: preview || undefined,
                     alias: alias || '',
                 },
-                { atCurrentSelection: true }
+                { atCurrentSelection: true, ...options }
             );
         } catch (error) {
             log.error('Failed to insert attachment at cursor:', error);

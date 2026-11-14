@@ -690,6 +690,7 @@ export function useSearchInput(
                     insertAttachmentTag(ed, nextTag, {
                         textOffset: draftInsertionOffset,
                         sameOffsetIndex,
+                        focus: false,
                     })
                 );
                 if (typeof draftInsertionOffset === 'number') {

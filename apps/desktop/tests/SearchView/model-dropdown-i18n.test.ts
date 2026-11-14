@@ -76,7 +76,9 @@ describe('user opens the model picker', () => {
         );
 
         const badges = wrapper.findAll('.model-dropdown-state-badge');
-        expect(badges.map((badge) => badge.text())).toEqual(['Current', 'Default']);
+        expect(badges.map((badge) => badge.text())).toEqual(['Default']);
+        expect(wrapper.get('[role="option"]').attributes('aria-selected')).toBe('true');
+        expect(wrapper.find('[aria-label="Current"]').exists()).toBe(true);
         for (const badge of badges) {
             expect(badge.classes()).not.toContain('truncate');
             expect(badge.classes().some((className) => className.startsWith('max-w-'))).toBe(false);

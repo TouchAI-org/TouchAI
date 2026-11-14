@@ -1,14 +1,23 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import { createDeepSeek } from '@ai-sdk/deepseek';
+import { createDeepSeek, type DeepSeekLanguageModelOptions } from '@ai-sdk/deepseek';
 
 import { z } from '@/utils/zod';
 
-import type { ReasoningLevelMap, ReasoningProtocol } from '../../../contracts/reasoning';
+import {
+    deriveReasoningLevelMap,
+    type ReasoningLevelMap,
+    type ReasoningProtocol,
+    type SelectableReasoningLevel,
+} from '../../../contracts/reasoning';
 import { AiSdkProviderBase } from '../ai-sdk/base';
 import { toModelInfo } from '../modelList';
 import { DEEPSEEK_REASONING_LEVEL_MAP } from '../reasoning';
-import type { ProviderApiTargets } from '../types';
+import type { ProviderApiTargets, ProviderReasoningInput } from '../types';
+
+const deepseekReasoningEfforts = new Set<string>(['low', 'high', 'max'] satisfies NonNullable<
+    DeepSeekLanguageModelOptions['reasoningEffort']
+>[]);
 
 const deepseekModelsSchema = z.object({
     data: z.array(
@@ -61,6 +70,20 @@ export class DeepSeekProviderAdapter extends AiSdkProviderBase {
     protected override getFallbackReasoningLevelMap(modelId: string): ReasoningLevelMap {
         void modelId;
         return DEEPSEEK_REASONING_LEVEL_MAP;
+    }
+
+    protected override filterReasoningLevels(
+        levels: SelectableReasoningLevel[],
+        options: ProviderReasoningInput
+    ): SelectableReasoningLevel[] {
+        const map = options.reasoningOptions?.length
+            ? deriveReasoningLevelMap(options.reasoningOptions)
+            : this.getFallbackReasoningLevelMap(options.model);
+        return levels.filter((level) => {
+            if (level === 'off') return true;
+            const effort = map[level] ?? level;
+            return deepseekReasoningEfforts.has(effort);
+        });
     }
 
     getApiTargets(): ProviderApiTargets {

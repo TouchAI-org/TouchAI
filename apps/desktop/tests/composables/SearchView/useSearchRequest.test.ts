@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Ref } from 'vue';
 import { ref } from 'vue';
 
+import type { SelectableReasoningLevel } from '@/services/AgentService/contracts/reasoning';
 import { AppEvent } from '@/services/EventService/types';
 import { createInputHistorySnapshot, type SessionMessage } from '@/types/session';
 import { useSearchRequestFlow } from '@/views/SearchView/composables/useSearchRequest';
@@ -131,6 +132,8 @@ async function flushAsyncWork() {
 }
 
 interface FlowOptions {
+    attachmentBusy?: Ref<boolean>;
+    reasoningLevel?: Ref<SelectableReasoningLevel | undefined>;
     modelOverride?: Ref<SearchModelOverride>;
     clearDraft?: (options?: { preserveModelTag?: boolean }) => void;
     attachments?: Index[];
@@ -151,6 +154,8 @@ async function mountFlow(options: FlowOptions = {}) {
     const mounted = await mountComposable(() =>
         useSearchRequestFlow({
             modelOverride,
+            reasoningLevel: options.reasoningLevel,
+            attachmentBusy: options.attachmentBusy,
             clearDraft,
             getSupportedAttachments: () => attachments,
             getUnsupportedAttachmentMessage: () => unsupportedMessage,
@@ -188,6 +193,39 @@ describe('when the user sends a prompt', () => {
         document.body.innerHTML = '';
     });
 
+    it.each([false, true])(
+        'user submits while files import with a running request=%s and sends both only after import finishes',
+        async (isLoading) => {
+            agentState.isLoading.value = isLoading;
+            const attachments = [createAttachment('first')];
+            const attachmentBusy = ref(true);
+            const { result, clearDraft, unmount } = await mountFlow({
+                attachments,
+                attachmentBusy,
+            });
+            await result.handleSubmit('use both files');
+            expect(agentState.sendRequest).not.toHaveBeenCalled();
+            expect(result.pendingRequest.value).toBeNull();
+            expect(clearDraft).not.toHaveBeenCalled();
+            attachments.push(createAttachment('second'));
+            attachmentBusy.value = false;
+            await result.handleSubmit('use both files');
+            if (isLoading) {
+                expect(result.pendingRequest.value?.attachments).toHaveLength(2);
+                await (agentCallbacks.current?.onComplete as () => Promise<void>)();
+            }
+            expect(agentState.sendRequest).toHaveBeenCalledWith(
+                'use both files',
+                attachments,
+                expect.objectContaining({ attachments }),
+                undefined,
+                undefined,
+                undefined
+            );
+            unmount();
+        }
+    );
+
     it('user is told the attachments cannot be used and the prompt stays unsent', async () => {
         const { result, clearDraft, unmount } = await mountFlow({
             unsupportedMessage: 'The active model does not support files.',
@@ -220,9 +258,32 @@ describe('when the user sends a prompt', () => {
             [attachment],
             expect.objectContaining({ text: 'hello world' }),
             'gpt-5',
-            4
+            4,
+            undefined
         );
 
+        unmount();
+    });
+
+    it('user sends with the selected depth even if clearing the draft changes the selection', async () => {
+        const level = ref<SelectableReasoningLevel | undefined>('low');
+        const { result, unmount } = await mountFlow({
+            reasoningLevel: level,
+            clearDraft: () => {
+                level.value = 'high';
+            },
+        });
+        await result.handleSubmit('explain');
+        expect(agentState.sendRequest).toHaveBeenCalledWith(
+            'explain',
+            [],
+            expect.anything(),
+            undefined,
+            undefined,
+            'low'
+        );
+        result.startNewSession();
+        // clearDraft above is deliberately adversarial; the request snapshot is immutable.
         unmount();
     });
 });
@@ -282,12 +343,33 @@ describe('when the user sends a second prompt while a request is running', () =>
             [attachment],
             expect.objectContaining({ text: 'queued prompt' }),
             'queued-model',
-            3
+            3,
+            undefined
         );
         expect(clearDraft).toHaveBeenCalledWith({ preserveModelTag: true });
         expect(result.pendingRequest.value).toBeNull();
         expect(result.isWaitingForCompletion.value).toBe(false);
 
+        unmount();
+    });
+
+    it('user queues a low-depth prompt and changing the next selection does not change the queued request', async () => {
+        const level = ref<SelectableReasoningLevel | undefined>('low');
+        const { result, unmount } = await mountFlow({ reasoningLevel: level });
+        await result.handleSubmit('queued depth');
+        level.value = 'max';
+        agentState.isLoading.value = false;
+        await (agentCallbacks.current?.onComplete as () => Promise<void>)();
+        expect(agentState.sendRequest).toHaveBeenCalledWith(
+            'queued depth',
+            [],
+            expect.anything(),
+            undefined,
+            undefined,
+            'low'
+        );
+        result.startNewSession();
+        expect(level.value).toBeUndefined();
         unmount();
     });
 
@@ -830,7 +912,8 @@ describe('when the user asks for a different answer', () => {
                 excludeFromHistory: true,
             }),
             'regen-model',
-            11
+            11,
+            undefined
         );
 
         unmount();

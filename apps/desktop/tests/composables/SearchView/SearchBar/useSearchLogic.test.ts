@@ -420,7 +420,7 @@ describe('when the search input first appears', () => {
                 preview: undefined,
                 supportStatus: 'supported',
             },
-            { textOffset: undefined, sameOffsetIndex: undefined }
+            { textOffset: undefined, sameOffsetIndex: undefined, focus: false }
         );
         // Restoring state must never look like the user typed or removed something.
         expect(emitQueryText).not.toHaveBeenCalled();
@@ -658,7 +658,7 @@ describe('when the user recalls a previously sent prompt', () => {
                 preview: undefined,
                 supportStatus: 'supported',
             },
-            { textOffset: 12, sameOffsetIndex: 0 }
+            { textOffset: 12, sameOffsetIndex: 0, focus: false }
         );
         // The caret must land at the end so the user can keep typing.
         expect(editor.commands.focus).toHaveBeenCalledWith('end');

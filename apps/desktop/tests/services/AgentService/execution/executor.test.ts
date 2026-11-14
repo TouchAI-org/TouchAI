@@ -683,6 +683,24 @@ describe('user sends a prompt and receives a streamed answer', () => {
         );
     });
 
+    it.each(['low', 'off'] as const)(
+        'user gets the selected %s depth in the outgoing model request',
+        async (reasoningLevel) => {
+            const requests: AiRequestOptions[] = [];
+            providerMock.stream.mockImplementation(async function* (request: AiRequestOptions) {
+                requests.push(request);
+                yield { content: 'Done', done: true };
+            });
+            const outcome = await new AiRequestExecutor().runAttempt({
+                startCheckpoint: createCheckpoint(),
+                reasoningLevel,
+                persister: { getSessionId: () => 42 } as never,
+            });
+            expect(outcome.type).toBe('completed');
+            expect(requests.map((request) => request.reasoningLevel)).toEqual([reasoningLevel]);
+        }
+    );
+
     it('user keeps the partial answer with its timings when the stream fails', async () => {
         vi.useFakeTimers();
         vi.setSystemTime(1000);

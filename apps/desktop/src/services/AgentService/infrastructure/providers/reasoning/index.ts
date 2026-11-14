@@ -2,7 +2,7 @@
 
 import type { ReasoningLevelMap } from '../../../contracts/reasoning';
 
-export { encodeReasoning } from './formats';
+export { canEncodeReasoningOff, encodeReasoning } from './formats';
 export {
     getOpenAiReasoningLevelMap,
     getOpenAiSupportedLevels,

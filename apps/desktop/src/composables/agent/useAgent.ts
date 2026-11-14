@@ -8,6 +8,7 @@ import { computed, onUnmounted, ref } from 'vue';
 import { t } from '@/i18n';
 import { sessionTaskCenter } from '@/services/AgentService';
 import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
+import type { SelectableReasoningLevel } from '@/services/AgentService/contracts/reasoning';
 import { type Index } from '@/services/AgentService/infrastructure/attachments';
 import { loadCompleteSessionHistory } from '@/services/AgentService/session';
 import type { InputHistorySnapshot, LoadedSessionInfo } from '@/types/session';
@@ -189,7 +190,8 @@ export function useAgent(options: UseAiRequestOptions = {}) {
         attachments: Index[] = [],
         inputSnapshot?: InputHistorySnapshot,
         modelId?: string,
-        providerId?: number
+        providerId?: number,
+        reasoningLevel?: SelectableReasoningLevel
     ) {
         if (!prompt.trim() && attachments.length === 0 && !inputSnapshot?.skills?.length) {
             error.value = new Error(t('search.error.promptEmpty'));
@@ -211,6 +213,7 @@ export function useAgent(options: UseAiRequestOptions = {}) {
                 sessionId: currentSessionId.value ?? undefined,
                 modelId,
                 providerId,
+                reasoningLevel,
                 attachments,
                 inputSnapshot,
                 executionMode: 'foreground',

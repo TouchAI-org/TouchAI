@@ -438,18 +438,6 @@
     align-items: center;
 }
 
-.search-view-surface-card {
-    isolation: isolate;
-}
-
-/* Paint the window stroke above opaque conversation and result surfaces. */
-.search-view-surface-card.search-surface-elevated::after {
-    @apply pointer-events-none absolute inset-0 z-30;
-    content: '';
-    border-radius: inherit;
-    box-shadow: inset 0 0 0 1px var(--color-window-border);
-}
-
 /* QuickSearch hands its existing viewport to the conversation card. Keeping the
  * component mounted lets the reverse reveal use the same timing as the forward
  * session reveal instead of producing a display:none frame. */
@@ -521,16 +509,58 @@
     }
 }
 
-/* The card is the panel, not the host interior.
+/* The search surface is one opaque panel.
  *
- * The native host is committed instantly to the final height (so it is never smaller
- * than the content), a fixed overlay reserves host height below the panel, and the card
- * itself owns the height it shows. Unlayered on purpose: this has to win over `h-full`. */
-.search-view-surface-card {
-    height: var(--search-surface-card-height, 100%);
+ * Collapsed it is the white search box with a hairline ring. Expanded the same
+ * panel becomes the gray mat: it grows only a few pixels outward, the draft keeps
+ * its own rounded white card, and the toolbar occupies the bottom band. One box
+ * means the radius, ring and shadow never double up or get covered. */
+.search-surface-shell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
 }
 
-.search-view-surface-card--revealing {
-    /* WAAPI animates height; the template disables backdrop blur during this layout work. */
+.search-surface-panel {
+    box-sizing: border-box;
+    align-self: flex-start;
+    width: 100%;
+    height: var(--search-surface-card-height, 100%);
+    background-color: var(--search-surface-background);
+    border-radius: var(--search-surface-radius);
+    transition:
+        border-radius var(--search-surface-mat-duration, 140ms) var(--search-surface-easing, ease),
+        background-color var(--search-surface-mat-duration, 140ms)
+            var(--search-surface-easing, ease);
+}
+
+.search-surface-panel--elevated {
+    /* Outer ring, not inset: children can never paint over it.
+     * The window stroke is native gray; the search card uses the light border
+     * role so the floating panel does not read as a hard black frame. */
+    box-shadow:
+        0 0 0 1px var(--color-border),
+        var(--shadow-window-halo),
+        var(--shadow-window-mid),
+        var(--shadow-window-far);
+}
+
+.search-surface-panel--mat {
+    /* Only the toolbar band below the draft turns gray; the draft keeps its own
+     * white rounded card on every side. */
+    background-color: var(--color-surface-matte);
+}
+
+/* The draft is always an opaque white card. Keeping its fill independent of
+ * the mat avoids a gray flash when the mat class is removed at the end of the
+ * collapse, while the panel background is still transitioning back to white. */
+.search-surface-panel .search-bar-input {
+    border-radius: var(--search-surface-radius);
+    background-color: var(--search-surface-background);
+}
+
+.search-surface-panel--revealing {
+    /* WAAPI animates height; the panel disables backdrop blur meanwhile. */
     will-change: height;
 }

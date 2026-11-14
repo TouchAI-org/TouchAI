@@ -218,6 +218,30 @@ describe('useSearchKeyboard outside-click handling', () => {
 });
 
 describe('useSearchKeyboard inline overlay inputs', () => {
+    it.each([false, true])(
+        'user traverses an existing conversation and its toolbar with Shift=%s without a focus trap',
+        async (shiftKey) => {
+            const options = createOptions();
+            options.sessionHistory.value = [
+                { id: 'history', role: 'user', content: 'hello', parts: [], timestamp: 1 },
+            ];
+            const mounted = await mountComposable(() => useSearchKeyboard(options));
+            const editor = document.createElement('div');
+            editor.contentEditable = 'true';
+            document.body.appendChild(editor);
+            const event = new KeyboardEvent('keydown', {
+                key: 'Tab',
+                shiftKey,
+                bubbles: true,
+                cancelable: true,
+            });
+            editor.dispatchEvent(event);
+            expect(event.defaultPrevented).toBe(false);
+            expect(options.controller.focusConversation).not.toHaveBeenCalled();
+            mounted.unmount();
+        }
+    );
+
     afterEach(() => {
         document.body.innerHTML = '';
     });

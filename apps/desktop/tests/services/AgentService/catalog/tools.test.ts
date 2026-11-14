@@ -42,6 +42,19 @@ describe('user lets the model ask a tool for more time', () => {
         ).resolves.toBeUndefined();
     });
 
+    it('user with all tools disabled does not make tools available to the model', async () => {
+        const { hasEnabledToolDefinitions } = await import('@/services/AgentService/catalog/tools');
+
+        await expect(hasEnabledToolDefinitions()).resolves.toBe(false);
+    });
+
+    it('user with an enabled tool makes tools available to the model', async () => {
+        getEnabledToolDefinitionsMock.mockResolvedValue([tool('builtin__read')]);
+        const { hasEnabledToolDefinitions } = await import('@/services/AgentService/catalog/tools');
+
+        await expect(hasEnabledToolDefinitions()).resolves.toBe(true);
+    });
+
     it('user sees the timeout hint only on tools that accept it', async () => {
         getEnabledToolDefinitionsMock.mockResolvedValue([
             tool('builtin__bash', { adaptiveTimeoutCeilingMs: 120000 }),

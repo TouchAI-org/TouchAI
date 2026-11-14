@@ -2,6 +2,7 @@ import type { ModelWithProvider } from '@database/queries/models';
 import type { SessionEntity } from '@database/types';
 import type { QuickShortcutItem } from '@services/NativeService';
 
+import type { SelectableReasoningLevel } from '@/services/AgentService/contracts/reasoning';
 import type { Index } from '@/services/AgentService/infrastructure/attachments';
 import type { SelectedSkill } from '@/services/AgentService/skills';
 import type { SessionTaskStatus } from '@/services/AgentService/task/types';
@@ -39,7 +40,8 @@ export interface SearchBarHandle {
         fileName: string,
         fileType: 'image' | 'file',
         preview?: string,
-        alias?: string
+        alias?: string,
+        options?: { focus?: boolean }
     ) => void;
     isSkillAutocompleteOpen: () => boolean;
     isSkillAutocompleteActive: () => boolean;
@@ -122,6 +124,7 @@ export interface PendingRequest {
     inputSnapshot?: InputHistorySnapshot;
     modelId?: string;
     providerId?: number;
+    reasoningLevel?: SelectableReasoningLevel;
 }
 
 export interface SearchModelCapabilities {
@@ -157,6 +160,8 @@ export interface ModelDropdownItem {
     name: string;
     providerId: number;
     providerName: string;
+    providerLogo?: string;
+    reasoningLevels?: SelectableReasoningLevel[];
     reasoning: number;
     tool_call: number;
     modalities: string | null;
@@ -165,6 +170,8 @@ export interface ModelDropdownItem {
 }
 
 export interface ModelDropdownData {
+    reasoningLevel?: SelectableReasoningLevel;
+    reservedShortcuts?: (string | null)[];
     activeModelId: string;
     activeProviderId: number | null;
     selectedModelId: string;

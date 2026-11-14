@@ -174,7 +174,11 @@ describe('user picks a reasoning level for a stateless Responses model', () => {
             })
         );
 
-        expect(options.openai).toEqual({ store: false, reasoningEffort: 'none' });
+        expect(options.openai).toEqual({
+            store: false,
+            forceReasoning: true,
+            reasoningEffort: 'none',
+        });
     });
 });
 

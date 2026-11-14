@@ -120,6 +120,7 @@ interface InsertAttachmentTagOptions {
     replaceToken?: boolean;
     replaceRange?: { from: number; to: number };
     separateHistory?: boolean;
+    focus?: boolean;
 }
 
 /**
@@ -130,11 +131,12 @@ export function insertAttachmentTag(
     attrs: AttachmentTagAttrs,
     options: InsertAttachmentTagOptions = {}
 ) {
-    const chain = editor
-        .chain()
-        .focus(
+    const chain = editor.chain();
+    if (options.focus !== false) {
+        chain.focus(
             typeof options.textOffset === 'number' || options.atCurrentSelection ? undefined : 'end'
         );
+    }
 
     const inserted = chain
         .command(({ tr, state }: { tr: Transaction; state: EditorState }) => {
