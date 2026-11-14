@@ -221,42 +221,41 @@
 
 .search-toolbar-handle__glyph {
     display: inline-flex;
+    width: 24px;
+    height: 8px;
     align-items: center;
+    justify-content: center;
     transform-origin: center;
     transition: transform var(--duration-quick) var(--ease-smooth-out);
 }
 
 /*
- * Two halves that read as one rounded line at rest: no gap, only the outer caps
- * are rounded. On hover each half bends by a few degrees, so the line becomes a
- * shallow, soft curve instead of a tall chevron. The rounded caps keep the joint
- * visually continuous without adding a second glyph.
+ * The line is one continuous quadratic curve. At rest it is flattened almost
+ * back to a straight line; on hover the same path stretches vertically, so the
+ * bend grows smoothly from the middle instead of folding at a joint.
+ * non-scaling-stroke keeps the 2px weight constant through that stretch.
  */
-.search-toolbar-handle__glyph span {
+.search-toolbar-handle__curve {
     display: block;
-    width: 12px;
-    height: 2px;
-    background: currentColor;
+    width: 24px;
+    height: 8px;
+    overflow: visible;
+}
+
+.search-toolbar-handle__curve path {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2px;
+    stroke-linecap: round;
+    vector-effect: non-scaling-stroke;
+    transform-box: view-box;
+    transform-origin: 12px 4px;
+    transform: scaleY(0.2);
     transition: transform var(--duration-quick) var(--ease-smooth-out);
 }
 
-.search-toolbar-handle__glyph span:first-child {
-    border-radius: 9999px 0 0 9999px;
-    transform-origin: right center;
-}
-
-.search-toolbar-handle__glyph span:last-child {
-    margin-left: -1px;
-    border-radius: 0 9999px 9999px 0;
-    transform-origin: left center;
-}
-
-.search-toolbar-handle:hover .search-toolbar-handle__glyph span:first-child {
-    transform: rotate(10deg);
-}
-
-.search-toolbar-handle:hover .search-toolbar-handle__glyph span:last-child {
-    transform: rotate(-10deg);
+.search-toolbar-handle:hover .search-toolbar-handle__curve path {
+    transform: scaleY(4);
 }
 
 .search-toolbar-handle--expanded .search-toolbar-handle__glyph {

@@ -58,8 +58,9 @@
                 @click.stop="emit('requestToggleToolbar')"
             >
                 <span class="search-toolbar-handle__glyph" aria-hidden="true">
-                    <span></span>
-                    <span></span>
+                    <svg class="search-toolbar-handle__curve" viewBox="0 0 24 8" focusable="false">
+                        <path d="M2 3.55 Q12 4.45 22 3.55" vector-effect="non-scaling-stroke" />
+                    </svg>
                 </span>
             </button>
         </div>
