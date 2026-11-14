@@ -192,7 +192,9 @@
     border: 0;
     border-radius: 9999px;
     background: transparent;
-    color: var(--color-muted-foreground);
+    /* A seam detail, not a control: keep it just barely above the surface and
+     * lift it one border step on hover. */
+    color: var(--color-border-subtle);
     cursor: pointer;
     transform: translateX(-50%);
     transition:
@@ -201,7 +203,7 @@
 }
 
 .search-toolbar-handle:hover {
-    color: var(--color-foreground);
+    color: var(--color-border-strong);
 }
 
 .search-toolbar-handle:focus-visible {
