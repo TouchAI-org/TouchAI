@@ -767,6 +767,7 @@ export const zhToEnTextMap = {
     回复: 'Reply',
     浏览器操作确认: 'Browser operation confirmation',
     '此操作会连接到已有浏览器会话。': 'This operation connects to an existing browser session.',
+    '此操作会读取浏览器会话状态。': 'This operation reads the browser session state.',
     '此操作会读取当前浏览器页面或标签页状态。':
         'This operation reads the current browser page or tab state.',
     '此操作会截取当前网页内容并作为图片附件返回。':
@@ -777,6 +778,8 @@ export const zhToEnTextMap = {
         'This operation will open or switch the browser to a new webpage.',
     '此操作会改变当前网页的浏览状态。':
         'This operation will change the current webpage browsing state.',
+    '此操作会滚动当前网页。': 'This operation will scroll the current webpage.',
+    '此操作会等待当前网页。': 'This operation will wait for the current webpage.',
     '此操作会向网页表单输入内容。': 'This operation will enter content into a webpage form.',
     '此操作会向网页表单输入一组内容。':
         'This operation will enter a group of values into a webpage form.',
