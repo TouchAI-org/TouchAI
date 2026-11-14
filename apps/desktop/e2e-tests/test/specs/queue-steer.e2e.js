@@ -875,6 +875,39 @@ describe('user sends queued and priority messages during a running answer', () =
         releaseAnswer.resolve();
     });
 
+    it('user gets an external reply queued without overwriting the message being edited', async () => {
+        const releaseAnswer = deferred();
+        const queuedToEdit = 'Queue that stays in edit while a widget replies';
+        const externalReply = 'Reply that came from outside the composer';
+
+        server.planNext(async ({ stream }) => {
+            stream.text('Keeping the turn open while an external reply arrives.');
+            await releaseAnswer.promise;
+            stream.finish('stop');
+        });
+
+        await startRunningTurn(server);
+        const { message } = await submitWhileRunning(queuedToEdit, 'enter', 'queue', 1);
+        await clickMessageAction(message, 'pending-message-edit');
+        await waitForConversation(
+            (state) => messageByText(state, queuedToEdit)?.editing === true,
+            'Opening the queue for editing did not expose the editing state.'
+        );
+
+        await callE2eBridge('sendPrompt', externalReply);
+        const state = await waitForConversation(
+            (messages) =>
+                pendingMessages(messages).length === 2 &&
+                messageByText(messages, queuedToEdit)?.editing === true &&
+                messageByText(messages, externalReply)?.pendingDelivery === 'queue',
+            'An external reply overwrote the queued message being edited instead of joining the queue.'
+        );
+        assertPendingOrder(state, [queuedToEdit, externalReply]);
+
+        await callE2eBridge('cancelSearchRequest');
+        releaseAnswer.resolve();
+    });
+
     it('user can expand a long queued message without moving it away from the bottom', async () => {
         const releaseAnswer = deferred();
         const longQueuedMessage = Array.from(

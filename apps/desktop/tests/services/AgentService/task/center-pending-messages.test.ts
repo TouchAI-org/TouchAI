@@ -483,9 +483,6 @@ describe('user submits while a finished run hands over to its queue', () => {
             center.enqueueTaskUserMessage(first.taskId, { prompt: 'second' }, 'queue');
             center.enqueueTaskUserMessage(first.taskId, { prompt: 'third' }, 'queue');
 
-            finishCurrentTask!();
-            await first.completion;
-
             // The hand-over task is starting but has not attached yet: the user submits here.
             registerStartupCapability(
                 'model-metadata',
@@ -493,9 +490,12 @@ describe('user submits while a finished run hands over to its queue', () => {
                     releaseStartup = resolve;
                 })
             );
+            finishCurrentTask!();
+            await first.completion;
             await Promise.resolve();
             await Promise.resolve();
 
+            expect(center.getSessionStatus(6)).toBeNull();
             const late = center.enqueueSessionUserMessage(6, { prompt: 'late' }, 'queue');
             expect(late).toMatchObject({ prompt: 'late', delivery: 'queue' });
 
@@ -522,18 +522,18 @@ describe('user submits while a finished run hands over to its queue', () => {
             center.enqueueTaskUserMessage(first.taskId, { prompt: 'second' }, 'queue');
             const third = center.enqueueTaskUserMessage(first.taskId, { prompt: 'third' }, 'queue');
 
-            finishCurrentTask!();
-            await first.completion;
-
             registerStartupCapability(
                 'model-metadata',
                 new Promise<void>((resolve) => {
                     releaseStartup = resolve;
                 })
             );
+            finishCurrentTask!();
+            await first.completion;
             await Promise.resolve();
             await Promise.resolve();
 
+            expect(center.getSessionStatus(12)).toBeNull();
             const late = center.enqueueSessionUserMessage(12, { prompt: 'late' }, 'queue');
             expect(late).not.toBeNull();
             expect(center.reorderSessionQueuedMessages(12, [late!.id, third!.id])).toBe(true);
@@ -560,18 +560,18 @@ describe('user submits while a finished run hands over to its queue', () => {
             const first = await center.startTask({ prompt: 'first', sessionId: 13 });
             center.enqueueTaskUserMessage(first.taskId, { prompt: 'second' }, 'queue');
 
-            finishCurrentTask!();
-            await first.completion;
-
             registerStartupCapability(
                 'model-metadata',
                 new Promise<void>((resolve) => {
                     releaseStartup = resolve;
                 })
             );
+            finishCurrentTask!();
+            await first.completion;
             await Promise.resolve();
             await Promise.resolve();
 
+            expect(center.getSessionStatus(13)).toBeNull();
             const late = center.enqueueSessionUserMessage(13, { prompt: 'late' }, 'queue');
             expect(late).not.toBeNull();
             expect(center.updateSessionUserMessage(13, late!.id, { prompt: 'late edited' })).toBe(
@@ -589,6 +589,49 @@ describe('user submits while a finished run hands over to its queue', () => {
             ).toEqual([{ id: late!.id, prompt: 'late edited' }]);
         } finally {
             releaseStartup?.();
+            resetStartupCapabilities();
+        }
+    });
+
+    it('user gets a failed handover run contained instead of an unhandled rejection', async () => {
+        const unhandled = vi.fn();
+        const onUnhandled = (reason: unknown) => {
+            if (reason instanceof Error && reason.message === 'handover failed') {
+                unhandled(reason);
+            }
+        };
+        process.on('unhandledRejection', onUnhandled);
+        let restoreStartTask: (() => void) | null = null;
+        try {
+            runtimeState.run.mockImplementationOnce(finishableRun(14));
+            const center = createCenter();
+            const first = await center.startTask({ prompt: 'first', sessionId: 14 });
+            center.enqueueTaskUserMessage(first.taskId, { prompt: 'second' }, 'queue');
+
+            let rejectHandover!: (error: Error) => void;
+            const completion = new Promise<TaskResult>((_resolve, reject) => {
+                rejectHandover = reject;
+            });
+            const startTaskSpy = vi.spyOn(center, 'startTask').mockResolvedValueOnce({
+                taskId: 'handover-task',
+                sessionId: 14,
+                completion,
+            });
+            restoreStartTask = () => startTaskSpy.mockRestore();
+
+            finishCurrentTask!();
+            await first.completion;
+            await vi.waitFor(() => expect(startTaskSpy).toHaveBeenCalledTimes(1));
+            await Promise.resolve();
+            await Promise.resolve();
+
+            rejectHandover(new Error('handover failed'));
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            expect(unhandled).not.toHaveBeenCalled();
+        } finally {
+            restoreStartTask?.();
+            process.off('unhandledRejection', onUnhandled);
             resetStartupCapabilities();
         }
     });

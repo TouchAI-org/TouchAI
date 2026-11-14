@@ -439,6 +439,29 @@ export class SessionTaskProjection {
         this.publish();
     }
 
+    /**
+     * A pending message that cannot be delivered leaves the queue instead of
+     * being retried on the next turn. The runtime has already notified the user
+     * with the reason, so this only keeps the visible queue honest.
+     */
+    rejectPendingUserMessages(messageIds: string[]): void {
+        const rejectedIds = new Set(messageIds);
+        if (rejectedIds.size === 0) {
+            return;
+        }
+
+        const next = this.snapshot.pendingUserMessages.filter(
+            (message) => !rejectedIds.has(message.id)
+        );
+        if (next.length === this.snapshot.pendingUserMessages.length) {
+            return;
+        }
+
+        this.snapshot.pendingUserMessages = next;
+        this.touch();
+        this.publish();
+    }
+
     markCompleted(): void {
         this.widgets.resetTransientState();
         const assistantMessage = this.getActiveAssistantMessage();
@@ -548,6 +571,11 @@ export class SessionTaskProjection {
 
         if (event.type === 'user_messages_delivered') {
             this.deliverPendingUserMessages(event.messages);
+            return;
+        }
+
+        if (event.type === 'user_messages_rejected') {
+            this.rejectPendingUserMessages(event.messageIds);
             return;
         }
 

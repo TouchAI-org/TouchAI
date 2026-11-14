@@ -152,6 +152,11 @@ export type RuntimeTurnEvent =
           type: 'user_messages_delivered';
           taskId: string;
           messages: DeliveredPendingUserMessage[];
+      }
+    | {
+          type: 'user_messages_rejected';
+          taskId: string;
+          messageIds: string[];
       };
 
 export interface ExecuteRequestOptions extends RequestExecutionCallbacks {
@@ -448,9 +453,39 @@ export class AiConversationRuntime {
 
         const attachmentCapabilities = getModelAttachmentCapabilities(model);
         const delivered: DeliveredPendingUserMessage[] = [];
+        const rejectedMessageIds: string[] = [];
         const messages: AiMessage[] = [];
 
         for (const pendingMessage of pending) {
+            const unsupportedAttachmentTypes = getUnsupportedAttachmentTypes(
+                pendingMessage.attachments,
+                attachmentCapabilities
+            );
+            if (unsupportedAttachmentTypes.length > 0) {
+                await this.reportPersistenceIssue({
+                    phase: 'user_message_delivery',
+                    title: t('agent.priorityMessage.unsupportedAttachmentsTitle'),
+                    body: t('agent.priorityMessage.unsupportedAttachmentsBody', {
+                        types: unsupportedAttachmentTypes
+                            .map((type) =>
+                                t(
+                                    type === 'image'
+                                        ? 'agent.priorityMessage.attachmentImage'
+                                        : 'agent.priorityMessage.attachmentFile'
+                                )
+                            )
+                            .join(' / '),
+                    }),
+                    error: new AiError(AiErrorCode.UNSUPPORTED_INPUT, {
+                        unsupportedAttachmentTypes,
+                        modelId: model.model_id,
+                        providerId: model.provider_id,
+                    }),
+                });
+                rejectedMessageIds.push(pendingMessage.id);
+                continue;
+            }
+
             let contextSource: AiMessage['contextSource'];
             try {
                 const persisted = await persister.persistInjectedUserMessage({
@@ -498,7 +533,16 @@ export class AiConversationRuntime {
                     ...buildPersistenceIssue('agent.persistenceIssue.userMessageDelivery'),
                     error,
                 });
+                rejectedMessageIds.push(pendingMessage.id);
             }
+        }
+
+        if (rejectedMessageIds.length > 0 && this.options.taskId) {
+            this.notifyTurnEvent({
+                type: 'user_messages_rejected',
+                taskId: this.options.taskId,
+                messageIds: rejectedMessageIds,
+            });
         }
 
         if (delivered.length > 0 && this.options.taskId) {

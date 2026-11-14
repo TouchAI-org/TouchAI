@@ -437,6 +437,114 @@ describe('user starts a turn that needs a new conversation', () => {
         });
     });
 
+    it('user gets an unsupported steer removed and reported instead of silently dropped', async () => {
+        const executor = createExecutor();
+        const reportPersistenceIssue = vi.fn();
+        getUnsupportedAttachmentTypesMock.mockImplementation((attachments: unknown[]) =>
+            attachments.length > 0 ? ['image', 'file'] : []
+        );
+        const { runtime, events } = run(executor, {
+            taskId: 'task-1',
+            takePriorityUserMessages: () => [
+                {
+                    id: 'pending-1',
+                    prompt: 'Steer this image',
+                    attachments: [
+                        {
+                            id: 'attachment-1',
+                            type: 'image',
+                            name: 'chart.png',
+                            path: 'D:/cache/chart.png',
+                            originPath: 'D:/origin/chart.png',
+                            mimeType: 'image/png',
+                            size: 12,
+                        } as never,
+                        {
+                            id: 'attachment-2',
+                            type: 'file',
+                            name: 'notes.txt',
+                            path: 'D:/cache/notes.txt',
+                            originPath: 'D:/origin/notes.txt',
+                            mimeType: 'text/plain',
+                            size: 8,
+                        } as never,
+                    ],
+                    delivery: 'priority',
+                    immediate: true,
+                    createdAt: 1,
+                },
+            ],
+            hasImmediatePriorityUserMessages: () => true,
+            environment: { reportPersistenceIssue },
+        });
+
+        await runtime.run();
+
+        const attemptOptions = executor.runAttempt.mock.calls[0]![0] as ExecuteRequestOptions;
+        const inserted = await attemptOptions.onSteerBoundary!({
+            persister: projectorMock as never,
+            model: createModel(),
+        });
+
+        expect(inserted).toEqual([]);
+        expect(projectorMock.persistInjectedUserMessage).not.toHaveBeenCalled();
+        expect(buildUserPromptMessageMock).not.toHaveBeenCalled();
+        expect(events).toContainEqual({
+            type: 'user_messages_rejected',
+            taskId: 'task-1',
+            messageIds: ['pending-1'],
+        });
+        expect(events).not.toContainEqual(
+            expect.objectContaining({ type: 'user_messages_delivered' })
+        );
+        expect(reportPersistenceIssue).toHaveBeenCalledWith(
+            expect.objectContaining({
+                phase: 'user_message_delivery',
+                body: expect.stringMatching(/image|图片/),
+            })
+        );
+        expect(reportPersistenceIssue).toHaveBeenCalledWith(
+            expect.objectContaining({ body: expect.stringMatching(/file|文件/) })
+        );
+    });
+
+    it('user gets an unbuildable steer removed instead of retrying it forever', async () => {
+        const executor = createExecutor();
+        const reportPersistenceIssue = vi.fn();
+        buildUserPromptMessageMock.mockRejectedValueOnce(new Error('attachment read failed'));
+        const { runtime, events } = run(executor, {
+            taskId: 'task-1',
+            takePriorityUserMessages: () => [
+                {
+                    id: 'pending-1',
+                    prompt: 'Steer this',
+                    attachments: [],
+                    delivery: 'priority',
+                    createdAt: 1,
+                },
+            ],
+            environment: { reportPersistenceIssue },
+        });
+
+        await runtime.run();
+
+        const attemptOptions = executor.runAttempt.mock.calls[0]![0] as ExecuteRequestOptions;
+        const inserted = await attemptOptions.onToolBoundary!({
+            persister: projectorMock as never,
+            model: createModel(),
+        });
+
+        expect(inserted).toEqual([]);
+        expect(events).toContainEqual({
+            type: 'user_messages_rejected',
+            taskId: 'task-1',
+            messageIds: ['pending-1'],
+        });
+        expect(reportPersistenceIssue).toHaveBeenCalledWith(
+            expect.objectContaining({ phase: 'user_message_delivery' })
+        );
+    });
+
     it('user sees no live task events when the request runs outside a task', async () => {
         const executor = createExecutor();
         const { runtime, events } = run(executor);

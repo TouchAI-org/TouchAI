@@ -1203,6 +1203,10 @@ const zhCNMessages = {
     'agent.persistenceIssue.turnFailed': '保存会话失败状态失败，对话记录可能不完整。',
     'agent.persistenceIssue.userMessageDelivery':
         '保存引导消息失败，对话将继续但该消息可能未写入历史。',
+    'agent.priorityMessage.unsupportedAttachmentsTitle': '引导消息未发送',
+    'agent.priorityMessage.unsupportedAttachmentsBody': '当前模型不支持{types}，该消息已移出队列。',
+    'agent.priorityMessage.attachmentImage': '图片',
+    'agent.priorityMessage.attachmentFile': '文件',
     'agent.mcp.toolDescriptionFallback': '工具：{toolName}',
     'settings.diagnostics.title': '诊断与支持',
     'settings.analytics.title': '隐私与产品统计',
@@ -2533,6 +2537,11 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
         'Failed to save session failure state. Conversation records may be incomplete.',
     'agent.persistenceIssue.userMessageDelivery':
         'Failed to save the steer message. The conversation continues but it may be missing from history.',
+    'agent.priorityMessage.unsupportedAttachmentsTitle': 'Steer message not sent',
+    'agent.priorityMessage.unsupportedAttachmentsBody':
+        'The current model does not support {types}. The message was removed from the queue.',
+    'agent.priorityMessage.attachmentImage': 'images',
+    'agent.priorityMessage.attachmentFile': 'files',
     'agent.mcp.toolDescriptionFallback': 'Tool: {toolName}',
     'settings.diagnostics.title': 'Diagnostics and support',
     'settings.analytics.title': 'Privacy and product analytics',
