@@ -1,5 +1,6 @@
 import { mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { nextTick } from 'vue';
 
 vi.mock('@components/AppIcon.vue', () => ({
     default: { props: ['name'], template: '<span />' },
@@ -68,6 +69,8 @@ vi.mock('vue-draggable-plus', async () => {
     };
 });
 
+import MessageScroller from '@/components/ui/message-scroller/MessageScroller.vue';
+import type { SessionMessage } from '@/types/session';
 import ConversationPanel from '@/views/SearchView/components/ConversationPanel/index.vue';
 
 describe('ConversationPanel intrinsic session measurement', () => {
@@ -219,6 +222,98 @@ describe('ConversationPanel queued message reordering', () => {
         await wrapper.vm.$nextTick();
 
         expect(wrapper.emitted('reorderPendingMessages')).toEqual([[['queue-2', 'queue-1']]]);
+        wrapper.unmount();
+    });
+
+    it('user does not see queued bubbles as conversation navigation turns', () => {
+        const wrapper = mount(ConversationPanel, {
+            props: {
+                startDragging: vi.fn().mockResolvedValue(undefined),
+                messages: [
+                    {
+                        id: 'user-1',
+                        role: 'user',
+                        content: 'prompt',
+                        parts: [],
+                        timestamp: 1,
+                    },
+                    {
+                        id: 'assistant-1',
+                        role: 'assistant',
+                        content: 'answer',
+                        parts: [],
+                        timestamp: 2,
+                    },
+                ],
+                pendingMessages: [
+                    {
+                        id: 'queue-1',
+                        prompt: 'queued',
+                        attachments: [],
+                        delivery: 'queue',
+                        createdAt: 3,
+                    },
+                ],
+                isLoading: true,
+                error: null,
+                isPinned: false,
+                historyOpen: false,
+            },
+        });
+
+        const items = wrapper.findComponent(MessageScroller).props('items') as Array<{
+            id: string;
+        }>;
+        expect(items.map((item) => item.id)).toEqual(['user-1']);
+        wrapper.unmount();
+    });
+
+    it('user keeps the compaction announcement while a queued bubble exists', async () => {
+        const message: SessionMessage = {
+            id: 'assistant-1',
+            role: 'assistant' as const,
+            content: '',
+            parts: [{ id: 'compact-1', type: 'context_compaction' as const, state: 'compacting' }],
+            timestamp: 2,
+            isStreaming: true,
+        };
+        const wrapper = mount(ConversationPanel, {
+            props: {
+                startDragging: vi.fn().mockResolvedValue(undefined),
+                messages: [
+                    {
+                        id: 'user-1',
+                        role: 'user',
+                        content: 'prompt',
+                        parts: [],
+                        timestamp: 1,
+                    },
+                    message,
+                ],
+                pendingMessages: [],
+                isLoading: true,
+                error: null,
+                isPinned: false,
+                historyOpen: false,
+            },
+        });
+
+        await nextTick();
+        expect(wrapper.get('[role="status"]').text()).toContain('正在压缩上下文');
+
+        await wrapper.setProps({
+            pendingMessages: [
+                {
+                    id: 'queue-1',
+                    prompt: 'queued',
+                    attachments: [],
+                    delivery: 'queue',
+                    createdAt: 3,
+                },
+            ],
+        });
+
+        expect(wrapper.get('[role="status"]').text()).toContain('正在压缩上下文');
         wrapper.unmount();
     });
 });

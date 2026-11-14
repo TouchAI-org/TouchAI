@@ -968,6 +968,7 @@ export class AiRequestExecutor {
         let streamFailed = false;
         const projectPublicChunk = createPublicWidgetStream();
         let interruptedForSteer = false;
+        let sawToolActivity = false;
         try {
             for await (const chunk of runtime.provider.stream(modelRequest)) {
                 throwIfAborted(options.signal);
@@ -1000,6 +1001,7 @@ export class AiRequestExecutor {
                     chunk.toolCallDeltas?.length ||
                     (chunk.done && chunk.toolCalls?.length)
                 ) {
+                    sawToolActivity = true;
                     runtime.hasToolActivitySinceCheckpoint = true;
                     finishReasoningSegment();
                     finishTextSegment();
@@ -1021,13 +1023,10 @@ export class AiRequestExecutor {
                 if (chunk.done) {
                     break;
                 }
-                // Never cut a tool call apart: wait for its round to finish, where
-                // the regular tool boundary delivers the steer.
-                const toolActivity =
-                    chunk.toolEvent ||
-                    Boolean(chunk.toolCallDeltas?.length) ||
-                    Boolean(chunk.done && chunk.toolCalls?.length);
-                if (!toolActivity && options.shouldInterruptForImmediateSteer?.()) {
+                // Once a tool call has started in this model step, never cut the
+                // stream apart on a later non-tool chunk. The regular tool
+                // boundary delivers the steer after the complete call arrives.
+                if (!sawToolActivity && options.shouldInterruptForImmediateSteer?.()) {
                     interruptedForSteer = true;
                     break;
                 }

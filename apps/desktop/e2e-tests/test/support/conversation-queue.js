@@ -4,6 +4,7 @@
 import { callE2eBridge } from './desktop.js';
 
 const DEFAULT_TIMEOUT_MS = 15000;
+const PRIMARY_MODIFIER_KEY = process.platform === 'darwin' ? '\uE03D' : '\uE009';
 
 export async function editorElement() {
     const editor = await $("[data-testid='search-editor-host'] .ProseMirror");
@@ -44,10 +45,10 @@ export async function submitSearchDraft(chord) {
             actions:
                 chord === 'modified'
                     ? [
-                          { type: 'keyDown', value: '\uE009' },
+                          { type: 'keyDown', value: PRIMARY_MODIFIER_KEY },
                           { type: 'keyDown', value: '\uE006' },
                           { type: 'keyUp', value: '\uE006' },
-                          { type: 'keyUp', value: '\uE009' },
+                          { type: 'keyUp', value: PRIMARY_MODIFIER_KEY },
                       ]
                     : [
                           { type: 'keyDown', value: '\uE006' },
@@ -78,10 +79,11 @@ export async function readConversationMessages() {
 
         return [...document.querySelectorAll('[data-message-id]')].map((node, index) => {
             const pendingBubble = node.querySelector('[data-pending-delivery]');
+            const bubble = node.querySelector('[data-testid="user-message-bubble"]');
             const textElement = node.querySelector('.user-text');
             const expandToggle = node.querySelector('[data-testid="user-message-expand-toggle"]');
             const pendingActions = node.querySelector('[data-testid="pending-message-actions"]');
-            const style = pendingBubble ? getComputedStyle(pendingBubble) : null;
+            const style = bubble ? getComputedStyle(bubble) : null;
             const textStyle = textElement ? getComputedStyle(textElement) : null;
 
             return {

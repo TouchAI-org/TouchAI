@@ -1,5 +1,6 @@
 import { mount } from '@vue/test-utils';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { nextTick } from 'vue';
 
 import type { SessionMessage } from '@/types/session';
 import UserMessage from '@/views/SearchView/components/ConversationPanel/components/UserMessage.vue';
@@ -53,6 +54,53 @@ describe('UserMessage attachment images', () => {
         });
         expect(image.attributes('src')).toBe(preview);
 
+        wrapper.unmount();
+    });
+});
+
+describe('UserMessage overflow observation', () => {
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    it('user gets a newly added long text measured through its resize observer', async () => {
+        const observed: Element[] = [];
+        vi.stubGlobal(
+            'ResizeObserver',
+            class {
+                observe(element: Element) {
+                    observed.push(element);
+                }
+                disconnect() {}
+            }
+        );
+        const wrapper = mount(UserMessage, {
+            props: {
+                message: {
+                    id: 'user-growing',
+                    role: 'user',
+                    content: '',
+                    parts: [],
+                    timestamp: 1,
+                } as SessionMessage,
+            },
+        });
+
+        expect(observed).toHaveLength(0);
+
+        await wrapper.setProps({
+            message: {
+                id: 'user-growing',
+                role: 'user',
+                content: Array.from({ length: 10 }, (_, index) => `line ${index}`).join('\n'),
+                parts: [],
+                timestamp: 1,
+            } as SessionMessage,
+        });
+        await nextTick();
+
+        expect(observed).toHaveLength(1);
+        expect(observed[0]).toBe(wrapper.get('.user-text').element);
         wrapper.unmount();
     });
 });

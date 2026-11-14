@@ -211,6 +211,42 @@ describe('user starts a conversation task', () => {
         expect(center.listActiveTasks()).toEqual([]);
     });
 
+    it('user keeps a message queued during startup when loading history fails', async () => {
+        let rejectHistory!: (error: Error) => void;
+        historyState.loadSessionHistory.mockImplementationOnce(
+            () =>
+                new Promise((_resolve, reject) => {
+                    rejectHistory = reject;
+                })
+        );
+        const center = createCenter();
+        const starting = center.startTask({ prompt: 'Hi', sessionId: 12 });
+        const startingTask = await vi.waitFor(() => {
+            const [active] = center.listActiveTasks();
+            if (!active) {
+                throw new Error('task is not registered yet');
+            }
+            return active;
+        });
+
+        expect(
+            center.enqueueTaskUserMessage(startingTask.taskId, { prompt: 'Follow up' }, 'queue')
+        ).not.toBeNull();
+
+        rejectHistory(new Error('database is locked'));
+        await expect(starting).rejects.toThrow('database is locked');
+
+        // The failed startup must not swallow what the user queued after the
+        // task became visible but before its history finished loading.
+        historyState.loadSessionHistory.mockResolvedValue([]);
+        runtimeState.run.mockImplementation(staysRunningInSession(12));
+        const next = await center.startTask({ prompt: 'Next', sessionId: 12 });
+        expect(center.getTaskSnapshot(next.taskId)?.pendingUserMessages).toEqual([
+            expect.objectContaining({ prompt: 'Follow up' }),
+        ]);
+        center.cancelTask(next.taskId);
+    });
+
     it('user sees a background task marked as such', async () => {
         runtimeState.run.mockImplementation(staysRunningInSession(null));
 

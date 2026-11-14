@@ -11,6 +11,7 @@
                       ? 'border border-dashed border-message-muted bg-transparent'
                       : 'bg-secondary',
             ]"
+            data-testid="user-message-bubble"
             :data-pending-delivery="message.pendingDelivery"
             :data-editing="isEditing ? 'true' : undefined"
             :data-queue-drag-handle="isQueued ? '' : undefined"
@@ -265,13 +266,20 @@
         measureOverflow();
     }
 
+    function observeTextElement(element: HTMLElement | null) {
+        resizeObserver?.disconnect();
+        resizeObserver = null;
+        if (!element || typeof ResizeObserver === 'undefined') {
+            return;
+        }
+        resizeObserver = new ResizeObserver(measureOverflow);
+        resizeObserver.observe(element);
+    }
+
     onMounted(() => {
         scheduleMeasure();
         window.addEventListener('resize', handleWindowResize);
-        if (typeof ResizeObserver !== 'undefined' && textElement.value) {
-            resizeObserver = new ResizeObserver(measureOverflow);
-            resizeObserver.observe(textElement.value);
-        }
+        observeTextElement(textElement.value);
     });
 
     // Content can arrive before the element has its final width; measure again
@@ -279,6 +287,7 @@
     watch(
         () => textElement.value,
         (element) => {
+            observeTextElement(element);
             if (element) {
                 scheduleMeasure();
             }

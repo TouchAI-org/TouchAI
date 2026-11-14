@@ -170,6 +170,8 @@ export interface ExecuteRequestOptions extends RequestExecutionCallbacks {
     promptSnapshot?: PromptSnapshot;
     environment?: ConversationRuntimeEnvironment;
     takePriorityUserMessages?: () => PendingUserMessage[];
+    /** Return claimed messages to the pending queue when they were not delivered. */
+    releasePriorityUserMessages?: (messageIds: string[]) => void;
     /** True once the user clicked Steer now and the message is still undelivered. */
     hasImmediatePriorityUserMessages?: () => boolean;
 }
@@ -451,69 +453,102 @@ export class AiConversationRuntime {
             return [];
         }
 
+        // Steering interrupts this answer even when the message cannot be
+        // persisted. Close the assistant row before any await so later output
+        // cannot overwrite the interrupted partial answer.
+        persister.closeOutputBoundary();
+
         const attachmentCapabilities = getModelAttachmentCapabilities(model);
         const delivered: DeliveredPendingUserMessage[] = [];
         const rejectedMessageIds: string[] = [];
         const messages: AiMessage[] = [];
+        const settledMessageIds = new Set<string>();
 
-        for (const pendingMessage of pending) {
-            const unsupportedAttachmentTypes = getUnsupportedAttachmentTypes(
-                pendingMessage.attachments,
-                attachmentCapabilities
-            );
-            if (unsupportedAttachmentTypes.length > 0) {
-                await this.reportPersistenceIssue({
-                    phase: 'user_message_delivery',
-                    title: t('agent.priorityMessage.unsupportedAttachmentsTitle'),
-                    body: t('agent.priorityMessage.unsupportedAttachmentsBody', {
-                        types: unsupportedAttachmentTypes
-                            .map((type) =>
-                                t(
-                                    type === 'image'
-                                        ? 'agent.priorityMessage.attachmentImage'
-                                        : 'agent.priorityMessage.attachmentFile'
-                                )
-                            )
-                            .join(' / '),
-                    }),
-                    error: new AiError(AiErrorCode.UNSUPPORTED_INPUT, {
-                        unsupportedAttachmentTypes,
-                        modelId: model.model_id,
-                        providerId: model.provider_id,
-                    }),
-                });
-                rejectedMessageIds.push(pendingMessage.id);
-                continue;
-            }
-
-            let contextSource: AiMessage['contextSource'];
-            try {
-                const persisted = await persister.persistInjectedUserMessage({
-                    prompt: pendingMessage.prompt,
-                    attachments: pendingMessage.attachments,
-                });
-                contextSource = persisted.source;
-            } catch (error) {
-                log.error(
-                    '[AiConversationRuntime] Failed to persist an inserted user message:',
-                    error
-                );
-                await this.reportPersistenceIssue({
-                    phase: 'user_message_delivery',
-                    ...buildPersistenceIssue('agent.persistenceIssue.userMessageDelivery'),
-                    error,
-                });
-            }
-
-            try {
-                const message = await buildUserPromptMessage({
-                    prompt: pendingMessage.prompt,
-                    attachments: pendingMessage.attachments,
-                    attachmentCapabilities,
-                });
-                if (contextSource) {
-                    message.contextSource = contextSource;
+        try {
+            for (const pendingMessage of pending) {
+                if (this.options.signal?.aborted) {
+                    break;
                 }
+
+                const unsupportedAttachmentTypes = getUnsupportedAttachmentTypes(
+                    pendingMessage.attachments,
+                    attachmentCapabilities
+                );
+                if (unsupportedAttachmentTypes.length > 0) {
+                    await this.reportPersistenceIssue({
+                        phase: 'user_message_delivery',
+                        title: t('agent.priorityMessage.unsupportedAttachmentsTitle'),
+                        body: t('agent.priorityMessage.unsupportedAttachmentsBody', {
+                            types: unsupportedAttachmentTypes
+                                .map((type) =>
+                                    t(
+                                        type === 'image'
+                                            ? 'agent.priorityMessage.attachmentImage'
+                                            : 'agent.priorityMessage.attachmentFile'
+                                    )
+                                )
+                                .join(' / '),
+                        }),
+                        error: new AiError(AiErrorCode.UNSUPPORTED_INPUT, {
+                            unsupportedAttachmentTypes,
+                            modelId: model.model_id,
+                            providerId: model.provider_id,
+                        }),
+                    });
+                    rejectedMessageIds.push(pendingMessage.id);
+                    settledMessageIds.add(pendingMessage.id);
+                    continue;
+                }
+
+                let message: AiMessage;
+                try {
+                    // Validate and materialize the transport message first. A
+                    // rejected build must not leave a committed history row
+                    // behind and then fall back to the pending queue.
+                    message = await buildUserPromptMessage({
+                        prompt: pendingMessage.prompt,
+                        attachments: pendingMessage.attachments,
+                        attachmentCapabilities,
+                    });
+                } catch (error) {
+                    log.error(
+                        '[AiConversationRuntime] Failed to build an inserted user message:',
+                        error
+                    );
+                    await this.reportPersistenceIssue({
+                        phase: 'user_message_delivery',
+                        ...buildPersistenceIssue('agent.persistenceIssue.userMessageDelivery'),
+                        error,
+                    });
+                    rejectedMessageIds.push(pendingMessage.id);
+                    settledMessageIds.add(pendingMessage.id);
+                    continue;
+                }
+
+                if (this.options.signal?.aborted) {
+                    break;
+                }
+
+                try {
+                    const persisted = await persister.persistInjectedUserMessage({
+                        prompt: pendingMessage.prompt,
+                        attachments: pendingMessage.attachments,
+                    });
+                    if (persisted.source) {
+                        message.contextSource = persisted.source;
+                    }
+                } catch (error) {
+                    log.error(
+                        '[AiConversationRuntime] Failed to persist an inserted user message:',
+                        error
+                    );
+                    await this.reportPersistenceIssue({
+                        phase: 'user_message_delivery',
+                        ...buildPersistenceIssue('agent.persistenceIssue.userMessageDelivery'),
+                        error,
+                    });
+                }
+
                 messages.push(message);
                 delivered.push({
                     id: pendingMessage.id,
@@ -523,17 +558,14 @@ export class AiConversationRuntime {
                         ? { inputSnapshot: pendingMessage.inputSnapshot }
                         : {}),
                 });
-            } catch (error) {
-                log.error(
-                    '[AiConversationRuntime] Failed to build an inserted user message:',
-                    error
-                );
-                await this.reportPersistenceIssue({
-                    phase: 'user_message_delivery',
-                    ...buildPersistenceIssue('agent.persistenceIssue.userMessageDelivery'),
-                    error,
-                });
-                rejectedMessageIds.push(pendingMessage.id);
+                settledMessageIds.add(pendingMessage.id);
+            }
+        } finally {
+            const unsettledMessageIds = pending
+                .map((message) => message.id)
+                .filter((id) => !settledMessageIds.has(id));
+            if (unsettledMessageIds.length > 0) {
+                this.options.releasePriorityUserMessages?.(unsettledMessageIds);
             }
         }
 

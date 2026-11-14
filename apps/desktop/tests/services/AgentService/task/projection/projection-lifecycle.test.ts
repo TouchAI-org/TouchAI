@@ -413,6 +413,41 @@ describe('user has a message waiting for delivery', () => {
         expect(assistants[0]!.isStreaming).toBe(true);
     });
 
+    it('user keeps the selected skills on a delivered priority message', () => {
+        const { snapshot, projection } = createProjection();
+        projection.bootstrap([], 'Hello', []);
+        snapshot.pendingUserMessages = [
+            {
+                id: 'pending-1',
+                prompt: 'Read the docs',
+                attachments: [],
+                delivery: 'priority',
+                createdAt: 2,
+                inputSnapshot: {
+                    text: 'Read the docs',
+                    attachments: [],
+                    skills: [{ name: 'docs', path: '/skills/docs' }],
+                },
+            },
+        ];
+
+        projection.deliverPendingUserMessages([
+            {
+                id: 'pending-1',
+                prompt: 'Read the docs',
+                attachments: [],
+                inputSnapshot: {
+                    text: 'Read the docs',
+                    attachments: [],
+                    skills: [{ name: 'docs', path: '/skills/docs' }],
+                },
+            },
+        ]);
+
+        const delivered = snapshot.sessionHistory.find((message) => message.id === 'pending-1');
+        expect(delivered?.inputSnapshot?.skills).toEqual([{ name: 'docs', path: '/skills/docs' }]);
+    });
+
     it('user does not get a duplicate when the same delivery event arrives twice', () => {
         const { snapshot, projection } = createProjection();
         projection.bootstrap([], 'Hello', []);

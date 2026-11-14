@@ -689,6 +689,7 @@ describe('user sends queued and priority messages during a running answer', () =
 
     it('user immediately steers a queued message while another queue stays at the bottom', async () => {
         const releasePromotedSteer = deferred();
+        const finishPromotedStream = deferred();
         const holdPromotedAnswer = deferred();
         const queuedOne = 'Queue that becomes an immediate steer';
         const queuedTwo = 'Queue that waits for the next turn';
@@ -697,6 +698,10 @@ describe('user sends queued and priority messages during a running answer', () =
             stream.text('Working before the user promotes a queue.');
             await releasePromotedSteer.promise;
             stream.text('Continuing until the immediate steer boundary.');
+            // Keep the first response open. A second request must arrive before
+            // it ends, proving the steer cut this stream instead of falling
+            // back to an end-of-run queue.
+            await finishPromotedStream.promise;
             stream.finish('stop');
         });
         server.planNext(async ({ stream }) => {
@@ -736,6 +741,7 @@ describe('user sends queued and priority messages during a running answer', () =
 
         releasePromotedSteer.resolve();
         await server.waitForRequestCount(2);
+        finishPromotedStream.resolve();
         assertLatestUserText(server.requests[1], queuedOne);
 
         const afterDelivery = await waitForConversation((state) => {

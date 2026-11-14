@@ -418,6 +418,7 @@ export class SessionTaskProjection {
                 attachments: message.attachments,
                 editorDoc: message.inputSnapshot?.editorDoc,
                 excludeFromHistory: message.inputSnapshot?.excludeFromHistory,
+                skills: message.inputSnapshot?.skills,
             });
             this.snapshot.sessionHistory.push({
                 id: message.id,

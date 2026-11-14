@@ -692,6 +692,12 @@
             return true;
         }
 
+        const unsupportedAttachmentMessage = getUnsupportedAttachmentMessage();
+        if (unsupportedAttachmentMessage) {
+            notify({ title: 'TouchAI', body: unsupportedAttachmentMessage });
+            return true;
+        }
+
         const editedAttachments = getSupportedAttachments();
         if (query.trim().length === 0 && editedAttachments.length === 0) {
             // An empty queued message would be invisible and unsendable. Stay in
@@ -719,25 +725,6 @@
         await controller.focusSearchInput();
         return true;
     }
-
-    watch(
-        () =>
-            pendingUserMessages.value
-                .filter((message) => message.delivery === 'queue')
-                .map((message) => message.id)
-                .join('|'),
-        () => {
-            const editingId = pendingMessageEdit.value?.messageId;
-            if (
-                editingId &&
-                !pendingUserMessages.value.some(
-                    (message) => message.id === editingId && message.delivery === 'queue'
-                )
-            ) {
-                pendingMessageEdit.value = null;
-            }
-        }
-    );
 
     watch(currentSessionId, () => {
         pendingMessageEdit.value = null;

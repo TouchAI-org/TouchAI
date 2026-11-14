@@ -791,9 +791,22 @@ export class PersistenceProjector {
         const messageId = await this.persistOutputTransaction((tx, pendingPartDrafts) =>
             this.persistMessage({ role: 'tool_call', outputParts, database: tx, pendingPartDrafts })
         );
+        this.closeOutputBoundary();
+        return messageId;
+    }
+
+    /**
+     * End the current assistant output row before the next model request.
+     *
+     * Steering interrupts an answer without completing it. Closing the
+     * boundary independently of user-message persistence ensures the next
+     * output creates a new assistant row instead of replacing the interrupted
+     * one through `persistOutputProgress`.
+     */
+    closeOutputBoundary(): void {
         this.pendingOutputMessageId = null;
         this.pendingOutputOffset = 0;
-        return messageId;
+        this.assistantMessageId = null;
     }
 
     /**
@@ -834,9 +847,7 @@ export class PersistenceProjector {
         });
 
         this.sessionId = result.sessionId;
-        this.pendingOutputMessageId = null;
-        this.pendingOutputOffset = 0;
-        this.assistantMessageId = null;
+        this.closeOutputBoundary();
         return { messageId: result.messageId, source: result.source };
     }
 

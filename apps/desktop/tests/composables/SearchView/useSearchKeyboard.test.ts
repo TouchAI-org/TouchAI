@@ -101,6 +101,8 @@ function createOptions({
         closeModelDropdown: vi.fn().mockResolvedValue(undefined),
         toggleWindowMaximize: vi.fn().mockResolvedValue(undefined),
         handleSubmit: vi.fn().mockResolvedValue(undefined),
+        cancelPendingRequest: vi.fn(() => true),
+        cancelLatestPendingMessage: vi.fn(() => true),
         clearAll: vi.fn(),
         cancelRequest: vi.fn(),
         clearSession: vi.fn(),
@@ -213,6 +215,60 @@ describe('useSearchKeyboard outside-click handling', () => {
         expect(targetMouseDown).toHaveBeenCalledTimes(1);
 
         mounted.unmount();
+    });
+});
+
+describe('double Backspace with a pending request', () => {
+    afterEach(() => {
+        document.body.innerHTML = '';
+    });
+
+    function dispatchBackspace() {
+        const event = new KeyboardEvent('keydown', {
+            key: 'Backspace',
+            bubbles: true,
+            cancelable: true,
+        });
+        window.dispatchEvent(event);
+        return event;
+    }
+
+    it('user deleting ordinary draft text does not remove a queued message', async () => {
+        const options = createOptions();
+        options.pendingRequest.value = { query: 'running', attachments: [] };
+        options.queryText.value = 'still typing';
+        options.controller.hasInputContent = () => true;
+        const mounted = await mountComposable(() => useSearchKeyboard(options));
+
+        try {
+            const first = dispatchBackspace();
+            const second = dispatchBackspace();
+
+            expect(first.defaultPrevented).toBe(false);
+            expect(second.defaultPrevented).toBe(false);
+            expect(options.cancelLatestPendingMessage).not.toHaveBeenCalled();
+            expect(options.cancelPendingRequest).not.toHaveBeenCalled();
+        } finally {
+            mounted.unmount();
+        }
+    });
+
+    it('user double-pressing Backspace in an empty composer cancels the pending message', async () => {
+        const options = createOptions();
+        options.pendingRequest.value = { query: 'running', attachments: [] };
+        options.queryText.value = '';
+        options.controller.hasInputContent = () => false;
+        const mounted = await mountComposable(() => useSearchKeyboard(options));
+
+        try {
+            dispatchBackspace();
+            const second = dispatchBackspace();
+
+            expect(second.defaultPrevented).toBe(true);
+            expect(options.cancelLatestPendingMessage).toHaveBeenCalledTimes(1);
+        } finally {
+            mounted.unmount();
+        }
     });
 });
 

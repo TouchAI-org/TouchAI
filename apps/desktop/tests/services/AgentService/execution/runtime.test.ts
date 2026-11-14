@@ -65,6 +65,7 @@ const {
         markCancelled: vi.fn(async () => undefined),
         markFailed: vi.fn(async () => undefined),
         beginNextAttempt: vi.fn(async () => undefined),
+        closeOutputBoundary: vi.fn(),
         persistInjectedUserMessage: vi.fn(async () => ({
             messageId: 11,
             source: { id: 11, fingerprint: 'f'.repeat(64) },
@@ -535,6 +536,10 @@ describe('user starts a turn that needs a new conversation', () => {
         });
 
         expect(inserted).toEqual([]);
+        // A message that cannot be materialized must not leave a committed
+        // history row behind and then remain eligible for a retry.
+        expect(projectorMock.persistInjectedUserMessage).not.toHaveBeenCalled();
+        expect(projectorMock.closeOutputBoundary).toHaveBeenCalled();
         expect(events).toContainEqual({
             type: 'user_messages_rejected',
             taskId: 'task-1',
@@ -543,6 +548,39 @@ describe('user starts a turn that needs a new conversation', () => {
         expect(reportPersistenceIssue).toHaveBeenCalledWith(
             expect.objectContaining({ phase: 'user_message_delivery' })
         );
+    });
+
+    it('user keeps the interrupted answer separate when persisting a steer fails', async () => {
+        const executor = createExecutor();
+        buildUserPromptMessageMock.mockResolvedValue({ role: 'user', content: 'Steer this' });
+        projectorMock.persistInjectedUserMessage.mockRejectedValueOnce(
+            new Error('database is locked')
+        );
+        const { runtime } = run(executor, {
+            taskId: 'task-1',
+            takePriorityUserMessages: () => [
+                {
+                    id: 'pending-1',
+                    prompt: 'Steer this',
+                    attachments: [],
+                    delivery: 'priority',
+                    createdAt: 1,
+                },
+            ],
+        });
+
+        await runtime.run();
+
+        const attemptOptions = executor.runAttempt.mock.calls[0]![0] as ExecuteRequestOptions;
+        const inserted = await attemptOptions.onToolBoundary!({
+            persister: projectorMock as never,
+            model: createModel(),
+        });
+
+        // Persistence failure keeps the conversation usable, but the next
+        // answer must never reuse the interrupted assistant output row.
+        expect(inserted).toEqual([{ role: 'user', content: 'Steer this' }]);
+        expect(projectorMock.closeOutputBoundary).toHaveBeenCalled();
     });
 
     it('user sees no live task events when the request runs outside a task', async () => {

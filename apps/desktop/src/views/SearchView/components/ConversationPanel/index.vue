@@ -295,7 +295,10 @@
         let announcedCompaction: { messageId: string; id: string } | undefined;
         watch(
             () => {
-                const message = displayMessages.value[displayMessages.value.length - 1];
+                // Pending queue cards are appended after the assistant, but
+                // they have no output parts. Read the conversation source so a
+                // queued message cannot hide an active compaction announcement.
+                const message = props.messages[props.messages.length - 1];
                 let compaction: ContextCompactionMessagePart | undefined;
                 if (message) {
                     for (let index = message.parts.length - 1; index >= 0; index--) {
@@ -347,7 +350,7 @@
         let currentTurn: MessageScrollerItem | undefined;
         let currentTurnHasAssistant = false;
 
-        for (const message of displayMessages.value) {
+        for (const message of conversationMessages.value) {
             if (message.role === 'user') {
                 currentTurn = {
                     id: message.id,

@@ -1331,6 +1331,55 @@ describe('user calls a tool the agent does not have', () => {
         expect(requests).toHaveLength(2);
     });
 
+    it('user waits for the complete tool round when steering starts after tool streaming', async () => {
+        resolveToolCallMock.mockResolvedValue(null);
+        let steerRequested = false;
+        providerMock.stream
+            .mockImplementationOnce(async function* () {
+                yield { content: 'Checking', done: false };
+                yield {
+                    content: '',
+                    done: false,
+                    toolCallDeltas: [
+                        {
+                            index: 0,
+                            callId: 'call-1',
+                            name: 'ghost',
+                            argumentsBuffer: '{}',
+                            isComplete: false,
+                        },
+                    ],
+                };
+                steerRequested = true;
+                // A reasoning-end chunk is not tool activity, but the tool call
+                // in this step is still incomplete. Cutting here would lose it.
+                yield { reasoningState: 'end', done: false };
+                yield {
+                    content: '',
+                    done: true,
+                    finishReason: 'tool_calls',
+                    toolCalls: [{ id: 'call-1', name: 'ghost', arguments: '{}' }],
+                };
+            })
+            .mockImplementationOnce(async function* () {
+                yield { content: 'Done', done: true };
+            });
+
+        const onToolBoundary = vi.fn().mockResolvedValue([]);
+        const onSteerBoundary = vi.fn().mockResolvedValue([]);
+        const outcome = await new AiRequestExecutor().runAttempt({
+            startCheckpoint: createCheckpoint(),
+            persister: persisterStub() as never,
+            onToolBoundary,
+            onSteerBoundary,
+            shouldInterruptForImmediateSteer: () => steerRequested,
+        });
+
+        expect(outcome.type).toBe('completed');
+        expect(onSteerBoundary).not.toHaveBeenCalled();
+        expect(onToolBoundary).toHaveBeenCalledTimes(1);
+    });
+
     it('user is not interrupted mid-answer when no steer was requested', async () => {
         let chunks = 0;
         providerMock.stream.mockImplementationOnce(async function* () {

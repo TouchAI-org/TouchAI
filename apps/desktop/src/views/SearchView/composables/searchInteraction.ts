@@ -1239,7 +1239,10 @@ export function createSearchKeydownHandler(
                 const timeSinceLastBackspace = now - lastBackspaceTime;
                 lastBackspaceTime = now;
 
-                if (timeSinceLastBackspace < DOUBLE_BACKSPACE_INTERVAL) {
+                if (
+                    !controller.hasInputContent() &&
+                    timeSinceLastBackspace < DOUBLE_BACKSPACE_INTERVAL
+                ) {
                     event.preventDefault();
                     (cancelLatestPendingMessage ?? cancelPendingRequest)?.();
                     lastBackspaceTime = 0;

@@ -21,6 +21,7 @@ const runtimeState = vi.hoisted(() => ({
 function latestOptions(): Record<string, unknown> & {
     onTurnEvent?: (event: Record<string, unknown>) => void;
     takePriorityUserMessages?: () => PendingUserMessage[];
+    releasePriorityUserMessages?: (messageIds: string[]) => void;
     hasImmediatePriorityUserMessages?: () => boolean;
     signal?: AbortSignal;
 } {
@@ -142,11 +143,33 @@ describe('user submits a message while a task runs', () => {
             'priority'
         );
 
-        // The runtime may ask twice before the delivery event lands; neither read may
-        // remove the bubble early, or the user sees it vanish and reappear.
+        // The runtime may ask twice before the delivery event lands; it may claim
+        // the message only once, and neither read removes the bubble early.
         expect(latestOptions().takePriorityUserMessages?.()).toEqual([message]);
-        expect(latestOptions().takePriorityUserMessages?.()).toEqual([message]);
+        expect(latestOptions().takePriorityUserMessages?.()).toEqual([]);
         expect(center.getTaskSnapshot(started.taskId)?.pendingUserMessages).toHaveLength(1);
+    });
+
+    it('user cannot remove a steer while its delivery is in flight', async () => {
+        runtimeState.run.mockImplementation(staysRunningInSession(1));
+        const center = createCenter();
+        const started = await center.startTask({ prompt: 'Hi', sessionId: 1 });
+        const message = center.enqueueTaskUserMessage(
+            started.taskId,
+            { prompt: 'Insert me' },
+            'priority'
+        )!;
+
+        expect(latestOptions().takePriorityUserMessages?.()).toEqual([message]);
+        expect(center.removeTaskUserMessage(started.taskId, message.id)).toBe(false);
+        expect(center.promoteTaskUserMessage(started.taskId, message.id)).toBe(false);
+        expect(
+            center.updateTaskUserMessage(started.taskId, message.id, { prompt: 'Changed' })
+        ).toBe(false);
+
+        latestOptions().releasePriorityUserMessages?.([message.id]);
+        expect(center.removeTaskUserMessage(started.taskId, message.id)).toBe(true);
+        expect(center.getTaskSnapshot(started.taskId)?.pendingUserMessages).toEqual([]);
     });
 
     it('user gets the bubble gone once the projection reports the delivery', async () => {

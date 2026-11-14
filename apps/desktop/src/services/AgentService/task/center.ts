@@ -54,6 +54,11 @@ interface MutableSessionTask {
     projection: SessionTaskProjection;
     completion: Promise<TaskResult> | null;
     releaseTimer: ReturnType<typeof setTimeout> | null;
+    /** Priority messages claimed by one delivery attempt and not settled yet. */
+    claimedPriorityMessageIds: Set<string>;
+    /** Invalidates a queued hand-over that was already awaiting `startTask`. */
+    handoffVersion: number;
+    handoffInFlight: boolean;
     lastPublishedStatus: SessionTaskStatus | null;
     lastPublishedSessionId: number | null;
     lastPublishedReminderKey: string | null;
@@ -389,6 +394,9 @@ export class SessionTaskCenter {
             projection,
             completion: null,
             releaseTimer: null,
+            claimedPriorityMessageIds: new Set(),
+            handoffVersion: 0,
+            handoffInFlight: false,
             lastPublishedStatus: null,
             lastPublishedSessionId: null,
             lastPublishedReminderKey: null,
@@ -439,7 +447,9 @@ export class SessionTaskCenter {
                 attachments: options.attachments,
                 inputSnapshot: options.inputSnapshot,
                 executionMode: options.executionMode ?? 'foreground',
-                takePriorityUserMessages: () => this.getPriorityUserMessages(taskId),
+                takePriorityUserMessages: () => this.claimPriorityUserMessages(taskId),
+                releasePriorityUserMessages: (messageIds) =>
+                    this.releasePriorityUserMessages(taskId, messageIds),
                 hasImmediatePriorityUserMessages: () =>
                     this.hasImmediatePriorityUserMessages(taskId),
                 environment: runtimeEnvironmentResult.value,
@@ -468,11 +478,21 @@ export class SessionTaskCenter {
                 completion,
             };
         } catch (error) {
-            // 队列消息在启动前已经被接管；启动失败要把它们放回去，
-            // 否则用户排队的内容会随这次失败一起消失。
-            if (inheritedQueuedMessages.length > 0 && options.sessionId !== undefined) {
-                this.sessionPendingQueues.set(options.sessionId, inheritedQueuedMessages);
+            // The task is visible before history loading finishes, so users can
+            // queue more messages during startup. Restore the whole current
+            // pending list, not only the batch inherited before the task existed.
+            if (options.sessionId !== undefined && options.sessionId !== null) {
+                this.sessionPendingQueues.set(
+                    options.sessionId,
+                    cloneTaskValue(
+                        mergePendingUserMessages(
+                            this.sessionPendingQueues.get(options.sessionId) ?? [],
+                            task.snapshot.pendingUserMessages
+                        )
+                    )
+                );
             }
+            task.claimedPriorityMessageIds.clear();
             this.releaseTask(taskId);
             throw error;
         }
@@ -507,6 +527,7 @@ export class SessionTaskCenter {
 
         task.abortController.abort();
         task.snapshot.pendingUserMessages = [];
+        task.claimedPriorityMessageIds.clear();
         if (task.sessionId !== null) {
             this.sessionPendingQueues.delete(task.sessionId);
         }
@@ -566,6 +587,9 @@ export class SessionTaskCenter {
     ): boolean {
         const task = this.tasks.get(taskId);
         if (!task || isTerminalStatus(task.snapshot.status)) {
+            return false;
+        }
+        if (task.claimedPriorityMessageIds.has(messageId)) {
             return false;
         }
 
@@ -667,6 +691,9 @@ export class SessionTaskCenter {
         if (!task || isTerminalStatus(task.snapshot.status)) {
             return false;
         }
+        if (task.claimedPriorityMessageIds.has(messageId)) {
+            return false;
+        }
 
         const next = task.snapshot.pendingUserMessages.filter(
             (message) => message.id !== messageId
@@ -688,6 +715,9 @@ export class SessionTaskCenter {
     promoteTaskUserMessage(taskId: string, messageId: string): boolean {
         const task = this.tasks.get(taskId);
         if (!task || isTerminalStatus(task.snapshot.status)) {
+            return false;
+        }
+        if (task.claimedPriorityMessageIds.has(messageId)) {
             return false;
         }
 
@@ -732,11 +762,29 @@ export class SessionTaskCenter {
     /** 清空任务上所有尚未投递的消息。 */
     clearTaskUserMessages(taskId: string): boolean {
         const task = this.tasks.get(taskId);
-        if (!task || task.snapshot.pendingUserMessages.length === 0) {
+        if (!task) {
             return false;
         }
 
+        const sessionQueue =
+            task.sessionId === null ? undefined : this.sessionPendingQueues.get(task.sessionId);
+        if (
+            task.snapshot.pendingUserMessages.length === 0 &&
+            (!sessionQueue || sessionQueue.length === 0) &&
+            !task.handoffInFlight
+        ) {
+            return false;
+        }
+
+        // A completed task can still own the session queue and an in-flight
+        // hand-over. Invalidate both before reporting success, otherwise the
+        // message the user just cleared can still start as the next turn.
+        task.handoffVersion += 1;
         task.snapshot.pendingUserMessages = [];
+        task.claimedPriorityMessageIds.clear();
+        if (task.sessionId !== null) {
+            this.sessionPendingQueues.delete(task.sessionId);
+        }
         this.notifySubscribers(taskId);
         return true;
     }
@@ -834,11 +882,15 @@ export class SessionTaskCenter {
             return false;
         }
 
-        task.snapshot.pendingUserMessages = task.snapshot.pendingUserMessages.map((message) => ({
-            ...message,
-            modelId: modelId ?? undefined,
-            providerId: providerId ?? undefined,
-        }));
+        task.snapshot.pendingUserMessages = task.snapshot.pendingUserMessages.map((message) =>
+            task.claimedPriorityMessageIds.has(message.id)
+                ? message
+                : {
+                      ...message,
+                      modelId: modelId ?? undefined,
+                      providerId: providerId ?? undefined,
+                  }
+        );
         this.notifySubscribers(taskId);
         return true;
     }
@@ -1088,15 +1140,31 @@ export class SessionTaskCenter {
      * 气泡会先闪没再变实心。真正的移除由投影层在
      * `user_messages_delivered` 事件里和实心消息一次性完成。
      */
-    private getPriorityUserMessages(taskId: string): PendingUserMessage[] {
+    private claimPriorityUserMessages(taskId: string): PendingUserMessage[] {
         const task = this.tasks.get(taskId);
         if (!task) {
             return [];
         }
 
-        return cloneTaskValue(
-            task.snapshot.pendingUserMessages.filter((message) => message.delivery === 'priority')
+        const claimed = task.snapshot.pendingUserMessages.filter(
+            (message) =>
+                message.delivery === 'priority' && !task.claimedPriorityMessageIds.has(message.id)
         );
+        for (const message of claimed) {
+            task.claimedPriorityMessageIds.add(message.id);
+        }
+        return cloneTaskValue(claimed);
+    }
+
+    private releasePriorityUserMessages(taskId: string, messageIds: readonly string[]): void {
+        const task = this.tasks.get(taskId);
+        if (!task) {
+            return;
+        }
+
+        for (const messageId of messageIds) {
+            task.claimedPriorityMessageIds.delete(messageId);
+        }
     }
 
     /** 用户点了「插队」且消息尚未投递时，执行器应立即中断当前回答。 */
@@ -1139,6 +1207,8 @@ export class SessionTaskCenter {
         // 交接期间保留队列本身（哪怕为空）作为“下一轮正在启动”的标记，
         // 这样用户在启动窗口里的提交仍会落进同一条队列，而不是被当成新任务。
         this.sessionPendingQueues.set(task.sessionId, rest);
+        task.handoffInFlight = true;
+        const handoffVersion = task.handoffVersion;
 
         try {
             const started = await this.startTask({
@@ -1151,6 +1221,12 @@ export class SessionTaskCenter {
                 inputSnapshot: next.inputSnapshot,
                 executionMode: task.snapshot.executionMode,
             });
+            if (handoffVersion !== task.handoffVersion) {
+                // The user cleared the queue while the hand-over was starting.
+                // Stop the task that already began before it can run a turn.
+                this.cancelTask(started.taskId);
+                return;
+            }
             // The hand-over owns the task lifecycle now; waiters that already
             // moved to the next screen must not leave this completion unhandled.
             started.completion.catch((error) => {
@@ -1160,6 +1236,9 @@ export class SessionTaskCenter {
             task.snapshot.pendingUserMessages = [];
             this.notifySubscribers(taskId);
         } catch (error) {
+            if (handoffVersion !== task.handoffVersion) {
+                return;
+            }
             this.sessionPendingQueues.set(
                 task.sessionId,
                 mergePendingUserMessages(
@@ -1169,6 +1248,8 @@ export class SessionTaskCenter {
             );
             this.notifySubscribers(taskId);
             log.error('[SessionTaskCenter] Failed to deliver queued user messages:', error);
+        } finally {
+            task.handoffInFlight = false;
         }
     }
 
@@ -1211,6 +1292,18 @@ export class SessionTaskCenter {
             return;
         }
 
+        if (event.type === 'user_messages_delivered') {
+            for (const message of event.messages) {
+                task.claimedPriorityMessageIds.delete(message.id);
+            }
+        }
+
+        if (event.type === 'user_messages_rejected') {
+            for (const messageId of event.messageIds) {
+                task.claimedPriorityMessageIds.delete(messageId);
+            }
+        }
+
         if (event.type === 'task_started') {
             this.bindTaskToSession(taskId, event.sessionId);
             return;
@@ -1247,6 +1340,7 @@ export class SessionTaskCenter {
             event.type === 'task_failed' ||
             event.type === 'task_cancelled'
         ) {
+            task.claimedPriorityMessageIds.clear();
             task.projection.syncInteractionRelease(task.interactions.cancelAll(), tt('请求已取消'));
             if (event.type === 'task_completed') {
                 // 运行结束前没等到工具边界的插队消息，降级为下一轮排队。
