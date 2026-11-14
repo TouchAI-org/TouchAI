@@ -23,7 +23,7 @@
                     ref="textElement"
                     :class="[
                         'user-text font-serif whitespace-pre-wrap select-text',
-                        isQueued ? 'text-message-muted' : 'text-message-foreground',
+                        isQueued && !isEditing ? 'text-message-muted' : 'text-message-foreground',
                         !isExpanded ? 'line-clamp-6' : '',
                     ]"
                     :data-collapsed="!isExpanded && canCollapse ? 'true' : undefined"
@@ -123,7 +123,7 @@
                     :title="t('conversation.pendingMessage.sendNow')"
                     @click="emit('sendNow', message.id)"
                 >
-                    <AppIcon name="arrow-up" class="h-5 w-5" />
+                    <AppIcon name="arrow-big-up" class="h-3.5 w-3.5" />
                 </button>
                 <button
                     type="button"

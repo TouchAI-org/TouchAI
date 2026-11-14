@@ -1,5 +1,6 @@
 import type { Component } from 'vue';
 
+import IconArrowBigUp from '~icons/lucide/arrow-big-up';
 import IconArrowDown from '~icons/lucide/arrow-down';
 import IconArrowLeft from '~icons/lucide/arrow-left';
 import IconArrowRight from '~icons/lucide/arrow-right';
@@ -57,6 +58,7 @@ import IconX from '~icons/lucide/x';
 
 export const appIconMap = {
     'arrow-down': IconArrowDown,
+    'arrow-big-up': IconArrowBigUp,
     'arrow-left': IconArrowLeft,
     'arrow-right': IconArrowRight,
     'arrow-up': IconArrowUp,

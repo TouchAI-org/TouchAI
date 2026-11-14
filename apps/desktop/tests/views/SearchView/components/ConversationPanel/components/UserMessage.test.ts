@@ -105,6 +105,29 @@ describe('UserMessage overflow observation', () => {
     });
 });
 
+describe('UserMessage queued editing style', () => {
+    it('user gets normal text color while editing a queued message', () => {
+        const wrapper = mount(UserMessage, {
+            props: {
+                message: {
+                    id: 'user-editing',
+                    role: 'user',
+                    content: 'Edit me',
+                    parts: [],
+                    timestamp: 1,
+                    pendingDelivery: 'queue',
+                } as SessionMessage,
+                editing: true,
+            },
+        });
+
+        const text = wrapper.get('.user-text');
+        expect(text.classes()).toContain('text-message-foreground');
+        expect(text.classes()).not.toContain('text-message-muted');
+        wrapper.unmount();
+    });
+});
+
 describe('UserMessage long content', () => {
     it('user collapses a long message to six lines and can expand it again', async () => {
         const content = Array.from({ length: 10 }, (_, index) => `line ${index + 1}`).join('\n');
@@ -296,8 +319,16 @@ describe('UserMessage pending delivery', () => {
         expect(sendNow.attributes('aria-label')).toBe('插队');
         expect(sendNow.attributes('title')).toBe('插队');
         const sendNowIcon = sendNow.get('[data-testid="app-icon"]');
-        expect(sendNowIcon.attributes('data-name')).toBe('arrow-up');
-        expect(sendNowIcon.classes()).toEqual(expect.arrayContaining(['h-5', 'w-5']));
+        expect(sendNowIcon.attributes('data-name')).toBe('arrow-big-up');
+        for (const testId of [
+            'pending-message-send-now',
+            'pending-message-edit',
+            'pending-message-remove',
+        ]) {
+            expect(
+                wrapper.get(`[data-testid="${testId}"] [data-testid="app-icon"]`).classes()
+            ).toEqual(expect.arrayContaining(['h-3.5', 'w-3.5']));
+        }
         for (const testId of [
             'pending-message-send-now',
             'pending-message-edit',
