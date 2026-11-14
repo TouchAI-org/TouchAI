@@ -15,4 +15,5 @@ export type {
     StartSessionTaskOptions,
     TaskExecutionMode,
     TaskSnapshotListener,
+    TaskViewSnapshot,
 } from './types';

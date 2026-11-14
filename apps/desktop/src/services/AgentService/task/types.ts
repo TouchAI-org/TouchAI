@@ -3,26 +3,24 @@
 import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
 import type { InputHistorySnapshot, PendingToolApproval, SessionMessage } from '@/types/session';
 
+import type {
+    SessionTaskStatus,
+    TaskExecutionMode,
+    TaskModelSummary,
+    TaskResult,
+} from '../contracts/task';
 import type { AskUserQuestion } from '../contracts/tooling';
-import type { TaskModelSummary } from '../execution';
-import type { AttemptCheckpoint } from '../execution/executor';
-import type { ExecuteRequestResult } from '../execution/runtime';
-import type { PromptSnapshot } from '../prompt/types';
+
+export type { SessionTaskStatus, TaskExecutionMode } from '../contracts/task';
 
 export interface PendingUserQuestionView {
     callId: string;
     sourceMessageId: string;
     questions: AskUserQuestion[];
     createdAt: number;
+    /** In-memory interaction identity; never persisted. See `PendingToolApproval.decisionId`. */
+    decisionId?: string;
 }
-
-/**
- * 任务执行模式。
- *
- * `foreground` 表示当前有前台视图直接观察；
- * `background` 表示任务允许脱离当前页面继续运行。
- */
-export type TaskExecutionMode = 'foreground' | 'background';
 
 /**
  * 任务快照里可能混入来自页面层的响应式代理对象。
@@ -42,13 +40,6 @@ export function cloneTaskValue<T>(value: T): T {
     return JSON.parse(JSON.stringify(value)) as T;
 }
 
-export type SessionTaskStatus =
-    | 'running'
-    | 'waiting_approval'
-    | 'completed'
-    | 'failed'
-    | 'cancelled';
-
 export interface StartSessionTaskOptions {
     prompt: string;
     sessionId?: number;
@@ -60,41 +51,35 @@ export interface StartSessionTaskOptions {
     signal?: AbortSignal;
 }
 
-export interface SessionTaskSnapshot {
+export interface TaskViewSnapshot {
     taskId: string;
     sessionId: number | null;
     turnId: number | null;
     status: SessionTaskStatus;
     executionMode: TaskExecutionMode;
-    prompt: string;
     sessionHistory: SessionMessage[];
     pendingToolApproval: PendingToolApproval | null;
     pendingApprovals: PendingToolApproval[];
     pendingUserQuestion: PendingUserQuestionView | null;
     error: string | null;
     currentModel: TaskModelSummary | null;
-    promptSnapshot: PromptSnapshot | null;
-    lastCheckpoint: AttemptCheckpoint | null;
     startedAt: number;
     updatedAt: number;
     modelSwitchCount: number;
 }
 
+/**
+ * Compatibility alias kept while callers migrate to the explicit name.
+ * The public fields are the `TaskViewSnapshot` whitelist; it never carries
+ * checkpoints, prompt internals, or provider credentials.
+ */
+export type SessionTaskSnapshot = TaskViewSnapshot;
+export type SessionTaskViewSnapshot = TaskViewSnapshot;
+
 export interface StartedSessionTask {
     taskId: string;
     sessionId: number | null;
-    completion: Promise<ExecuteRequestResult>;
+    completion: Promise<TaskResult>;
 }
 
-/**
- * 发布给 UI 的展示快照。
- *
- * 与内部快照相比剔除了 runtime checkpoint 与 prompt 快照：
- * 恢复状态只服务于执行层，UI 不需要，也不应在每帧流式发布时深拷备。
- */
-export type SessionTaskViewSnapshot = Omit<
-    SessionTaskSnapshot,
-    'promptSnapshot' | 'lastCheckpoint'
->;
-
-export type TaskSnapshotListener = (snapshot: SessionTaskViewSnapshot) => void;
+export type TaskSnapshotListener = (snapshot: TaskViewSnapshot) => void;

@@ -11,11 +11,11 @@ import type { SessionMessage } from '@/types/session';
 import { createTextPart } from '@/utils/session';
 import { normalizeString } from '@/utils/text';
 
+import type { TaskModelSummary } from '../../contracts/task';
 import type { ToolEvent } from '../../contracts/tooling';
-import type { TaskModelSummary } from '../../execution';
-import { cloneTaskValue, type SessionTaskSnapshot } from '../types';
+import { cloneTaskValue, type TaskViewSnapshot } from '../types';
 
-export type MutableTaskStatus = SessionTaskSnapshot['status'];
+export type MutableTaskStatus = TaskViewSnapshot['status'];
 
 export function cloneValue<T>(value: T): T {
     return cloneTaskValue(value);

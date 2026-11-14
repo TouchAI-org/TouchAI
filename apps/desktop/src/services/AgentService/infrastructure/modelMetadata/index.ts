@@ -2,9 +2,9 @@
  * Copyright (c) 2025-2026. Qian Cheng. Licensed under GPL v3
  */
 
+import { cancelResponseBody, createTauriFetch } from '@services/HttpService';
 import { log } from '@services/ObservabilityService';
 
-import { createTauriFetch } from '../providers/ai-sdk/tauriFetch';
 import { buildMetadataList } from './catalog';
 import {
     markModelMetadataChecked,
@@ -52,6 +52,7 @@ export async function updateModelMetadata(): Promise<ModelMetadataRefreshResult>
         });
 
         if (response.status === 304) {
+            await cancelResponseBody(response, 'ModelMetadata response discarded');
             await markModelMetadataChecked({
                 checkedAt: new Date().toISOString(),
                 etag: previousEtag,
@@ -61,6 +62,7 @@ export async function updateModelMetadata(): Promise<ModelMetadataRefreshResult>
         }
 
         if (!response.ok) {
+            await cancelResponseBody(response, 'ModelMetadata response discarded');
             throw new Error(`Failed to fetch metadata: ${response.statusText}`);
         }
 
