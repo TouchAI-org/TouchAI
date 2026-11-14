@@ -49,6 +49,13 @@ export interface BaseBuiltInToolExecutionContext {
         callId: string,
         questions: AskUserQuestion[]
     ) => Promise<AskUserAnswer[] | null>;
+    /**
+     * Set by the tool service after the user approved this call.
+     *
+     * A tool may still enforce a deny decision when this is absent, but it must
+     * not present its own second approval UI for the same call.
+     */
+    approvalGranted?: boolean;
     requestedTimeoutMs?: number;
 }
 

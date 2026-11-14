@@ -10,6 +10,7 @@ import {
 } from '@services/SettingsService/domain/sections/browserPolicy';
 
 import { t } from '@/i18n';
+import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
 import type { ToolApprovalRequest } from '@/services/AgentService/contracts/tooling';
 import type { BrowserExistingSession, BrowserStartRequest } from '@/services/NativeService/types';
 
@@ -130,52 +131,37 @@ async function loadBrowserSettings(): Promise<BrowserSettingsConfig> {
     return parseBrowserSettingsConfig(typeof value === 'string' ? value : null);
 }
 
-async function ensureBrowserPermission(
+function throwIfBrowserCancelled(signal?: AbortSignal): void {
+    if (signal?.aborted) {
+        throw new AiError(AiErrorCode.REQUEST_CANCELLED);
+    }
+}
+
+function rethrowIfBrowserCancelled(error: unknown): void {
+    if (error instanceof AiError && error.is(AiErrorCode.REQUEST_CANCELLED)) {
+        throw error;
+    }
+}
+
+function ensureBrowserPermission(
     config: BrowserSettingsConfig,
     operation: BrowserToolOperation,
     metadata: { url?: string | null; availableSessionCount?: number | null } = {},
     context?: BaseBuiltInToolExecutionContext,
     description?: string
-): Promise<void> {
+): void {
+    throwIfBrowserCancelled(context?.signal);
     const decision = evaluateBrowserPermission(config, operation, metadata);
     if (decision.decision === 'deny') {
         throw new Error(`Browser permission denied: ${decision.reason}`);
     }
-    if (decision.decision === 'ask') {
-        await requestBrowserPermission(context, description ?? operation, decision.reason);
+    if (decision.decision === 'ask' && context?.approvalGranted !== true) {
+        const target = description?.trim() || operation;
+        throw new Error(
+            `Browser permission requires user confirmation for ${target}: ${decision.reason}`
+        );
     }
-}
-
-async function requestBrowserPermission(
-    context: BaseBuiltInToolExecutionContext | undefined,
-    description: string,
-    reason: string
-): Promise<void> {
-    if (!context?.requestUserQuestions) {
-        throw new Error(`Browser permission requires user confirmation: ${reason}`);
-    }
-
-    const approveLabel = t('builtInTools.browser.permission.approve');
-    const answers = await context.requestUserQuestions(context.callId, [
-        {
-            header: t('builtInTools.browser.permission.header'),
-            question: t('builtInTools.browser.permission.question', { description }),
-            options: [
-                {
-                    label: approveLabel,
-                    description: t('builtInTools.browser.permission.approve.description'),
-                },
-                {
-                    label: t('builtInTools.browser.permission.reject'),
-                    description: t('builtInTools.browser.permission.reject.description'),
-                },
-            ],
-        },
-    ]);
-    const selected = answers?.[0];
-    if (!selected || selected.skipped || !selected.selectedLabels.includes(approveLabel)) {
-        throw new Error('Browser permission was not approved by the user');
-    }
+    throwIfBrowserCancelled(context?.signal);
 }
 
 function sessionOptionLabel(session: BrowserExistingSession, index: number): string {
@@ -208,6 +194,7 @@ async function chooseExistingSession(
             options,
         },
     ]);
+    throwIfBrowserCancelled(context.signal);
     const selectedLabel = answers?.[0]?.selectedLabels[0];
     if (!selectedLabel || selectedLabel === cancelLabel) {
         throw new Error('Existing browser session connection was cancelled by the user');
@@ -225,11 +212,18 @@ async function resolveExistingSession(
     context: BaseBuiltInToolExecutionContext,
     description: string
 ): Promise<BrowserExistingSession> {
-    if (settings.existingSessionPolicy === 'deny') {
-        throw new Error('Browser permission denied: existing-browser-session-policy-deny');
+    throwIfBrowserCancelled(context.signal);
+    const preflight = evaluateBrowserPermission(settings, 'connect_existing');
+    if (preflight.decision === 'deny') {
+        throw new Error(`Browser permission denied: ${preflight.reason}`);
+    }
+    if (preflight.decision === 'ask' && !context.requestUserQuestions) {
+        throw new Error('Connecting an existing browser session requires user confirmation');
     }
 
+    throwIfBrowserCancelled(context.signal);
     const sessions = await native.browser.discoverExisting();
+    throwIfBrowserCancelled(context.signal);
     if (sessions.length === 0) {
         throw new Error(
             'No connectable existing browser session was found. Start a managed browser session, or open Chrome/Edge with a loopback remote debugging port if an existing session is required.'
@@ -243,10 +237,13 @@ async function resolveExistingSession(
         throw new Error(`Browser permission denied: ${decision.reason}`);
     }
     if (decision.decision === 'allow' && settings.existingSessionPolicy === 'auto') {
+        throwIfBrowserCancelled(context.signal);
         return sessions[0] as BrowserExistingSession;
     }
 
-    return chooseExistingSession(sessions, context, description);
+    const selected = await chooseExistingSession(sessions, context, description);
+    throwIfBrowserCancelled(context.signal);
+    return selected;
 }
 
 function normalizedFormFieldsArg(
@@ -402,6 +399,7 @@ export async function executeBrowserSessionTool(
     context: BaseBuiltInToolExecutionContext
 ): Promise<BuiltInToolExecutionResult> {
     try {
+        throwIfBrowserCancelled(context.signal);
         const operation: BrowserSessionOperation = requireKnownOperation(
             'browser_session',
             args,
@@ -410,13 +408,14 @@ export async function executeBrowserSessionTool(
         ensureBrowserDescription(args, operation);
         const description = resolveBrowserOperationDescription(args, operation);
         const browserSettings = await loadBrowserSettings();
+        throwIfBrowserCancelled(context.signal);
 
         switch (operation) {
             case 'status':
-                await ensureBrowserPermission(browserSettings, operation, {}, context, description);
+                ensureBrowserPermission(browserSettings, operation, {}, context, description);
                 return success(operation, await native.browser.status());
             case 'start':
-                await ensureBrowserPermission(browserSettings, operation, {}, context, description);
+                ensureBrowserPermission(browserSettings, operation, {}, context, description);
                 return success(
                     operation,
                     await native.browser.start(
@@ -449,21 +448,23 @@ export async function executeBrowserSessionTool(
                     )
                 );
             case 'stop':
-                await ensureBrowserPermission(browserSettings, operation, {}, context, description);
+                ensureBrowserPermission(browserSettings, operation, {}, context, description);
                 return success(operation, await native.browser.stop());
-            case 'connect_existing':
+            case 'connect_existing': {
+                const session = await resolveExistingSession(browserSettings, context, description);
+                throwIfBrowserCancelled(context.signal);
                 return success(
                     operation,
                     await native.browser.connectExisting({
-                        endpoint: (
-                            await resolveExistingSession(browserSettings, context, description)
-                        ).endpoint,
+                        endpoint: session.endpoint,
                     })
                 );
+            }
             default:
                 throw new Error(`Unsupported browser_session operation: ${operation}`);
         }
     } catch (error) {
+        rethrowIfBrowserCancelled(error);
         return errorResult(error);
     }
 }
@@ -476,6 +477,7 @@ export async function executeBrowserObserveTool(
     void _config;
 
     try {
+        throwIfBrowserCancelled(context.signal);
         const operation: BrowserObserveOperation = requireKnownOperation(
             'browser_observe',
             args,
@@ -485,7 +487,8 @@ export async function executeBrowserObserveTool(
         rejectHiddenObserveFields(args);
         const description = resolveBrowserOperationDescription(args, operation);
         const browserSettings = await loadBrowserSettings();
-        await ensureBrowserPermission(
+        throwIfBrowserCancelled(context.signal);
+        ensureBrowserPermission(
             browserSettings,
             observePermissionOperation(operation),
             {},
@@ -505,6 +508,7 @@ export async function executeBrowserObserveTool(
             })
         );
     } catch (error) {
+        rethrowIfBrowserCancelled(error);
         return errorResult(error);
     }
 }
@@ -517,6 +521,7 @@ export async function executeBrowserActTool(
     void _config;
 
     try {
+        throwIfBrowserCancelled(context.signal);
         const operation: BrowserActOperation = requireKnownOperation(
             'browser_act',
             args,
@@ -525,16 +530,11 @@ export async function executeBrowserActTool(
         ensureBrowserDescription(args, operation);
         const description = resolveBrowserOperationDescription(args, operation);
         const browserSettings = await loadBrowserSettings();
+        throwIfBrowserCancelled(context.signal);
 
         if (operation === 'navigate') {
             const url = String(args.url ?? '');
-            await ensureBrowserPermission(
-                browserSettings,
-                operation,
-                { url },
-                context,
-                description
-            );
+            ensureBrowserPermission(browserSettings, operation, { url }, context, description);
             return success(
                 operation,
                 await native.browser.navigate({
@@ -546,7 +546,7 @@ export async function executeBrowserActTool(
             );
         }
 
-        await ensureBrowserPermission(browserSettings, operation, {}, context, description);
+        ensureBrowserPermission(browserSettings, operation, {}, context, description);
 
         if (operation === 'back') {
             return success(
@@ -594,6 +594,7 @@ export async function executeBrowserActTool(
             })
         );
     } catch (error) {
+        rethrowIfBrowserCancelled(error);
         return errorResult(error);
     }
 }

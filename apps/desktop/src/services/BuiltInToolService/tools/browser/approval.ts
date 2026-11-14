@@ -1,5 +1,6 @@
 import {
     BROWSER_SETTINGS_KEY,
+    type BrowserPermissionMode,
     parseBrowserSettingsConfig,
 } from '@services/SettingsService/domain/sections/browser';
 import {
@@ -13,107 +14,51 @@ import type { ToolApprovalRequest } from '@/services/AgentService/contracts/tool
 import { normalizeOptionalString, truncateText } from '@/utils/text';
 
 import { readEffectiveSettingValue } from '../../settingsReader';
+import {
+    BROWSER_ACT_OPERATIONS,
+    BROWSER_OBSERVE_OPERATIONS,
+    BROWSER_OPERATIONS,
+    BROWSER_SESSION_OPERATIONS,
+} from './constants';
 import type { BrowserToolId } from './index';
-import { parseBrowserOperation } from './operation';
+import { isBrowserToolOperation, parseBrowserOperation } from './operation';
 import { redactBrowserText, redactUrl } from './redaction';
 
 const APPROVAL_DELAY_MS = 450;
+
+const APPROVAL_OPERATIONS_BY_TOOL: Record<BrowserToolId, ReadonlySet<BrowserToolOperation>> = {
+    browser: new Set(BROWSER_OPERATIONS),
+    browser_session: new Set(BROWSER_SESSION_OPERATIONS),
+    browser_observe: new Set(BROWSER_OBSERVE_OPERATIONS),
+    browser_act: new Set([...BROWSER_ACT_OPERATIONS, 'screenshot']),
+};
 
 function permissionOperationForApproval(
     toolId: BrowserToolId,
     operation: string
 ): BrowserToolOperation | null {
-    if (toolId === 'browser') {
-        if (operation === 'start' || operation === 'stop') {
-            return operation;
-        }
-        if (operation === 'screenshot') {
-            return 'screenshot';
-        }
-        if (
-            operation === 'connect_existing' ||
-            operation === 'dom' ||
-            operation === 'current' ||
-            operation === 'tabs'
-        ) {
-            return operation as BrowserToolOperation;
-        }
-        if (
-            operation === 'navigate' ||
-            operation === 'click' ||
-            operation === 'type' ||
-            operation === 'fill' ||
-            operation === 'fill_form' ||
-            operation === 'press_key' ||
-            operation === 'back' ||
-            operation === 'forward' ||
-            operation === 'reload'
-        ) {
-            return operation as BrowserToolOperation;
-        }
+    if (!isBrowserToolOperation(operation)) {
         return null;
     }
 
-    if (toolId === 'browser_session') {
-        return operation === 'start' || operation === 'stop' ? operation : null;
-    }
-
-    if (toolId === 'browser_observe') {
-        if (operation === 'screenshot') {
-            return 'screenshot';
-        }
-        if (operation === 'dom' || operation === 'current' || operation === 'tabs') {
-            return operation as BrowserToolOperation;
-        }
-        return null;
-    }
-
-    if (toolId !== 'browser_act') {
-        return null;
-    }
-
-    if (
-        operation === 'navigate' ||
-        operation === 'click' ||
-        operation === 'type' ||
-        operation === 'fill' ||
-        operation === 'fill_form' ||
-        operation === 'press_key' ||
-        operation === 'back' ||
-        operation === 'forward' ||
-        operation === 'reload'
-    ) {
-        return operation as BrowserToolOperation;
-    }
-
-    if (operation === 'screenshot') {
-        return 'screenshot';
-    }
-
-    return null;
+    return APPROVAL_OPERATIONS_BY_TOOL[toolId]?.has(operation) ? operation : null;
 }
 
-async function isApprovalAllowedByBrowserSettings(
-    toolId: BrowserToolId,
-    operation: string,
+async function browserPermissionDecision(
+    operation: BrowserToolOperation,
     args: Record<string, unknown>
-): Promise<boolean> {
-    const permissionOperation = permissionOperationForApproval(toolId, operation);
-    if (!permissionOperation) {
-        return false;
-    }
-
+): Promise<BrowserPermissionMode> {
     const value = await readEffectiveSettingValue(BROWSER_SETTINGS_KEY);
     const settings = parseBrowserSettingsConfig(typeof value === 'string' ? value : null);
     const rawUrl = normalizeOptionalString(args.url, { collapseWhitespace: true });
-    const decision = evaluateBrowserPermission(settings, permissionOperation, { url: rawUrl });
-    return decision.decision === 'allow';
+    return evaluateBrowserPermission(settings, operation, { url: rawUrl }).decision;
 }
+
 function semanticDescription(args: Record<string, unknown>): string {
     return normalizeBrowserDescription(args.description) ?? '';
 }
 
-function approval(command: string, reason: string, description = ''): ToolApprovalRequest {
+function approval(command: string, reason: string, description: string): ToolApprovalRequest {
     const displayCommand = description || command;
     return {
         title: tt('浏览器操作确认'),
@@ -148,128 +93,102 @@ function formatFieldLabel(args: Record<string, unknown>): string {
     );
 }
 
+function approvalForOperation(
+    operation: BrowserToolOperation,
+    args: Record<string, unknown>
+): ToolApprovalRequest | null {
+    const description = semanticDescription(args);
+
+    switch (operation) {
+        case 'status':
+            return approval('status', tt('此操作会读取浏览器会话状态。'), description);
+        case 'dom':
+        case 'current':
+        case 'tabs':
+            return approval(operation, tt('此操作会读取当前浏览器页面或标签页状态。'), description);
+        case 'start':
+        case 'stop':
+            return approval(operation, tt('此操作会启动或停止浏览器自动化会话。'), description);
+        case 'navigate': {
+            const rawUrl = normalizeOptionalString(args.url, { collapseWhitespace: true }) ?? '';
+            const targetUrl = rawUrl ? redactUrl(rawUrl) : 'missing URL';
+            return approval(
+                `navigate ${targetUrl}`,
+                tt('此操作会让浏览器打开或切换到新的网页。'),
+                description
+            );
+        }
+        case 'back':
+        case 'forward':
+        case 'reload':
+            return approval(
+                `${operation} ${formatTarget(args)}`,
+                tt('此操作会改变当前网页的浏览状态。'),
+                description
+            );
+        case 'scroll':
+            return approval('scroll', tt('此操作会滚动当前网页。'), description);
+        case 'wait':
+            return approval('wait', tt('此操作会等待当前网页。'), description);
+        case 'screenshot':
+            return approval(
+                `screenshot ${formatTarget(args)}`,
+                tt('此操作会截取当前网页内容并作为图片附件返回。'),
+                description
+            );
+        case 'fill': {
+            const field = formatFieldLabel(args);
+            return approval(
+                `fill ${formatTarget(args)} ${redactBrowserText(field)}=[redacted]`,
+                tt('此操作会向网页表单输入内容。'),
+                description
+            );
+        }
+        case 'fill_form':
+            return approval(
+                `fill_form ${formatTarget(args)}`,
+                tt('此操作会向网页表单输入一组内容。'),
+                description
+            );
+        case 'type':
+            return approval(
+                `type ${formatTarget(args)}`,
+                tt('此操作会在网页中输入文本。'),
+                description
+            );
+        case 'click':
+        case 'press_key':
+            return approval(
+                `${operation} ${formatTarget(args)}`,
+                tt('此操作会与网页交互，可能触发提交、导航或状态变更。'),
+                description
+            );
+        case 'connect_existing':
+            return null;
+    }
+
+    return null;
+}
+
 export async function createBrowserApprovalRequest(
     toolId: BrowserToolId,
     args: Record<string, unknown>
 ): Promise<ToolApprovalRequest | null> {
     const operation = parseBrowserOperation(args);
-    if (!operation) {
+    // Connecting an existing session already needs a chooser whenever the policy asks.
+    // The chooser is the single decision point; a separate approval card would ask twice.
+    if (!operation || operation === 'connect_existing') {
         return null;
     }
 
-    if (await isApprovalAllowedByBrowserSettings(toolId, operation, args)) {
+    const permissionOperation = permissionOperationForApproval(toolId, operation);
+    if (!permissionOperation) {
         return null;
     }
 
-    if (operation === 'connect_existing') {
-        return approval(
-            'connect_existing',
-            tt('此操作会连接到已有浏览器会话。'),
-            semanticDescription(args)
-        );
-    }
-
-    if (operation === 'dom' || operation === 'current' || operation === 'tabs') {
-        return approval(
-            operation,
-            tt('此操作会读取当前浏览器页面或标签页状态。'),
-            semanticDescription(args)
-        );
-    }
-
-    if (toolId === 'browser_observe' || (toolId === 'browser' && operation === 'screenshot')) {
-        if (operation === 'screenshot') {
-            return approval(
-                `screenshot ${formatTarget(args)}`,
-                tt('此操作会截取当前网页内容并作为图片附件返回。'),
-                semanticDescription(args)
-            );
-        }
-
+    if ((await browserPermissionDecision(permissionOperation, args)) !== 'ask') {
         return null;
     }
 
-    if (
-        toolId === 'browser_session' ||
-        (toolId === 'browser' && (operation === 'start' || operation === 'stop'))
-    ) {
-        if (operation === 'start' || operation === 'stop') {
-            return approval(
-                operation,
-                tt('此操作会启动或停止浏览器自动化会话。'),
-                semanticDescription(args)
-            );
-        }
-
-        return null;
-    }
-
-    if (toolId !== 'browser_act' && toolId !== 'browser') {
-        return null;
-    }
-
-    if (operation === 'scroll' || operation === 'wait') {
-        return null;
-    }
-
-    if (operation === 'navigate') {
-        const rawUrl = normalizeOptionalString(args.url, { collapseWhitespace: true }) ?? '';
-        const targetUrl = rawUrl ? redactUrl(rawUrl) : 'missing URL';
-        return approval(
-            `navigate ${targetUrl}`,
-            tt('此操作会让浏览器打开或切换到新的网页。'),
-            semanticDescription(args)
-        );
-    }
-
-    if (operation === 'back' || operation === 'forward' || operation === 'reload') {
-        return approval(
-            `${operation} ${formatTarget(args)}`,
-            tt('此操作会改变当前网页的浏览状态。'),
-            semanticDescription(args)
-        );
-    }
-
-    if (operation === 'screenshot') {
-        return approval(
-            `screenshot ${formatTarget(args)}`,
-            tt('此操作会截取当前网页内容并作为图片附件返回。'),
-            semanticDescription(args)
-        );
-    }
-
-    if (operation === 'fill') {
-        const field = formatFieldLabel(args);
-        return approval(
-            `fill ${formatTarget(args)} ${redactBrowserText(field)}=[redacted]`,
-            tt('此操作会向网页表单输入内容。'),
-            semanticDescription(args)
-        );
-    }
-
-    if (operation === 'fill_form') {
-        return approval(
-            `fill_form ${formatTarget(args)}`,
-            tt('此操作会向网页表单输入一组内容。'),
-            semanticDescription(args)
-        );
-    }
-
-    if (operation === 'type') {
-        return approval(
-            `type ${formatTarget(args)}`,
-            tt('此操作会在网页中输入文本。'),
-            semanticDescription(args)
-        );
-    }
-
-    if (operation === 'click' || operation === 'press_key') {
-        return approval(
-            `${operation} ${formatTarget(args)}`,
-            tt('此操作会与网页交互，可能触发提交、导航或状态变更。'),
-            semanticDescription(args)
-        );
-    }
-
-    return null;
+    return approvalForOperation(permissionOperation, args);
 }

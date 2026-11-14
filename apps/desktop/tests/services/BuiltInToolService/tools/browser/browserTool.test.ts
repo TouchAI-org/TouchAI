@@ -14,6 +14,7 @@ vi.mock('@/services/BuiltInToolService/settingsReader', () => ({
     readEffectiveSettingValue: browserSettings.readEffectiveSettingValue,
 }));
 
+import { AiErrorCode } from '@/services/AgentService/contracts/errors';
 import {
     browserActTool,
     browserObserveTool,
@@ -47,13 +48,11 @@ import {
 } from '@/services/BuiltInToolService/tools/browser/redaction';
 import type { BaseBuiltInToolExecutionContext } from '@/services/BuiltInToolService/types';
 
-type RequestUserQuestions = NonNullable<BaseBuiltInToolExecutionContext['requestUserQuestions']>;
-
 function fakeContext(): BaseBuiltInToolExecutionContext {
     return {
         callId: 'call-1',
         iteration: 0,
-
+        approvalGranted: true,
         requestUserQuestions: async (_callId, questions) =>
             questions.map((question, questionIndex) => ({
                 questionIndex,
@@ -454,10 +453,13 @@ describe('user approves risky browser actions', () => {
         expect(browserSettings.readEffectiveSettingValue).toHaveBeenCalledWith('browser_settings');
     });
 
-    it('user sees no approval for routine status and observe operations', async () => {
+    it('user sees one approval for session status and no approval for routine observation', async () => {
         await expect(
             createBrowserApprovalRequest('browser_session', { operation: 'status' })
-        ).resolves.toBeNull();
+        ).resolves.toEqual(expect.objectContaining({ command: 'status' }));
+        await expect(
+            createBrowserApprovalRequest('browser', { operation: 'status' })
+        ).resolves.toEqual(expect.objectContaining({ command: 'status' }));
         await expect(
             createBrowserApprovalRequest('browser_observe', { operation: 'dom' })
         ).resolves.toBeNull();
@@ -508,9 +510,31 @@ describe('user approves risky browser actions', () => {
             createBrowserApprovalRequest('browser_observe', { operation: 'tabs' })
         ).resolves.toBeNull();
         await expect(
+            createBrowserApprovalRequest('browser', { operation: 'status' })
+        ).resolves.toBeNull();
+        await expect(
             createBrowserApprovalRequest('browser', {
                 operation: 'dom',
                 description: 'Read page structure',
+            })
+        ).resolves.toBeNull();
+    });
+
+    it('user sees no approval prompt when browser settings deny the operation', async () => {
+        browserSettingsValues.set(
+            'browser_settings',
+            JSON.stringify({
+                permissions: {
+                    navigate: 'deny',
+                },
+            })
+        );
+
+        await expect(
+            createBrowserApprovalRequest('browser_act', {
+                operation: 'navigate',
+                url: 'https://example.test/private',
+                description: '访问受限页面',
             })
         ).resolves.toBeNull();
     });
@@ -546,7 +570,7 @@ describe('user approves risky browser actions', () => {
         expect(JSON.stringify(approval)).not.toContain('super-secret-password');
     });
 
-    it('user sees approval for high-impact actions while low-impact observation runs', async () => {
+    it('user sees one approval for every action the configured policy asks about', async () => {
         await expect(
             createBrowserApprovalRequest('browser_session', { operation: 'start' })
         ).resolves.toEqual(expect.objectContaining({ command: 'start' }));
@@ -555,13 +579,13 @@ describe('user approves risky browser actions', () => {
         ).resolves.toBeNull();
         await expect(
             createBrowserApprovalRequest('browser_act', { operation: 'wait' })
-        ).resolves.toBeNull();
+        ).resolves.toEqual(expect.objectContaining({ command: 'wait' }));
         await expect(
             createBrowserApprovalRequest('browser_act', { operation: 'reload' })
         ).resolves.toEqual(expect.objectContaining({ command: 'reload selected tab' }));
     });
 
-    it('user sees approval for existing-session and browser-read operations when policy asks', async () => {
+    it('user sees browser-read approvals when policy asks', async () => {
         browserSettingsValues.set(
             'browser_settings',
             JSON.stringify({
@@ -573,12 +597,6 @@ describe('user approves risky browser actions', () => {
             })
         );
 
-        await expect(
-            createBrowserApprovalRequest('browser', {
-                operation: 'connect_existing',
-                description: 'Connect existing browser',
-            })
-        ).resolves.toEqual(expect.objectContaining({ command: 'Connect existing browser' }));
         await expect(
             createBrowserApprovalRequest('browser_observe', { operation: 'current' })
         ).resolves.toEqual(expect.objectContaining({ command: 'current' }));
@@ -593,11 +611,36 @@ describe('user approves risky browser actions', () => {
         ).resolves.toEqual(expect.objectContaining({ command: 'Read page structure' }));
     });
 
+    it('user sees no separate approval before choosing an existing browser session', async () => {
+        browserSettingsValues.set(
+            'browser_settings',
+            JSON.stringify({
+                existingSessionPolicy: 'ask',
+                permissions: {
+                    connectExisting: 'ask',
+                },
+            })
+        );
+
+        await expect(
+            createBrowserApprovalRequest('browser', {
+                operation: 'connect_existing',
+                description: 'Connect existing browser',
+            })
+        ).resolves.toBeNull();
+        await expect(
+            createBrowserApprovalRequest('browser_session', {
+                operation: 'connect_existing',
+                description: 'Connect existing browser',
+            })
+        ).resolves.toBeNull();
+    });
+
     it('user sees every approval shape covered without exposing selector secrets', async () => {
         await expect(createBrowserApprovalRequest('browser_act', {})).resolves.toBeNull();
         await expect(
             createBrowserApprovalRequest('browser_act', { operation: 'scroll' })
-        ).resolves.toBeNull();
+        ).resolves.toEqual(expect.objectContaining({ command: 'scroll' }));
         await expect(
             createBrowserApprovalRequest('browser_session', { operation: 'stop' })
         ).resolves.toEqual(expect.objectContaining({ command: 'stop' }));
@@ -876,18 +919,9 @@ describe('user runs browser actions and reads their results', () => {
         expect(getLastTauriInvokeCall('browser_navigate')).toBeUndefined();
     });
 
-    it('user sees a permission prompt followed by the action when they approve', async () => {
+    it('user does not see a second browser question after the tool service approved the action', async () => {
         mockTauriCommand('browser_navigate', { ok: true });
-        const requestUserQuestionsImpl: RequestUserQuestions = async (
-            _callId: Parameters<RequestUserQuestions>[0],
-            questions: Parameters<RequestUserQuestions>[1]
-        ) =>
-            questions.map((question, questionIndex) => ({
-                questionIndex,
-                selectedLabels: [question.options[0]?.label ?? '允许本次'],
-                skipped: false,
-            }));
-        const requestUserQuestions = vi.fn(requestUserQuestionsImpl);
+        const requestUserQuestions = vi.fn();
 
         const result = await executeBrowserActTool(
             {
@@ -903,22 +937,15 @@ describe('user runs browser actions and reads their results', () => {
         );
 
         expect(result.isError).toBe(false);
-        expect(requestUserQuestions).toHaveBeenCalledWith(
-            'call-1',
-            expect.arrayContaining([
-                expect.objectContaining({
-                    question: expect.stringContaining('打开官方说明页'),
-                }),
-            ])
-        );
+        expect(requestUserQuestions).not.toHaveBeenCalled();
         expect(getLastTauriInvokeCall('browser_navigate')?.payload).toEqual({
             request: { url: 'https://example.test/docs' },
         });
     });
 
-    it('user sees permission-gated actions stop when approval is unavailable or rejected', async () => {
+    it('user sees a permission-gated action stop when the service did not grant approval', async () => {
         mockTauriCommand('browser_navigate', { ok: true });
-        const unavailable = await executeBrowserActTool(
+        const result = await executeBrowserActTool(
             {
                 operation: 'navigate',
                 description: '打开需要确认的页面',
@@ -927,47 +954,9 @@ describe('user runs browser actions and reads their results', () => {
             defaultBrowserConfig,
             fakeContextWithoutQuestions()
         );
-        const rejected = await executeBrowserActTool(
-            {
-                operation: 'navigate',
-                description: '打开被用户拒绝的页面',
-                url: 'https://example.test/rejected',
-            },
-            defaultBrowserConfig,
-            {
-                ...fakeContext(),
-                requestUserQuestions: async (_callId, questions) =>
-                    questions.map((_question, questionIndex) => ({
-                        questionIndex,
-                        selectedLabels: ['拒绝'],
-                        skipped: false,
-                    })),
-            }
-        );
-        const skipped = await executeBrowserActTool(
-            {
-                operation: 'navigate',
-                description: '打开被跳过确认的页面',
-                url: 'https://example.test/skipped',
-            },
-            defaultBrowserConfig,
-            {
-                ...fakeContext(),
-                requestUserQuestions: async (_callId, questions) =>
-                    questions.map((_question, questionIndex) => ({
-                        questionIndex,
-                        selectedLabels: [],
-                        skipped: true,
-                    })),
-            }
-        );
 
-        expect(unavailable.isError).toBe(true);
-        expect(unavailable.result).toContain('requires user confirmation');
-        expect(rejected.isError).toBe(true);
-        expect(rejected.result).toContain('was not approved');
-        expect(skipped.isError).toBe(true);
-        expect(skipped.result).toContain('was not approved');
+        expect(result.isError).toBe(true);
+        expect(result.result).toContain('requires user confirmation');
         expect(getLastTauriInvokeCall('browser_navigate')).toBeUndefined();
     });
 
@@ -1011,6 +1000,42 @@ describe('user runs browser actions and reads their results', () => {
 
         expect(result.isError).toBe(true);
         expect(result.result).toContain('existing-browser-session-policy-deny');
+        expect(getLastTauriInvokeCall('browser_discover_existing')).toBeUndefined();
+        expect(getLastTauriInvokeCall('browser_connect_existing')).toBeUndefined();
+    });
+
+    it('user sees no session discovery when browser automation is disabled', async () => {
+        mockTauriCommand('browser_discover_existing', []);
+        browserSettingsValues.set(
+            'browser_settings',
+            JSON.stringify({
+                enabled: false,
+            })
+        );
+
+        const result = await executeBrowserSessionTool(
+            { operation: 'connect_existing', description: '连接已有浏览器' },
+            defaultBrowserConfig,
+            fakeContext()
+        );
+
+        expect(result.isError).toBe(true);
+        expect(result.result).toContain('browser-automation-disabled');
+        expect(getLastTauriInvokeCall('browser_discover_existing')).toBeUndefined();
+        expect(getLastTauriInvokeCall('browser_connect_existing')).toBeUndefined();
+    });
+
+    it('user sees no session discovery when a required chooser is unavailable', async () => {
+        mockTauriCommand('browser_discover_existing', []);
+
+        const result = await executeBrowserSessionTool(
+            { operation: 'connect_existing', description: '连接已有浏览器' },
+            defaultBrowserConfig,
+            fakeContextWithoutQuestions()
+        );
+
+        expect(result.isError).toBe(true);
+        expect(result.result).toContain('requires user confirmation');
         expect(getLastTauriInvokeCall('browser_discover_existing')).toBeUndefined();
         expect(getLastTauriInvokeCall('browser_connect_existing')).toBeUndefined();
     });
@@ -1144,6 +1169,15 @@ describe('user runs browser actions and reads their results', () => {
                 title: 'Dashboard',
                 tabs: [],
             },
+            {
+                id: '127.0.0.1:9223',
+                label: 'Edge - docs',
+                endpoint: 'http://127.0.0.1:9223',
+                browserName: 'Microsoft Edge',
+                currentUrl: 'https://docs.example.test',
+                title: 'Docs',
+                tabs: [],
+            },
         ];
         mockTauriCommand('browser_discover_existing', sessions);
         const cancelled = await executeBrowserSessionTool(
@@ -1181,6 +1215,39 @@ describe('user runs browser actions and reads their results', () => {
         expect(cancelled.result).toContain('cancelled');
         expect(invalid.isError).toBe(true);
         expect(invalid.result).toContain('not found');
+        expect(getLastTauriInvokeCall('browser_connect_existing')).toBeUndefined();
+    });
+
+    it('user sees a session connection stop when cancelled during the chooser', async () => {
+        const controller = new AbortController();
+        mockTauriCommand('browser_discover_existing', [
+            {
+                id: '127.0.0.1:9222',
+                label: 'Google Chrome - dashboard',
+                endpoint: 'http://127.0.0.1:9222',
+                browserName: 'Google Chrome',
+                currentUrl: 'https://example.test/dashboard',
+                title: 'Dashboard',
+                tabs: [],
+            },
+        ]);
+        mockTauriCommand('browser_connect_existing', { status: { status: 'connected' } });
+
+        await expect(
+            executeBrowserSessionTool(
+                { operation: 'connect_existing', description: '连接已有浏览器' },
+                defaultBrowserConfig,
+                {
+                    ...fakeContext(),
+                    signal: controller.signal,
+                    requestUserQuestions: async () => {
+                        controller.abort();
+                        return null;
+                    },
+                }
+            )
+        ).rejects.toMatchObject({ code: AiErrorCode.REQUEST_CANCELLED });
+
         expect(getLastTauriInvokeCall('browser_connect_existing')).toBeUndefined();
     });
 

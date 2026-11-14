@@ -390,6 +390,7 @@ class BuiltInToolService {
             });
         }
 
+        let approvalGranted = false;
         let toolResult: BuiltInToolExecutionResult;
         try {
             await throwIfCancelledAndMarkToolLog({
@@ -502,6 +503,7 @@ class BuiltInToolService {
                     };
                 }
 
+                approvalGranted = true;
                 // 审批通过后再把日志切到 approved，
                 // 保证数据库只记录“已经落地的用户决策”，而不是中间态推测。
                 if (toolLogId !== null)
@@ -517,6 +519,15 @@ class BuiltInToolService {
                     });
             }
 
+            // 审批持久化是异步操作；用户可能在写入 approved 的过程中取消。
+            // 调用有副作用的工具前必须再检查一次，不能只依赖审批前的取消检查。
+            await throwIfCancelledAndMarkToolLog({
+                signal: options.signal,
+                toolLogId,
+                callStartTime,
+            });
+
+            executionContext.approvalGranted = approvalGranted;
             // 5. 执行工具
             toolResult = await this.executeResolvedTool(
                 resolved,

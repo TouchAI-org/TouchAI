@@ -7,6 +7,8 @@ import {
 
 import { normalizeOptionalString } from '@/utils/text';
 
+import { BROWSER_OPERATIONS } from './constants';
+
 export function parseBrowserOperation(args: Record<string, unknown>): string | null {
     return normalizeOptionalString(args.operation, { collapseWhitespace: true }) ?? null;
 }
@@ -30,28 +32,8 @@ export function browserOperationForSemantic(
     return parseBrowserOperation(args) ?? fallback;
 }
 
-function isBrowserToolOperation(value: string): value is BrowserToolOperation {
-    return [
-        'status',
-        'start',
-        'stop',
-        'current',
-        'tabs',
-        'screenshot',
-        'dom',
-        'navigate',
-        'click',
-        'type',
-        'fill',
-        'fill_form',
-        'press_key',
-        'scroll',
-        'wait',
-        'back',
-        'forward',
-        'reload',
-        'connect_existing',
-    ].includes(value);
+export function isBrowserToolOperation(value: string): value is BrowserToolOperation {
+    return BROWSER_OPERATIONS.some((operation) => operation === value);
 }
 
 export function resolveBrowserOperationDescription(
