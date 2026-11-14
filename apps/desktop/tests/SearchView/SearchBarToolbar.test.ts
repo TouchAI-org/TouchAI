@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 import { flushPromises, mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { shallowRef } from 'vue';
@@ -166,5 +169,28 @@ describe('given the main input shows extension controls', () => {
         for (const button of wrapper.findAll('[data-testid="search-extension-bar"] button')) {
             expect(button.attributes('disabled')).toBeDefined();
         }
+    });
+});
+
+describe('given the search toolbar handle', () => {
+    const handleCss = readFileSync(
+        resolve('src/views/SearchView/components/SearchBar/style.css'),
+        'utf8'
+    );
+
+    it('user sees the handle keep the same inset on both sides of the handoff', () => {
+        const expandedRule =
+            handleCss.match(/\.search-toolbar-handle--expanded\s*\{([^}]*)\}/s)?.[1] ?? '';
+
+        expect(expandedRule).toContain('translate(-50%, 18px)');
+    });
+
+    it('user sees a shallow bend rather than a tall chevron when hovering the handle', () => {
+        expect(handleCss).toMatch(
+            /\.search-toolbar-handle:hover \.search-toolbar-handle__glyph span:first-child \{\s*transform: rotate\(10deg\);/
+        );
+        expect(handleCss).toMatch(
+            /\.search-toolbar-handle:hover \.search-toolbar-handle__glyph span:last-child \{\s*transform: rotate\(-10deg\);/
+        );
     });
 });
