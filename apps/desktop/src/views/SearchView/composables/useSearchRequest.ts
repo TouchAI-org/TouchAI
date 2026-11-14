@@ -18,6 +18,7 @@ import { log } from '@services/ObservabilityService';
 import { useStateMachine } from 'reka-ui';
 import { computed, onUnmounted, type Ref, ref } from 'vue';
 
+import { t } from '@/i18n';
 import {
     type Index,
     isAttachmentSupported,
@@ -37,8 +38,8 @@ import type { PendingRequest, SearchModelOverride, SubmitShortcutIntent } from '
 interface UseSearchRequestFlowOptions {
     modelOverride: Ref<SearchModelOverride>;
     clearDraft: (options?: { preserveModelTag?: boolean }) => void;
-    getSupportedAttachments: () => Index[];
     getUnsupportedAttachmentMessage: () => string | null;
+    getUnsupportedAttachmentMessageFor?: (attachments: Index[]) => string | null;
     getCurrentInputSnapshot: (query: string) => InputHistorySnapshot;
 }
 
@@ -79,8 +80,8 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
     const {
         modelOverride,
         clearDraft,
-        getSupportedAttachments,
         getUnsupportedAttachmentMessage,
+        getUnsupportedAttachmentMessageFor,
         getCurrentInputSnapshot,
     } = options;
 
@@ -486,13 +487,14 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         shortcutIntent: SubmitShortcutIntent = 'enter',
         options?: { preserveComposerDraft?: boolean }
     ) {
-        const unsupportedAttachmentMessage = getUnsupportedAttachmentMessage();
+        const inputSnapshot = inputSnapshotOverride ?? getCurrentInputSnapshot(query);
+        const unsupportedAttachmentMessage = getUnsupportedAttachmentMessageFor
+            ? getUnsupportedAttachmentMessageFor(inputSnapshot.attachments)
+            : getUnsupportedAttachmentMessage();
         if (unsupportedAttachmentMessage) {
             notify({ title: 'TouchAI', body: unsupportedAttachmentMessage });
             return;
         }
-
-        const inputSnapshot = inputSnapshotOverride ?? getCurrentInputSnapshot(query);
 
         // 上一轮刚结束、下一条排队任务尚未挂载时，待发列表仍非空；
         // 这段衔接期也必须继续排队，否则会误发起一个与自动续发冲突的新任务。
@@ -502,7 +504,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
             const pendingMessage = enqueueUserMessage(
                 {
                     prompt: query,
-                    attachments: getSupportedAttachments(),
+                    attachments: inputSnapshot.attachments.filter(isAttachmentSupported),
                     inputSnapshot,
                     modelId: selectedModelId ?? undefined,
                     providerId: selectedProviderId ?? undefined,
@@ -513,13 +515,17 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
                 if (!options?.preserveComposerDraft) {
                     clearDraft({ preserveModelTag: true });
                 }
+            } else {
+                // A brand-new conversation has no session id yet, so a message
+                // sent while its task is starting cannot be queued.
+                notify({ title: 'TouchAI', body: t('search.error.queueFailed') });
             }
             return;
         }
 
         const selectedModelId = modelOverride.value.modelId;
         const selectedProviderId = modelOverride.value.providerId;
-        const supportedAttachments = getSupportedAttachments();
+        const supportedAttachments = inputSnapshot.attachments.filter(isAttachmentSupported);
 
         if (!options?.preserveComposerDraft) {
             clearDraft({ preserveModelTag: true });

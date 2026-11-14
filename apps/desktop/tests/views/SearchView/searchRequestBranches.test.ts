@@ -187,7 +187,6 @@ async function mountFlow(
         useSearchRequestFlow({
             modelOverride,
             clearDraft,
-            getSupportedAttachments: () => attachments,
             getUnsupportedAttachmentMessage: () => options.unsupportedMessage ?? null,
             getCurrentInputSnapshot: (query) =>
                 createInputHistorySnapshot({ text: query, attachments }),

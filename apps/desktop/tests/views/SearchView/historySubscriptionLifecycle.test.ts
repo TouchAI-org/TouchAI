@@ -39,7 +39,6 @@ function mountHistory() {
                 history = useSearchRequestFlow({
                     modelOverride: ref({ modelId: null, providerId: null }),
                     clearDraft: () => undefined,
-                    getSupportedAttachments: () => [],
                     getUnsupportedAttachmentMessage: () => null,
                     getCurrentInputSnapshot: (text) =>
                         createInputHistorySnapshot({ text, attachments: [] }),

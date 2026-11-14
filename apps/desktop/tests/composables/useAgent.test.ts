@@ -240,6 +240,7 @@ describe('when the user answers a tool approval with nothing attached', () => {
 describe('when the user drags queued messages into a new order', () => {
     it('user gets the active task queue reordered instead of only the visible list', async () => {
         vi.clearAllMocks();
+        eventServiceOnMock.mockResolvedValue(() => undefined);
         sessionTaskCenterMock.attachSessionView.mockReturnValue({
             taskId: 'task-1',
             snapshot: createTaskSnapshot('task-1'),

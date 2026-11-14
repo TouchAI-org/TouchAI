@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Ref } from 'vue';
 import { ref } from 'vue';
 
+import { setLocale } from '@/i18n';
 import { AppEvent } from '@/services/EventService/types';
 import { createInputHistorySnapshot, type SessionMessage } from '@/types/session';
 import { useSearchRequestFlow } from '@/views/SearchView/composables/useSearchRequest';
@@ -159,6 +160,7 @@ interface FlowOptions {
     clearDraft?: (options?: { preserveModelTag?: boolean }) => void;
     attachments?: Index[];
     unsupportedMessage?: string | null;
+    unsupportedMessageFor?: (attachments: Index[]) => string | null;
 }
 
 async function mountFlow(options: FlowOptions = {}) {
@@ -176,8 +178,9 @@ async function mountFlow(options: FlowOptions = {}) {
         useSearchRequestFlow({
             modelOverride,
             clearDraft,
-            getSupportedAttachments: () => attachments,
             getUnsupportedAttachmentMessage: () => unsupportedMessage,
+            getUnsupportedAttachmentMessageFor:
+                options.unsupportedMessageFor ?? (() => unsupportedMessage),
             getCurrentInputSnapshot: (query) =>
                 createInputHistorySnapshot({
                     text: query,
@@ -225,6 +228,35 @@ describe('when the user sends a prompt', () => {
         });
         expect(agentState.sendRequest).not.toHaveBeenCalled();
         expect(clearDraft).not.toHaveBeenCalled();
+
+        unmount();
+    });
+
+    it('user sends a widget reply without borrowing composer attachments', async () => {
+        const attachment = createAttachment('doc-1');
+        const { result, unmount } = await mountFlow({
+            attachments: [attachment],
+            unsupportedMessage: 'The active model does not support files.',
+            unsupportedMessageFor: (candidate) =>
+                candidate.length > 0 ? 'The active model does not support files.' : null,
+        });
+        const replySnapshot = createInputHistorySnapshot({
+            text: 'widget reply',
+            attachments: [],
+        });
+
+        await result.handleSubmit('widget reply', replySnapshot, undefined, {
+            preserveComposerDraft: true,
+        });
+
+        expect(agentState.sendRequest).toHaveBeenCalledWith(
+            'widget reply',
+            [],
+            replySnapshot,
+            undefined,
+            undefined
+        );
+        expect(notifyMock).not.toHaveBeenCalled();
 
         unmount();
     });
@@ -307,12 +339,17 @@ describe('when the user sends a second prompt while a request is running', () =>
     });
 
     it('user keeps the draft when the running task can no longer accept a message', async () => {
+        setLocale('en-US');
         agentState.enqueueUserMessage.mockReturnValueOnce(null);
         const { result, clearDraft, unmount } = await mountFlow();
 
         await result.handleSubmit('too late');
 
         expect(clearDraft).not.toHaveBeenCalled();
+        expect(notifyMock).toHaveBeenCalledWith({
+            title: 'TouchAI',
+            body: 'The message could not be queued. Try again.',
+        });
 
         unmount();
     });
@@ -465,7 +502,6 @@ describe('when the user browses the session history list', () => {
             useSearchRequestFlow({
                 modelOverride: ref({ modelId: null, providerId: null }),
                 clearDraft: vi.fn(),
-                getSupportedAttachments: () => [],
                 getUnsupportedAttachmentMessage: () => null,
                 getCurrentInputSnapshot: (query) =>
                     createInputHistorySnapshot({ text: query, attachments: [] }),

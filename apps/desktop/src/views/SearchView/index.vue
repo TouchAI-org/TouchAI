@@ -552,6 +552,7 @@
         clearAttachments,
         getSupportedAttachments,
         getUnsupportedAttachmentMessage,
+        getUnsupportedAttachmentMessageFor,
         syncAttachmentSupport,
     } = useSearchAttachments({
         attachments,
@@ -614,8 +615,8 @@
     } = useSearchRequestFlow({
         modelOverride,
         clearDraft: requestDraftClear,
-        getSupportedAttachments,
         getUnsupportedAttachmentMessage,
+        getUnsupportedAttachmentMessageFor,
         getCurrentInputSnapshot: buildCurrentInputHistorySnapshot,
     });
 
