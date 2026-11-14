@@ -121,6 +121,85 @@ describe('UserMessage long content', () => {
 
         wrapper.unmount();
     });
+
+    it('user gets the expand control when the rendered bubble overflows', async () => {
+        const wrapper = mount(UserMessage, {
+            props: {
+                message: {
+                    id: 'user-measured',
+                    role: 'user',
+                    content: 'short text',
+                    parts: [],
+                    timestamp: 1,
+                } as SessionMessage,
+            },
+        });
+        const text = wrapper.get('.user-text').element;
+        Object.defineProperty(text, 'clientHeight', { configurable: true, value: 96 });
+        Object.defineProperty(text, 'scrollHeight', { configurable: true, value: 240 });
+
+        window.dispatchEvent(new Event('resize'));
+        await wrapper.vm.$nextTick();
+
+        expect(wrapper.find('[data-testid="user-message-expand-toggle"]').exists()).toBe(true);
+
+        Object.defineProperty(text, 'scrollHeight', { configurable: true, value: 97 });
+        window.dispatchEvent(new Event('resize'));
+        await wrapper.vm.$nextTick();
+
+        expect(wrapper.find('[data-testid="user-message-expand-toggle"]').exists()).toBe(false);
+
+        wrapper.unmount();
+    });
+
+    it('user gets a changed message measured and reset to its collapsed state', async () => {
+        const wrapper = mount(UserMessage, {
+            props: {
+                message: {
+                    id: 'user-first',
+                    role: 'user',
+                    content: Array.from({ length: 10 }, (_, index) => `line ${index}`).join('\n'),
+                    parts: [],
+                    timestamp: 1,
+                } as SessionMessage,
+            },
+        });
+        await wrapper.get('[data-testid="user-message-expand-toggle"]').trigger('click');
+        expect(
+            wrapper.get('[data-testid="user-message-expand-toggle"]').attributes('aria-expanded')
+        ).toBe('true');
+
+        await wrapper.setProps({
+            message: {
+                id: 'user-second',
+                role: 'user',
+                content: Array.from({ length: 10 }, (_, index) => `next ${index}`).join('\n'),
+                parts: [],
+                timestamp: 1,
+            } as SessionMessage,
+        });
+        await wrapper.vm.$nextTick();
+
+        expect(wrapper.get('.user-text').classes()).toContain('line-clamp-6');
+        expect(
+            wrapper.get('[data-testid="user-message-expand-toggle"]').attributes('aria-expanded')
+        ).toBe('false');
+
+        await wrapper.setProps({
+            message: {
+                id: 'user-second',
+                role: 'user',
+                content: 'now short',
+                parts: [],
+                timestamp: 1,
+            } as SessionMessage,
+        });
+        await wrapper.vm.$nextTick();
+
+        expect(wrapper.find('[data-testid="user-message-expand-toggle"]').exists()).toBe(false);
+
+        wrapper.unmount();
+    });
 });
 
 describe('UserMessage pending delivery', () => {
