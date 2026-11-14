@@ -2591,46 +2591,30 @@
                 // same geometry owner so the card reaches the height a real
                 // conversation would use instead of staying at the idle bar.
                 // The panel can mount a frame or two after the history update,
-                // especially after the surface was reset, so wait for its
-                // content before measuring instead of taking one idle sample.
-                let content: HTMLElement | null = null;
+                // especially after the surface was reset. Wait for the same
+                // geometry inputs a real submission uses before expanding.
+                let contentHeight: number | null = null;
                 for (let attempt = 0; attempt < 120; attempt += 1) {
                     await nextTick();
-                    content = document.querySelector<HTMLElement>(
-                        '[data-slot="message-scroller-content"]'
-                    );
                     if (
-                        content &&
-                        Math.max(
-                            content.getBoundingClientRect().height,
-                            content.clientHeight,
-                            content.scrollHeight,
-                            content.offsetHeight
-                        ) > 0
+                        searchViewContentReady.value &&
+                        conversationPanel.value &&
+                        sessionHistory.value.length > 0
                     ) {
-                        break;
+                        contentHeight = measureTargetHeight();
+                        if (
+                            contentHeight !== null &&
+                            contentHeight > searchWindowDefaultSize.value.height
+                        ) {
+                            break;
+                        }
                     }
                     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
                 }
-                const viewport = content?.closest<HTMLElement>('section');
-                const viewportStyle = viewport ? getComputedStyle(viewport) : null;
-                const contentHeight = content
-                    ? Math.max(
-                          content.getBoundingClientRect().height,
-                          content.clientHeight,
-                          content.scrollHeight,
-                          content.offsetHeight
-                      ) +
-                      (Number.parseFloat(viewportStyle?.paddingTop ?? '') || 0) +
-                      (Number.parseFloat(viewportStyle?.paddingBottom ?? '') || 0)
-                    : 0;
-                if (contentHeight <= 0) {
+                if (contentHeight === null) {
                     return;
                 }
-                const inputHeight =
-                    inputArea.value?.getBoundingClientRect().height ??
-                    searchWindowDefaultSize.value.height;
-                await playSessionExpandAnimation(contentHeight + inputHeight).catch((error) => {
+                await playSessionExpandAnimation(contentHeight).catch((error) => {
                     log.error('[SearchView] Failed to expand the E2E conversation fixture:', error);
                 });
             },
