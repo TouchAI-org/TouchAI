@@ -172,9 +172,11 @@
 }
 
 /*
- * One handle crosses the handoff: it rests on the composer's bottom edge and, when
- * the toolbar opens, translates into the toolbar's top edge. The two halves are the
- * same element at every frame, so the line truly crosses instead of swapping nodes.
+ * One handle crosses the handoff. It rests inset from the composer's bottom edge
+ * and mirrors that inset inside the toolbar's top edge, so the expanded position
+ * is the same distance from the handoff as the collapsed one. The two halves are
+ * the same element at every frame, so the line truly crosses instead of swapping
+ * nodes.
  */
 .search-toolbar-handle {
     position: absolute;
@@ -208,8 +210,10 @@
 }
 
 .search-toolbar-handle--expanded {
-    /* Centre the line on the handoff: the toolbar's top edge is the input's bottom. */
-    transform: translate(-50%, 9px);
+    /* The input's bottom and the toolbar's top share the handoff. Inset by the
+     * same 9px on the toolbar side that the resting line keeps on the composer
+     * side, so the two states mirror each other across the seam. */
+    transform: translate(-50%, 18px);
     transition-delay: 0ms, var(--search-toolbar-open-delay, 160ms);
 }
 
@@ -222,8 +226,9 @@
 
 /*
  * Two halves that read as one rounded line at rest: no gap, only the outer caps
- * are rounded. On hover each half folds inwards, so the same line becomes a
- * downward chevron without swapping elements or adding a second glyph.
+ * are rounded. On hover each half bends by a few degrees, so the line becomes a
+ * shallow, soft curve instead of a tall chevron. The rounded caps keep the joint
+ * visually continuous without adding a second glyph.
  */
 .search-toolbar-handle__glyph span {
     display: block;
@@ -245,11 +250,11 @@
 }
 
 .search-toolbar-handle:hover .search-toolbar-handle__glyph span:first-child {
-    transform: rotate(35deg);
+    transform: rotate(10deg);
 }
 
 .search-toolbar-handle:hover .search-toolbar-handle__glyph span:last-child {
-    transform: rotate(-35deg);
+    transform: rotate(-10deg);
 }
 
 .search-toolbar-handle--expanded .search-toolbar-handle__glyph {
