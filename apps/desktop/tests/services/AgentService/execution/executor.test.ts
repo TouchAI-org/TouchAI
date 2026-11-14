@@ -1377,7 +1377,8 @@ describe('user calls a tool the agent does not have', () => {
                 yield { content: 'Partial answer', done: false };
                 yield { content: ' never reached', done: true };
             })
-            .mockImplementationOnce(async () => {
+            .mockImplementationOnce(async function* () {
+                yield* [] as never[];
                 throw new AiError(AiErrorCode.NETWORK_ERROR);
             })
             .mockImplementationOnce(async function* (request: AiRequestOptions) {
@@ -1414,6 +1415,7 @@ describe('user calls a tool the agent does not have', () => {
 
         expect(first.type).toBe('failed');
         if (first.type !== 'failed') throw new Error('Expected the interrupted request to fail');
+        expect(first.error.code).toBe(AiErrorCode.NETWORK_ERROR);
         expect(onSteerBoundary).toHaveBeenCalledTimes(1);
         expect(JSON.stringify(events)).not.toContain(privateMarker);
         expect(JSON.stringify(persister.persistCheckpoint.mock.calls)).not.toContain(privateMarker);
