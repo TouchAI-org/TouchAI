@@ -38,6 +38,7 @@ import type { PromptSnapshot } from '../prompt/types';
 import { createSessionReadModel } from '../session/readModel';
 import { buildSessionTitle } from '../session/title';
 import { findUnsupportedSessionAttachmentTypes } from '../session/transport';
+import { loadSelectedSkills } from '../skills';
 import type { DeliveredPendingUserMessage, PendingUserMessage } from '../task/types';
 import {
     AiRequestExecutor,
@@ -191,6 +192,50 @@ function buildPersistenceIssue(
     return {
         title: t('agent.persistenceIssue.title'),
         body: t(bodyKey),
+    };
+}
+
+/**
+ * Priority messages bypass `composePromptSnapshot`, so their selected skills
+ * must be loaded into the running turn explicitly. They are prepended to the
+ * user message instead of inserted as a system message because some providers
+ * only accept system instructions at the start of the conversation.
+ */
+async function loadPrioritySkillContext(
+    inputSnapshot: InputHistorySnapshot | undefined
+): Promise<string | undefined> {
+    const selectedSkills = inputSnapshot?.skills ?? [];
+    if (selectedSkills.length === 0) {
+        return undefined;
+    }
+
+    const loadedSkills = await loadSelectedSkills(selectedSkills, 'user_tag');
+    const content = loadedSkills
+        .map((skill) => skill.contextText)
+        .join('\n\n')
+        .trim();
+    return content || undefined;
+}
+
+/**
+ * Keep the skill body request-only while preserving the provider-neutral user
+ * role and the original text/attachment order.
+ */
+function withPrioritySkillContext(message: AiMessage, skillContext?: string): AiMessage {
+    if (!skillContext) {
+        return message;
+    }
+
+    if (typeof message.content === 'string') {
+        return {
+            ...message,
+            content: `${skillContext}\n\n${message.content}`,
+        };
+    }
+
+    return {
+        ...message,
+        content: [{ type: 'text', text: skillContext }, ...message.content],
     };
 }
 
@@ -529,6 +574,29 @@ export class AiConversationRuntime {
                     break;
                 }
 
+                let skillContext: string | undefined;
+                try {
+                    skillContext = await loadPrioritySkillContext(pendingMessage.inputSnapshot);
+                } catch (error) {
+                    log.error(
+                        '[AiConversationRuntime] Failed to load skills for an inserted user message:',
+                        error
+                    );
+                    await this.reportPersistenceIssue({
+                        phase: 'user_message_delivery',
+                        title: t('agent.priorityMessage.skillLoadFailedTitle'),
+                        body: t('agent.priorityMessage.skillLoadFailedBody'),
+                        error,
+                    });
+                    rejectedMessageIds.push(pendingMessage.id);
+                    settledMessageIds.add(pendingMessage.id);
+                    continue;
+                }
+
+                if (this.options.signal?.aborted) {
+                    break;
+                }
+
                 try {
                     const persisted = await persister.persistInjectedUserMessage({
                         prompt: pendingMessage.prompt,
@@ -549,7 +617,7 @@ export class AiConversationRuntime {
                     });
                 }
 
-                messages.push(message);
+                messages.push(withPrioritySkillContext(message, skillContext));
                 delivered.push({
                     id: pendingMessage.id,
                     prompt: pendingMessage.prompt,

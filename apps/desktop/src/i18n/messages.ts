@@ -1202,6 +1202,8 @@ const zhCNMessages = {
     'agent.priorityMessage.unsupportedAttachmentsBody': '当前模型不支持{types}，该消息已移出队列。',
     'agent.priorityMessage.attachmentImage': '图片',
     'agent.priorityMessage.attachmentFile': '文件',
+    'agent.priorityMessage.skillLoadFailedTitle': '插队消息未发送',
+    'agent.priorityMessage.skillLoadFailedBody': '选中的技能无法加载，该消息已移出队列。',
     'agent.mcp.toolDescriptionFallback': '工具：{toolName}',
     'settings.diagnostics.title': '诊断与支持',
     'settings.analytics.title': '隐私与产品统计',
@@ -2532,6 +2534,9 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
         'The current model does not support {types}. The message was removed from the queue.',
     'agent.priorityMessage.attachmentImage': 'images',
     'agent.priorityMessage.attachmentFile': 'files',
+    'agent.priorityMessage.skillLoadFailedTitle': 'Steer message not sent',
+    'agent.priorityMessage.skillLoadFailedBody':
+        'The selected skill could not be loaded. The message was removed from the queue.',
     'agent.mcp.toolDescriptionFallback': 'Tool: {toolName}',
     'settings.diagnostics.title': 'Diagnostics and support',
     'settings.analytics.title': 'Privacy and product analytics',

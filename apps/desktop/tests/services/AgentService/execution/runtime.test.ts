@@ -33,6 +33,7 @@ const {
     composePromptSnapshotMock,
     buildPromptTransportMessagesMock,
     buildUserPromptMessageMock,
+    loadSelectedSkillsMock,
     getCurrentModelLanguageContextMock,
     shouldRetryRequestFailureMock,
     waitForRetryDelayMock,
@@ -48,6 +49,7 @@ const {
     composePromptSnapshotMock: vi.fn(),
     buildPromptTransportMessagesMock: vi.fn(),
     buildUserPromptMessageMock: vi.fn(),
+    loadSelectedSkillsMock: vi.fn(),
     getCurrentModelLanguageContextMock: vi.fn(),
     shouldRetryRequestFailureMock: vi.fn(),
     waitForRetryDelayMock: vi.fn(async () => undefined),
@@ -102,6 +104,10 @@ vi.mock('@/services/AgentService/prompt/composer', () => ({
 vi.mock('@/services/AgentService/prompt/transport', () => ({
     buildPromptTransportMessages: buildPromptTransportMessagesMock,
     buildUserPromptMessage: buildUserPromptMessageMock,
+}));
+
+vi.mock('@/services/AgentService/skills', () => ({
+    loadSelectedSkills: loadSelectedSkillsMock,
 }));
 
 vi.mock('@/services/AgentService/languageContext', () => ({
@@ -293,6 +299,7 @@ describe('user starts a turn that needs a new conversation', () => {
         findUnsupportedSessionAttachmentTypesMock.mockResolvedValue([]);
         composePromptSnapshotMock.mockResolvedValue(createSnapshot());
         buildPromptTransportMessagesMock.mockResolvedValue([{ role: 'user', content: 'hello' }]);
+        loadSelectedSkillsMock.mockResolvedValue([]);
         getCurrentModelLanguageContextMock.mockReturnValue({ ...LANGUAGE_CONTEXT });
         findModelPricingMock.mockResolvedValue({ outputPerMillion: '15' });
         updateModelLastUsedMock.mockResolvedValue(undefined);
@@ -436,6 +443,173 @@ describe('user starts a turn that needs a new conversation', () => {
             taskId: 'task-1',
             messages: [{ id: 'pending-1', prompt: 'Steer this', attachments: [] }],
         });
+    });
+
+    it('user gets a tagged skill included when a priority message is delivered', async () => {
+        const executor = createExecutor();
+        const path = '/home/user/.agents/skills/summary/SKILL.md';
+        const selectedSkills = [{ name: 'summary', path }];
+        const inputSnapshot = {
+            text: 'Insert this',
+            attachments: [],
+            skills: selectedSkills,
+        };
+        buildUserPromptMessageMock.mockResolvedValue({ role: 'user', content: 'Insert this' });
+        loadSelectedSkillsMock.mockResolvedValueOnce([
+            {
+                name: 'summary',
+                path,
+                contextText: '<skill>\nSummarize carefully\n</skill>',
+            },
+        ]);
+        const { runtime, events } = run(executor, {
+            taskId: 'task-1',
+            takePriorityUserMessages: () => [
+                {
+                    id: 'pending-1',
+                    prompt: 'Insert this',
+                    attachments: [],
+                    inputSnapshot,
+                    delivery: 'priority',
+                    createdAt: 1,
+                },
+            ],
+        });
+
+        await runtime.run();
+
+        const attemptOptions = executor.runAttempt.mock.calls[0]![0] as ExecuteRequestOptions;
+        const inserted = await attemptOptions.onToolBoundary!({
+            persister: projectorMock as never,
+            model: createModel(),
+        });
+
+        expect(loadSelectedSkillsMock).toHaveBeenCalledWith(selectedSkills, 'user_tag');
+        expect(inserted).toEqual([
+            {
+                role: 'user',
+                content: '<skill>\nSummarize carefully\n</skill>\n\nInsert this',
+                contextSource: { id: 11, fingerprint: 'f'.repeat(64) },
+            },
+        ]);
+        expect(events).toContainEqual({
+            type: 'user_messages_delivered',
+            taskId: 'task-1',
+            messages: [
+                {
+                    id: 'pending-1',
+                    prompt: 'Insert this',
+                    attachments: [],
+                    inputSnapshot,
+                },
+            ],
+        });
+    });
+
+    it('user gets a tagged skill before the existing content parts', async () => {
+        const executor = createExecutor();
+        const path = '/home/user/.agents/skills/summary/SKILL.md';
+        const selectedSkills = [{ name: 'summary', path }];
+        buildUserPromptMessageMock.mockResolvedValue({
+            role: 'user',
+            content: [{ type: 'text', text: 'Insert this' }],
+        });
+        loadSelectedSkillsMock.mockResolvedValueOnce([
+            {
+                name: 'summary',
+                path,
+                contextText: '<skill>\nSummarize carefully\n</skill>',
+            },
+        ]);
+        const { runtime } = run(executor, {
+            taskId: 'task-1',
+            takePriorityUserMessages: () => [
+                {
+                    id: 'pending-1',
+                    prompt: 'Insert this',
+                    attachments: [],
+                    inputSnapshot: {
+                        text: 'Insert this',
+                        attachments: [],
+                        skills: selectedSkills,
+                    },
+                    delivery: 'priority',
+                    createdAt: 1,
+                },
+            ],
+        });
+
+        await runtime.run();
+
+        const attemptOptions = executor.runAttempt.mock.calls[0]![0] as ExecuteRequestOptions;
+        const inserted = await attemptOptions.onToolBoundary!({
+            persister: projectorMock as never,
+            model: createModel(),
+        });
+
+        expect(inserted).toEqual([
+            {
+                role: 'user',
+                content: [
+                    { type: 'text', text: '<skill>\nSummarize carefully\n</skill>' },
+                    { type: 'text', text: 'Insert this' },
+                ],
+                contextSource: { id: 11, fingerprint: 'f'.repeat(64) },
+            },
+        ]);
+    });
+
+    it('user gets a priority message removed when its tagged skill cannot load', async () => {
+        const executor = createExecutor();
+        const reportPersistenceIssue = vi.fn();
+        const path = '/home/user/.agents/skills/summary/SKILL.md';
+        const inputSnapshot = {
+            text: 'Insert this',
+            attachments: [],
+            skills: [{ name: 'summary', path }],
+        };
+        buildUserPromptMessageMock.mockResolvedValue({ role: 'user', content: 'Insert this' });
+        loadSelectedSkillsMock.mockRejectedValueOnce(new Error('skill was disabled'));
+        const { runtime, events } = run(executor, {
+            taskId: 'task-1',
+            takePriorityUserMessages: () => [
+                {
+                    id: 'pending-1',
+                    prompt: 'Insert this',
+                    attachments: [],
+                    inputSnapshot,
+                    delivery: 'priority',
+                    createdAt: 1,
+                },
+            ],
+            environment: { reportPersistenceIssue },
+        });
+
+        await runtime.run();
+
+        const attemptOptions = executor.runAttempt.mock.calls[0]![0] as ExecuteRequestOptions;
+        const inserted = await attemptOptions.onToolBoundary!({
+            persister: projectorMock as never,
+            model: createModel(),
+        });
+
+        expect(inserted).toEqual([]);
+        expect(projectorMock.persistInjectedUserMessage).not.toHaveBeenCalled();
+        expect(events).toContainEqual({
+            type: 'user_messages_rejected',
+            taskId: 'task-1',
+            messageIds: ['pending-1'],
+        });
+        expect(events).not.toContainEqual(
+            expect.objectContaining({ type: 'user_messages_delivered' })
+        );
+        expect(reportPersistenceIssue).toHaveBeenCalledWith(
+            expect.objectContaining({
+                phase: 'user_message_delivery',
+                body: expect.stringMatching(/技能|skill/i),
+                error: expect.any(Error),
+            })
+        );
     });
 
     it('user gets an unsupported steer removed and reported instead of silently dropped', async () => {
