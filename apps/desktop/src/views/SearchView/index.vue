@@ -376,7 +376,7 @@
             resizeWindowHeight: typeof native.window.resizeWindowHeight;
             resetSearchWindowBounds: () => Promise<void>;
             setSearchFixture: (query: string, results: QuickShortcutItem[]) => void;
-            setConversation: (messages: SessionMessage[]) => void;
+            setConversation: (messages: SessionMessage[]) => Promise<void>;
             setAskUserRequest: (request: E2eAskUserRequest) => void;
             clearAskUser: () => void;
             setLanguage: (locale: AppLocale) => Promise<void>;
@@ -2579,8 +2579,35 @@
             setSearchFixture(query: string, results: QuickShortcutItem[]) {
                 e2eSearchFixture.value = { query, results };
             },
-            setConversation(messages: SessionMessage[]) {
+            async setConversation(messages: SessionMessage[]) {
                 sessionHistory.value = messages;
+                if (messages.length === 0) {
+                    return;
+                }
+
+                // E2E fixtures bypass submit/openSession. Expand through the
+                // same geometry owner so the card reaches the height a real
+                // conversation would use instead of staying at the idle bar.
+                await nextTick();
+                const content = document.querySelector<HTMLElement>(
+                    '[data-slot="message-scroller-content"]'
+                );
+                const viewport = content?.closest<HTMLElement>('section');
+                const viewportStyle = viewport ? getComputedStyle(viewport) : null;
+                const contentHeight = content
+                    ? content.getBoundingClientRect().height +
+                      (Number.parseFloat(viewportStyle?.paddingTop ?? '') || 0) +
+                      (Number.parseFloat(viewportStyle?.paddingBottom ?? '') || 0)
+                    : 0;
+                if (contentHeight <= 0) {
+                    return;
+                }
+                const inputHeight =
+                    inputArea.value?.getBoundingClientRect().height ??
+                    searchWindowDefaultSize.value.height;
+                await playSessionExpandAnimation(contentHeight + inputHeight).catch((error) => {
+                    log.error('[SearchView] Failed to expand the E2E conversation fixture:', error);
+                });
             },
             setAskUserRequest(request: E2eAskUserRequest) {
                 if (request.kind === 'confirm') {

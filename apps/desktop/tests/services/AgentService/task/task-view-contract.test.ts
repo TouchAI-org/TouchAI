@@ -54,6 +54,7 @@ const SNAPSHOT_KEYS = [
     'modelSwitchCount',
     'pendingApprovals',
     'pendingToolApproval',
+    'pendingUserMessages',
     'pendingUserQuestion',
     'sessionHistory',
     'sessionId',
