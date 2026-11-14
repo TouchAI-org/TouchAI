@@ -1481,7 +1481,8 @@
         inputSnapshotOrIntent?:
             | Parameters<typeof handleSubmit>[1]
             | Parameters<typeof handleSubmit>[2],
-        intent?: Parameters<typeof handleSubmit>[2]
+        intent?: Parameters<typeof handleSubmit>[2],
+        options?: Parameters<typeof handleSubmit>[3]
     ): ReturnType<typeof handleSubmit> {
         const inputSnapshot =
             typeof inputSnapshotOrIntent === 'string' ? undefined : inputSnapshotOrIntent;
@@ -1501,12 +1502,13 @@
 
             // Only pass the arguments the caller actually supplied, so callers that
             // submit without a snapshot or shortcut keep the simplest call shape.
-            const submitPromise =
-                shortcutIntent === undefined
-                    ? inputSnapshot === undefined
-                        ? handleSubmit(query)
-                        : handleSubmit(query, inputSnapshot)
-                    : handleSubmit(query, inputSnapshot, shortcutIntent);
+            const submitPromise = options?.preserveComposerDraft
+                ? handleSubmit(query, inputSnapshot, shortcutIntent, options)
+                : shortcutIntent === undefined
+                  ? inputSnapshot === undefined
+                      ? handleSubmit(query)
+                      : handleSubmit(query, inputSnapshot)
+                  : handleSubmit(query, inputSnapshot, shortcutIntent);
             if (expansion?.signal.aborted) return submitPromise;
             if (quickSearchWasOpen) {
                 // Hand the viewport over: the results row collapses on the card's curve
@@ -2451,7 +2453,9 @@
             text: normalizedReply,
             attachments: [],
         });
-        await submitSearchQuery(normalizedReply, replySnapshot);
+        await submitSearchQuery(normalizedReply, replySnapshot, undefined, {
+            preserveComposerDraft: true,
+        });
     }
 
     async function handleSessionStatusReminderAction(payload: SessionStatusReminderActionEvent) {
@@ -2573,8 +2577,9 @@
                     attachments: [],
                     excludeFromHistory: true,
                 });
-                applyE2eSearchQuery(text);
-                await submitSearchQuery(text, snapshot);
+                await submitSearchQuery(text, snapshot, undefined, {
+                    preserveComposerDraft: true,
+                });
             },
             getQuickSearchFallbackResults(query: string) {
                 const fixture = e2eSearchFixture.value;
@@ -2743,7 +2748,9 @@
             attachments: [],
             excludeFromHistory: true,
         });
-        void submitSearchQuery(normalizedText, widgetSnapshot);
+        void submitSearchQuery(normalizedText, widgetSnapshot, undefined, {
+            preserveComposerDraft: true,
+        });
     }
 
     function handleWidgetOpenLink(url: string) {

@@ -249,7 +249,7 @@ describe('UserMessage pending delivery', () => {
         expect(sendNow.attributes('title')).toBe('插队');
         const sendNowIcon = sendNow.get('[data-testid="app-icon"]');
         expect(sendNowIcon.attributes('data-name')).toBe('arrow-up');
-        expect(sendNowIcon.classes()).toEqual(expect.arrayContaining(['h-4', 'w-4']));
+        expect(sendNowIcon.classes()).toEqual(expect.arrayContaining(['h-5', 'w-5']));
         for (const testId of [
             'pending-message-send-now',
             'pending-message-edit',
@@ -301,7 +301,10 @@ describe('UserMessage pending delivery', () => {
         expect(bubble.attributes('data-editing')).toBe('true');
         expect(bubble.classes()).toContain('border-primary-400');
         expect(bubble.classes()).toContain('bg-primary-50');
-        expect(wrapper.get('[data-testid="pending-message-edit-status"]').text()).toBe('正在编辑');
+        const editStatus = wrapper.get('[data-testid="pending-message-edit-status"]');
+        expect(editStatus.text()).toBe('正在编辑');
+        expect(editStatus.classes()).not.toContain('text-primary-600');
+        expect(wrapper.get('[data-testid="pending-message-cancel-edit"]').text()).toBe('取消');
 
         for (const testId of [
             'pending-message-send-now',

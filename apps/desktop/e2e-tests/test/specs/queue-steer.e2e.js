@@ -893,6 +893,7 @@ describe('user sends queued and priority messages during a running answer', () =
             (state) => messageByText(state, queuedToEdit)?.editing === true,
             'Opening the queue for editing did not expose the editing state.'
         );
+        const draftBeforeExternalReply = (await (await editorElement()).getText()).trim();
 
         await callE2eBridge('sendPrompt', externalReply);
         const state = await waitForConversation(
@@ -903,6 +904,13 @@ describe('user sends queued and priority messages during a running answer', () =
             'An external reply overwrote the queued message being edited instead of joining the queue.'
         );
         assertPendingOrder(state, [queuedToEdit, externalReply]);
+        const draftAfterExternalReply = (await (await editorElement()).getText()).trim();
+        assertVisible(
+            draftAfterExternalReply === draftBeforeExternalReply,
+            `An external reply cleared the draft while editing. Expected ${JSON.stringify(
+                draftBeforeExternalReply
+            )}, received ${JSON.stringify(draftAfterExternalReply)}.`
+        );
 
         await callE2eBridge('cancelSearchRequest');
         releaseAnswer.resolve();

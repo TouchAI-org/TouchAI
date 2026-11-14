@@ -636,6 +636,25 @@ describe('user follows streamed output', () => {
         expect(viewport.scrollTop).toBe(800);
     });
 
+    it('user sees a wrapped streamed line pinned before the next paint', async () => {
+        const wrapper = mountScroller({ followOutput: true });
+        const viewport = viewportOf(wrapper);
+        setScrollMetrics(viewport, {
+            scrollTop: 600,
+            scrollHeight: 1_000,
+            clientHeight: 400,
+        });
+        const scrollTo = stubScrollTo(viewport);
+        await settleLayout();
+        scrollTo.mockClear();
+
+        setScrollHeight(viewport, 1_200);
+        triggerResize();
+
+        expect(scrollTo).toHaveBeenCalledWith({ top: 800, behavior: 'auto' });
+        expect(viewport.scrollTop).toBe(800);
+    });
+
     it('user keeps following when layout delivers a scroll event alongside growth', async () => {
         const wrapper = mountScroller({ followOutput: true });
         const viewport = viewportOf(wrapper);

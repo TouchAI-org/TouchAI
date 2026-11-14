@@ -483,7 +483,8 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
     async function handleSubmit(
         query: string,
         inputSnapshotOverride?: InputHistorySnapshot,
-        shortcutIntent: SubmitShortcutIntent = 'enter'
+        shortcutIntent: SubmitShortcutIntent = 'enter',
+        options?: { preserveComposerDraft?: boolean }
     ) {
         const unsupportedAttachmentMessage = getUnsupportedAttachmentMessage();
         if (unsupportedAttachmentMessage) {
@@ -509,7 +510,9 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
                 shortcutIntent === 'enter-modified' ? 'priority' : 'queue'
             );
             if (pendingMessage) {
-                clearDraft({ preserveModelTag: true });
+                if (!options?.preserveComposerDraft) {
+                    clearDraft({ preserveModelTag: true });
+                }
             }
             return;
         }
@@ -518,7 +521,9 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         const selectedProviderId = modelOverride.value.providerId;
         const supportedAttachments = getSupportedAttachments();
 
-        clearDraft({ preserveModelTag: true });
+        if (!options?.preserveComposerDraft) {
+            clearDraft({ preserveModelTag: true });
+        }
 
         await sendRequest(
             query,

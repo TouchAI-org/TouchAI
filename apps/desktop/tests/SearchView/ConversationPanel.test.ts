@@ -57,6 +57,10 @@ vi.mock('vue-draggable-plus', async () => {
                     type: Array,
                     default: () => [],
                 },
+                ghostClass: {
+                    type: String,
+                    default: '',
+                },
             },
             emits: ['update:modelValue', 'start'],
             template: '<div><slot /></div>',
@@ -97,6 +101,90 @@ describe('ConversationPanel intrinsic session measurement', () => {
 });
 
 describe('ConversationPanel queued message reordering', () => {
+    it('user sees no faded placeholder while dragging a queued bubble', () => {
+        const wrapper = mount(ConversationPanel, {
+            props: {
+                startDragging: vi.fn().mockResolvedValue(undefined),
+                messages: [],
+                pendingMessages: [
+                    {
+                        id: 'queue-1',
+                        prompt: 'first queued',
+                        attachments: [],
+                        delivery: 'queue',
+                        createdAt: 1,
+                    },
+                    {
+                        id: 'queue-2',
+                        prompt: 'second queued',
+                        attachments: [],
+                        delivery: 'queue',
+                        createdAt: 2,
+                    },
+                ],
+                isLoading: false,
+                error: null,
+                isPinned: false,
+                historyOpen: false,
+            },
+        });
+
+        expect(wrapper.findComponent({ name: 'VueDraggableStub' }).props('ghostClass')).toBe(
+            'invisible'
+        );
+        wrapper.unmount();
+    });
+
+    it('user keeps the queued order stable while only the streamed reply grows', async () => {
+        const pendingMessages = [
+            {
+                id: 'queue-1',
+                prompt: 'first queued',
+                attachments: [],
+                delivery: 'queue' as const,
+                createdAt: 1,
+            },
+        ];
+        const wrapper = mount(ConversationPanel, {
+            props: {
+                startDragging: vi.fn().mockResolvedValue(undefined),
+                messages: [
+                    {
+                        id: 'assistant-1',
+                        role: 'assistant',
+                        content: 'streamed',
+                        parts: [],
+                        timestamp: 1,
+                        isStreaming: true,
+                    },
+                ],
+                pendingMessages,
+                isLoading: true,
+                error: null,
+                isPinned: false,
+                historyOpen: false,
+            },
+        });
+        const draggable = wrapper.findComponent({ name: 'VueDraggableStub' });
+        const initialQueue = draggable.props('modelValue');
+
+        await wrapper.setProps({
+            messages: [
+                {
+                    id: 'assistant-1',
+                    role: 'assistant',
+                    content: 'streamed with another wrapped line',
+                    parts: [],
+                    timestamp: 1,
+                    isStreaming: true,
+                },
+            ],
+        });
+
+        expect(draggable.props('modelValue')).toBe(initialQueue);
+        wrapper.unmount();
+    });
+
     it('user gets the new queue order emitted when a queued bubble is dragged', async () => {
         const wrapper = mount(ConversationPanel, {
             props: {

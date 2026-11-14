@@ -119,7 +119,7 @@
                 :force-fallback="true"
                 :fallback-on-body="true"
                 :fallback-tolerance="4"
-                ghost-class="opacity-40"
+                ghost-class="invisible"
                 @start="cancelNavigation"
             >
                 <div
@@ -194,7 +194,7 @@
         resolveDesiredOffset,
         resolveNavigationCorrection,
     } from './navigationAnchor';
-    import { buildConversationDisplayMessages } from './pendingMessages';
+    import { buildConversationDisplayMessages, toPendingSessionMessage } from './pendingMessages';
 
     defineOptions({
         name: 'SearchConversationPanel',
@@ -255,7 +255,13 @@
         displayMessages.value.filter((message) => message.pendingDelivery !== 'queue')
     );
     const queuedDisplayMessages = computed<SessionMessage[]>({
-        get: () => displayMessages.value.filter((message) => message.pendingDelivery === 'queue'),
+        // Derive from the pending collection itself. Streaming history updates
+        // every frame; recomputing the queue from displayMessages would hand
+        // VueDraggable a new array on each line and make the whole tail twitch.
+        get: () =>
+            props.pendingMessages
+                .filter((message) => message.delivery === 'queue')
+                .map(toPendingSessionMessage),
         set: (messages) => {
             emit(
                 'reorderPendingMessages',

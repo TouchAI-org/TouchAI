@@ -544,6 +544,12 @@
     }
 
     function handleResize(): void {
+        // A streaming line wrap grows the content between layout and paint.
+        // Pin synchronously so following output never shows the old scroll
+        // position for one frame before the deferred measurement catches up.
+        if (props.followOutput && following.value) {
+            scrollToEnd('auto');
+        }
         scheduleMeasure(false, true);
     }
 

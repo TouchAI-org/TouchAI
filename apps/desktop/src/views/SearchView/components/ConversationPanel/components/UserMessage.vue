@@ -100,7 +100,7 @@
             class="mt-1 flex items-center gap-1 text-caption text-message-muted"
         >
             <template v-if="isEditing">
-                <span data-testid="pending-message-edit-status" class="px-1 text-primary-600">
+                <span data-testid="pending-message-edit-status" class="px-1">
                     {{ t('conversation.pendingMessage.editing') }}
                 </span>
                 <button
@@ -122,7 +122,7 @@
                     :title="t('conversation.pendingMessage.sendNow')"
                     @click="emit('sendNow', message.id)"
                 >
-                    <AppIcon name="arrow-up" class="h-4 w-4" />
+                    <AppIcon name="arrow-up" class="h-5 w-5" />
                 </button>
                 <button
                     type="button"
