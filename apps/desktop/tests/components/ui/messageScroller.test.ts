@@ -655,6 +655,27 @@ describe('user follows streamed output', () => {
         expect(viewport.scrollTop).toBe(800);
     });
 
+    it('user gets one follow scroll for one streamed line wrap', async () => {
+        const wrapper = mountScroller({ followOutput: true });
+        const viewport = viewportOf(wrapper);
+        setScrollMetrics(viewport, {
+            scrollTop: 600,
+            scrollHeight: 1_000,
+            clientHeight: 400,
+        });
+        const scrollTo = stubScrollTo(viewport);
+        await settleLayout();
+        scrollTo.mockClear();
+
+        setScrollHeight(viewport, 1_020);
+        triggerResize();
+        triggerResize();
+        await settleLayout();
+
+        expect(scrollTo).toHaveBeenCalledTimes(1);
+        expect(viewport.scrollTop).toBe(620);
+    });
+
     it('user keeps following when layout delivers a scroll event alongside growth', async () => {
         const wrapper = mountScroller({ followOutput: true });
         const viewport = viewportOf(wrapper);

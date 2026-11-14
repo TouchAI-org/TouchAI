@@ -98,7 +98,10 @@
         <div
             v-if="isQueued"
             data-testid="pending-message-actions"
-            class="mt-1 flex items-center gap-1 text-caption text-message-muted"
+            :class="[
+                'mt-1 flex items-center gap-1 text-caption',
+                isEditing ? 'text-message-foreground' : 'text-message-muted',
+            ]"
         >
             <template v-if="isEditing">
                 <span data-testid="pending-message-edit-status" class="px-1">

@@ -62,6 +62,10 @@ vi.mock('vue-draggable-plus', async () => {
                     type: String,
                     default: '',
                 },
+                fallbackClass: {
+                    type: String,
+                    default: '',
+                },
             },
             emits: ['update:modelValue', 'start'],
             template: '<div><slot /></div>',
@@ -132,9 +136,9 @@ describe('ConversationPanel queued message reordering', () => {
             },
         });
 
-        expect(wrapper.findComponent({ name: 'VueDraggableStub' }).props('ghostClass')).toBe(
-            'invisible'
-        );
+        const draggable = wrapper.findComponent({ name: 'VueDraggableStub' });
+        expect(draggable.props('ghostClass')).toBe('invisible');
+        expect(draggable.props('fallbackClass')).toBe('invisible');
         wrapper.unmount();
     });
 

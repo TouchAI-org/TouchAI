@@ -392,7 +392,7 @@
             // Publish the settled layout, so a resize cannot flash an "away from bottom" state.
             if (shouldFollowOutput && props.followOutput && following.value) {
                 if (shouldUpdateFollowing) readState(true);
-                if (following.value) scrollToEnd(defaultFollowBehavior());
+                if (following.value) scrollToEndIfNeeded(defaultFollowBehavior());
                 measure(false);
             } else {
                 measure(shouldUpdateFollowing);
@@ -441,6 +441,20 @@
 
         setFollowing(true);
         scrollViewportTo(element.scrollHeight, behavior);
+    }
+
+    function scrollToEndIfNeeded(
+        behavior: MessageScrollerScrollBehavior = defaultFollowBehavior()
+    ): void {
+        const element = viewport.value;
+        if (!element) return;
+
+        const end = Math.max(0, element.scrollHeight - element.clientHeight);
+        if (Math.abs(element.scrollTop - end) <= 1) {
+            setFollowing(true);
+            return;
+        }
+        scrollToEnd(behavior);
     }
 
     function scrollToItem(id: string, options: MessageScrollerScrollOptions = {}): boolean {
@@ -548,7 +562,7 @@
         // Pin synchronously so following output never shows the old scroll
         // position for one frame before the deferred measurement catches up.
         if (props.followOutput && following.value) {
-            scrollToEnd('auto');
+            scrollToEndIfNeeded('auto');
         }
         scheduleMeasure(false, true);
     }
