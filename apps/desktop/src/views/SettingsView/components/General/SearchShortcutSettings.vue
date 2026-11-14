@@ -169,6 +169,7 @@
                 title: t('settings.general.searchShortcutGroups.inputAndRequest'),
                 actionIds: [
                     'search.input.focus',
+                    'search.toolbar.toggle',
                     'search.model.toggle',
                     'search.quickSearch.toggleView',
                 ],

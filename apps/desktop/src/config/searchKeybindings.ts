@@ -10,6 +10,7 @@ import {
 export const SEARCH_KEYBINDING_ACTION_IDS = [
     'search.history.open',
     'search.input.focus',
+    'search.toolbar.toggle',
     'search.session.new',
     'search.session.reopenLastClosed',
     'search.model.toggle',
@@ -44,6 +45,13 @@ export const SEARCH_KEYBINDING_DEFINITIONS: SearchKeybindingDefinition[] = [
         labelKey: 'settings.general.searchActions.focusInput',
         descriptionKey: 'settings.general.searchActionDescriptions.focusInput',
         defaultShortcut: 'Mod+L',
+        allowModifierlessFunctionShortcut: true,
+    },
+    {
+        id: 'search.toolbar.toggle',
+        labelKey: 'settings.general.searchActions.toolbarToggle',
+        descriptionKey: 'settings.general.searchActionDescriptions.toolbarToggle',
+        defaultShortcut: 'Mod+J',
         allowModifierlessFunctionShortcut: true,
     },
     {

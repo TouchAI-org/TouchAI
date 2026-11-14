@@ -47,6 +47,7 @@ describe('user changes the search shortcuts', () => {
         expect(defaults).toEqual({
             'search.history.open': 'Mod+H',
             'search.input.focus': 'Mod+L',
+            'search.toolbar.toggle': 'Mod+J',
             'search.session.new': 'Mod+N',
             'search.session.reopenLastClosed': 'Mod+Shift+T',
             'search.model.toggle': 'Mod+M',

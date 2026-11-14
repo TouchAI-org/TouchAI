@@ -1124,6 +1124,9 @@
                 await hideAllOverlays();
                 await controller.focusSearchInput();
                 return;
+            case 'search.toolbar.toggle':
+                await handleRequestToggleToolbar();
+                return;
             case 'search.session.new':
                 await handleStartNewSession();
                 return;
@@ -3074,6 +3077,9 @@
                                         :toolbar-open="toolbarOpen"
                                         :model-shortcut="searchKeybindings['search.model.toggle']"
                                         :history-shortcut="searchKeybindings['search.history.open']"
+                                        :toolbar-shortcut="
+                                            searchKeybindings['search.toolbar.toggle']
+                                        "
                                         :attachment-busy="attachmentBusy"
                                         :attachment-error="attachmentError"
                                         :start-dragging="startSearchPanelDragging"

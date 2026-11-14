@@ -138,10 +138,12 @@ describe('given the main input shows extension controls', () => {
 
     it('user sees one continuous curved line instead of two folded halves', () => {
         const wrapper = mountSearchBar();
-        const curve = wrapper.get('.search-toolbar-handle__curve path');
+        const curve = wrapper.get('.search-toolbar-handle__glyph svg path');
 
         expect(curve.attributes('d')).toContain('Q');
-        expect(wrapper.get('.search-toolbar-handle__curve').attributes('viewBox')).toBe('0 0 24 8');
+        expect(wrapper.get('.search-toolbar-handle__glyph svg').attributes('viewBox')).toBe(
+            '0 0 24 8'
+        );
     });
 
     it('user drags the input padding and moves the window while toolbar gestures stay local', async () => {
@@ -195,10 +197,10 @@ describe('given the search toolbar handle', () => {
 
     it('user sees a shallow bend rather than a tall chevron when hovering the handle', () => {
         expect(handleCss).toMatch(
-            /\.search-toolbar-handle__curve path\s*\{[^}]*transform: scaleY\(0\.2\)/s
+            /\.search-toolbar-handle__glyph svg path\s*\{[^}]*transform: scaleY\(0\.2\)/s
         );
         expect(handleCss).toMatch(
-            /\.search-toolbar-handle:hover \.search-toolbar-handle__curve path\s*\{[^}]*transform: scaleY\(4\)/s
+            /\.search-toolbar-handle:hover \.search-toolbar-handle__glyph svg path\s*\{[^}]*transform: scaleY\(4\)/s
         );
         expect(handleCss).not.toContain('rotate(10deg)');
     });

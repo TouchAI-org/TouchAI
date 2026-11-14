@@ -167,6 +167,7 @@ vi.mock('pinia', async () => {
             searchKeybindings: ref({
                 'search.history.open': null,
                 'search.input.focus': null,
+                'search.toolbar.toggle': null,
                 'search.session.new': null,
                 'search.session.reopenLastClosed': null,
                 'search.model.toggle': null,

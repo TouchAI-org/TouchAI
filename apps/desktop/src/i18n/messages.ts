@@ -106,6 +106,7 @@ const zhCNMessages = {
     'settings.general.searchShortcutGroups.window': '窗口控制',
     'settings.general.searchActions.history': '打开会话历史',
     'settings.general.searchActions.focusInput': '聚焦输入框',
+    'settings.general.searchActions.toolbarToggle': '切换工具栏',
     'settings.general.searchActions.newSession': '开始新会话',
     'settings.general.searchActions.reopenLastClosedSession': '打开最近关闭的会话',
     'settings.general.searchActions.modelToggle': '切换模型选择',
@@ -120,6 +121,7 @@ const zhCNMessages = {
     'settings.general.fixedSearchActions.nextInputHistory': '下一条会话历史',
     'settings.general.searchActionDescriptions.history': '快速打开或收起会话历史列表',
     'settings.general.searchActionDescriptions.focusInput': '将焦点移动到输入框',
+    'settings.general.searchActionDescriptions.toolbarToggle': '展开或收起模型、会话和附件工具栏',
     'settings.general.searchActionDescriptions.newSession': '立即开始一段新会话',
     'settings.general.searchActionDescriptions.reopenLastClosedSession':
         '重新打开最近关闭的一条会话',
@@ -1337,6 +1339,7 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.general.searchShortcutGroups.window': 'Window control',
     'settings.general.searchActions.history': 'Open session history',
     'settings.general.searchActions.focusInput': 'Focus input',
+    'settings.general.searchActions.toolbarToggle': 'Toggle toolbar',
     'settings.general.searchActions.newSession': 'Start new session',
     'settings.general.searchActions.reopenLastClosedSession': 'Open most recently closed session',
     'settings.general.searchActions.modelToggle': 'Toggle model picker',
@@ -1351,6 +1354,8 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.general.fixedSearchActions.nextInputHistory': 'Next input history',
     'settings.general.searchActionDescriptions.history': 'Quickly open the session history list.',
     'settings.general.searchActionDescriptions.focusInput': 'Move focus to the input field.',
+    'settings.general.searchActionDescriptions.toolbarToggle':
+        'Expand or collapse the model, session, and attachment toolbar.',
     'settings.general.searchActionDescriptions.newSession': 'Start a new session immediately.',
     'settings.general.searchActionDescriptions.reopenLastClosedSession':
         'Reopen the most recently closed session.',

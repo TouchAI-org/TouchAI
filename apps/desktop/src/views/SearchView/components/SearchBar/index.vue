@@ -53,12 +53,17 @@
                 :aria-expanded="toolbarOpen"
                 aria-controls="search-toolbar"
                 :aria-label="t(toolbarOpen ? 'search.toolbar.collapse' : 'search.toolbar.expand')"
-                :title="t(toolbarOpen ? 'search.toolbar.collapse' : 'search.toolbar.expand')"
+                :title="
+                    actionHint(
+                        t(toolbarOpen ? 'search.toolbar.collapse' : 'search.toolbar.expand'),
+                        toolbarShortcut
+                    )
+                "
                 @mousedown.stop
                 @click.stop="emit('requestToggleToolbar')"
             >
                 <span class="search-toolbar-handle__glyph" aria-hidden="true">
-                    <svg class="search-toolbar-handle__curve" viewBox="0 0 24 8" focusable="false">
+                    <svg viewBox="0 0 24 8" focusable="false">
                         <path d="M2 3.55 Q12 4.45 22 3.55" vector-effect="non-scaling-stroke" />
                     </svg>
                 </span>
@@ -212,6 +217,7 @@
         toolbarOpen?: boolean;
         modelShortcut?: string | null;
         historyShortcut?: string | null;
+        toolbarShortcut?: string | null;
         attachmentBusy?: boolean;
         attachmentError?: string;
         startDragging: (event: MouseEvent) => Promise<void>;
@@ -226,6 +232,7 @@
         toolbarOpen: false,
         modelShortcut: null,
         historyShortcut: null,
+        toolbarShortcut: null,
         attachmentBusy: false,
         attachmentError: '',
         queryText: '',

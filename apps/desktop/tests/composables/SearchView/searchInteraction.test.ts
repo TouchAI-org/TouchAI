@@ -570,6 +570,13 @@ describe('createSearchKeyboardRouter', () => {
         expect(callbacks.onSearchKeybindingAction).toHaveBeenCalledWith('search.model.toggle');
     });
 
+    it('user toggles the extension toolbar with the bottom-panel shortcut', () => {
+        const { router, callbacks } = createKeyboardRouter();
+
+        expect(router.route({ key: 'j', ctrlKey: true, localControl: true })).toBe(true);
+        expect(callbacks.onSearchKeybindingAction).toHaveBeenCalledWith('search.toolbar.toggle');
+    });
+
     it('user navigates within the model picker without losing keyboard modifiers or target', () => {
         const { router, callbacks } = createKeyboardRouter({
             getActiveSurface: () => 'model-dropdown-surface',

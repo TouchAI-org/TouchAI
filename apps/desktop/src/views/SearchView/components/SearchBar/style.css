@@ -235,14 +235,14 @@
  * bend grows smoothly from the middle instead of folding at a joint.
  * non-scaling-stroke keeps the 2px weight constant through that stretch.
  */
-.search-toolbar-handle__curve {
+.search-toolbar-handle__glyph svg {
     display: block;
     width: 24px;
     height: 8px;
     overflow: visible;
 }
 
-.search-toolbar-handle__curve path {
+.search-toolbar-handle__glyph svg path {
     fill: none;
     stroke: currentColor;
     stroke-width: 2px;
@@ -254,7 +254,7 @@
     transition: transform var(--duration-quick) var(--ease-smooth-out);
 }
 
-.search-toolbar-handle:hover .search-toolbar-handle__curve path {
+.search-toolbar-handle:hover .search-toolbar-handle__glyph svg path {
     transform: scaleY(4);
 }
 
