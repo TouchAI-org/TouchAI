@@ -1,0 +1,1 @@
+export type X = typeof import('@/stores/Thing');
