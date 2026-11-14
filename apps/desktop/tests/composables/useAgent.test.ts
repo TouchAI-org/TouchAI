@@ -2,7 +2,7 @@ import { mountComposable } from '@tests/utils/composables';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useAgent } from '@/composables/agent/useAgent';
-import type { SessionTaskSnapshot } from '@/services/AgentService';
+import type { PendingUserMessage, SessionTaskSnapshot } from '@/services/AgentService';
 
 const { eventServiceOnMock, findSessionByIdMock, notifyMock, sessionTaskCenterMock } = vi.hoisted(
     () => ({
@@ -15,8 +15,8 @@ const { eventServiceOnMock, findSessionByIdMock, notifyMock, sessionTaskCenterMo
             cancelTask: vi.fn(() => true),
             clearSessionUserMessages: vi.fn(() => false),
             clearTaskUserMessages: vi.fn(() => false),
-            enqueueSessionUserMessage: vi.fn(() => null),
-            enqueueTaskUserMessage: vi.fn(() => null),
+            enqueueSessionUserMessage: vi.fn<() => PendingUserMessage | null>(() => null),
+            enqueueTaskUserMessage: vi.fn<() => PendingUserMessage | null>(() => null),
             promoteSessionUserMessage: vi.fn(() => false),
             promoteTaskUserMessage: vi.fn(() => false),
             rejectTaskToolCall: vi.fn(() => true),

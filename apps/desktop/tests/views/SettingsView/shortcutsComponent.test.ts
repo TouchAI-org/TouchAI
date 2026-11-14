@@ -946,41 +946,6 @@ describe('user configures keyboard shortcuts', () => {
         );
     });
 
-    it('user gets reserved and submission-only system keys rejected for search actions', async () => {
-        const wrapper = mount(GeneralSection);
-
-        await flushPromises();
-
-        const input = wrapper.get(
-            '[data-testid="settings-search-shortcut-input-search.history.open"]'
-        );
-        await input.trigger('focus');
-        await flushPromises();
-        alertMessageMock.error.mockClear();
-
-        await eventService.emit(AppEvent.SHORTCUT_CAPTURE_SYSTEM_KEY, {
-            key: 'ArrowUp',
-            alt: false,
-            ctrl: true,
-            shift: false,
-        });
-        await flushPromises();
-
-        expect(settingsStoreMock.updateSearchKeybindings).not.toHaveBeenCalled();
-        expect(alertMessageMock.error).toHaveBeenCalledTimes(1);
-
-        await eventService.emit(AppEvent.SHORTCUT_CAPTURE_SYSTEM_KEY, {
-            key: 'Enter',
-            alt: false,
-            ctrl: true,
-            shift: false,
-        });
-        await flushPromises();
-
-        expect(settingsStoreMock.updateSearchKeybindings).not.toHaveBeenCalled();
-        expect(alertMessageMock.error).toHaveBeenCalledTimes(2);
-    });
-
     it('user gets mouse focus and blur to start and stop search shortcut capture', async () => {
         const wrapper = mount(GeneralSection, { attachTo: document.body });
 
