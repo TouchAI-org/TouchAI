@@ -2590,14 +2590,37 @@
                 // E2E fixtures bypass submit/openSession. Expand through the
                 // same geometry owner so the card reaches the height a real
                 // conversation would use instead of staying at the idle bar.
-                await nextTick();
-                const content = document.querySelector<HTMLElement>(
-                    '[data-slot="message-scroller-content"]'
-                );
+                // The panel can mount a frame or two after the history update,
+                // especially after the surface was reset, so wait for its
+                // content before measuring instead of taking one idle sample.
+                let content: HTMLElement | null = null;
+                for (let attempt = 0; attempt < 120; attempt += 1) {
+                    await nextTick();
+                    content = document.querySelector<HTMLElement>(
+                        '[data-slot="message-scroller-content"]'
+                    );
+                    if (
+                        content &&
+                        Math.max(
+                            content.getBoundingClientRect().height,
+                            content.clientHeight,
+                            content.scrollHeight,
+                            content.offsetHeight
+                        ) > 0
+                    ) {
+                        break;
+                    }
+                    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+                }
                 const viewport = content?.closest<HTMLElement>('section');
                 const viewportStyle = viewport ? getComputedStyle(viewport) : null;
                 const contentHeight = content
-                    ? content.getBoundingClientRect().height +
+                    ? Math.max(
+                          content.getBoundingClientRect().height,
+                          content.clientHeight,
+                          content.scrollHeight,
+                          content.offsetHeight
+                      ) +
                       (Number.parseFloat(viewportStyle?.paddingTop ?? '') || 0) +
                       (Number.parseFloat(viewportStyle?.paddingBottom ?? '') || 0)
                     : 0;
