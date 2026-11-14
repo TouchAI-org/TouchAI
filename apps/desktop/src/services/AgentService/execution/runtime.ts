@@ -2,6 +2,7 @@
 
 import { updateModelLastUsed } from '@database/queries';
 import { findModelPricing } from '@database/queries/llmMetadata';
+import type { ModelWithProvider } from '@database/queries/models';
 import { type Span, SpanStatusCode } from '@opentelemetry/api';
 import { event, log } from '@services/ObservabilityService';
 import { ATTR } from '@services/ObservabilityService/attributes';

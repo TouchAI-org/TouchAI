@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { ExecuteRequestResult } from '@/services/AgentService/execution/runtime';
+import type { TaskResult } from '@/services/AgentService/execution/runtime';
 import type { PendingUserMessage } from '@/services/AgentService/task/types';
 import {
     registerStartupCapability,
@@ -54,15 +54,26 @@ vi.mock('@/services/AgentService/session/history', () => ({
 
 const { SessionTaskCenter } = await import('@/services/AgentService/task/center');
 
-const completedTurn = (response: string): ExecuteRequestResult =>
-    ({ model: { id: 'model-1', name: 'Model' }, response, reasoning: '', turn: null }) as never;
+const completedTurn = (response: string): TaskResult =>
+    ({
+        model: {
+            modelDbId: 1,
+            providerId: 1,
+            providerName: 'Provider',
+            modelId: 'model-1',
+            modelName: 'Model',
+        },
+        response,
+        reasoning: '',
+        turn: null,
+    }) as unknown as TaskResult;
 
 let finishCurrentTask: (() => void) | null = null;
 
 /** A task that binds to its session and finishes only when the test says so. */
 function finishableRun(sessionId: number | null) {
     return () =>
-        new Promise<ExecuteRequestResult>((resolve) => {
+        new Promise<TaskResult>((resolve) => {
             const options = latestOptions();
             options.onTurnEvent?.({ type: 'task_started', sessionId, turnId: 1 });
             finishCurrentTask = () => {
@@ -89,7 +100,7 @@ function finishableRun(sessionId: number | null) {
 function staysRunningInSession(sessionId: number | null) {
     return () => {
         latestOptions().onTurnEvent?.({ type: 'task_started', sessionId, turnId: 1 });
-        return new Promise<ExecuteRequestResult>(() => {});
+        return new Promise<TaskResult>(() => {});
     };
 }
 
@@ -232,7 +243,7 @@ describe('user submits a message while a task runs', () => {
         });
         // The subscriber must be told, otherwise the bubble stays dashed until
         // some unrelated snapshot happens to publish.
-        expect(seen[seen.length - 1]).toBe('priority');
+        await vi.waitFor(() => expect(seen[seen.length - 1]).toBe('priority'));
     });
 
     it('user gets pending messages removed or cleared from the task', async () => {
@@ -442,7 +453,7 @@ describe('user cancels a run with pending messages', () => {
         runtimeState.run.mockImplementation(() => {
             const options = latestOptions();
             options.onTurnEvent?.({ type: 'task_started', sessionId: 5, turnId: 1 });
-            return new Promise<ExecuteRequestResult>((_resolve, reject) => {
+            return new Promise<TaskResult>((_resolve, reject) => {
                 options.signal?.addEventListener('abort', () => reject(new Error('cancelled')));
             });
         });
