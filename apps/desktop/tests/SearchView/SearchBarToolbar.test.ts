@@ -193,4 +193,13 @@ describe('given the search toolbar handle', () => {
             /\.search-toolbar-handle:hover \.search-toolbar-handle__glyph span:last-child \{\s*transform: rotate\(-10deg\);/
         );
     });
+
+    it('user sees the handle barely separate from the surface and a little clearer on hover', () => {
+        const restRule = handleCss.match(/\.search-toolbar-handle\s*\{([^}]*)\}/s)?.[1] ?? '';
+        const hoverRule =
+            handleCss.match(/\.search-toolbar-handle:hover\s*\{([^}]*)\}/s)?.[1] ?? '';
+
+        expect(restRule).toContain('color: var(--color-border-subtle)');
+        expect(hoverRule).toContain('color: var(--color-border-strong)');
+    });
 });
