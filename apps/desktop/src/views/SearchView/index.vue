@@ -2591,28 +2591,40 @@
                 // same geometry owner so the card reaches the height a real
                 // conversation would use instead of staying at the idle bar.
                 // The panel can mount a frame or two after the history update,
-                // especially after the surface was reset. Wait for the same
-                // geometry inputs a real submission uses before expanding.
+                // especially after the surface was reset. WebView2 can coalesce
+                // requestAnimationFrame callbacks while the native host settles,
+                // so a timer-bounded poll must wait for the panel and its
+                // measured content instead of counting animation frames.
+                const deadline = Date.now() + 5_000;
+                let mountedAt: number | null = null;
                 let contentHeight: number | null = null;
-                for (let attempt = 0; attempt < 120; attempt += 1) {
+                while (Date.now() < deadline) {
                     await nextTick();
                     if (
                         searchViewContentReady.value &&
                         conversationPanel.value &&
                         sessionHistory.value.length > 0
                     ) {
+                        mountedAt ??= Date.now();
                         contentHeight = measureTargetHeight();
+                        // Long fixtures reveal as soon as the scroller publishes
+                        // its content. Short fixtures stay at the compact target,
+                        // so allow them a short settling window.
                         if (
                             contentHeight !== null &&
-                            contentHeight > searchWindowDefaultSize.value.height
+                            (contentHeight > searchWindowDefaultSize.value.height ||
+                                Date.now() - mountedAt >= 500)
                         ) {
                             break;
                         }
+                    } else {
+                        contentHeight = null;
+                        mountedAt = null;
                     }
-                    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+                    await new Promise<void>((resolve) => window.setTimeout(resolve, 16));
                 }
                 if (contentHeight === null) {
-                    return;
+                    throw new Error('The E2E conversation fixture did not mount in time.');
                 }
                 await playSessionExpandAnimation(contentHeight).catch((error) => {
                     log.error('[SearchView] Failed to expand the E2E conversation fixture:', error);
