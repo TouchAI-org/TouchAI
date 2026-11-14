@@ -10,6 +10,7 @@
     import { type SearchWindowSizePreset } from '@/config/searchWindow';
     import { type AppLocale, LOCALE_LABELS, SUPPORTED_LOCALES, t } from '@/i18n';
     import { type OutputScrollBehavior, useSettingsStore } from '@/stores/settings';
+    import { formatShortcutForDisplay, normalizeLocalShortcutString } from '@/utils/shortcuts';
 
     import MotionSettingsSection from './MotionSettingsSection.vue';
     import UpdateAvailableBadge from './UpdateAvailableBadge.vue';
@@ -49,6 +50,20 @@
             },
         ]
     );
+
+    type SendShortcut = 'Enter' | 'Mod+Enter';
+
+    const sendShortcutOptions = computed<Array<{ value: SendShortcut; label: string }>>(() => [
+        { value: 'Enter', label: formatShortcutForDisplay('Enter') },
+        { value: 'Mod+Enter', label: formatShortcutForDisplay('Mod+Enter') },
+    ]);
+    const selectedSendShortcut = computed<SendShortcut>(() =>
+        normalizeLocalShortcutString(settings.value.searchKeybindings['search.submit.queue']) ===
+        'Mod+Enter'
+            ? 'Mod+Enter'
+            : 'Enter'
+    );
+    const isSavingSendShortcut = ref(false);
 
     const searchWindowSizeOptions = computed(
         (): Array<{
@@ -125,6 +140,38 @@
         }
     };
 
+    const saveSendShortcut = async (shortcut: SendShortcut) => {
+        if (isSavingSendShortcut.value) {
+            return;
+        }
+
+        const priorityShortcut: SendShortcut = shortcut === 'Enter' ? 'Mod+Enter' : 'Enter';
+        const currentQueueShortcut = normalizeLocalShortcutString(
+            settings.value.searchKeybindings['search.submit.queue']
+        );
+        const currentPriorityShortcut = normalizeLocalShortcutString(
+            settings.value.searchKeybindings['search.submit.priority']
+        );
+        if (currentQueueShortcut === shortcut && currentPriorityShortcut === priorityShortcut) {
+            return;
+        }
+
+        isSavingSendShortcut.value = true;
+        try {
+            await settingsStore.updateSearchKeybindings({
+                ...settings.value.searchKeybindings,
+                'search.submit.queue': shortcut,
+                'search.submit.priority': priorityShortcut,
+            });
+            alertMessage.value?.success(t('common.saved'), 2000);
+        } catch (error) {
+            log.error('Failed to save send shortcut:', error);
+            alertMessage.value?.error(t('settings.general.saveSettingsFailed'), 3000);
+        } finally {
+            isSavingSendShortcut.value = false;
+        }
+    };
+
     const saveSearchWindowSizePreset = async (preset: SearchWindowSizePreset) => {
         try {
             await settingsStore.updateSearchWindowSizePreset(preset);
@@ -175,7 +222,7 @@
 
                 <div
                     data-testid="settings-general-card-launch"
-                    class="settings-row-group divide-y divide-neutral-200/70"
+                    class="settings-row-group divide-y divide-border/70"
                 >
                     <SettingsRow
                         data-settings-search-target="start-on-boot"
@@ -239,7 +286,32 @@
                     </p>
                 </div>
 
-                <div data-testid="settings-general-card-conversation" class="settings-row-group">
+                <div
+                    data-testid="settings-general-card-conversation"
+                    class="settings-row-group divide-y divide-border/70"
+                >
+                    <SettingsRow
+                        data-settings-search-target="send-shortcut"
+                        control-width="180"
+                        label-as="label"
+                        label-class="block"
+                        :label="t('settings.general.sendShortcut')"
+                        :description="t('settings.general.sendShortcutDescription')"
+                        :label-attrs="{ 'data-testid': 'settings-general-row-label' }"
+                        control-class="ml-auto w-[180px]"
+                        :control-attrs="{ 'data-testid': 'settings-general-control' }"
+                    >
+                        <CustomSelect
+                            :model-value="selectedSendShortcut"
+                            :options="sendShortcutOptions"
+                            :disabled="isSavingSendShortcut"
+                            protect-option-text
+                            trigger-test-id="settings-send-shortcut-trigger"
+                            content-test-id="settings-send-shortcut-content"
+                            option-test-id-prefix="settings-send-shortcut-option-"
+                            @update:model-value="saveSendShortcut"
+                        />
+                    </SettingsRow>
                     <SettingsRow
                         data-settings-search-target="output-scroll"
                         control-width="180"

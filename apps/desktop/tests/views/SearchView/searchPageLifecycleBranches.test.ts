@@ -460,7 +460,6 @@ describe('when the window click handling sees an open history overlay', () => {
                 controller: controller as never,
                 sessionHistory: ref([]),
                 pendingRequest: ref(null),
-                isWaitingForCompletion: ref(false),
                 isLoading: ref(false),
                 pendingToolApproval: ref(null),
                 approvePendingToolApproval: vi.fn(() => false),

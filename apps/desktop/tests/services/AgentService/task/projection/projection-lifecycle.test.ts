@@ -18,6 +18,7 @@ function createSnapshot(): SessionTaskSnapshot {
         status: 'running',
         executionMode: 'foreground',
         sessionHistory: [],
+        pendingUserMessages: [],
         pendingToolApproval: null,
         pendingApprovals: [],
         pendingUserQuestion: null,
@@ -364,5 +365,154 @@ describe('user gets task metadata synchronised', () => {
         } as never);
 
         expect(snapshot.status).toBe('cancelled');
+    });
+});
+
+describe('user has a message waiting for delivery', () => {
+    it('user gets the queued turn keep the id it had as a pending bubble', () => {
+        const { snapshot, projection } = createProjection();
+
+        projection.bootstrap([], 'Queued prompt', [], undefined, 'pending-1');
+
+        expect(snapshot.sessionHistory[0]).toMatchObject({
+            id: 'pending-1',
+            role: 'user',
+            content: 'Queued prompt',
+        });
+    });
+
+    it('user gets a priority bubble replaced by one solid user message in place', () => {
+        const { snapshot, projection } = createProjection();
+        projection.bootstrap([], 'Hello', []);
+        snapshot.pendingUserMessages = [
+            {
+                id: 'pending-1',
+                prompt: 'Insert this',
+                attachments: [],
+                delivery: 'priority',
+                createdAt: 2,
+            },
+        ];
+
+        projection.deliverPendingUserMessages([
+            { id: 'pending-1', prompt: 'Insert this', attachments: [] },
+        ]);
+
+        const userMessages = snapshot.sessionHistory.filter((message) => message.role === 'user');
+        expect(userMessages.map((message) => message.id)).toEqual([
+            snapshot.sessionHistory[0]!.id,
+            'pending-1',
+        ]);
+        expect(snapshot.pendingUserMessages).toEqual([]);
+        // The answer that arrived before the insert is closed, and a fresh streaming
+        // assistant waits for the model output that follows the inserted message.
+        const assistants = snapshot.sessionHistory.filter(
+            (message) => message.role === 'assistant'
+        );
+        expect(assistants).toHaveLength(1);
+        expect(assistants[0]!.isStreaming).toBe(true);
+    });
+
+    it('user does not get a duplicate when the same delivery event arrives twice', () => {
+        const { snapshot, projection } = createProjection();
+        projection.bootstrap([], 'Hello', []);
+        snapshot.pendingUserMessages = [
+            {
+                id: 'pending-1',
+                prompt: 'Insert this',
+                attachments: [],
+                delivery: 'priority',
+                createdAt: 2,
+            },
+        ];
+        const delivered = [{ id: 'pending-1', prompt: 'Insert this', attachments: [] }];
+
+        projection.deliverPendingUserMessages(delivered);
+        projection.deliverPendingUserMessages(delivered);
+
+        expect(
+            snapshot.sessionHistory.filter((message) => message.id === 'pending-1')
+        ).toHaveLength(1);
+    });
+
+    it('user gets an undeliverable pending message removed from the queue', () => {
+        const { snapshot, publish, projection } = createProjection();
+        snapshot.pendingUserMessages = [
+            {
+                id: 'pending-1',
+                prompt: 'Unsupported attachment',
+                attachments: [],
+                delivery: 'priority',
+                createdAt: 2,
+            },
+            {
+                id: 'pending-2',
+                prompt: 'Still waiting',
+                attachments: [],
+                delivery: 'queue',
+                createdAt: 3,
+            },
+        ];
+
+        projection.syncTaskMetadata({
+            type: 'user_messages_rejected',
+            taskId: 'task-1',
+            messageIds: ['pending-1'],
+        });
+
+        expect(snapshot.pendingUserMessages.map((message) => message.id)).toEqual(['pending-2']);
+        expect(publish).toHaveBeenCalled();
+    });
+
+    it('user gets no queue change for an empty or unknown rejection', () => {
+        const { snapshot, publish, projection } = createProjection();
+        snapshot.pendingUserMessages = [
+            {
+                id: 'pending-1',
+                prompt: 'Still waiting',
+                attachments: [],
+                delivery: 'queue',
+                createdAt: 2,
+            },
+        ];
+        publish.mockClear();
+
+        projection.rejectPendingUserMessages([]);
+        projection.rejectPendingUserMessages(['missing']);
+
+        expect(snapshot.pendingUserMessages.map((message) => message.id)).toEqual(['pending-1']);
+        expect(publish).not.toHaveBeenCalled();
+    });
+});
+
+describe('user steers into a running task', () => {
+    it('user gets the steer above the loading row once it is delivered', () => {
+        const { snapshot, projection } = createProjection();
+        projection.bootstrap([], 'Hello', []);
+        snapshot.pendingUserMessages = [
+            {
+                id: 'steer-1',
+                prompt: 'Steer this way',
+                attachments: [],
+                delivery: 'priority',
+                createdAt: 2,
+            },
+        ];
+
+        projection.syncTaskMetadata({
+            type: 'user_messages_delivered',
+            taskId: 'task-1',
+            messages: [{ id: 'steer-1', prompt: 'Steer this way', attachments: [] }],
+        } as never);
+
+        const steerIndex = snapshot.sessionHistory.findIndex((entry) => entry.id === 'steer-1');
+        const loadingIndex = snapshot.sessionHistory.findIndex(
+            (entry) => entry.role === 'assistant' && entry.isStreaming
+        );
+
+        expect(steerIndex).toBeGreaterThanOrEqual(0);
+        expect(loadingIndex).toBeGreaterThan(steerIndex);
+        expect(snapshot.sessionHistory[steerIndex]?.pendingDelivery).toBeUndefined();
+        expect(snapshot.pendingUserMessages).toEqual([]);
     });
 });

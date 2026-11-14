@@ -192,6 +192,7 @@ export const config = {
             path.join(__dirname, 'test/specs/window-size.e2e.js'),
             path.join(__dirname, 'test/specs/clipboard-paste.e2e.js'),
             path.join(__dirname, 'test/specs/path-reference.e2e.js'),
+            path.join(__dirname, 'test/specs/queue-steer.e2e.js'),
         ],
     ],
     bail: 1,

@@ -35,6 +35,7 @@ const {
         sessionHistory: { value: [] as SessionMessage[] },
         pendingToolApproval: { value: null },
         pendingUserQuestion: { value: null },
+        pendingUserMessages: { value: [] as unknown[] },
         sendRequest: vi.fn().mockResolvedValue(undefined),
         cancel: vi.fn(),
         clearSession: vi.fn(),
@@ -42,6 +43,23 @@ const {
         approvePendingToolApproval: vi.fn(() => true),
         rejectPendingToolApproval: vi.fn(() => true),
         settleUserQuestion: vi.fn(),
+        enqueueUserMessage: vi.fn(
+            (input: { prompt: string; attachments: unknown[] }, delivery: string) => {
+                const message = {
+                    id: `pending-${input.prompt}`,
+                    prompt: input.prompt,
+                    attachments: input.attachments,
+                    delivery,
+                    createdAt: 1,
+                };
+                agent.pendingUserMessages.value = [...agent.pendingUserMessages.value, message];
+                return message;
+            }
+        ),
+        removePendingUserMessage: vi.fn(() => true),
+        updatePendingUserMessage: vi.fn(() => true),
+        clearPendingUserMessages: vi.fn(() => true),
+        updatePendingUserMessagesModel: vi.fn(() => true),
     };
     return {
         agentCallbacks: callbacksHolder,
@@ -186,6 +204,7 @@ beforeEach(() => {
     agentState.isLoading.value = false;
     agentState.currentSessionId.value = null;
     agentState.sessionHistory.value = [];
+    agentState.pendingUserMessages.value = [];
     agentState.sendRequest.mockResolvedValue(undefined);
     agentState.openSession.mockResolvedValue({
         sessionId: 7,
@@ -398,11 +417,11 @@ describe('when the user cancels a running request', () => {
         agentState.isLoading.value = true;
 
         await result.handleSubmit('first prompt');
-        expect(result.pendingRequest.value).not.toBeNull();
+        expect(result.pendingUserMessages.value).toHaveLength(1);
 
         result.cancelRequest();
 
-        expect(result.pendingRequest.value).toBeNull();
+        expect(agentState.clearPendingUserMessages).toHaveBeenCalled();
         expect(agentState.cancel).toHaveBeenCalled();
 
         unmount();
@@ -420,6 +439,7 @@ describe('when the user cancels a running request', () => {
     });
 
     it('user gets false reported when there was no queued prompt to cancel', async () => {
+        agentState.clearPendingUserMessages.mockReturnValueOnce(false);
         const { result, unmount } = await mountFlow();
 
         expect(result.cancelPendingRequest()).toBe(false);
@@ -433,65 +453,53 @@ describe('when the user cancels a running request', () => {
         await result.handleSubmit('queued');
 
         expect(result.cancelPendingRequest()).toBe(true);
-        expect(result.pendingRequest.value).toBeNull();
-        expect(result.isWaitingForCompletion.value).toBe(false);
+        expect(agentState.clearPendingUserMessages).toHaveBeenCalled();
 
         unmount();
     });
 });
 
 describe('when a model is picked while a prompt is queued', () => {
-    it('user gets the queued prompt sent with the newly picked model', async () => {
+    it('user gets the pending message follow the newly picked model', async () => {
         const { result, unmount } = await mountFlow();
         agentState.isLoading.value = true;
         await result.handleSubmit('queued prompt');
         agentState.isLoading.value = false;
 
-        // The user switches models while the turn is still finishing.
         callAgentCallback('onModelSelected', {
             modelId: 'picked-model',
             providerId: 12,
         });
 
-        expect(result.pendingRequest.value?.modelId).toBe('picked-model');
-
-        callAgentCallback('onComplete');
-        await flushAsyncWork();
-
-        expect(agentState.sendRequest).toHaveBeenCalledWith(
-            'queued prompt',
-            [],
-            expect.objectContaining({ text: 'queued prompt' }),
-            'picked-model',
-            12
-        );
+        expect(agentState.updatePendingUserMessagesModel).toHaveBeenCalledWith('picked-model', 12);
+        expect(result.pendingUserMessages.value).toHaveLength(1);
 
         unmount();
     });
 
     it('user gets no model picked reported when nothing is queued', async () => {
+        agentState.updatePendingUserMessagesModel.mockReturnValueOnce(false);
         const { result, unmount } = await mountFlow();
 
         callAgentCallback('onModelSelected', { modelId: 'solo', providerId: 2 });
 
-        expect(result.pendingRequest.value).toBeNull();
+        expect(result.pendingUserMessages.value).toHaveLength(0);
 
         unmount();
     });
 });
 
-describe('when a queued prompt is released on completion', () => {
-    it('user gets the queued prompt sent and the draft cleared', async () => {
-        const { result, clearDraft, unmount } = await mountFlow();
+describe('when a turn completes with pending messages', () => {
+    it('user keeps the pending bubble while the task center delivers it', async () => {
+        const { result, unmount } = await mountFlow();
         agentState.isLoading.value = true;
         await result.handleSubmit('queued prompt');
 
         callAgentCallback('onComplete');
         await flushAsyncWork();
 
-        expect(clearDraft).toHaveBeenCalledWith({ preserveModelTag: true });
-        expect(agentState.sendRequest).toHaveBeenCalled();
-        expect(result.pendingRequest.value).toBeNull();
+        expect(agentState.sendRequest).not.toHaveBeenCalled();
+        expect(result.pendingUserMessages.value).toHaveLength(1);
 
         unmount();
     });
@@ -508,7 +516,7 @@ describe('when a queued prompt is released on completion', () => {
         unmount();
     });
 
-    it('user gets the queued prompt dropped when the turn fails', async () => {
+    it('user gets the pending message dropped when the turn fails', async () => {
         const { result, unmount } = await mountFlow();
         agentState.isLoading.value = true;
         await result.handleSubmit('queued prompt');
@@ -516,8 +524,7 @@ describe('when a queued prompt is released on completion', () => {
         callAgentCallback('onError');
         await flushAsyncWork();
 
-        expect(result.pendingRequest.value).toBeNull();
-        expect(result.isWaitingForCompletion.value).toBe(false);
+        expect(agentState.clearPendingUserMessages).toHaveBeenCalled();
 
         unmount();
     });

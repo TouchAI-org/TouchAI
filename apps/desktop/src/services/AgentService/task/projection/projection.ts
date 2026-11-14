@@ -32,7 +32,11 @@ import {
     type PendingUserQuestion,
     TaskInteractions,
 } from '../interactions';
-import type { StartSessionTaskOptions, TaskViewSnapshot } from '../types';
+import type {
+    DeliveredPendingUserMessage,
+    StartSessionTaskOptions,
+    TaskViewSnapshot,
+} from '../types';
 import {
     attachStatusText,
     cloneValue,
@@ -88,7 +92,8 @@ export class SessionTaskProjection {
         history: SessionMessage[],
         prompt: string,
         attachments: StartSessionTaskOptions['attachments'],
-        inputSnapshot?: StartSessionTaskOptions['inputSnapshot']
+        inputSnapshot?: StartSessionTaskOptions['inputSnapshot'],
+        userMessageId?: string
     ): void {
         this.snapshot.sessionHistory = cloneValue(history);
         const snapshotAttachments = inputSnapshot?.attachments ?? attachments ?? [];
@@ -100,7 +105,7 @@ export class SessionTaskProjection {
             excludeFromHistory: inputSnapshot?.excludeFromHistory,
         });
         this.snapshot.sessionHistory.push({
-            id: crypto.randomUUID(),
+            id: userMessageId ?? crypto.randomUUID(),
             role: 'user',
             content: prompt,
             attachments: snapshotAttachments.length ? cloneValue(snapshotAttachments) : undefined,
@@ -373,6 +378,90 @@ export class SessionTaskProjection {
         this.publish();
     }
 
+    /**
+     * 把已在工具边界投递的插队消息从待发送区转成普通用户消息。
+     *
+     * 当前 assistant 气泡先收口，用户消息插在它和下一段 assistant 输出之间；
+     * 随后的模型增量会进入新的流式气泡。
+     */
+    deliverPendingUserMessages(messages: DeliveredPendingUserMessage[]): void {
+        if (messages.length === 0) {
+            return;
+        }
+
+        // 只转换仍处于待发区的消息。事件重复到达时不能再次插入，
+        // 否则同一个气泡会在历史里出现两次。
+        const pendingIds = new Set(this.snapshot.pendingUserMessages.map((message) => message.id));
+        const deliveredMessages = messages.filter((message) => pendingIds.has(message.id));
+        if (deliveredMessages.length === 0) {
+            return;
+        }
+
+        const deliveredIds = new Set(deliveredMessages.map((message) => message.id));
+        this.snapshot.pendingUserMessages = this.snapshot.pendingUserMessages.filter(
+            (message) => !deliveredIds.has(message.id)
+        );
+
+        const assistantMessage = this.getActiveAssistantMessage();
+        if (assistantMessage) {
+            this.clearPendingCompaction(assistantMessage);
+            this.finishReasoningPart(assistantMessage);
+            assistantMessage.isStreaming = false;
+            if (!this.hasVisibleAssistantContent(assistantMessage)) {
+                this.removeSessionMessageById(assistantMessage.id);
+            }
+        }
+
+        for (const message of deliveredMessages) {
+            const snapshot = createInputHistorySnapshot({
+                text: message.prompt,
+                attachments: message.attachments,
+                editorDoc: message.inputSnapshot?.editorDoc,
+                excludeFromHistory: message.inputSnapshot?.excludeFromHistory,
+            });
+            this.snapshot.sessionHistory.push({
+                id: message.id,
+                role: 'user',
+                content: message.prompt,
+                attachments: message.attachments.length
+                    ? cloneValue(message.attachments)
+                    : undefined,
+                inputSnapshot: cloneInputHistorySnapshot(snapshot) ?? undefined,
+                parts: [],
+                timestamp: Date.now(),
+            });
+        }
+
+        this.response = '';
+        this.reasoning = '';
+        this.createStreamingAssistantMessage();
+        this.touch();
+        this.publish();
+    }
+
+    /**
+     * A pending message that cannot be delivered leaves the queue instead of
+     * being retried on the next turn. The runtime has already notified the user
+     * with the reason, so this only keeps the visible queue honest.
+     */
+    rejectPendingUserMessages(messageIds: string[]): void {
+        const rejectedIds = new Set(messageIds);
+        if (rejectedIds.size === 0) {
+            return;
+        }
+
+        const next = this.snapshot.pendingUserMessages.filter(
+            (message) => !rejectedIds.has(message.id)
+        );
+        if (next.length === this.snapshot.pendingUserMessages.length) {
+            return;
+        }
+
+        this.snapshot.pendingUserMessages = next;
+        this.touch();
+        this.publish();
+    }
+
     markCompleted(): void {
         this.widgets.resetTransientState();
         const assistantMessage = this.getActiveAssistantMessage();
@@ -477,6 +566,16 @@ export class SessionTaskProjection {
             this.snapshot.status = this.interactions.hasPending ? 'waiting_approval' : 'running';
             this.touch();
             this.publish();
+            return;
+        }
+
+        if (event.type === 'user_messages_delivered') {
+            this.deliverPendingUserMessages(event.messages);
+            return;
+        }
+
+        if (event.type === 'user_messages_rejected') {
+            this.rejectPendingUserMessages(event.messageIds);
             return;
         }
 

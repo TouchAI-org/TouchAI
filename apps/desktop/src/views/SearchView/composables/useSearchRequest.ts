@@ -32,7 +32,7 @@ import {
     type SessionMessage,
 } from '@/types/session';
 
-import type { PendingRequest, SearchModelOverride } from '../types';
+import type { PendingRequest, SearchModelOverride, SubmitShortcutIntent } from '../types';
 
 interface UseSearchRequestFlowOptions {
     modelOverride: Ref<SearchModelOverride>;
@@ -84,8 +84,6 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         getCurrentInputSnapshot,
     } = options;
 
-    const pendingRequest = ref<PendingRequest | null>(null);
-    const isWaitingForCompletion = computed(() => pendingRequest.value !== null);
     const sessionHistoryOverlayOpen = ref(false);
     const sessionList = ref<SessionEntity[]>([]);
     const sessionListQuery = ref('');
@@ -248,28 +246,12 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         });
     }
 
-    /**
-     * 排队请求只是一层 UI 状态，不应跨失败、取消或会话切换残留。
-     * 一旦残留，工具栏会一直走 disabled 分支，表现为三个按钮 hover/click 全失效。
-     */
-    function clearPendingRequestState() {
-        pendingRequest.value = null;
-    }
-
-    function cancelPendingRequest(): boolean {
-        if (!pendingRequest.value) {
-            return false;
-        }
-
-        clearPendingRequestState();
-        return true;
-    }
-
     const {
         isLoading,
         error,
         currentSessionId,
         sessionHistory,
+        pendingUserMessages,
         sendRequest,
         cancel,
         clearSession,
@@ -279,48 +261,32 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         approvePendingToolApproval,
         rejectPendingToolApproval,
         settleUserQuestion,
+        enqueueUserMessage,
+        promotePendingUserMessage,
+        removePendingUserMessage,
+        updatePendingUserMessage,
+        reorderPendingUserMessages,
+        clearPendingUserMessages,
+        updatePendingUserMessagesModel,
     } = useAgent({
         onComplete: async () => {
             invalidateSessionListCache({
                 refreshIfOpen: true,
             });
-
-            if (!pendingRequest.value) {
-                return;
-            }
-
-            const {
-                query,
-                attachments: pendingAttachments,
-                inputSnapshot,
-                modelId,
-                providerId,
-            } = pendingRequest.value;
-            clearPendingRequestState();
-
-            clearDraft({ preserveModelTag: true });
-
-            await sendRequest(query, pendingAttachments, inputSnapshot, modelId, providerId);
         },
         onError: () => {
+            // 失败的任务不会再投递 pending 消息，清掉避免气泡永远停在待发态。
+            clearPendingUserMessages();
             invalidateSessionListCache({
                 refreshIfOpen: true,
             });
-            clearPendingRequestState();
         },
         onModelSelected: ({ modelId, providerId }) => {
             modelOverride.value = {
                 modelId,
                 providerId,
             };
-
-            if (pendingRequest.value) {
-                pendingRequest.value = {
-                    ...pendingRequest.value,
-                    modelId,
-                    providerId,
-                };
-            }
+            updatePendingUserMessagesModel(modelId, providerId);
         },
         onTurnStarted: () => {
             // 只有 turn 真正落库后，sessions.last_message_at / updated_at 才会刷新。
@@ -331,6 +297,19 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         },
     });
 
+    const pendingRequest = computed<PendingRequest | null>(() => {
+        const message = pendingUserMessages.value[0];
+        if (!message) {
+            return null;
+        }
+        return {
+            query: message.prompt,
+            attachments: message.attachments,
+            inputSnapshot: message.inputSnapshot,
+            modelId: message.modelId,
+            providerId: message.providerId,
+        };
+    });
     void eventService
         .on(AppEvent.SESSION_TASK_STATUS_CHANGED, (event) => {
             if (sessionStatusLifecycle.state.value === 'disposed') return;
@@ -391,7 +370,6 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         if (currentSessionId.value !== null) {
             lastClosedSessionId.value = currentSessionId.value;
         }
-        clearPendingRequestState();
         clearSession();
     }
 
@@ -502,7 +480,11 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         });
     }
 
-    async function handleSubmit(query: string, inputSnapshotOverride?: InputHistorySnapshot) {
+    async function handleSubmit(
+        query: string,
+        inputSnapshotOverride?: InputHistorySnapshot,
+        shortcutIntent: SubmitShortcutIntent = 'enter'
+    ) {
         const unsupportedAttachmentMessage = getUnsupportedAttachmentMessage();
         if (unsupportedAttachmentMessage) {
             notify({ title: 'TouchAI', body: unsupportedAttachmentMessage });
@@ -511,20 +493,24 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
 
         const inputSnapshot = inputSnapshotOverride ?? getCurrentInputSnapshot(query);
 
-        if (isLoading.value) {
-            if (pendingRequest.value) {
-                return;
-            }
-
+        // 上一轮刚结束、下一条排队任务尚未挂载时，待发列表仍非空；
+        // 这段衔接期也必须继续排队，否则会误发起一个与自动续发冲突的新任务。
+        if (isLoading.value || pendingUserMessages.value.length > 0) {
             const selectedModelId = modelOverride.value.modelId;
             const selectedProviderId = modelOverride.value.providerId;
-            pendingRequest.value = {
-                query,
-                attachments: getSupportedAttachments(),
-                inputSnapshot,
-                modelId: selectedModelId ?? undefined,
-                providerId: selectedProviderId ?? undefined,
-            };
+            const pendingMessage = enqueueUserMessage(
+                {
+                    prompt: query,
+                    attachments: getSupportedAttachments(),
+                    inputSnapshot,
+                    modelId: selectedModelId ?? undefined,
+                    providerId: selectedProviderId ?? undefined,
+                },
+                shortcutIntent === 'enter-modified' ? 'priority' : 'queue'
+            );
+            if (pendingMessage) {
+                clearDraft({ preserveModelTag: true });
+            }
             return;
         }
 
@@ -543,8 +529,17 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         );
     }
 
+    function cancelPendingRequest(): boolean {
+        return clearPendingUserMessages();
+    }
+
+    function cancelLatestPendingMessage(): boolean {
+        const latest = pendingUserMessages.value[pendingUserMessages.value.length - 1];
+        return latest ? removePendingUserMessage(latest.id) : false;
+    }
+
     function cancelRequest() {
-        clearPendingRequestState();
+        clearPendingUserMessages();
         if (isLoading.value) {
             cancel();
             invalidateSessionListCache({
@@ -619,9 +614,6 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
             }
             throw error;
         }
-        // 切换会话成功后必须丢弃当前页面暂存的排队请求，
-        // 否则新会话会错误继承旧会话的“等待发送”锁态。
-        clearPendingRequestState();
         clearDraft({ preserveModelTag: true });
         modelOverride.value = {
             modelId: loadedSession.modelId,
@@ -674,7 +666,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
 
     return {
         pendingRequest,
-        isWaitingForCompletion,
+        pendingUserMessages,
         isLoading,
         error,
         currentSessionId,
@@ -704,6 +696,11 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         handleSubmit,
         cancelRequest,
         cancelPendingRequest,
+        cancelLatestPendingMessage,
+        promotePendingUserMessage,
+        removePendingUserMessage,
+        updatePendingUserMessage,
+        reorderPendingUserMessages,
         handleRegenerateMessage,
     };
 }

@@ -124,6 +124,8 @@ export interface PendingRequest {
     providerId?: number;
 }
 
+export type SubmitShortcutIntent = 'enter' | 'enter-modified';
+
 export interface SearchModelCapabilities {
     supportsImages: boolean;
     supportsFiles: boolean;

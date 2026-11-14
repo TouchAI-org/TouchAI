@@ -92,7 +92,9 @@ const {
     },
     resizeState: {
         options: null as { resizeEnabled?: Ref<boolean> } | null,
+        cardHeight: { value: 60 } as Ref<number>,
         remeasureTargetHeight: vi.fn(),
+        scheduleMeasurement: vi.fn(),
         playSessionExpandAnimation: vi.fn(),
         collapseSessionToIdle: vi.fn(),
         resetSearchWindowBounds: vi.fn(),
@@ -309,7 +311,7 @@ vi.mock('@/views/SearchView/composables/useSearchRequest', async () => {
         useSearchRequestFlow: () => {
             const result = {
                 pendingRequest: ref(null),
-                isWaitingForCompletion: ref(false),
+                pendingUserMessages: ref([]),
                 isLoading: ref(false),
                 error: ref(null),
                 currentSessionId: ref<number | null>(null),
@@ -328,6 +330,7 @@ vi.mock('@/views/SearchView/composables/useSearchRequest', async () => {
                 refreshSessionList: vi.fn().mockResolvedValue(undefined),
                 ensureSessionListLoaded: vi.fn().mockResolvedValue(undefined),
                 startNewSession: vi.fn(),
+                reopenLastClosedSession: vi.fn().mockResolvedValue(undefined),
                 openSession: vi.fn().mockResolvedValue(undefined),
                 pendingToolApproval: ref(null),
                 pendingUserQuestion: ref(null),
@@ -337,6 +340,12 @@ vi.mock('@/views/SearchView/composables/useSearchRequest', async () => {
                 handleSubmit: vi.fn().mockResolvedValue(undefined),
                 clearAll: vi.fn(),
                 cancelRequest: vi.fn(),
+                cancelPendingRequest: vi.fn(() => false),
+                cancelLatestPendingMessage: vi.fn(() => false),
+                promotePendingUserMessage: vi.fn(() => false),
+                removePendingUserMessage: vi.fn(() => false),
+                updatePendingUserMessage: vi.fn(() => false),
+                reorderPendingUserMessages: vi.fn(() => false),
                 handleRegenerateMessage: vi.fn().mockResolvedValue(undefined),
             };
             result.setSessionHistoryOverlayOpen.mockImplementation(async (open: boolean) => {
@@ -356,7 +365,7 @@ vi.mock('@/views/SearchView/composables/useSearchWindowResize', async () => {
             return {
                 contentReady: ref(true),
                 currentHeight: ref(60),
-                cardHeight: ref(60),
+                cardHeight: resizeState.cardHeight,
                 cardReveal: ref(0),
                 isCardGrowing: ref(false),
                 isMaximized: ref(false),
@@ -373,7 +382,7 @@ vi.mock('@/views/SearchView/composables/useSearchWindowResize', async () => {
                 syncWindowState: vi.fn().mockResolvedValue(undefined),
                 remeasureTargetHeight: resizeState.remeasureTargetHeight,
                 measureTargetHeight: resizeState.measureTargetHeight,
-                scheduleMeasurement: vi.fn(),
+                scheduleMeasurement: resizeState.scheduleMeasurement,
                 playSessionExpandAnimation: resizeState.playSessionExpandAnimation,
                 collapseSessionToIdle: resizeState.collapseSessionToIdle,
                 sessionExpandMotion: ref(undefined),
@@ -482,6 +491,8 @@ describe('SearchView async overlay and listener lifecycle', () => {
         requestFlowState.current = null;
         runtimeModeState.isE2eTestMode.mockResolvedValue(false);
         resizeState.remeasureTargetHeight.mockResolvedValue(undefined);
+        resizeState.cardHeight.value = 60;
+        resizeState.scheduleMeasurement.mockClear();
         resizeState.playSessionExpandAnimation.mockResolvedValue(undefined);
         resizeState.collapseSessionToIdle.mockResolvedValue(true);
         resizeState.resetSearchWindowBounds.mockResolvedValue(true);
@@ -581,6 +592,7 @@ describe('SearchView async overlay and listener lifecycle', () => {
                     SessionHistoryPopover: overlayContent,
                     ConversationPanel: defineComponent({
                         name: 'ConversationPanel',
+                        emits: ['contentResize'],
                         setup(_, { expose }) {
                             expose({ getContentHeight: () => 340, focus: vi.fn() });
                             return () => h('div', 'Conversation');
@@ -942,6 +954,33 @@ describe('SearchView async overlay and listener lifecycle', () => {
             setup[mode] = true;
             await nextTick();
             expect(setup.pageContent.style.maxHeight).toBe('none');
+        }
+    );
+
+    it.each(['fillConversationAvailableHeight', 'effectiveWindowMaximized'] as const)(
+        'user gets a compact conversation measured before %s suppresses streaming measurements',
+        async (mode) => {
+            const wrapper = mountSearchView();
+            await flushPromises();
+            requestFlowState.current!.sessionHistory.value = [
+                { id: 'queued', role: 'user', content: 'Queued message', parts: [], timestamp: 1 },
+            ];
+            await nextTick();
+            const setup = getSetupState(wrapper);
+            setup[mode] = true;
+            await nextTick();
+            const conversation = wrapper.findComponent({ name: 'ConversationPanel' });
+
+            conversation.vm.$emit('contentResize', 900);
+            await nextTick();
+            expect(resizeState.scheduleMeasurement).toHaveBeenCalledOnce();
+
+            resizeState.scheduleMeasurement.mockClear();
+            resizeState.cardHeight.value = 660;
+            await nextTick();
+            conversation.vm.$emit('contentResize', 920);
+            await nextTick();
+            expect(resizeState.scheduleMeasurement).not.toHaveBeenCalled();
         }
     );
 

@@ -45,6 +45,8 @@ describe('user changes the search shortcuts', () => {
         const defaults = createDefaultSearchKeybindings();
 
         expect(defaults).toEqual({
+            'search.submit.queue': 'Enter',
+            'search.submit.priority': 'Mod+Enter',
             'search.history.open': 'Mod+H',
             'search.input.focus': 'Mod+L',
             'search.session.new': 'Mod+N',
@@ -55,6 +57,36 @@ describe('user changes the search shortcuts', () => {
             'search.window.maximize': 'F11',
             'search.settings.open': 'Mod+,',
         });
+    });
+
+    it('user can swap the submit shortcuts but cannot bind them to another key', () => {
+        expect(
+            normalizeSearchKeybindings({
+                'search.submit.queue': 'Mod+Enter',
+                'search.submit.priority': 'Enter',
+            })
+        ).toEqual({
+            ...createDefaultSearchKeybindings(),
+            'search.submit.queue': 'Mod+Enter',
+            'search.submit.priority': 'Enter',
+        });
+
+        expect(
+            normalizeSearchKeybindings({
+                'search.submit.queue': 'Mod+Q',
+                'search.submit.priority': 'Shift+Enter',
+            })
+        ).toEqual(createDefaultSearchKeybindings());
+    });
+
+    it('user cannot bind ordinary actions to the Enter submit gestures', () => {
+        const normalized = normalizeSearchKeybindings({
+            'search.history.open': 'Enter',
+            'search.input.focus': 'Mod+Enter',
+        });
+
+        expect(normalized['search.history.open']).toBe('Mod+H');
+        expect(normalized['search.input.focus']).toBe('Mod+L');
     });
 
     it('user normalizes persisted shortcuts and preserves disabled actions', () => {

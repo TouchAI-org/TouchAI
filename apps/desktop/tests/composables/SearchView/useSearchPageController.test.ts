@@ -463,6 +463,8 @@ describe('when the user clicks around the search window', () => {
             useSearchKeyboard({
                 viewReady: ref(true),
                 searchKeybindings: ref({
+                    'search.submit.queue': null,
+                    'search.submit.priority': null,
                     'search.history.open': null,
                     'search.input.focus': null,
                     'search.session.new': null,
@@ -486,7 +488,6 @@ describe('when the user clicks around the search window', () => {
                 controller: controller as never,
                 sessionHistory: ref([]),
                 pendingRequest: ref(null),
-                isWaitingForCompletion: ref(false),
                 isLoading: ref(false),
                 pendingToolApproval: ref(null),
                 approvePendingToolApproval: vi.fn(() => false),

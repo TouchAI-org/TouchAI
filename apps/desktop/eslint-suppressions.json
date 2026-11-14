@@ -422,13 +422,13 @@
     },
     "src/views/SettingsView/components/General/SearchShortcutSettings.vue": {
         "tailwindcss/no-arbitrary-value": {
-            "count": 4
+            "count": 1
         },
         "tailwindcss/no-custom-classname": {
             "count": 1
         },
         "vue/no-restricted-class": {
-            "count": 6
+            "count": 4
         }
     },
     "src/views/SettingsView/components/General/UpdateAvailableBadge.vue": {
@@ -453,11 +453,6 @@
         },
         "vue/no-restricted-class": {
             "count": 2
-        }
-    },
-    "src/views/SettingsView/components/General/index.vue": {
-        "vue/no-restricted-class": {
-            "count": 1
         }
     },
     "src/views/SettingsView/components/McpTools/components/KeyValueRows.vue": {

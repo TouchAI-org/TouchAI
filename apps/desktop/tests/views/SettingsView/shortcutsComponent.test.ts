@@ -8,6 +8,14 @@ import GeneralSection from '@/views/SettingsView/components/Shortcuts/index.vue'
 
 const originalPlatform = navigator.platform;
 
+interface CustomSelectStubState {
+    modelValue: string;
+    options: Array<{ value: string; label: string; description?: string }>;
+    disabled?: boolean;
+    localOpen: boolean;
+    $emit(event: 'update:modelValue' | 'update:open', value: string | boolean): void;
+}
+
 function setPlatform(platform: string) {
     Object.defineProperty(window.navigator, 'platform', {
         configurable: true,
@@ -113,23 +121,56 @@ vi.mock('@components/AppIcon.vue', () => ({
 vi.mock('@components/CustomSelect.vue', () => ({
     default: {
         name: 'CustomSelectStub',
-        props: ['modelValue', 'options', 'open', 'contentTestId', 'optionTestIdPrefix'],
+        props: [
+            'modelValue',
+            'options',
+            'open',
+            'contentTestId',
+            'optionTestIdPrefix',
+            'triggerTestId',
+            'disabled',
+        ],
         emits: ['update:modelValue', 'update:open'],
+        data: () => ({ localOpen: false }),
+        computed: {
+            currentLabel(this: CustomSelectStubState): string {
+                const option = this.options.find((entry) => entry.value === this.modelValue);
+                return option?.label ?? this.modelValue;
+            },
+        },
+        methods: {
+            toggleOpen(this: CustomSelectStubState): void {
+                if (this.disabled) return;
+                this.localOpen = !this.localOpen;
+                this.$emit('update:open', this.localOpen);
+            },
+            selectOption(this: CustomSelectStubState, value: string): void {
+                this.localOpen = false;
+                this.$emit('update:open', false);
+                this.$emit('update:modelValue', value);
+            },
+        },
         template: `
             <div data-testid="custom-select">
                 <slot name="trigger" />
-                <select v-if="!$slots.trigger" data-testid="custom-select-native">
-                    <option>{{ modelValue }}</option>
-                </select>
-                <div v-if="open" :data-testid="contentTestId">
+                <button
+                    v-if="!$slots.trigger"
+                    type="button"
+                    :data-testid="triggerTestId || 'custom-select-trigger'"
+                    :disabled="disabled"
+                    @click="toggleOpen"
+                >
+                    {{ currentLabel }}
+                </button>
+                <div v-if="localOpen || open" :data-testid="contentTestId">
                     <button
                         v-for="option in options"
                         :key="option.value"
                         type="button"
                         :data-testid="optionTestIdPrefix ? optionTestIdPrefix + option.value : undefined"
-                        @click="$emit('update:modelValue', option.value)"
+                        @click="selectOption(option.value)"
                     >
-                        {{ option.label }}
+                        {{ option.label }} {{ option.description }}
                     </button>
                 </div>
             </div>
@@ -230,6 +271,29 @@ describe('user configures keyboard shortcuts', () => {
                     .element as HTMLInputElement
             ).value
         ).toBe('Esc');
+        expect(
+            (
+                wrapper.get('[data-testid="settings-search-shortcut-input-search.submit.queue"]')
+                    .element as HTMLInputElement
+            ).value
+        ).toBe('Enter');
+        expect(
+            (
+                wrapper.get('[data-testid="settings-search-shortcut-input-search.submit.priority"]')
+                    .element as HTMLInputElement
+            ).value
+        ).toBe('Ctrl+Enter');
+        expect(
+            wrapper
+                .get('[data-testid="settings-search-shortcut-input-search.submit.queue"]')
+                .attributes('title')
+        ).toBe('请在“通用”中修改发送快捷键');
+        expect(
+            wrapper
+                .get('[data-testid="settings-search-shortcut-input-search.submit.priority"]')
+                .attributes('title')
+        ).toBe('请在“通用”中修改发送快捷键');
+        expect(wrapper.find('[data-testid="settings-submit-intent-trigger"]').exists()).toBe(false);
         expect(
             wrapper
                 .get('[data-testid="settings-search-shortcut-input-search.history.open"]')
@@ -693,7 +757,7 @@ describe('user configures keyboard shortcuts', () => {
 
         await flushPromises();
 
-        const input = wrapper.get('[data-testid="settings-search-shortcut-input-search.submit"]');
+        const input = wrapper.get('[data-testid="settings-search-shortcut-input-search.newLine"]');
         expect(input.attributes('title')).toBe('暂不支持修改该快捷键');
         expect(input.attributes('tabindex')).toBe('-1');
 
@@ -703,7 +767,63 @@ describe('user configures keyboard shortcuts', () => {
         await flushPromises();
 
         expect(settingsStoreMock.updateSearchKeybindings).not.toHaveBeenCalled();
-        expect((input.element as HTMLInputElement).value).toBe('Enter');
+        expect((input.element as HTMLInputElement).value).toBe('Shift+Enter');
+    });
+
+    it('user sees submit shortcut rows follow the pair chosen in General', async () => {
+        settingsStoreMock.settings.value.searchKeybindings['search.submit.queue'] = 'Mod+Enter';
+        settingsStoreMock.settings.value.searchKeybindings['search.submit.priority'] = 'Enter';
+        const wrapper = mount(GeneralSection);
+
+        await flushPromises();
+
+        expect(
+            (
+                wrapper.get('[data-testid="settings-search-shortcut-input-search.submit.queue"]')
+                    .element as HTMLInputElement
+            ).value
+        ).toBe('Ctrl+Enter');
+        expect(
+            (
+                wrapper.get('[data-testid="settings-search-shortcut-input-search.submit.priority"]')
+                    .element as HTMLInputElement
+            ).value
+        ).toBe('Enter');
+    });
+
+    it('user cannot edit the submit shortcuts from the shortcuts page', async () => {
+        settingsStoreMock.settings.value.searchKeybindings['search.submit.queue'] = null;
+        const wrapper = mount(GeneralSection);
+
+        await flushPromises();
+
+        const queueInput = wrapper.get(
+            '[data-testid="settings-search-shortcut-input-search.submit.queue"]'
+        );
+        const priorityInput = wrapper.get(
+            '[data-testid="settings-search-shortcut-input-search.submit.priority"]'
+        );
+        expect(queueInput.attributes('title')).toBe('请在“通用”中修改发送快捷键');
+        expect(priorityInput.attributes('title')).toBe('请在“通用”中修改发送快捷键');
+        expect(queueInput.attributes('tabindex')).toBe('-1');
+        expect(priorityInput.attributes('tabindex')).toBe('-1');
+        expect(
+            wrapper
+                .find('[data-testid="settings-search-shortcut-action-search.submit.queue"]')
+                .exists()
+        ).toBe(false);
+        expect(
+            wrapper
+                .find('[data-testid="settings-search-shortcut-action-search.submit.priority"]')
+                .exists()
+        ).toBe(false);
+
+        await queueInput.trigger('focus');
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F2', code: 'F2' }));
+        await flushPromises();
+
+        expect(settingsStoreMock.updateSearchKeybindings).not.toHaveBeenCalled();
+        expect(alertMessageMock.error).not.toHaveBeenCalled();
     });
 
     it('user uses an inline x icon to clear a default search shortcut', async () => {
@@ -824,5 +944,24 @@ describe('user configures keyboard shortcuts', () => {
         expect(wrapper.find('[data-testid="settings-shortcut-cancel-button"]').exists()).toBe(
             false
         );
+    });
+
+    it('user gets mouse focus and blur to start and stop search shortcut capture', async () => {
+        const wrapper = mount(GeneralSection, { attachTo: document.body });
+
+        await flushPromises();
+
+        const input = wrapper.get(
+            '[data-testid="settings-search-shortcut-input-search.history.open"]'
+        );
+        await input.trigger('mousedown');
+        await flushPromises();
+
+        expect((input.element as HTMLInputElement).value).toBe('请按下快捷键...');
+
+        await input.trigger('blur');
+        await flushPromises();
+
+        expect((input.element as HTMLInputElement).value).toBe('Ctrl+H');
     });
 });

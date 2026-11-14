@@ -12,6 +12,7 @@ function createSnapshot(overrides: Partial<SessionTaskSnapshot> = {}): SessionTa
         status: 'running',
         executionMode: 'background',
         sessionHistory: [],
+        pendingUserMessages: [],
         pendingToolApproval: null,
         pendingApprovals: [],
         pendingUserQuestion: null,

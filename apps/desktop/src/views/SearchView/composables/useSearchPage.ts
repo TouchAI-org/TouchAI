@@ -28,6 +28,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { nextTick, onMounted, onUnmounted, type Ref, ref, watch } from 'vue';
 
 import {
+    isRendererOnlySearchKeybindingAction,
     SEARCH_KEYBINDING_DEFINITIONS,
     type SearchKeybindingActionId,
     type SearchKeybindings,
@@ -72,7 +73,10 @@ function buildSearchSurfaceShortcutEntries(
     context: SearchSurfaceShortcutSyncContext
 ) {
     return SEARCH_KEYBINDING_DEFINITIONS.flatMap((definition) => {
-        if (!shouldSyncSearchSurfaceShortcutToNative(definition.id, context)) {
+        if (
+            isRendererOnlySearchKeybindingAction(definition.id) ||
+            !shouldSyncSearchSurfaceShortcutToNative(definition.id, context)
+        ) {
             return [];
         }
 

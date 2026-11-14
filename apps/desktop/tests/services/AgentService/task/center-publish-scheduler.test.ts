@@ -47,6 +47,7 @@ function createSnapshot(overrides: Partial<TaskViewSnapshot> = {}): TaskViewSnap
         status: 'running',
         executionMode: 'background',
         sessionHistory: [],
+        pendingUserMessages: [],
         pendingToolApproval: null,
         pendingApprovals: [],
         pendingUserQuestion: null,

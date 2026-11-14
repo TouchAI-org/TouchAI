@@ -23,6 +23,39 @@ export interface PendingUserQuestionView {
 }
 
 /**
+ * 队列消息的投递方式：跟随下一轮排队，或在安全边界插队。
+ */
+export type PendingUserMessageDelivery = 'queue' | 'priority';
+
+export interface PendingUserMessageInput {
+    prompt: string;
+    attachments?: AttachmentIndex[];
+    inputSnapshot?: InputHistorySnapshot;
+    modelId?: string;
+    providerId?: number;
+}
+
+export interface PendingUserMessage extends PendingUserMessageInput {
+    id: string;
+    delivery: PendingUserMessageDelivery;
+    /**
+     * Set when the user clicks Steer now. The executor keeps streaming the
+     * current answer only up to its next safe boundary, then injects this
+     * message into the running turn instead of waiting for a tool call.
+     */
+    immediate?: boolean;
+    attachments: AttachmentIndex[];
+    createdAt: number;
+}
+
+export interface DeliveredPendingUserMessage {
+    id: string;
+    prompt: string;
+    attachments: AttachmentIndex[];
+    inputSnapshot?: InputHistorySnapshot;
+}
+
+/**
  * 任务快照里可能混入来自页面层的响应式代理对象。
  *
  * `structuredClone` 遇到 Vue proxy 会直接抛错，所以这里先尝试它，
@@ -42,12 +75,18 @@ export function cloneTaskValue<T>(value: T): T {
 
 export interface StartSessionTaskOptions {
     prompt: string;
+    /**
+     * 队列投递时沿用待发消息的 id，让同一气泡从虚线原位变成实心，
+     * 而不是先消失再出现一条新消息。
+     */
+    userMessageId?: string;
     sessionId?: number;
     modelId?: string;
     providerId?: number;
     attachments?: AttachmentIndex[];
     inputSnapshot?: InputHistorySnapshot;
     executionMode?: TaskExecutionMode;
+    pendingUserMessages?: PendingUserMessage[];
     signal?: AbortSignal;
 }
 
@@ -58,6 +97,7 @@ export interface TaskViewSnapshot {
     status: SessionTaskStatus;
     executionMode: TaskExecutionMode;
     sessionHistory: SessionMessage[];
+    pendingUserMessages: PendingUserMessage[];
     pendingToolApproval: PendingToolApproval | null;
     pendingApprovals: PendingToolApproval[];
     pendingUserQuestion: PendingUserQuestionView | null;

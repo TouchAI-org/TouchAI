@@ -61,6 +61,7 @@ function createSnapshot(toolCall: ToolCallInfo): SessionTaskSnapshot {
         status: toolCall.status === 'executing' ? 'running' : 'completed',
         executionMode: 'foreground',
         sessionHistory: [createAssistantMessage(toolCall)],
+        pendingUserMessages: [],
         pendingToolApproval: null,
         pendingApprovals: [],
         pendingUserQuestion: null,
