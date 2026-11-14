@@ -434,6 +434,55 @@ describe('user has a message waiting for delivery', () => {
             snapshot.sessionHistory.filter((message) => message.id === 'pending-1')
         ).toHaveLength(1);
     });
+
+    it('user gets an undeliverable pending message removed from the queue', () => {
+        const { snapshot, publish, projection } = createProjection();
+        snapshot.pendingUserMessages = [
+            {
+                id: 'pending-1',
+                prompt: 'Unsupported attachment',
+                attachments: [],
+                delivery: 'priority',
+                createdAt: 2,
+            },
+            {
+                id: 'pending-2',
+                prompt: 'Still waiting',
+                attachments: [],
+                delivery: 'queue',
+                createdAt: 3,
+            },
+        ];
+
+        projection.syncTaskMetadata({
+            type: 'user_messages_rejected',
+            taskId: 'task-1',
+            messageIds: ['pending-1'],
+        });
+
+        expect(snapshot.pendingUserMessages.map((message) => message.id)).toEqual(['pending-2']);
+        expect(publish).toHaveBeenCalled();
+    });
+
+    it('user gets no queue change for an empty or unknown rejection', () => {
+        const { snapshot, publish, projection } = createProjection();
+        snapshot.pendingUserMessages = [
+            {
+                id: 'pending-1',
+                prompt: 'Still waiting',
+                attachments: [],
+                delivery: 'queue',
+                createdAt: 2,
+            },
+        ];
+        publish.mockClear();
+
+        projection.rejectPendingUserMessages([]);
+        projection.rejectPendingUserMessages(['missing']);
+
+        expect(snapshot.pendingUserMessages.map((message) => message.id)).toEqual(['pending-1']);
+        expect(publish).not.toHaveBeenCalled();
+    });
 });
 
 describe('user steers into a running task', () => {

@@ -1302,7 +1302,10 @@ describe('user calls a tool the agent does not have', () => {
             .mockImplementationOnce(async function* (request: AiRequestOptions) {
                 requests.push(request);
                 const tail = request.messages.slice(-2);
-                expect(tail[0]).toMatchObject({ role: 'assistant' });
+                expect(tail[0]).toEqual({
+                    role: 'assistant',
+                    content: [{ type: 'text', text: 'Partial answer' }],
+                });
                 expect(tail[1]).toEqual({ role: 'user', content: 'Steer this' });
                 yield { content: 'Done', done: true };
             });

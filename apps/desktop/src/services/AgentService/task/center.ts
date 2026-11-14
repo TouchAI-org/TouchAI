@@ -1141,7 +1141,7 @@ export class SessionTaskCenter {
         this.sessionPendingQueues.set(task.sessionId, rest);
 
         try {
-            await this.startTask({
+            const started = await this.startTask({
                 prompt: next.prompt,
                 userMessageId: next.id,
                 sessionId: task.sessionId,
@@ -1150,6 +1150,11 @@ export class SessionTaskCenter {
                 attachments: next.attachments,
                 inputSnapshot: next.inputSnapshot,
                 executionMode: task.snapshot.executionMode,
+            });
+            // The hand-over owns the task lifecycle now; waiters that already
+            // moved to the next screen must not leave this completion unhandled.
+            started.completion.catch((error) => {
+                log.warn('[SessionTaskCenter] Queued hand-over task failed:', error);
             });
             // 新任务已接管队列，旧任务不必再挂着同一批待发消息。
             task.snapshot.pendingUserMessages = [];

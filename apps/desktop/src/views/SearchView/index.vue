@@ -87,6 +87,7 @@
     import { useSearchPanelResizing } from './composables/useSearchPanelResizing';
     import { useSearchRequestFlow } from './composables/useSearchRequest';
     import { useSearchWindowResize } from './composables/useSearchWindowResize';
+    import { resolvePendingMessageModelOverride } from './pendingMessageDraft';
     import {
         createSearchSurfacePreparationController,
         settleSearchSurfaceViewport,
@@ -635,12 +636,7 @@
             excludeFromHistory: message.inputSnapshot?.excludeFromHistory,
         });
         applyInputHistorySnapshot(snapshot);
-        if (message.modelId !== undefined || message.providerId !== undefined) {
-            modelOverride.value = {
-                modelId: message.modelId ?? null,
-                providerId: message.providerId ?? null,
-            };
-        }
+        modelOverride.value = resolvePendingMessageModelOverride(message);
     }
 
     async function beginPendingMessageEdit(message: PendingUserMessage): Promise<void> {
@@ -1491,11 +1487,6 @@
             typeof inputSnapshotOrIntent === 'string' ? undefined : inputSnapshotOrIntent;
         const shortcutIntent =
             typeof inputSnapshotOrIntent === 'string' ? inputSnapshotOrIntent : intent;
-        // Saving an edit replaces the queued item in place; it must not branch
-        // into the normal "queue a new message" path.
-        if (await savePendingMessageEdit(query, inputSnapshot)) {
-            return;
-        }
         const quickSearchWasOpen = quickSearchOpen.value;
         const shouldExpand = sessionHistory.value.length === 0 && !effectiveWindowMaximized.value;
         const expansion = shouldExpand || quickSearchWasOpen ? beginSessionExpansion() : null;
@@ -1560,6 +1551,24 @@
                 sessionExpansion = null;
             }
         }
+    }
+
+    async function submitComposerQuery(
+        query: string,
+        inputSnapshotOrIntent?:
+            | Parameters<typeof handleSubmit>[1]
+            | Parameters<typeof handleSubmit>[2],
+        intent?: Parameters<typeof handleSubmit>[2]
+    ): ReturnType<typeof handleSubmit> {
+        const inputSnapshot =
+            typeof inputSnapshotOrIntent === 'string' ? undefined : inputSnapshotOrIntent;
+        // Saving an edit replaces the queued item in place; it must not branch
+        // into the normal "queue a new message" path. Only the composer owns
+        // this draft, so widget and status replies must bypass it.
+        if (await savePendingMessageEdit(query, inputSnapshot)) {
+            return;
+        }
+        return submitSearchQuery(query, inputSnapshotOrIntent, intent);
     }
 
     const completeFile = computed(() => {
@@ -1629,7 +1638,7 @@
         closeModelDropdown,
         toggleWindowMaximize: handleToggleMaximize,
         handleSearchKeybindingAction,
-        handleSubmit: submitSearchQuery,
+        handleSubmit: submitComposerQuery,
         clearAll,
         cancelRequest,
         clearSession: clearSessionToIdle,
