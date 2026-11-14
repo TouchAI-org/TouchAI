@@ -1645,8 +1645,12 @@
         // A filled conversation scrolls inside a host that is already at its
         // maximum height. Feeding every streaming frame back into native window
         // measurement animates the card on each chunk and makes the whole
-        // surface flicker.
-        if (fillConversationAvailableHeight.value || effectiveWindowMaximized.value) {
+        // surface flicker. The compact card still has to grow when a
+        // conversation is mounted without the normal submit expansion path.
+        if (
+            (fillConversationAvailableHeight.value || effectiveWindowMaximized.value) &&
+            cardPixelHeight.value > searchWindowDefaultSize.value.height
+        ) {
             return;
         }
         scheduleContentMeasurement();

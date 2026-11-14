@@ -92,7 +92,9 @@ describe('user observes history only while the search view is mounted', () => {
         await flushPromises();
 
         expect(getTauriInvokeCalls('database_query')).toHaveLength(readsBeforeLeaving);
-        expect(getTauriInvokeCalls('plugin:event|unlisten')).toHaveLength(1);
+        // The agent follows queued tasks through the same native event, so both
+        // subscriptions must be released when the search view unmounts.
+        expect(getTauriInvokeCalls('plugin:event|unlisten')).toHaveLength(2);
     });
 
     it('user leaves during subscription cleanup and a queued completion cannot restart history loading', async () => {
