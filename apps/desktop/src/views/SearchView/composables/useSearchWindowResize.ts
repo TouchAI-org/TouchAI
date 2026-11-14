@@ -45,6 +45,12 @@ interface UseSearchWindowResizeOptions {
     measureContentHeight?: (target: HTMLElement) => number;
     overlayTarget?: Ref<HTMLElement | null>;
     card?: Ref<HTMLElement | null>;
+    /** Element that owns the visible height animation; defaults to `card`. */
+    animationTarget?: Ref<HTMLElement | null>;
+    /** Extra visual height (the surround mat) included in the animation target. */
+    animationHeightOffset?: Readonly<Ref<number>>;
+    /** Pin the panel top while the toolbar extends downward. */
+    anchorTop?: Readonly<Ref<number | null>>;
     overlayRequiredViewportHeight?: Ref<number | null>;
     intrinsicHeightMeasurementPending?: Readonly<Ref<boolean>>;
     sessionCount: Ref<number>;
@@ -162,7 +168,8 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         startOffset: number,
         endOffset: number
     ): Animation | null {
-        const card = options.card?.value ?? null;
+        const card = options.animationTarget?.value ?? options.card?.value ?? null;
+        const heightOffset = options.animationHeightOffset?.value ?? 0;
         if (!card || typeof card.animate !== 'function') return null;
         if (reducedMotion.value || duration <= 0 || Math.abs(fromHeight - toHeight) < 1)
             return null;
@@ -170,11 +177,11 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         return card.animate(
             [
                 {
-                    height: `${fromHeight}px`,
+                    height: `${fromHeight + heightOffset}px`,
                     transform: `translateY(${startOffset}px)`,
                 },
                 {
-                    height: `${toHeight}px`,
+                    height: `${toHeight + heightOffset}px`,
                     transform: `translateY(${endOffset}px)`,
                 },
             ],
@@ -335,6 +342,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
                 panelHeight: currentHeight.value,
                 viewportHeight: viewportHeight.value,
                 centerY: panelCenterY.value,
+                anchorTop: options.anchorTop?.value ?? null,
                 minTop: panelBounds.value.top,
                 maxBottom: panelBounds.value.bottom,
             })

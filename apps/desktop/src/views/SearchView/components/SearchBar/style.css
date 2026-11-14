@@ -138,3 +138,120 @@
 :deep([data-tag-close]:active) {
     scale: var(--scale-small);
 }
+
+/* ─── 工具栏与把手 ───────────────────────────────────────────── */
+
+/*
+ * The toolbar stays in the layout while it is closed so its buttons remain part of
+ * the composer tree, but it takes no height and is inert. Opening is delayed until
+ * the gray mat has grown; closing waits until the card has shrunk around it.
+ */
+.search-bar-toolbar {
+    height: 0;
+    overflow: hidden;
+    transition: height 0s linear var(--search-toolbar-close-delay, 320ms);
+}
+
+.search-bar-toolbar--open {
+    height: var(--search-toolbar-height, 40px);
+    transition-delay: var(--search-toolbar-open-delay, 160ms);
+}
+
+.search-bar-toolbar__content {
+    opacity: 0;
+    transform: translateY(-4px);
+    transition:
+        opacity 120ms var(--ease-smooth-out),
+        transform 120ms var(--ease-smooth-out);
+}
+
+.search-bar-toolbar--open .search-bar-toolbar__content {
+    opacity: 1;
+    transform: none;
+    transition-delay: var(--search-toolbar-open-delay, 160ms);
+}
+
+/*
+ * One handle crosses the handoff: it rests on the composer's bottom edge and, when
+ * the toolbar opens, translates into the toolbar's top edge. The two halves are the
+ * same element at every frame, so the line truly crosses instead of swapping nodes.
+ */
+.search-toolbar-handle {
+    position: absolute;
+    left: 50%;
+    bottom: 2px;
+    z-index: 3;
+    display: inline-flex;
+    width: 34px;
+    height: 14px;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 0;
+    border-radius: 9999px;
+    background: transparent;
+    color: var(--color-muted-foreground);
+    cursor: pointer;
+    transform: translateX(-50%);
+    transition:
+        color var(--duration-quick) var(--ease-smooth-out),
+        transform var(--duration-quick) var(--ease-smooth-out);
+}
+
+.search-toolbar-handle:hover {
+    color: var(--color-foreground);
+}
+
+.search-toolbar-handle:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+}
+
+.search-toolbar-handle--expanded {
+    /* Centre the line on the handoff: the toolbar's top edge is the input's bottom. */
+    transform: translate(-50%, 9px);
+    transition-delay: 0ms, var(--search-toolbar-open-delay, 160ms);
+}
+
+.search-toolbar-handle__glyph {
+    display: inline-flex;
+    align-items: center;
+    transform-origin: center;
+    transition: transform var(--duration-quick) var(--ease-smooth-out);
+}
+
+/*
+ * Two halves that read as one rounded line at rest: no gap, only the outer caps
+ * are rounded. On hover each half folds inwards, so the same line becomes a
+ * downward chevron without swapping elements or adding a second glyph.
+ */
+.search-toolbar-handle__glyph span {
+    display: block;
+    width: 12px;
+    height: 2px;
+    background: currentColor;
+    transition: transform var(--duration-quick) var(--ease-smooth-out);
+}
+
+.search-toolbar-handle__glyph span:first-child {
+    border-radius: 9999px 0 0 9999px;
+    transform-origin: right center;
+}
+
+.search-toolbar-handle__glyph span:last-child {
+    margin-left: -1px;
+    border-radius: 0 9999px 9999px 0;
+    transform-origin: left center;
+}
+
+.search-toolbar-handle:hover .search-toolbar-handle__glyph span:first-child {
+    transform: rotate(35deg);
+}
+
+.search-toolbar-handle:hover .search-toolbar-handle__glyph span:last-child {
+    transform: rotate(-35deg);
+}
+
+.search-toolbar-handle--expanded .search-toolbar-handle__glyph {
+    transform: rotate(180deg);
+}

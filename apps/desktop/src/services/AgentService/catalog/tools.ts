@@ -12,6 +12,14 @@ export interface ResolveToolDefinitionsOptions {
     excludedToolNames?: string[];
 }
 
+async function loadEnabledToolDefinitions(): Promise<AiToolDefinition[]> {
+    const [mcpTools, builtInTools] = await Promise.all([
+        mcpManager.getEnabledToolDefinitions(),
+        builtInToolService.getEnabledToolDefinitions(),
+    ]);
+    return [...mcpTools, ...builtInTools];
+}
+
 /**
  * 构造模型建议单次工具调用超时用的 `_meta` 参数 schema。
  *
@@ -74,11 +82,7 @@ export async function resolveToolDefinitions(
         return undefined;
     }
 
-    const [mcpTools, builtInTools] = await Promise.all([
-        mcpManager.getEnabledToolDefinitions(),
-        builtInToolService.getEnabledToolDefinitions(),
-    ]);
-    const allTools = [...mcpTools, ...builtInTools];
+    const allTools = await loadEnabledToolDefinitions();
     const excludedToolNames = options.excludedToolNames?.length
         ? new Set(options.excludedToolNames)
         : undefined;
@@ -86,4 +90,8 @@ export async function resolveToolDefinitions(
     return allTools
         .filter((tool) => !excludedToolNames?.has(tool.name))
         .map(withAdaptiveTimeoutSchema);
+}
+
+export async function hasEnabledToolDefinitions(): Promise<boolean> {
+    return (await loadEnabledToolDefinitions()).length > 0;
 }

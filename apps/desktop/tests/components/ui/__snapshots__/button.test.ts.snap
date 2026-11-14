@@ -196,6 +196,32 @@ exports[`user sees a button > user sees every button variant unchanged > user va
 ]
 `;
 
+exports[`user sees a button > user sees every button variant unchanged > user variant=picker 1`] = `
+[
+  "aria-checked:bg-surface-active",
+  "data-[highlighted=true]:bg-surface-active",
+  "disabled:opacity-50",
+  "disabled:pointer-events-none",
+  "focus-visible:outline-2",
+  "focus-visible:outline-focus",
+  "font-medium",
+  "gap-2",
+  "h-9",
+  "hover:bg-surface-hover",
+  "inline-flex",
+  "items-center",
+  "justify-start",
+  "px-4",
+  "py-2",
+  "rounded-md",
+  "t-press",
+  "text-foreground",
+  "text-sm",
+  "w-full",
+  "whitespace-nowrap",
+]
+`;
+
 exports[`user sees a button > user sees every button variant unchanged > user variant=secondary 1`] = `
 [
   "bg-gray-100",
@@ -213,6 +239,32 @@ exports[`user sees a button > user sees every button variant unchanged > user va
   "rounded-md",
   "t-press",
   "text-gray-900",
+  "text-sm",
+  "whitespace-nowrap",
+]
+`;
+
+exports[`user sees a button > user sees every button variant unchanged > user variant=toolbar 1`] = `
+[
+  "aria-expanded:bg-surface-active",
+  "aria-pressed:bg-surface-active",
+  "disabled:opacity-50",
+  "disabled:pointer-events-none",
+  "focus-visible:outline-2",
+  "focus-visible:outline-focus",
+  "font-medium",
+  "gap-2",
+  "h-9",
+  "hover:bg-surface-active",
+  "hover:text-foreground",
+  "inline-flex",
+  "items-center",
+  "justify-center",
+  "px-4",
+  "py-2",
+  "rounded-md",
+  "t-press",
+  "text-muted-foreground",
   "text-sm",
   "whitespace-nowrap",
 ]

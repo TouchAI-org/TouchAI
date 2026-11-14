@@ -1,5 +1,32 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`user sees an input > user sees the row keep its look > user sees a search field with the shared search appearance 1`] = `
+[
+  "[box-shadow:none]",
+  "bg-transparent",
+  "border-0",
+  "border-gray-200",
+  "disabled:bg-gray-50",
+  "disabled:cursor-not-allowed",
+  "disabled:text-gray-400",
+  "flex",
+  "focus:[box-shadow:none]",
+  "focus:border-transparent",
+  "focus:outline-none",
+  "focus:shadow-none",
+  "h-9",
+  "placeholder:text-muted-foreground",
+  "px-3",
+  "py-2",
+  "rounded-none",
+  "shadow-none",
+  "t-control",
+  "text-foreground",
+  "text-sm",
+  "w-full",
+]
+`;
+
 exports[`user sees an input > user sees the row keep its look > user sees the same default classes as before 1`] = `
 [
   "[box-shadow:none]",

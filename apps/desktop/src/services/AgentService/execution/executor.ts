@@ -25,7 +25,11 @@ import {
     normalizeOutputParts,
     type PersistedOutputPart,
 } from '../contracts/protocol';
-import { DEFAULT_REASONING_LEVEL, parseReasoningOptions } from '../contracts/reasoning';
+import {
+    DEFAULT_REASONING_LEVEL,
+    parseReasoningOptions,
+    type SelectableReasoningLevel,
+} from '../contracts/reasoning';
 import type {
     AiToolCall,
     AiToolDefinition,
@@ -218,6 +222,7 @@ export type AttemptExecutionResult =
 export type AttemptFailureResult = Extract<AttemptExecutionResult, { type: 'failed' }>;
 
 export interface RunAttemptOptions extends RequestExecutionCallbacks {
+    reasoningLevel?: SelectableReasoningLevel;
     startCheckpoint: AttemptCheckpoint;
     persister: PersistenceProjector;
     /** Opaque attempt identity stamped by the runtime; scopes bounded progress writes. */
@@ -713,6 +718,7 @@ export class AiRequestExecutor {
             persister: PersistenceProjector;
             onContextPrepared: () => void;
             attemptToken?: string;
+            reasoningLevel?: SelectableReasoningLevel;
         }
     ): Promise<AttemptStepResult> {
         runtime.currentStepOutputParts = [];
@@ -765,7 +771,7 @@ export class AiRequestExecutor {
             signal: options.signal,
             onAttachmentManifestResolved: options.onAttachmentManifestResolved,
             supportsReasoning: runtime.activeModel.reasoning === 1,
-            reasoningLevel: DEFAULT_REASONING_LEVEL,
+            reasoningLevel: options.reasoningLevel ?? DEFAULT_REASONING_LEVEL,
             reasoningOptions: parseReasoningOptions(runtime.activeModel.reasoning_options),
             promptCacheKey: runtime.promptCacheKey,
         };
@@ -1371,6 +1377,7 @@ export class AiRequestExecutor {
                         },
                         () =>
                             this.consumeModelStep(runtime, {
+                                reasoningLevel: options.reasoningLevel,
                                 signal: options.signal,
                                 onChunk: options.onChunk,
                                 persister: options.persister,

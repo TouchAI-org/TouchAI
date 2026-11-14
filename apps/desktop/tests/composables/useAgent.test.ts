@@ -78,6 +78,20 @@ describe('when the user sends a prompt', () => {
         });
     });
 
+    it('user starts a task with the reasoning depth chosen when submitting', async () => {
+        sessionTaskCenterMock.startTask.mockResolvedValue({
+            taskId: 'task-1',
+            sessionId: 1,
+            completion: Promise.resolve(null),
+        });
+        const mounted = await mountComposable(() => useAgent());
+        await mounted.result.sendRequest('explain', [], undefined, 'gpt-6', 9, 'low');
+        expect(sessionTaskCenterMock.startTask).toHaveBeenCalledWith(
+            expect.objectContaining({ reasoningLevel: 'low', modelId: 'gpt-6', providerId: 9 })
+        );
+        mounted.unmount();
+    });
+
     it('user gets the failure reported in the app without a second desktop notification', async () => {
         sessionTaskCenterMock.startTask.mockResolvedValue({
             taskId: 'task-1',

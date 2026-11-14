@@ -1,13 +1,25 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import { createXai } from '@ai-sdk/xai';
+import { createXai, type XaiLanguageModelChatOptions } from '@ai-sdk/xai';
 
 import { z } from '@/utils/zod';
 
-import type { ReasoningProtocol } from '../../../contracts/reasoning';
+import {
+    deriveReasoningLevelMap,
+    type ReasoningProtocol,
+    type SelectableReasoningLevel,
+} from '../../../contracts/reasoning';
 import { AiSdkProviderBase } from '../ai-sdk/base';
 import { toModelInfo } from '../modelList';
-import type { ProviderApiTargets } from '../types';
+import type { ProviderApiTargets, ProviderReasoningInput } from '../types';
+
+const xaiReasoningEfforts = new Set<string>([
+    'none',
+    'low',
+    'medium',
+    'high',
+    'xhigh',
+] satisfies NonNullable<XaiLanguageModelChatOptions['reasoningEffort']>[]);
 
 const xaiModelsSchema = z.object({
     data: z.array(
@@ -73,6 +85,17 @@ export class XaiProviderAdapter extends AiSdkProviderBase {
 
     protected override getReasoningProviderOptionsKey(): string {
         return 'xai';
+    }
+
+    protected override filterReasoningLevels(
+        levels: SelectableReasoningLevel[],
+        options: ProviderReasoningInput
+    ): SelectableReasoningLevel[] {
+        const map = deriveReasoningLevelMap(options.reasoningOptions);
+        return levels.filter((level) => {
+            const effort = level === 'off' ? map.off : (map[level] ?? level);
+            return typeof effort === 'string' && xaiReasoningEfforts.has(effort);
+        });
     }
 
     getApiTargets(): ProviderApiTargets {

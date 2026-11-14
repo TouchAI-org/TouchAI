@@ -96,7 +96,13 @@ function createChainEditor(
             const callbacks: Array<(props: { tr: Transaction; state: EditorState }) => boolean> =
                 [];
             const chain = {
-                focus: () => chain,
+                focus: () => {
+                    callbacks.push(() => {
+                        editor.focus();
+                        return true;
+                    });
+                    return chain;
+                },
                 command: (
                     callback: (props: { tr: Transaction; state: EditorState }) => boolean
                 ) => {
@@ -179,6 +185,30 @@ function attachmentNode(id: string, overrides: Record<string, unknown> = {}) {
 }
 
 describe('when the user attaches a file at the caret', () => {
+    it('user keeps typing in another control when an asynchronous attachment chip is inserted without focusing the draft', () => {
+        const composer = document.createElement('input');
+        const search = document.createElement('input');
+        document.body.append(composer, search);
+        const doc = schema.nodes.doc!.create(null, [paragraphWithText('draft')]);
+        const editor = createChainEditor(doc, { selection: { from: 3 } });
+        editor.focus = () => composer.focus();
+        search.focus();
+        try {
+            insertAttachmentTag(editor, createAttachmentAttrs('async-file'), {
+                atCurrentSelection: true,
+                focus: false,
+            });
+            expect(document.activeElement).toBe(search);
+            expect(getAttachmentTags(editor).map((tag) => tag.attachmentId)).toEqual([
+                'async-file',
+            ]);
+            expect(editor.state.doc.child(0).child(1).attrs.attachmentId).toBe('async-file');
+        } finally {
+            composer.remove();
+            search.remove();
+        }
+    });
+
     it('user sees the attachment chip appear right after the caret', () => {
         const doc = schema.nodes.doc!.create(null, [paragraphWithText('hello ')]);
         const editor = createChainEditor(doc, { selection: { from: 7 } });

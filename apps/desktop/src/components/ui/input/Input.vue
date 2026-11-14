@@ -40,6 +40,7 @@
             variants: {
                 variant: {
                     default: '',
+                    search: 'rounded-none border-0 bg-transparent text-foreground placeholder:text-muted-foreground focus:border-transparent',
                     filled: 'focus:border-primary-300 rounded-control border-transparent bg-surface-sunken px-3 py-2 text-compact text-neutral-900 hover:bg-surface-active focus:bg-white',
                 },
             },

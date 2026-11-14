@@ -704,6 +704,19 @@ describe('user waits through a failed attempt that can be retried', () => {
         );
     });
 
+    it('user retries a failed low-depth request and both attempts keep the original choice', async () => {
+        const executor = createExecutor();
+        executor.runAttempt
+            .mockResolvedValueOnce(failedResult())
+            .mockResolvedValueOnce(completedResult());
+        const { runtime } = run(executor, { taskId: 'depth-task', reasoningLevel: 'low' });
+        await runtime.run();
+        expect(executor.runAttempt.mock.calls.map(([request]) => request.reasoningLevel)).toEqual([
+            'low',
+            'low',
+        ]);
+    });
+
     it('user sees the retry resume from the last safe point instead of the start', async () => {
         const resumeCheckpoint = createCheckpoint({ iteration: 2, response: 'partial' });
         const executor = createExecutor();

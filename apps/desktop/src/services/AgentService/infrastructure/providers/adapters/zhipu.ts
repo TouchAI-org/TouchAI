@@ -5,10 +5,12 @@ import { createZhipu } from 'zhipu-ai-provider';
 
 import { z } from '@/utils/zod';
 
+import type { AiRequestOptions, JsonObject } from '../../../contracts/protocol';
 import type { ReasoningProtocol } from '../../../contracts/reasoning';
 import { AiSdkProviderBase } from '../ai-sdk/base';
 import { toModelInfo } from '../modelList';
-import type { ProviderApiTargets } from '../types';
+import type { ReasoningEncodingHints } from '../reasoning';
+import type { ProviderApiTargets, ProviderReasoningInput } from '../types';
 
 const zhipuModelsSchema = z.object({
     data: z.array(
@@ -81,6 +83,32 @@ export class ZhipuProviderAdapter extends AiSdkProviderBase {
 
     protected override getReasoningProviderOptionsKey(): string {
         return 'zhipu';
+    }
+
+    protected override getReasoningEncodingHints(
+        options: ProviderReasoningInput
+    ): ReasoningEncodingHints {
+        return {
+            supportsReasoningEffort:
+                this.config.reasoning?.mode === 'passthrough' ||
+                options.reasoningOptions?.some((option) => option.type === 'effort') === true,
+        };
+    }
+
+    protected override getStreamProviderOptions(
+        options: AiRequestOptions
+    ): Record<string, JsonObject> | undefined {
+        const encoded = super.getStreamProviderOptions(options);
+        if (!encoded?.zhipu) return encoded;
+        // This SDK merges its options directly into the HTTP body without renaming fields.
+        const { reasoningEffort, ...nativeOptions } = encoded.zhipu;
+        return {
+            ...encoded,
+            zhipu: {
+                ...nativeOptions,
+                ...(reasoningEffort === undefined ? {} : { reasoning_effort: reasoningEffort }),
+            },
+        };
     }
 
     getApiTargets(): ProviderApiTargets {

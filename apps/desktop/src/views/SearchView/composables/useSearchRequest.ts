@@ -18,6 +18,7 @@ import { log } from '@services/ObservabilityService';
 import { useStateMachine } from 'reka-ui';
 import { computed, onUnmounted, type Ref, ref } from 'vue';
 
+import type { SelectableReasoningLevel } from '@/services/AgentService/contracts/reasoning';
 import {
     type Index,
     isAttachmentSupported,
@@ -36,6 +37,8 @@ import type { PendingRequest, SearchModelOverride } from '../types';
 
 interface UseSearchRequestFlowOptions {
     modelOverride: Ref<SearchModelOverride>;
+    reasoningLevel?: Ref<SelectableReasoningLevel | undefined>;
+    attachmentBusy?: Ref<boolean>;
     clearDraft: (options?: { preserveModelTag?: boolean }) => void;
     getSupportedAttachments: () => Index[];
     getUnsupportedAttachmentMessage: () => string | null;
@@ -295,12 +298,20 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
                 inputSnapshot,
                 modelId,
                 providerId,
+                reasoningLevel,
             } = pendingRequest.value;
             clearPendingRequestState();
 
             clearDraft({ preserveModelTag: true });
 
-            await sendRequest(query, pendingAttachments, inputSnapshot, modelId, providerId);
+            await sendRequest(
+                query,
+                pendingAttachments,
+                inputSnapshot,
+                modelId,
+                providerId,
+                reasoningLevel
+            );
         },
         onError: () => {
             invalidateSessionListCache({
@@ -388,6 +399,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
     });
 
     function clearSessionState() {
+        if (options.reasoningLevel) options.reasoningLevel.value = undefined;
         if (currentSessionId.value !== null) {
             lastClosedSessionId.value = currentSessionId.value;
         }
@@ -503,6 +515,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
     }
 
     async function handleSubmit(query: string, inputSnapshotOverride?: InputHistorySnapshot) {
+        if (options.attachmentBusy?.value) return;
         const unsupportedAttachmentMessage = getUnsupportedAttachmentMessage();
         if (unsupportedAttachmentMessage) {
             notify({ title: 'TouchAI', body: unsupportedAttachmentMessage });
@@ -524,6 +537,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
                 inputSnapshot,
                 modelId: selectedModelId ?? undefined,
                 providerId: selectedProviderId ?? undefined,
+                reasoningLevel: options.reasoningLevel?.value,
             };
             return;
         }
@@ -531,6 +545,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         const selectedModelId = modelOverride.value.modelId;
         const selectedProviderId = modelOverride.value.providerId;
         const supportedAttachments = getSupportedAttachments();
+        const reasoningLevel = options.reasoningLevel?.value;
 
         clearDraft({ preserveModelTag: true });
 
@@ -539,7 +554,8 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
             supportedAttachments,
             inputSnapshot,
             selectedModelId ?? undefined,
-            selectedProviderId ?? undefined
+            selectedProviderId ?? undefined,
+            reasoningLevel
         );
     }
 
@@ -623,6 +639,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         // 否则新会话会错误继承旧会话的“等待发送”锁态。
         clearPendingRequestState();
         clearDraft({ preserveModelTag: true });
+        if (options.reasoningLevel) options.reasoningLevel.value = undefined;
         modelOverride.value = {
             modelId: loadedSession.modelId,
             providerId: loadedSession.providerId,
@@ -668,7 +685,8 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
             supportedAttachments,
             inputSnapshot,
             selectedModelId ?? undefined,
-            selectedProviderId ?? undefined
+            selectedProviderId ?? undefined,
+            options.reasoningLevel?.value
         );
     }
 

@@ -330,6 +330,7 @@ export class SessionTaskCenter {
                 sessionId: options.sessionId,
                 modelId: options.modelId,
                 providerId: options.providerId,
+                reasoningLevel: options.reasoningLevel,
                 attachments: options.attachments,
                 inputSnapshot: options.inputSnapshot,
                 executionMode: options.executionMode ?? 'foreground',

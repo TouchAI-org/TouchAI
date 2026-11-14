@@ -25,6 +25,17 @@ export interface SearchWindowDefaultSize {
 
 export const DEFAULT_SEARCH_WINDOW_SIZE_PRESET: SearchWindowSizePreset = 'normal';
 
+/** Height of the expandable model / history / attachment toolbar. */
+export const SEARCH_TOOLBAR_HEIGHT = 40;
+
+/** Toolbar sequencing: the mat opens first, the toolbar follows. */
+export const SEARCH_TOOLBAR_MOTION = {
+    matDurationMs: 140,
+    openDelayMs: 0,
+    closeDelayMs: 320,
+    matRetractDelayMs: 340,
+} as const;
+
 /** Intrinsic conversation cap used by the window geometry owner. */
 export const SEARCH_CONVERSATION_AUTO_MAX_HEIGHT = 600;
 

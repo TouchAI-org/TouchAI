@@ -4,10 +4,15 @@ import { createAnthropic } from '@ai-sdk/anthropic';
 
 import { z } from '@/utils/zod';
 
-import type { ReasoningProtocol } from '../../../contracts/reasoning';
+import type { ReasoningProtocol, SelectableReasoningLevel } from '../../../contracts/reasoning';
 import { AiSdkProviderBase } from '../ai-sdk/base';
 import { toModelInfo } from '../modelList';
-import type { ProviderApiTargets } from '../types';
+import type { ReasoningEncodingHints } from '../reasoning';
+import {
+    filterAnthropicReasoningLevels,
+    getAnthropicReasoningHints,
+} from '../reasoning/anthropicModels';
+import type { ProviderApiTargets, ProviderReasoningInput } from '../types';
 
 const anthropicCompatibleModelsSchema = z.object({
     data: z.array(
@@ -62,6 +67,19 @@ export class AnthropicCompatibleProviderAdapter extends AiSdkProviderBase {
 
     protected override getReasoningProtocol(): ReasoningProtocol {
         return 'anthropic-messages';
+    }
+
+    protected override getReasoningEncodingHints(
+        options: ProviderReasoningInput
+    ): ReasoningEncodingHints {
+        return getAnthropicReasoningHints(options);
+    }
+
+    protected override filterReasoningLevels(
+        levels: SelectableReasoningLevel[],
+        options: ProviderReasoningInput
+    ): SelectableReasoningLevel[] {
+        return filterAnthropicReasoningLevels(levels, options);
     }
 
     getApiTargets(): ProviderApiTargets {

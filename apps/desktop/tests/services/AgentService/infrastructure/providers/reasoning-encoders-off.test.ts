@@ -79,7 +79,11 @@ describe('user turns reasoning off on a gateway model that can say so', () => {
             })
         );
 
-        expect(options.openai).toEqual({ store: false, reasoningEffort: 'none' });
+        expect(options.openai).toEqual({
+            store: false,
+            forceReasoning: true,
+            reasoningEffort: 'none',
+        });
     });
 
     it('user gets deepseek told to disable thinking', () => {

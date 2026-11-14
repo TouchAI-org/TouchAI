@@ -88,6 +88,8 @@ export interface SurfacePanelStyleInput {
     panelHeight?: number;
     viewportHeight?: number;
     centerY?: number | null;
+    /** Keep the panel top pinned to this viewport y while it changes height. */
+    anchorTop?: number | null;
     minTop?: number;
     maxBottom?: number;
 }
@@ -117,12 +119,15 @@ export function resolveSurfacePanelStyle(input: SurfacePanelStyleInput) {
     }
 
     const height = input.panelHeight ?? 0;
+    const anchoredTop = input.anchorTop;
     const top = Math.max(
         input.minTop ?? 0,
-        Math.min(
-            (input.centerY ?? (input.viewportHeight ?? 0) / 2) - height / 2,
-            (input.maxBottom ?? input.viewportHeight ?? height) - height
-        )
+        anchoredTop !== null && anchoredTop !== undefined
+            ? Math.min(anchoredTop, (input.maxBottom ?? input.viewportHeight ?? height) - height)
+            : Math.min(
+                  (input.centerY ?? (input.viewportHeight ?? 0) / 2) - height / 2,
+                  (input.maxBottom ?? input.viewportHeight ?? height) - height
+              )
     );
     return {
         left: `${SEARCH_WINDOW_VISUAL_OUTSET}px`,

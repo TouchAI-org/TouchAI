@@ -560,6 +560,27 @@ describe('createSearchKeyboardRouter', () => {
         expect(draft).toEqual({ hasSkill: false, conversationOpen: true });
     });
 
+    it('user activates a toolbar control without submitting the draft and retains global shortcuts', () => {
+        const { router, callbacks } = createKeyboardRouter({ getQueryText: () => 'unsent draft' });
+        expect(router.route({ key: 'Enter', localControl: true })).toBe(false);
+        expect(router.route({ key: ' ', localControl: true })).toBe(false);
+        expect(router.route({ key: 'ArrowDown', localControl: true })).toBe(false);
+        expect(callbacks.onSubmit).not.toHaveBeenCalled();
+        expect(router.route({ key: 'm', ctrlKey: true, localControl: true })).toBe(true);
+        expect(callbacks.onSearchKeybindingAction).toHaveBeenCalledWith('search.model.toggle');
+    });
+
+    it('user navigates within the model picker without losing keyboard modifiers or target', () => {
+        const { router, callbacks } = createKeyboardRouter({
+            getActiveSurface: () => 'model-dropdown-surface',
+        });
+        expect(router.route({ key: 'ArrowDown', localControl: true })).toBe(false);
+        expect(router.route({ key: '1', ctrlKey: true, localControl: true })).toBe(false);
+        expect(callbacks.onForwardToOverlay).not.toHaveBeenCalled();
+        expect(router.route({ key: 'Escape', localControl: true })).toBe(true);
+        expect(callbacks.onHideAllOverlays).toHaveBeenCalled();
+    });
+
     it('rejects pending approval with escape before normal surface handling', () => {
         const { router, callbacks } = createKeyboardRouter({
             getPendingApproval: () => ({

@@ -45,6 +45,8 @@ describe('user sees a button', () => {
             'secondary',
             'ghost',
             'link',
+            'toolbar',
+            'picker',
         ] as const;
 
         it.each(variants)('user variant=%s', (variant) => {

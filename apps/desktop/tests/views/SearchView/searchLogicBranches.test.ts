@@ -503,8 +503,8 @@ describe('when the page projects the attachment list into the editor', () => {
             sameOffsetIndex: number;
         };
         // Pasted images sharing one offset must keep their relative order.
-        expect(firstOptions).toEqual({ textOffset: 3, sameOffsetIndex: 0 });
-        expect(secondOptions).toEqual({ textOffset: 3, sameOffsetIndex: 1 });
+        expect(firstOptions).toEqual({ textOffset: 3, sameOffsetIndex: 0, focus: false });
+        expect(secondOptions).toEqual({ textOffset: 3, sameOffsetIndex: 1, focus: false });
 
         unmount();
     });

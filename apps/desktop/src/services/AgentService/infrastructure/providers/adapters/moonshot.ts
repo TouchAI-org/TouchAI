@@ -1,13 +1,22 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import { createMoonshotAI } from '@ai-sdk/moonshotai';
+import { createMoonshotAI, type MoonshotAILanguageModelOptions } from '@ai-sdk/moonshotai';
 
 import { z } from '@/utils/zod';
 
-import type { ReasoningProtocol } from '../../../contracts/reasoning';
+import {
+    deriveReasoningLevelMap,
+    type ReasoningProtocol,
+    type SelectableReasoningLevel,
+} from '../../../contracts/reasoning';
 import { AiSdkProviderBase } from '../ai-sdk/base';
 import { toModelInfo } from '../modelList';
-import type { ProviderApiTargets } from '../types';
+import type { ReasoningEncodingHints } from '../reasoning';
+import type { ProviderApiTargets, ProviderReasoningInput } from '../types';
+
+const moonshotReasoningEfforts = new Set<string>(['low', 'high', 'max'] satisfies NonNullable<
+    MoonshotAILanguageModelOptions['reasoningEffort']
+>[]);
 
 const moonshotModelsSchema = z.object({
     data: z.array(
@@ -72,6 +81,32 @@ export class MoonshotProviderAdapter extends AiSdkProviderBase {
 
     protected override getReasoningProviderOptionsKey(): string {
         return 'moonshotai';
+    }
+
+    protected override getReasoningEncodingHints(
+        options: ProviderReasoningInput
+    ): ReasoningEncodingHints {
+        return {
+            supportsReasoningEffort:
+                !['kimi-k2.5', 'kimi-k2.6', 'kimi-k2.7-code', 'kimi-k2.7-code-highspeed'].includes(
+                    options.model
+                ) && !options.model.startsWith('moonshot-v1-'),
+        };
+    }
+
+    protected override filterReasoningLevels(
+        levels: SelectableReasoningLevel[],
+        options: ProviderReasoningInput
+    ): SelectableReasoningLevel[] {
+        if (options.model.startsWith('moonshot-v1-')) return [];
+        const map = deriveReasoningLevelMap(options.reasoningOptions);
+        return levels.filter((level) => {
+            if (level === 'off')
+                return !['kimi-k3', 'kimi-k2.7-code', 'kimi-k2.7-code-highspeed'].includes(
+                    options.model
+                );
+            return moonshotReasoningEfforts.has(map[level] ?? level);
+        });
     }
 
     getApiTargets(): ProviderApiTargets {

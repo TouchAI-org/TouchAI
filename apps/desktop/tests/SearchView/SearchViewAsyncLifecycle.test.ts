@@ -3,11 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent, h, nextTick, type Ref, ref, watch } from 'vue';
 
 import type { AskUserQuestion } from '@/services/AgentService/contracts/tooling';
+import type { Index } from '@/services/AgentService/infrastructure/attachments';
 import type { PendingUserQuestionView } from '@/services/AgentService/task/types';
 import type { PendingToolApproval, SessionMessage } from '@/types/session';
 import type { SkillPickerState } from '@/views/SearchView/components/SearchBar/composables/useSkillAutocomplete';
 import SearchView from '@/views/SearchView/index.vue';
 import type { SearchSurfacePreparationControllerOptions } from '@/views/SearchView/searchSurfacePreparation';
+import type { ModelDropdownData } from '@/views/SearchView/types';
 
 const {
     askUserState,
@@ -15,6 +17,7 @@ const {
     clipboardState,
     currentWindowMock,
     draftState,
+    attachmentState,
     eventServiceMock,
     keyboardState,
     lifecycleState,
@@ -52,6 +55,10 @@ const {
     draftState: {
         clearDraft: vi.fn(),
         importClipboardPayload: vi.fn(),
+    },
+    attachmentState: {
+        openFiles: vi.fn(),
+        createAttachment: vi.fn(),
     },
     currentWindowMock: {
         onMoved: vi.fn(),
@@ -134,6 +141,7 @@ vi.mock('@services/EventService', () => ({
 
 vi.mock('@services/NativeService', () => ({
     native: {
+        dialog: { openAttachmentFiles: attachmentState.openFiles },
         window: {
             hideSearchWindow: vi.fn().mockResolvedValue(undefined),
             markSearchWindowReady: vi.fn().mockResolvedValue(undefined),
@@ -224,7 +232,7 @@ vi.mock('@/views/SearchView/composables/searchInteraction', async (importOrigina
 vi.mock('@/views/SearchView/composables/useSearchInput', () => ({
     useSearchAttachments: () => ({
         handleModelChange: vi.fn(),
-        createAttachmentFromClipboardPath: vi.fn(),
+        createAttachmentFromClipboardPath: attachmentState.createAttachment,
         removeAttachment: vi.fn(),
         clearAttachments: vi.fn(),
         getSupportedAttachments: vi.fn(() => []),
@@ -428,6 +436,16 @@ async function flushPromises() {
 }
 
 interface SearchViewSetupState {
+    currentSessionId: number | null;
+    attachments: Index[];
+    queryText: string;
+    searchBar: undefined;
+    pickAttachments: () => Promise<void>;
+    navigateInputHistory: (direction: 'older' | 'newer') => string;
+    handleAddAttachment: () => Promise<void>;
+    requestDraftClear: () => void;
+    reasoningLevel: 'low' | undefined;
+    getModelDropdownData: () => ModelDropdownData;
     activeOverlay: 'none' | 'model-dropdown' | 'session-history';
     renderedOverlay: 'none' | 'model-dropdown' | 'session-history';
     modelOverride: { modelId: string | null; providerId: number | null };
@@ -821,6 +839,120 @@ describe('SearchView async overlay and listener lifecycle', () => {
             answers,
             'decision-2'
         );
+    });
+
+    it('user keeps selected files when the first session ID arrives or its task view reattaches', async () => {
+        const selection = deferred<string[]>();
+        attachmentState.openFiles.mockReturnValue(selection.promise);
+        attachmentState.createAttachment.mockImplementation(
+            async (_type: string, path: string) => ({ id: path, name: path, type: 'file' })
+        );
+        const setup = getSetupState(mountSearchView());
+        await flushPromises();
+        setup.searchBar = undefined;
+        const importing = setup.pickAttachments();
+        setup.currentSessionId = 12;
+        setup.currentSessionId = null;
+        setup.currentSessionId = 12;
+        selection.resolve(['selected.txt']);
+        await importing;
+        expect(setup.attachments.map((file) => file.name)).toEqual(['selected.txt']);
+        const stale = deferred<string[]>();
+        attachmentState.openFiles.mockReturnValue(stale.promise);
+        const previousImport = setup.pickAttachments();
+        setup.requestDraftClear();
+        stale.resolve(['old-draft.txt']);
+        await previousImport;
+        expect(setup.attachments.map((file) => file.name)).not.toContain('old-draft.txt');
+    });
+
+    it.each(['model', 'history', 'clear', 'hide', 'unmount'] as const)(
+        'user changes focus or draft through %s during attachment import and keeps that newer intent when import finishes',
+        async (action) => {
+            const attachment = deferred<Index>();
+            attachmentState.openFiles.mockResolvedValue(['selected.txt']);
+            attachmentState.createAttachment.mockReturnValue(attachment.promise);
+            const wrapper = mountSearchView();
+            const setup = getSetupState(wrapper);
+            await flushPromises();
+            setup.searchBar = undefined;
+            const importing = setup.handleAddAttachment();
+            for (let tick = 0; tick < 5; tick++) await flushPromises();
+            expect(attachmentState.createAttachment).toHaveBeenCalledOnce();
+            if (action === 'model') await setup.handleToggleModelDropdownRequest();
+            else if (action === 'history') await setup.openHistoryDialog();
+            else if (action === 'clear') setup.requestDraftClear();
+            else if (action === 'hide') await keyboardState.options!.hideSearchWindow();
+            else {
+                wrapper.unmount();
+                wrappers.splice(wrappers.indexOf(wrapper), 1);
+            }
+            controllerMock.focusSearchInput.mockClear();
+            attachment.resolve({ id: 'selected', name: 'selected.txt', type: 'file' } as Index);
+            await importing;
+            expect(controllerMock.focusSearchInput).not.toHaveBeenCalled();
+            if (action === 'model') expect(setup.activeOverlay).toBe('model-dropdown');
+            if (action === 'history') expect(setup.activeOverlay).toBe('session-history');
+        }
+    );
+
+    it('user completes attachment selection without a newer interaction and returns to the composer', async () => {
+        attachmentState.openFiles.mockResolvedValue(null);
+        const setup = getSetupState(mountSearchView());
+        await flushPromises();
+        controllerMock.focusSearchInput.mockClear();
+        await setup.handleAddAttachment();
+        expect(controllerMock.focusSearchInput).toHaveBeenCalledOnce();
+    });
+
+    it('user restores an older prompt without receiving an attachment import that finishes afterward', async () => {
+        const attachment = deferred<Index>();
+        attachmentState.openFiles.mockResolvedValue(['old-draft.txt']);
+        attachmentState.createAttachment.mockReturnValue(attachment.promise);
+        const setup = getSetupState(mountSearchView());
+        await flushPromises();
+        setup.searchBar = undefined;
+
+        const importing = setup.pickAttachments();
+        for (let tick = 0; tick < 5; tick++) await flushPromises();
+        expect(attachmentState.createAttachment).toHaveBeenCalledOnce();
+
+        requestFlowState.current!.sessionHistory.value = [
+            { id: 'old-message', role: 'user', content: 'older prompt' } as SessionMessage,
+        ];
+        await flushPromises();
+        setup.searchBar = undefined;
+        expect(setup.navigateInputHistory('older')).toBe('navigated');
+        expect(setup.queryText).toBe('older prompt');
+        expect(setup.attachments).toEqual([]);
+
+        attachment.resolve({ id: 'stale', name: 'old-draft.txt', type: 'file' } as Index);
+        await importing;
+
+        expect(setup.queryText).toBe('older prompt');
+        expect(setup.attachments).toEqual([]);
+    });
+
+    it('user returns from an approval panel to the same default model and keeps the chosen depth until the model changes', async () => {
+        const context = ref({
+            activeModelId: 'gpt-6' as string | null,
+            activeProviderId: 1 as number | null,
+            selectedModelId: null,
+            selectedProviderId: null,
+            models: [],
+        });
+        controllerMock.getModelDropdownContext.mockImplementation(() => context.value);
+        const setup = getSetupState(mountSearchView());
+        await flushPromises();
+        setup.reasoningLevel = 'low';
+        context.value = { ...context.value, activeModelId: null, activeProviderId: null };
+        await nextTick();
+        context.value = { ...context.value, activeModelId: 'gpt-6', activeProviderId: 1 };
+        await nextTick();
+        expect(setup.getModelDropdownData().reasoningLevel).toBe('low');
+        context.value = { ...context.value, activeModelId: 'gpt-6-sol' };
+        await nextTick();
+        expect(setup.getModelDropdownData().reasoningLevel).toBeUndefined();
     });
 
     it('remeasures the host when positioned overlay bounds change the required viewport height', async () => {

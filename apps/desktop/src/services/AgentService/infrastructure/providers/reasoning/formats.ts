@@ -96,7 +96,7 @@ function encodeOpenAi(res: ReasoningResolution, compat: ReasoningEncodingHints |
  *
  * `forceReasoning` 是 SDK 为「自定义 baseURL 上的未识别推理模型」准备的开关：
  * 模型名不在官方命名规则内时，SDK 会静默丢弃 reasoning 参数。中转站上的第三方
- * 模型（如 deepseek-*）正属于这种情况，因此启用档位时显式开启。
+ * 模型（如 deepseek-*）正属于这种情况，因此显式选择思考档位（含关闭）时开启。
  */
 function encodeOpenAiResponses(
     res: ReasoningResolution,
@@ -109,6 +109,8 @@ function encodeOpenAiResponses(
         options.reasoningSummary = 'auto';
         options.include = ['reasoning.encrypted_content'];
     } else if (shouldEmitOff(res) && res.map.off !== null) {
+        // The SDK also needs this for unknown model IDs when explicitly disabling reasoning.
+        options.forceReasoning = true;
         options.reasoningEffort = offValue(res) ?? 'none';
     }
     void compat;
@@ -294,6 +296,9 @@ function encodeAnthropicMessages(
             res.budgetTokens ?? budgetForReasoningLevel(res.level, compat?.reasoningTokenBudgets);
         options.thinking =
             budget === undefined ? { type: 'enabled' } : { type: 'enabled', budgetTokens: budget };
+        if (compat?.supportsReasoningEffort) {
+            options.effort = mapReasoningLevelToEffort(res);
+        }
     }
     return providerOptions('anthropic', options);
 }
@@ -421,6 +426,36 @@ const encoders: Record<ReasoningProtocol, Encoder> = {
     'anthropic-messages': encodeAnthropicMessages,
     'google-generative': encodeGoogleGenerative,
 };
+
+/** A selectable Off choice must write a disabling parameter, not merely omit reasoning. */
+export function canEncodeReasoningOff(
+    res: ReasoningResolution,
+    compat?: ReasoningEncodingHints
+): boolean {
+    if (!shouldEmitOff(res) || res.map.off === null) return false;
+    const budget = Boolean(resolveBudgetField(compat));
+    const effort = supportsEffort(compat) && offValue(res) !== undefined;
+    const templateCanDisable = (values?: Record<string, ChatTemplateKwargValue>) =>
+        Object.values(values ?? {}).some(
+            (value) =>
+                typeof value === 'object' &&
+                value !== null &&
+                !value.omitWhenOff &&
+                (value.$var !== 'thinking.effort' || offValue(res) !== undefined)
+        );
+    switch (res.format) {
+        case 'openai':
+            return effort || budget;
+        case 'ant-ling':
+            return budget;
+        case 'chat-template':
+            return templateCanDisable(compat?.chatTemplateKwargs) || budget;
+        case 'baseten':
+            return templateCanDisable(compat?.chatTemplateArgs) || effort || budget;
+        default:
+            return true;
+    }
+}
 
 /**
  * 按 format 把推理结果编码成出站参数。

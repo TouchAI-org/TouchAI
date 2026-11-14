@@ -8,4 +8,4 @@
  */
 export { getModel } from './models';
 export { createProviderForModel, createProviderInstance } from './providers';
-export { resolveToolDefinitions } from './tools';
+export { hasEnabledToolDefinitions, resolveToolDefinitions } from './tools';

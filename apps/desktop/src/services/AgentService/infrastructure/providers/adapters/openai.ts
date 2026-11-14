@@ -1,18 +1,19 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import { createOpenAI } from '@ai-sdk/openai';
+import { createOpenAI, type OpenAIChatLanguageModelOptions } from '@ai-sdk/openai';
 
 import { z } from '@/utils/zod';
 
-import type {
-    ReasoningLevelMap,
-    ReasoningProtocol,
-    SelectableReasoningLevel,
+import {
+    deriveReasoningLevelMap,
+    type ReasoningLevelMap,
+    type ReasoningProtocol,
+    type SelectableReasoningLevel,
 } from '../../../contracts/reasoning';
 import { AiSdkProviderBase } from '../ai-sdk/base';
 import { toModelInfo } from '../modelList';
 import { getOpenAiReasoningLevelMap, isOpenAiGpt6SolOrLuna } from '../reasoning';
-import type { ProviderApiTargets } from '../types';
+import type { ProviderApiTargets, ProviderReasoningInput } from '../types';
 import { resolveOpenAiStyleSdkBaseUrl } from '../utils';
 
 const openAiStyleModelsSchema = z.object({
@@ -24,6 +25,17 @@ const openAiStyleModelsSchema = z.object({
             .loose()
     ),
 });
+
+// Chat has a closed SDK enum; Responses and compatible transports accept arbitrary efforts.
+const chatReasoningEfforts = new Set<string>([
+    'none',
+    'minimal',
+    'low',
+    'medium',
+    'high',
+    'xhigh',
+    'max',
+] satisfies NonNullable<OpenAIChatLanguageModelOptions['reasoningEffort']>[]);
 
 /**
  * OpenAI 官方适配器。
@@ -73,6 +85,34 @@ export class OpenAIProviderAdapter extends AiSdkProviderBase {
         return getOpenAiReasoningLevelMap(modelId);
     }
 
+    protected override filterReasoningLevels(
+        levels: SelectableReasoningLevel[],
+        options: ProviderReasoningInput
+    ): SelectableReasoningLevel[] {
+        const format = this.getEffectiveFormat();
+        if (format !== 'openai' && format !== 'openai-responses') return levels;
+
+        const map = options.reasoningOptions?.length
+            ? deriveReasoningLevelMap(options.reasoningOptions)
+            : this.getFallbackReasoningLevelMap(options.model);
+        const sdkEfforts = getOpenAiSdkReasoningEfforts(options.model);
+        return levels.filter((level) => {
+            const effort =
+                level === 'off'
+                    ? format === 'openai'
+                        ? map.off
+                        : (map.off ?? 'none')
+                    : (map[level] ?? level);
+            if (sdkEfforts && typeof effort === 'string' && !sdkEfforts.has(effort)) {
+                return false;
+            }
+            return (
+                format !== 'openai' ||
+                (typeof effort === 'string' && chatReasoningEfforts.has(effort))
+            );
+        });
+    }
+
     /**
      * GPT-6 Sol/Luna 在 Chat Completions 下只有 `none` 支持 function calling；
      * Responses API 没有该限制。
@@ -115,4 +155,22 @@ export class OpenAIProviderAdapter extends AiSdkProviderBase {
             discoveryTarget: `${sdkBaseUrl}/models`,
         };
     }
+}
+
+/**
+ * The official OpenAI SDK restricts efforts by exact, recognizable model ID.
+ * Keep unsupported metadata entries out of the picker before the SDK drops them.
+ */
+function getOpenAiSdkReasoningEfforts(modelId: string): ReadonlySet<string> | undefined {
+    const gptVersion = /^gpt-(\d+)(?:\.(\d+))?(?:-(.+))?$/.exec(modelId);
+
+    if (!gptVersion) return undefined;
+
+    const major = Number(gptVersion[1]);
+    if (major < 6) return undefined;
+
+    if (modelId === 'gpt-6-sol' || modelId === 'gpt-6-luna') {
+        return new Set(['none', 'low', 'medium', 'high', 'xhigh', 'max']);
+    }
+    return new Set(['low', 'medium', 'high', 'xhigh', 'max']);
 }

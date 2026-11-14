@@ -7,7 +7,19 @@ import type { ModelModalities } from '@/utils/modelSchemas';
 import type { AiError } from '../../contracts/errors';
 import type { AiRequestOptions, AiResponse, AiStreamChunk } from '../../contracts/protocol';
 import type { AttachmentTransportMode } from '../../contracts/protocol';
-import type { ReasoningMode, ReasoningOption, ReasoningProtocol } from '../../contracts/reasoning';
+import type {
+    ReasoningMode,
+    ReasoningOption,
+    ReasoningProtocol,
+    SelectableReasoningLevel,
+} from '../../contracts/reasoning';
+
+export interface ProviderReasoningInput {
+    model: string;
+    supportsReasoning?: boolean;
+    reasoningOptions?: ReasoningOption[];
+    hasTools?: boolean;
+}
 
 /**
  * 上游 `/models` 自己声明的模型能力，领域形状。
@@ -78,6 +90,7 @@ export interface AiProvider {
     testConnection(): Promise<boolean>;
     listModels(): Promise<ModelInfo[]>;
     getApiTargets(): ProviderApiTargets;
+    getReasoningLevels?(options: ProviderReasoningInput): SelectableReasoningLevel[];
     classifyError?(error: unknown): AiError | null;
 }
 

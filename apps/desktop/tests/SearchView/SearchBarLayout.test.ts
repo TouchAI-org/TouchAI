@@ -41,7 +41,7 @@ describe('given the main input displays a draft', () => {
 
     it('user opens a single-line draft and sees it vertically centred in the window', async () => {
         const wrapper = await mountSearchBar();
-        const searchBar = wrapper.get('[data-testid="search-bar"]');
+        const searchBar = wrapper.get('[data-testid="search-input-row"]');
 
         expect(wrapper.get('.ProseMirror').text()).toBe('Draft');
         expect(searchBar.classes()).toContain('items-center');
@@ -50,7 +50,7 @@ describe('given the main input displays a draft', () => {
 
     it('user opens the input and sees a content-sized row instead of a full-height panel', async () => {
         const wrapper = await mountSearchBar();
-        const searchBar = wrapper.get('[data-testid="search-bar"]');
+        const searchBar = wrapper.get('[data-testid="search-input-row"]');
 
         expect(searchBar.classes()).not.toContain('h-full');
         expect(searchBar.classes()).toContain('min-h-14');
@@ -63,7 +63,7 @@ describe('given the main input displays a draft', () => {
             attachments: [],
         });
         await flushPromises();
-        const searchBar = wrapper.get('[data-testid="search-bar"]');
+        const searchBar = wrapper.get('[data-testid="search-input-row"]');
 
         expect(wrapper.findAll('.ProseMirror p')).toHaveLength(2);
         expect(searchBar.classes()).toContain('items-start');

@@ -23,6 +23,10 @@ describe('user sees an input', () => {
             expect(mountInput().classes().sort()).toMatchSnapshot();
         });
 
+        it('user sees a search field with the shared search appearance', () => {
+            expect(mountInput({ variant: 'search' }).classes().sort()).toMatchSnapshot();
+        });
+
         it('user gets the call-site class merged in', () => {
             const wrapper = mountInput({ class: 'mt-1.5' });
             expect(wrapper.classes()).toContain('mt-1.5');

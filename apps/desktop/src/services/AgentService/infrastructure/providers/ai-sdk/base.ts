@@ -13,19 +13,27 @@ import type {
     JsonObject,
 } from '../../../contracts/protocol';
 import {
+    clampReasoningLevel,
     DEFAULT_REASONING_LEVEL,
     deriveReasoningLevelMap,
     type ReasoningLevelMap,
     type ReasoningProtocol,
+    SELECTABLE_REASONING_LEVELS,
     type SelectableReasoningLevel,
 } from '../../../contracts/reasoning';
-import { encodeReasoning, type ReasoningEncodingHints, resolveReasoning } from '../reasoning';
+import {
+    canEncodeReasoningOff,
+    encodeReasoning,
+    type ReasoningEncodingHints,
+    resolveReasoning,
+} from '../reasoning';
 import type {
     AiProvider,
     AiProviderConfig,
     ModelInfo,
     ProviderApiTargets,
     ProviderConfigJson,
+    ProviderReasoningInput,
 } from '../types';
 import type { ProviderAttachmentRequestContext } from './attachments';
 import { prepareCacheOptions } from './cache';
@@ -424,6 +432,89 @@ export abstract class AiSdkProviderBase implements AiProvider {
     protected getStreamProviderOptions(
         options: AiRequestOptions
     ): Record<string, JsonObject> | undefined {
+        const input = { ...options, hasTools: (options.tools?.length ?? 0) > 0 };
+        let resolution = this.resolveModelReasoning(input, options.reasoningLevel);
+        if (!resolution) return undefined;
+
+        // Revalidate on every request: a tool may have switched the model since selection.
+        const levels = this.getSupportedReasoningLevels(input);
+        if (levels.length > 0) {
+            const map: ReasoningLevelMap = Object.fromEntries(
+                SELECTABLE_REASONING_LEVELS.map((level) => [
+                    level,
+                    levels.includes(level) ? level : null,
+                ])
+            );
+            resolution = this.resolveModelReasoning(
+                input,
+                clampReasoningLevel(map, options.reasoningLevel ?? DEFAULT_REASONING_LEVEL)
+            )!;
+        } else if (resolution.source !== 'off') {
+            // No supported encoding: preserve protocol defaults without sending an invalid effort.
+            resolution = resolveReasoning({
+                format: resolution.format,
+                mode: 'auto',
+                modelId: input.model,
+                hasTools: input.hasTools,
+                map: {},
+                level: 'off',
+            });
+        }
+        const encoded = encodeReasoning(resolution, this.getReasoningEncodingHints(options));
+        const providerOptions = this.remapReasoningProviderOptions(encoded.providerOptions);
+
+        log.debug(
+            `[reasoning] outbound model=${resolution.modelId} format=${resolution.format} mode=${resolution.mode} source=${resolution.source} requested=${resolution.requested} level=${resolution.level} mapped=${resolution.mapped ?? '-'} hasTools=${resolution.hasTools} providerOptions=${JSON.stringify(providerOptions ?? {})}`
+        );
+
+        return providerOptions;
+    }
+
+    getReasoningLevels(options: ProviderReasoningInput): SelectableReasoningLevel[] {
+        const levels = this.getSupportedReasoningLevels(options);
+        const payloads = new Set<string>();
+        const distinct = levels.filter((level) => {
+            if (level === 'off') return true;
+            const resolution = this.resolveModelReasoning(options, level)!;
+            const payload = JSON.stringify(
+                encodeReasoning(resolution, this.getReasoningEncodingHints(options))
+            );
+            if (payloads.has(payload)) return false;
+            payloads.add(payload);
+            return true;
+        });
+        // A toggle-only protocol cannot represent several different thinking depths.
+        if (payloads.size < 2 && levels.filter((level) => level !== 'off').length > 1) return [];
+        return distinct;
+    }
+
+    private getSupportedReasoningLevels(
+        options: ProviderReasoningInput
+    ): SelectableReasoningLevel[] {
+        const levels = SELECTABLE_REASONING_LEVELS.filter((level) => {
+            const resolution = this.resolveModelReasoning(options, level);
+            return (
+                resolution?.level === level &&
+                (resolution.source === 'capability' || resolution.mode === 'passthrough') &&
+                (level !== 'off' ||
+                    canEncodeReasoningOff(resolution, this.getReasoningEncodingHints(options)))
+            );
+        });
+        return this.filterReasoningLevels(levels, options);
+    }
+
+    protected filterReasoningLevels(
+        levels: SelectableReasoningLevel[],
+        options: ProviderReasoningInput
+    ): SelectableReasoningLevel[] {
+        void options;
+        return levels;
+    }
+
+    private resolveModelReasoning(
+        options: ProviderReasoningInput,
+        level = DEFAULT_REASONING_LEVEL
+    ) {
         const format = this.config.reasoning?.format ?? this.getReasoningProtocol();
         if (!format) {
             return undefined;
@@ -432,22 +523,19 @@ export abstract class AiSdkProviderBase implements AiProvider {
         const mode = this.config.reasoning?.mode ?? 'auto';
         // 元数据声明不支持思考时，auto 模式不发任何 reasoning 参数（passthrough 除外）。
         if (options.supportsReasoning === false && mode !== 'passthrough') {
-            log.debug(
-                `[reasoning] skipped outbound model=${options.model} reason=metadata-declared-unsupported`
-            );
             return undefined;
         }
-        const hasTools = (options.tools?.length ?? 0) > 0;
+        const hasTools = options.hasTools ?? false;
         const map =
             options.reasoningOptions && options.reasoningOptions.length > 0
                 ? deriveReasoningLevelMap(options.reasoningOptions)
                 : this.getFallbackReasoningLevelMap(options.model);
-        const requested = this.applyReasoningConstraint(
-            options.reasoningLevel ?? DEFAULT_REASONING_LEVEL,
-            { modelId: options.model, hasTools }
-        );
+        const requested = this.applyReasoningConstraint(level, {
+            modelId: options.model,
+            hasTools,
+        });
 
-        const resolution = resolveReasoning({
+        return resolveReasoning({
             level: requested,
             map,
             format,
@@ -455,14 +543,6 @@ export abstract class AiSdkProviderBase implements AiProvider {
             modelId: options.model,
             hasTools,
         });
-        const encoded = encodeReasoning(resolution, this.getReasoningEncodingHints());
-        const providerOptions = this.remapReasoningProviderOptions(encoded.providerOptions);
-
-        log.debug(
-            `[reasoning] outbound model=${resolution.modelId} format=${resolution.format} mode=${resolution.mode} source=${resolution.source} requested=${resolution.requested} level=${resolution.level} mapped=${resolution.mapped ?? '-'} hasTools=${hasTools} providerOptions=${JSON.stringify(providerOptions ?? {})}`
-        );
-
-        return providerOptions;
     }
 
     /**
@@ -503,7 +583,10 @@ export abstract class AiSdkProviderBase implements AiProvider {
     /**
      * Provider driver 的编码兼容开关。
      */
-    protected getReasoningEncodingHints(): ReasoningEncodingHints | undefined {
+    protected getReasoningEncodingHints(
+        options: ProviderReasoningInput
+    ): ReasoningEncodingHints | undefined {
+        void options;
         return undefined;
     }
 

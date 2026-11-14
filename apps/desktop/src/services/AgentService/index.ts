@@ -3,8 +3,19 @@
 import type { ModelWithProvider } from '@database/queries/models';
 import type { ProviderDriver } from '@database/schema';
 
-import { createProviderInstance, getModel } from './catalog';
+import {
+    createProviderForModel,
+    createProviderInstance,
+    getModel,
+    hasEnabledToolDefinitions,
+} from './catalog';
+import { parseReasoningOptions } from './contracts/reasoning';
 import type { AiProvider } from './infrastructure/providers';
+
+export interface ModelReasoningLevelOptions {
+    /** Whether the current request will include any effective tool definitions. */
+    hasTools?: boolean;
+}
 
 /**
  * Agent 子系统总入口。
@@ -27,6 +38,21 @@ import type { AiProvider } from './infrastructure/providers';
  * 真正的会话执行统一走 `sessionTaskCenter`，避免页面或调用方绕过任务层直接控制运行时。
  */
 export class AgentService {
+    getModelReasoningLevels(model: ModelWithProvider, options: ModelReasoningLevelOptions = {}) {
+        return (
+            createProviderForModel(model).getReasoningLevels?.({
+                model: model.model_id,
+                supportsReasoning: model.reasoning === 1,
+                reasoningOptions: parseReasoningOptions(model.reasoning_options),
+                hasTools: model.tool_call === 1 && options.hasTools === true,
+            }) ?? []
+        );
+    }
+
+    async hasEnabledTools(): Promise<boolean> {
+        return hasEnabledToolDefinitions();
+    }
+
     /**
      * 查询当前应使用的模型配置。
      */

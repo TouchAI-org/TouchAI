@@ -5,6 +5,7 @@ import { builtInTools } from './builtInTools';
 import { clipboard } from './clipboard';
 import { computerUse } from './computerUse';
 import { database } from './database';
+import { dialog } from './dialog';
 import { font } from './font';
 import { log } from './log';
 import * as mcp from './mcp';
@@ -83,6 +84,7 @@ export {
     clipboard,
     computerUse,
     database,
+    dialog,
     font,
     log,
     mcp,
@@ -109,6 +111,7 @@ export const native = {
     log,
     observability,
     database,
+    dialog,
     font,
     paths,
     mcp,
