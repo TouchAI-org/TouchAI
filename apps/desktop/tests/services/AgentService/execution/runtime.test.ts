@@ -375,7 +375,7 @@ describe('user starts a turn that needs a new conversation', () => {
         await runtime.run();
 
         const attemptOptions = executor.runAttempt.mock.calls[0]![0] as ExecuteRequestOptions;
-        const inserted = await attemptOptions.onToolBoundary!({
+        const injected = await attemptOptions.onToolBoundary!({
             persister: projectorMock as never,
             model: createModel(),
         });
@@ -385,13 +385,15 @@ describe('user starts a turn that needs a new conversation', () => {
             attachments: [],
         });
         // The stored row is the context source, so the next request can point back at it.
-        expect(inserted).toEqual([
-            {
-                role: 'user',
-                content: 'Insert this',
-                contextSource: { id: 11, fingerprint: 'f'.repeat(64) },
-            },
-        ]);
+        expect(injected).toEqual({
+            messages: [
+                {
+                    role: 'user',
+                    content: 'Insert this',
+                    contextSource: { id: 11, fingerprint: 'f'.repeat(64) },
+                },
+            ],
+        });
         expect(events).toContainEqual({
             type: 'user_messages_delivered',
             taskId: 'task-1',
@@ -422,7 +424,7 @@ describe('user starts a turn that needs a new conversation', () => {
         const attemptOptions = executor.runAttempt.mock.calls[0]![0] as ExecuteRequestOptions;
         expect(attemptOptions.shouldInterruptForImmediateSteer?.()).toBe(true);
 
-        const inserted = await attemptOptions.onSteerBoundary!({
+        const injected = await attemptOptions.onSteerBoundary!({
             persister: projectorMock as never,
             model: createModel(),
         });
@@ -431,13 +433,15 @@ describe('user starts a turn that needs a new conversation', () => {
             prompt: 'Steer this',
             attachments: [],
         });
-        expect(inserted).toEqual([
-            {
-                role: 'user',
-                content: 'Steer this',
-                contextSource: { id: 11, fingerprint: 'f'.repeat(64) },
-            },
-        ]);
+        expect(injected).toEqual({
+            messages: [
+                {
+                    role: 'user',
+                    content: 'Steer this',
+                    contextSource: { id: 11, fingerprint: 'f'.repeat(64) },
+                },
+            ],
+        });
         expect(events).toContainEqual({
             type: 'user_messages_delivered',
             taskId: 'task-1',
@@ -479,19 +483,27 @@ describe('user starts a turn that needs a new conversation', () => {
         await runtime.run();
 
         const attemptOptions = executor.runAttempt.mock.calls[0]![0] as ExecuteRequestOptions;
-        const inserted = await attemptOptions.onToolBoundary!({
+        const injected = await attemptOptions.onToolBoundary!({
             persister: projectorMock as never,
             model: createModel(),
         });
 
         expect(loadSelectedSkillsMock).toHaveBeenCalledWith(selectedSkills, 'user_tag');
-        expect(inserted).toEqual([
-            {
-                role: 'user',
-                content: '<skill>\nSummarize carefully\n</skill>\n\nInsert this',
-                contextSource: { id: 11, fingerprint: 'f'.repeat(64) },
-            },
-        ]);
+        expect(injected).toEqual({
+            messages: [
+                {
+                    role: 'user',
+                    content: 'Insert this',
+                    contextSource: { id: 11, fingerprint: 'f'.repeat(64) },
+                },
+            ],
+            privateContents: [
+                {
+                    index: 0,
+                    content: '<skill>\nSummarize carefully\n</skill>\n\nInsert this',
+                },
+            ],
+        });
         expect(events).toContainEqual({
             type: 'user_messages_delivered',
             taskId: 'task-1',
@@ -542,21 +554,29 @@ describe('user starts a turn that needs a new conversation', () => {
         await runtime.run();
 
         const attemptOptions = executor.runAttempt.mock.calls[0]![0] as ExecuteRequestOptions;
-        const inserted = await attemptOptions.onToolBoundary!({
+        const injected = await attemptOptions.onToolBoundary!({
             persister: projectorMock as never,
             model: createModel(),
         });
 
-        expect(inserted).toEqual([
-            {
-                role: 'user',
-                content: [
-                    { type: 'text', text: '<skill>\nSummarize carefully\n</skill>' },
-                    { type: 'text', text: 'Insert this' },
-                ],
-                contextSource: { id: 11, fingerprint: 'f'.repeat(64) },
-            },
-        ]);
+        expect(injected).toEqual({
+            messages: [
+                {
+                    role: 'user',
+                    content: [{ type: 'text', text: 'Insert this' }],
+                    contextSource: { id: 11, fingerprint: 'f'.repeat(64) },
+                },
+            ],
+            privateContents: [
+                {
+                    index: 0,
+                    content: [
+                        { type: 'text', text: '<skill>\nSummarize carefully\n</skill>' },
+                        { type: 'text', text: 'Insert this' },
+                    ],
+                },
+            ],
+        });
     });
 
     it('user gets a priority message removed when its tagged skill cannot load', async () => {
@@ -588,12 +608,12 @@ describe('user starts a turn that needs a new conversation', () => {
         await runtime.run();
 
         const attemptOptions = executor.runAttempt.mock.calls[0]![0] as ExecuteRequestOptions;
-        const inserted = await attemptOptions.onToolBoundary!({
+        const injected = await attemptOptions.onToolBoundary!({
             persister: projectorMock as never,
             model: createModel(),
         });
 
-        expect(inserted).toEqual([]);
+        expect(injected).toEqual({ messages: [] });
         expect(projectorMock.persistInjectedUserMessage).not.toHaveBeenCalled();
         expect(events).toContainEqual({
             type: 'user_messages_rejected',
@@ -656,12 +676,12 @@ describe('user starts a turn that needs a new conversation', () => {
         await runtime.run();
 
         const attemptOptions = executor.runAttempt.mock.calls[0]![0] as ExecuteRequestOptions;
-        const inserted = await attemptOptions.onSteerBoundary!({
+        const injected = await attemptOptions.onSteerBoundary!({
             persister: projectorMock as never,
             model: createModel(),
         });
 
-        expect(inserted).toEqual([]);
+        expect(injected).toEqual({ messages: [] });
         expect(projectorMock.persistInjectedUserMessage).not.toHaveBeenCalled();
         expect(buildUserPromptMessageMock).not.toHaveBeenCalled();
         expect(events).toContainEqual({
@@ -704,12 +724,12 @@ describe('user starts a turn that needs a new conversation', () => {
         await runtime.run();
 
         const attemptOptions = executor.runAttempt.mock.calls[0]![0] as ExecuteRequestOptions;
-        const inserted = await attemptOptions.onToolBoundary!({
+        const injected = await attemptOptions.onToolBoundary!({
             persister: projectorMock as never,
             model: createModel(),
         });
 
-        expect(inserted).toEqual([]);
+        expect(injected).toEqual({ messages: [] });
         // A message that cannot be materialized must not leave a committed
         // history row behind and then remain eligible for a retry.
         expect(projectorMock.persistInjectedUserMessage).not.toHaveBeenCalled();
@@ -746,14 +766,16 @@ describe('user starts a turn that needs a new conversation', () => {
         await runtime.run();
 
         const attemptOptions = executor.runAttempt.mock.calls[0]![0] as ExecuteRequestOptions;
-        const inserted = await attemptOptions.onToolBoundary!({
+        const injected = await attemptOptions.onToolBoundary!({
             persister: projectorMock as never,
             model: createModel(),
         });
 
         // Persistence failure keeps the conversation usable, but the next
         // answer must never reuse the interrupted assistant output row.
-        expect(inserted).toEqual([{ role: 'user', content: 'Steer this' }]);
+        expect(injected).toEqual({
+            messages: [{ role: 'user', content: 'Steer this' }],
+        });
         expect(projectorMock.closeOutputBoundary).toHaveBeenCalled();
     });
 

@@ -45,6 +45,7 @@ import {
     type AttemptCheckpoint,
     type AttemptExecutionResult,
     type AttemptFailureResult,
+    type InjectedUserMessages,
     type RequestExecutionCallbacks,
     type RequestPrivateState,
 } from './executor';
@@ -492,10 +493,10 @@ export class AiConversationRuntime {
     private async deliverPriorityUserMessages(
         persister: PersistenceProjector,
         model: ModelWithProvider
-    ): Promise<AiMessage[]> {
+    ): Promise<InjectedUserMessages> {
         const pending = this.options.takePriorityUserMessages?.() ?? [];
         if (pending.length === 0) {
-            return [];
+            return { messages: [] };
         }
 
         // Steering interrupts this answer even when the message cannot be
@@ -507,6 +508,7 @@ export class AiConversationRuntime {
         const delivered: DeliveredPendingUserMessage[] = [];
         const rejectedMessageIds: string[] = [];
         const messages: AiMessage[] = [];
+        const privateContents: NonNullable<InjectedUserMessages['privateContents']> = [];
         const settledMessageIds = new Set<string>();
 
         try {
@@ -617,7 +619,13 @@ export class AiConversationRuntime {
                     });
                 }
 
-                messages.push(withPrioritySkillContext(message, skillContext));
+                messages.push(message);
+                if (skillContext) {
+                    privateContents.push({
+                        index: messages.length - 1,
+                        content: withPrioritySkillContext(message, skillContext).content,
+                    });
+                }
                 delivered.push({
                     id: pendingMessage.id,
                     prompt: pendingMessage.prompt,
@@ -653,7 +661,10 @@ export class AiConversationRuntime {
             });
         }
 
-        return messages;
+        return {
+            messages,
+            ...(privateContents.length > 0 ? { privateContents } : {}),
+        };
     }
 
     /**

@@ -80,6 +80,16 @@ interface ProviderErrorDetails {
     data?: unknown;
 }
 
+/** Messages injected at a safe boundary, plus request-only content overrides. */
+export interface InjectedUserMessages {
+    messages: AiMessage[];
+    /**
+     * Content sent to the model instead of the matching public message content.
+     * These values never enter a checkpoint, event, or persisted transcript.
+     */
+    privateContents?: Array<{ index: number; content: AiMessage['content'] }>;
+}
+
 export interface RequestExecutionCallbacks {
     taskId?: string;
     signal?: AbortSignal;
@@ -88,12 +98,12 @@ export interface RequestExecutionCallbacks {
     onToolBoundary?: (context: {
         persister: PersistenceProjector;
         model: ModelWithProvider;
-    }) => Promise<AiMessage[]>;
+    }) => Promise<InjectedUserMessages>;
     /** Injects the messages that interrupted the current answer mid-stream. */
     onSteerBoundary?: (context: {
         persister: PersistenceProjector;
         model: ModelWithProvider;
-    }) => Promise<AiMessage[]>;
+    }) => Promise<InjectedUserMessages>;
     /**
      * Returns true once the user clicked Steer now. The executor then stops the
      * current model stream at its next safe point and injects the message into
@@ -740,6 +750,18 @@ export class AiRequestExecutor {
         for (const [index, content] of runtime.privateMessageContents) {
             runtime.privateState.messageContents.set(index, content);
         }
+    }
+
+    private appendInjectedUserMessages(
+        runtime: AttemptRuntime,
+        injected: InjectedUserMessages
+    ): void {
+        const startIndex = runtime.messages.length;
+        runtime.messages.push(...injected.messages);
+        for (const { index, content } of injected.privateContents ?? []) {
+            runtime.privateMessageContents.set(startIndex + index, content);
+        }
+        this.syncPrivateCheckpoint(runtime);
     }
 
     private async consumeModelStep(
@@ -1480,17 +1502,17 @@ export class AiRequestExecutor {
                     runtime.messages.push(buildAssistantHistoryMessage(step.outputParts));
                     runtime.currentStepOutputParts = [];
                     runtime.currentStepReasoningStartedAt = null;
-                    const insertedMessages = await options.onSteerBoundary?.({
+                    const injected = await options.onSteerBoundary?.({
                         persister: options.persister,
                         model: runtime.activeModel,
                     });
-                    if (!insertedMessages?.length) {
+                    if (!injected?.messages.length) {
                         // The message disappeared between the interrupt and the hand-off
                         // (for example the user removed it). Close the turn with the answer
                         // so far instead of sending a request with no new user turn.
                         break;
                     }
-                    runtime.messages.push(...insertedMessages);
+                    this.appendInjectedUserMessages(runtime, injected);
                     runtime.iteration += 1;
                     Object.assign(resumeCheckpoint, this.commitCheckpoint(runtime));
                     await options.persister.persistCheckpoint(resumeCheckpoint).catch((error) => {
@@ -1523,17 +1545,18 @@ export class AiRequestExecutor {
                     leaveTool?.();
                 }
 
-                const insertedMessages = await options.onToolBoundary?.({
+                const injected = await options.onToolBoundary?.({
                     persister: options.persister,
                     model: runtime.activeModel,
                 });
-                if (insertedMessages?.length) {
-                    runtime.messages.push(...insertedMessages);
+                if (injected?.messages.length) {
+                    this.appendInjectedUserMessages(runtime, injected);
+                } else {
+                    this.syncPrivateCheckpoint(runtime);
                 }
 
                 runtime.iteration += 1;
                 Object.assign(resumeCheckpoint, this.commitCheckpoint(runtime));
-                this.syncPrivateCheckpoint(runtime);
                 await options.persister.persistCheckpoint(resumeCheckpoint).catch((error) => {
                     log.error('[AiRequestExecutor] Failed to persist checkpoint:', error);
                 });
