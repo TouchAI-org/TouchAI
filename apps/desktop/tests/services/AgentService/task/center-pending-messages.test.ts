@@ -580,7 +580,7 @@ describe('user waits for a queued message to become the next turn', () => {
                 .mockImplementation(staysRunningInSession(18));
             center = createCenter();
             const first = await center.startTask({ prompt: 'first', sessionId: 18 });
-            editing = center.enqueueTaskUserMessage(first.taskId, { prompt: 'editing' }, 'queue');
+            editing = center.enqueueTaskUserMessage(first.taskId, { prompt: 'editing' }, 'queue')!;
             expect(center.setTaskUserMessageEditing(first.taskId, editing.id, true)).toBe(true);
 
             finishCurrentTask!();

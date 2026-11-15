@@ -962,12 +962,12 @@ describe('user sends queued and priority messages during a running answer', () =
         );
     });
 
-    it('user can keep queueing and finish editing after the original queue drains', async () => {
+    it('user can keep queueing after cancelling an edit once the original queue drains', async () => {
         const releaseFirstAnswer = deferred();
+        const releaseHeldAnswer = deferred();
         const releaseNewQueueAnswer = deferred();
-        const releaseEditedAnswer = deferred();
         const heldForEdit = 'Queue held after the original answer finishes';
-        const newQueue = 'Queue added while the old queue is held for editing';
+        const newQueue = 'Queue added while the held queue is running';
 
         server.planNext(async ({ stream }) => {
             stream.text('Finishing the answer while one queue remains in edit.');
@@ -975,13 +975,13 @@ describe('user sends queued and priority messages during a running answer', () =
             stream.finish('stop');
         });
         server.planNext(async ({ stream }) => {
-            stream.text('Running a new queue while the old one is still in edit.');
-            await releaseNewQueueAnswer.promise;
+            stream.text('Running the queue whose edit was cancelled.');
+            await releaseHeldAnswer.promise;
             stream.finish('stop');
         });
         server.planNext(async ({ stream }) => {
-            stream.text('Running the held queue after its edit is cancelled.');
-            await releaseEditedAnswer.promise;
+            stream.text('Running the queue added after the edit ended.');
+            await releaseNewQueueAnswer.promise;
             stream.finish('stop');
         });
 
@@ -996,35 +996,40 @@ describe('user sends queued and priority messages during a running answer', () =
         );
 
         releaseFirstAnswer.resolve();
-        await waitForConversation(
+        const afterOriginalTurn = await waitForConversation(
             (messages) =>
                 messageByText(messages, heldForEdit)?.editing === true && !loadingMessage(messages),
             'The edited queue did not remain parked after the original answer finished.'
         );
 
-        await fillSearchDraft(newQueue);
-        await submitSearchDraft('enter');
-        await server.waitForRequestCount(2);
-        assertLatestUserText(server.requests[1], newQueue);
-        const afterNewQueue = await waitForConversation(
-            (messages) =>
-                messageByText(messages, heldForEdit)?.editing === true &&
-                messageByText(messages, newQueue)?.pendingDelivery === null &&
-                Boolean(loadingMessage(messages)),
-            'A new queue message did not start while the old queue stayed in edit.'
-        );
-
         await clickMessageAction(
-            messageByText(afterNewQueue, heldForEdit),
+            messageByText(afterOriginalTurn, heldForEdit),
             'pending-message-cancel-edit'
         );
-        releaseNewQueueAnswer.resolve();
+        await server.waitForRequestCount(2);
+        assertLatestUserText(server.requests[1], heldForEdit);
+        await waitForConversation(
+            (messages) =>
+                messageByText(messages, heldForEdit)?.pendingDelivery === null &&
+                Boolean(loadingMessage(messages)),
+            'Cancelling the edit did not start the held queue.'
+        );
+
+        await submitWhileRunning(newQueue, 'enter', 'queue', 1);
+        releaseHeldAnswer.resolve();
         await server.waitForRequestCount(3);
-        assertLatestUserText(server.requests[2], heldForEdit);
-        releaseEditedAnswer.resolve();
+        assertLatestUserText(server.requests[2], newQueue);
+        await waitForConversation(
+            (messages) =>
+                messageByText(messages, newQueue)?.pendingDelivery === null &&
+                Boolean(loadingMessage(messages)),
+            'The new queue message did not start after the held queue finished.'
+        );
+
+        releaseNewQueueAnswer.resolve();
         await waitForConversation(
             (messages) => pendingMessages(messages).length === 0 && !loadingMessage(messages),
-            'The queue stayed stuck after its edit ended and the queue drained.'
+            'The queue stayed stuck after the original queue drained and a new queue ran.'
         );
     });
 
