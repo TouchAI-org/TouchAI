@@ -58,6 +58,8 @@ const {
         ),
         removePendingUserMessage: vi.fn(() => true),
         updatePendingUserMessage: vi.fn(() => true),
+        beginPendingMessageEdit: vi.fn(() => true),
+        endPendingMessageEdit: vi.fn(() => true),
         clearPendingUserMessages: vi.fn(() => true),
         updatePendingUserMessagesModel: vi.fn(() => true),
     };
@@ -411,7 +413,7 @@ describe('when a session reaches a terminal state', () => {
 });
 
 describe('when the user cancels a running request', () => {
-    it('user gets the queued prompt dropped and the request cancelled', async () => {
+    it('user gets the request cancelled without dropping the queue', async () => {
         const { result, unmount } = await mountFlow();
         agentState.isLoading.value = true;
 
@@ -420,7 +422,7 @@ describe('when the user cancels a running request', () => {
 
         result.cancelRequest();
 
-        expect(agentState.clearPendingUserMessages).toHaveBeenCalled();
+        expect(agentState.clearPendingUserMessages).not.toHaveBeenCalled();
         expect(agentState.cancel).toHaveBeenCalled();
 
         unmount();

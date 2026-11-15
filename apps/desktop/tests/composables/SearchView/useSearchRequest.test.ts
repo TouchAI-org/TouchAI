@@ -56,6 +56,8 @@ const {
             })
         ),
         removePendingUserMessage: vi.fn(() => true),
+        beginPendingMessageEdit: vi.fn(() => true),
+        endPendingMessageEdit: vi.fn(() => true),
         reorderPendingUserMessages: vi.fn(() => true),
         updatePendingUserMessage: vi.fn(() => true),
         clearPendingUserMessages: vi.fn(() => true),
@@ -398,7 +400,7 @@ describe('when the user cancels a running request', () => {
         document.body.innerHTML = '';
     });
 
-    it('user gets the running request cancelled and any queued prompt dropped', async () => {
+    it('user gets the running request cancelled and queued prompts preserved', async () => {
         const { result, unmount } = await mountFlow();
 
         await result.handleSubmit('queued prompt');
@@ -406,7 +408,7 @@ describe('when the user cancels a running request', () => {
 
         expect(agentState.cancel).toHaveBeenCalled();
         expect(result.pendingRequest.value).toBeNull();
-        expect(agentState.clearPendingUserMessages).toHaveBeenCalled();
+        expect(agentState.clearPendingUserMessages).not.toHaveBeenCalled();
 
         unmount();
     });

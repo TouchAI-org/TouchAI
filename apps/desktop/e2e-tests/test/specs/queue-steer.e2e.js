@@ -170,6 +170,11 @@ async function startRunningTurn(server) {
     );
 }
 
+async function discardQueueAndCancelRequest() {
+    await callE2eBridge('clearPendingSearchMessages');
+    await callE2eBridge('cancelSearchRequest');
+}
+
 async function submitWhileRunning(text, chord, delivery, expectedPendingCount) {
     await fillSearchDraft(text);
     await submitSearchDraft(chord);
@@ -239,24 +244,24 @@ describe('user sends queued and priority messages during a running answer', () =
     });
 
     beforeEach(async () => {
-        await callE2eBridge('cancelSearchRequest');
+        await discardQueueAndCancelRequest();
         await resetSearchSurface();
         await callE2eBridge('setSearchKeybindings', DEFAULT_SHORTCUTS);
         server.reset();
     });
 
     afterEach(async () => {
-        await callE2eBridge('cancelSearchRequest');
+        await discardQueueAndCancelRequest();
         await waitForConversation(
             (state) => pendingMessages(state).length === 0 && !loadingMessage(state),
-            'Cancelling the turn did not clear pending messages and the loading row before cleanup.'
+            'Discarding the queue and cancelling did not clear the loading row before cleanup.'
         );
         await resetSearchSurface();
         server.reset();
     });
 
     after(async () => {
-        await callE2eBridge('cancelSearchRequest').catch(() => undefined);
+        await discardQueueAndCancelRequest().catch(() => undefined);
         await resetSearchSurface().catch(() => undefined);
         await server.close();
     });
@@ -520,7 +525,7 @@ describe('user sends queued and priority messages during a running answer', () =
             )}.`
         );
 
-        await callE2eBridge('cancelSearchRequest');
+        await discardQueueAndCancelRequest();
         releaseAnswer.resolve();
     });
 
@@ -852,6 +857,17 @@ describe('user sends queued and priority messages during a running answer', () =
                 !editingMessage.hasRemove,
             `The queue did not show the editing state in place: ${JSON.stringify(editingMessage)}.`
         );
+        assertVisible(
+            editingMessage.borderStyle === 'dashed' &&
+                (editingMessage.backgroundColor === 'rgba(0, 0, 0, 0)' ||
+                    editingMessage.backgroundColor === 'transparent'),
+            `Editing changed the queued bubble surface: ${JSON.stringify(editingMessage)}.`
+        );
+        assertToolCallMutedColor(
+            editingMessage.pendingActionColorRgb,
+            'editing actions',
+            editingMessage
+        );
         assertSolidSteer(messageByText(state, steered));
         const restoredDraft = await (await editorElement()).getText();
         assertVisible(
@@ -875,8 +891,75 @@ describe('user sends queued and priority messages during a running answer', () =
         assertQueuedMessage(messageByText(state, editedQueue));
         assertSolidSteer(messageByText(state, steered));
 
-        await callE2eBridge('cancelSearchRequest');
+        await discardQueueAndCancelRequest();
         releaseAnswer.resolve();
+    });
+
+    it('user gets the next queue started while an earlier queue is being edited', async () => {
+        const releaseFirstAnswer = deferred();
+        const releaseSecondAnswer = deferred();
+        const heldForEdit = 'Queue held out of delivery while editing';
+        const nextQueued = 'Queue that runs while the edit is open';
+        const editedQueue = 'Queue saved after the next turn started';
+
+        server.planNext(async ({ stream }) => {
+            stream.text('Holding the first answer while a queue is edited.');
+            await releaseFirstAnswer.promise;
+            stream.finish('stop');
+        });
+        server.planNext(async ({ stream }) => {
+            stream.text('Running the queue that was not being edited.');
+            await releaseSecondAnswer.promise;
+            stream.finish('stop');
+        });
+        server.planNext(({ stream }) => {
+            stream.text('Answering the edited queue last.');
+            stream.finish('stop');
+        });
+
+        await startRunningTurn(server);
+        await submitWhileRunning(heldForEdit, 'enter', 'queue', 1);
+        await submitWhileRunning(nextQueued, 'enter', 'queue', 2);
+
+        const state = await readConversationMessages();
+        await clickMessageAction(messageByText(state, heldForEdit), 'pending-message-edit');
+        const editingState = await waitForConversation(
+            (messages) =>
+                messageByText(messages, heldForEdit)?.editing === true &&
+                pendingMessages(messages).length === 2,
+            'Opening the first queue for editing did not keep it parked in the pending area.'
+        );
+        const editingMessage = messageByText(editingState, heldForEdit);
+
+        releaseFirstAnswer.resolve();
+        await server.waitForRequestCount(2);
+        assertLatestUserText(server.requests[1], nextQueued);
+
+        await waitForConversation(
+            (messages) =>
+                messageByText(messages, heldForEdit)?.editing === true &&
+                messageByText(messages, nextQueued)?.pendingDelivery === null &&
+                Boolean(loadingMessage(messages)),
+            'The edited queue was delivered before the queue behind it.'
+        );
+
+        await fillSearchDraft(editedQueue);
+        await submitSearchDraft('enter');
+        await waitForConversation(
+            (messages) =>
+                messageByText(messages, editedQueue)?.id === editingMessage.id &&
+                messageByText(messages, editedQueue)?.editing === false &&
+                messageByText(messages, nextQueued)?.pendingDelivery === null,
+            'Saving the edit did not leave the edited queue waiting behind the running turn.'
+        );
+
+        releaseSecondAnswer.resolve();
+        await server.waitForRequestCount(3);
+        assertLatestUserText(server.requests[2], editedQueue);
+        await waitForConversation(
+            (messages) => pendingMessages(messages).length === 0 && !loadingMessage(messages),
+            'The edited queue did not run after the queue ahead of it finished.'
+        );
     });
 
     it('user can cancel editing without removing the queued message', async () => {
@@ -916,7 +999,7 @@ describe('user sends queued and priority messages during a running answer', () =
             'Cancelling the edit did not restore the draft that was in the composer before editing.'
         );
 
-        await callE2eBridge('cancelSearchRequest');
+        await discardQueueAndCancelRequest();
         releaseAnswer.resolve();
     });
 
@@ -957,7 +1040,7 @@ describe('user sends queued and priority messages during a running answer', () =
             )}, received ${JSON.stringify(draftAfterExternalReply)}.`
         );
 
-        await callE2eBridge('cancelSearchRequest');
+        await discardQueueAndCancelRequest();
         releaseAnswer.resolve();
     });
 
@@ -1014,7 +1097,7 @@ describe('user sends queued and priority messages during a running answer', () =
             'Expanding the long queued message moved it out of the bottom position.'
         );
 
-        await callE2eBridge('cancelSearchRequest');
+        await discardQueueAndCancelRequest();
         releaseAnswer.resolve();
     });
 
@@ -1039,44 +1122,68 @@ describe('user sends queued and priority messages during a running answer', () =
         assertSolidSteer(messageByText(state, steeredWithEnter));
         assertQueuedMessage(messageByText(state, queuedWithModifiedEnter));
 
-        await callE2eBridge('cancelSearchRequest');
+        await discardQueueAndCancelRequest();
         releaseAnswer.resolve();
     });
 
-    it('user can start a new run after cancelling a turn with pending messages', async () => {
+    it('user keeps the queue after cancelling a turn and can keep chatting afterwards', async () => {
         const releaseCancelledAnswer = deferred();
-        const queued = 'Queue cleared by cancellation';
-        const steered = 'Steer cleared by cancellation';
-        const afterCancel = 'Prompt submitted after cancellation';
+        const releaseFirstQueuedAnswer = deferred();
+        const queuedOne = 'First queue kept by cancellation';
+        const queuedTwo = 'Second queue kept by cancellation';
+        const promptAfterQueue = 'Prompt submitted after cancellation';
 
         server.planNext(async ({ stream }) => {
             stream.text('Answer cancelled by the user.');
             await releaseCancelledAnswer.promise;
             stream.finish('stop');
         });
+        server.planNext(async ({ stream }) => {
+            stream.text('Answer for the first queue preserved by cancellation.');
+            await releaseFirstQueuedAnswer.promise;
+            stream.finish('stop');
+        });
         server.planNext(({ stream }) => {
-            stream.text('Answer after the cancelled turn.');
+            stream.text('Answer for the second queue preserved by cancellation.');
+            stream.finish('stop');
+        });
+        server.planNext(({ stream }) => {
+            stream.text('Answer after the preserved queue drained.');
             stream.finish('stop');
         });
 
         await startRunningTurn(server);
-        await submitWhileRunning(queued, 'enter', 'queue', 1);
-        await submitWhileRunning(steered, 'modified', 'priority', 2);
+        await submitWhileRunning(queuedOne, 'enter', 'queue', 1);
+        await submitWhileRunning(queuedTwo, 'enter', 'queue', 2);
         await callE2eBridge('cancelSearchRequest');
-
-        await waitForConversation(
-            (state) => pendingMessages(state).length === 0 && !loadingMessage(state),
-            'Cancelling the run left pending messages or a loading row behind.'
-        );
         releaseCancelledAnswer.resolve();
 
-        await fillSearchDraft(afterCancel);
-        await submitSearchDraft('enter');
         await server.waitForRequestCount(2);
-        assertLatestUserText(server.requests[1], afterCancel);
+        assertLatestUserText(server.requests[1], queuedOne);
+        const afterCancel = await waitForConversation(
+            (state) =>
+                messageByText(state, queuedOne)?.pendingDelivery === null &&
+                messageByText(state, queuedTwo)?.pendingDelivery === 'queue' &&
+                Boolean(loadingMessage(state)),
+            'Cancelling the run discarded the queue instead of starting its first message.'
+        );
+        assertQueuedMessage(messageByText(afterCancel, queuedTwo));
+
+        releaseFirstQueuedAnswer.resolve();
+        await server.waitForRequestCount(3);
+        assertLatestUserText(server.requests[2], queuedTwo);
+        await waitForConversation(
+            (state) => pendingMessages(state).length === 0 && !loadingMessage(state),
+            'The queue preserved by cancellation did not drain.'
+        );
+
+        await fillSearchDraft(promptAfterQueue);
+        await submitSearchDraft('enter');
+        await server.waitForRequestCount(4);
+        assertLatestUserText(server.requests[3], promptAfterQueue);
         await waitForConversation(
             (state) => !loadingMessage(state) && pendingMessages(state).length === 0,
-            'A new prompt could not complete after cancelling the previous run.'
+            'A new prompt could not complete after the preserved queue drained.'
         );
     });
 });

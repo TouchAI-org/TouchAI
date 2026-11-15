@@ -39,6 +39,12 @@ export interface PendingUserMessage extends PendingUserMessageInput {
     id: string;
     delivery: PendingUserMessageDelivery;
     /**
+     * The user is editing this queued message in the composer. It stays visible
+     * in the queue area, but must not be selected for delivery or reordering
+     * until the edit is saved or cancelled.
+     */
+    editing?: boolean;
+    /**
      * Set when the user clicks Steer now. The executor keeps streaming the
      * current answer only up to its next safe boundary, then injects this
      * message into the running turn instead of waiting for a tool call.

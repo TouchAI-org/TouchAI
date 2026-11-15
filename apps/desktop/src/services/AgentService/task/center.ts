@@ -111,6 +111,10 @@ function applyPendingUserMessageInput(
     };
 }
 
+function isDeliverableQueuedMessage(message: PendingUserMessage): boolean {
+    return message.delivery === 'queue' && message.editing !== true;
+}
+
 /**
  * Reorder only the queued messages, preserving the slots occupied by steers.
  *
@@ -518,18 +522,34 @@ export class SessionTaskCenter {
         });
     }
 
-    /** 取消指定任务，中止其 AbortController 并清除待审批项。 */
-    cancelTask(taskId: string): boolean {
+    /**
+     * Cancel the active run without discarding queued user messages by default.
+     * The terminal event keeps the queue and starts its first deliverable entry.
+     * The hand-over abort path opts out when the user explicitly cleared the queue.
+     */
+    cancelTask(taskId: string, options: { preservePending?: boolean } = {}): boolean {
         const task = this.tasks.get(taskId);
         if (!task) {
             return false;
         }
 
         task.abortController.abort();
-        task.snapshot.pendingUserMessages = [];
-        task.claimedPriorityMessageIds.clear();
-        if (task.sessionId !== null) {
-            this.sessionPendingQueues.delete(task.sessionId);
+        if (options.preservePending === false) {
+            task.snapshot.pendingUserMessages = [];
+            task.claimedPriorityMessageIds.clear();
+            if (task.sessionId !== null) {
+                this.sessionPendingQueues.delete(task.sessionId);
+            }
+        } else if (task.sessionId !== null && task.snapshot.pendingUserMessages.length > 0) {
+            this.sessionPendingQueues.set(
+                task.sessionId,
+                cloneTaskValue(
+                    mergePendingUserMessages(
+                        this.sessionPendingQueues.get(task.sessionId) ?? [],
+                        task.snapshot.pendingUserMessages
+                    )
+                )
+            );
         }
         task.projection.clearPendingApprovals(tt('请求已取消'));
         // Cancellation is decisive: clearing pending cards must reach subscribers now,
@@ -586,7 +606,7 @@ export class SessionTaskCenter {
         input: PendingUserMessageInput
     ): boolean {
         const task = this.tasks.get(taskId);
-        if (!task || isTerminalStatus(task.snapshot.status)) {
+        if (!task) {
             return false;
         }
         if (task.claimedPriorityMessageIds.has(messageId)) {
@@ -604,12 +624,151 @@ export class SessionTaskCenter {
         if (!message) {
             return false;
         }
+        // A run may finish while the user is editing one of its queued messages.
+        // Keep that edit writable so the saved text reaches the session queue.
+        if (isTerminalStatus(task.snapshot.status) && message.editing !== true) {
+            return false;
+        }
 
         const next = [...task.snapshot.pendingUserMessages];
         next[index] = applyPendingUserMessageInput(message, input);
         task.snapshot.pendingUserMessages = next;
+        if (task.sessionId !== null) {
+            const sessionQueue = this.sessionPendingQueues.get(task.sessionId);
+            const sessionIndex = sessionQueue?.findIndex((entry) => entry.id === messageId) ?? -1;
+            if (sessionQueue && sessionIndex >= 0) {
+                const nextSessionQueue = [...sessionQueue];
+                const sessionMessage = sessionQueue[sessionIndex];
+                if (sessionMessage) {
+                    nextSessionQueue[sessionIndex] = applyPendingUserMessageInput(
+                        sessionMessage,
+                        input
+                    );
+                    this.sessionPendingQueues.set(task.sessionId, nextSessionQueue);
+                }
+            }
+        }
         this.notifySubscribers(taskId);
         return true;
+    }
+
+    /** Temporarily park a queued message while the user edits it in the composer. */
+    setTaskUserMessageEditing(taskId: string, messageId: string, editing: boolean): boolean {
+        const task = this.tasks.get(taskId);
+        if (!task || task.claimedPriorityMessageIds.has(messageId)) {
+            return false;
+        }
+
+        const index = task.snapshot.pendingUserMessages.findIndex(
+            (message) => message.id === messageId && message.delivery === 'queue'
+        );
+        if (index < 0) {
+            return false;
+        }
+
+        const next = [...task.snapshot.pendingUserMessages];
+        const message = next[index];
+        if (!message) {
+            return false;
+        }
+        next[index] = { ...message, editing: editing || undefined };
+        task.snapshot.pendingUserMessages = next;
+
+        if (task.sessionId !== null) {
+            const sessionQueue = this.sessionPendingQueues.get(task.sessionId);
+            const sessionIndex = sessionQueue?.findIndex((entry) => entry.id === messageId) ?? -1;
+            if (sessionQueue && sessionIndex >= 0) {
+                const nextSessionQueue = [...sessionQueue];
+                const sessionMessage = sessionQueue[sessionIndex];
+                if (sessionMessage) {
+                    nextSessionQueue[sessionIndex] = {
+                        ...sessionMessage,
+                        editing: editing || undefined,
+                    };
+                    this.sessionPendingQueues.set(task.sessionId, nextSessionQueue);
+                }
+            }
+        }
+
+        this.notifySubscribers(taskId);
+        if (!editing && isTerminalStatus(task.snapshot.status)) {
+            this.scheduleQueuedTaskStart(taskId);
+        }
+        return true;
+    }
+
+    setSessionUserMessageEditing(sessionId: number, messageId: string, editing: boolean): boolean {
+        const activeTaskId = this.sessionActiveTaskIndex.get(sessionId);
+        if (activeTaskId && this.setTaskUserMessageEditing(activeTaskId, messageId, editing)) {
+            return true;
+        }
+
+        const queued = this.sessionPendingQueues.get(sessionId);
+        if (!queued) {
+            return false;
+        }
+        const index = queued.findIndex(
+            (message) => message.id === messageId && message.delivery === 'queue'
+        );
+        if (index < 0) {
+            return false;
+        }
+
+        const next = [...queued];
+        const message = queued[index];
+        if (!message) {
+            return false;
+        }
+        next[index] = { ...message, editing: editing || undefined };
+        this.sessionPendingQueues.set(sessionId, next);
+        return true;
+    }
+
+    /**
+     * Clear an abandoned edit even when the page has already moved to another
+     * session or task. Message ids are process-unique, so the owning queue can
+     * be found without trusting the page's current attachment.
+     */
+    clearUserMessageEditing(messageId: string): boolean {
+        let changed = false;
+        for (const task of this.tasks.values()) {
+            const index = task.snapshot.pendingUserMessages.findIndex(
+                (message) => message.id === messageId && message.editing === true
+            );
+            if (index < 0) {
+                continue;
+            }
+            const next = [...task.snapshot.pendingUserMessages];
+            const message = next[index];
+            if (!message) {
+                continue;
+            }
+            next[index] = { ...message, editing: undefined };
+            task.snapshot.pendingUserMessages = next;
+            changed = true;
+            this.notifySubscribers(task.taskId);
+            if (isTerminalStatus(task.snapshot.status)) {
+                this.scheduleQueuedTaskStart(task.taskId);
+            }
+        }
+
+        for (const [sessionId, queued] of this.sessionPendingQueues) {
+            const index = queued.findIndex(
+                (message) => message.id === messageId && message.editing === true
+            );
+            if (index < 0) {
+                continue;
+            }
+            const next = [...queued];
+            const message = next[index];
+            if (!message) {
+                continue;
+            }
+            next[index] = { ...message, editing: undefined };
+            this.sessionPendingQueues.set(sessionId, next);
+            changed = true;
+        }
+        return changed;
     }
 
     /**
@@ -702,6 +861,15 @@ export class SessionTaskCenter {
             return false;
         }
         task.snapshot.pendingUserMessages = next;
+        if (task.sessionId !== null) {
+            const sessionQueue = this.sessionPendingQueues.get(task.sessionId);
+            if (sessionQueue) {
+                this.sessionPendingQueues.set(
+                    task.sessionId,
+                    sessionQueue.filter((message) => message.id !== messageId)
+                );
+            }
+        }
         this.notifySubscribers(taskId);
         return true;
     }
@@ -1110,11 +1278,36 @@ export class SessionTaskCenter {
         } catch (error) {
             const task = this.tasks.get(taskId);
             if (task && !isTerminalStatus(task.snapshot.status)) {
-                task.snapshot.pendingUserMessages = [];
                 const aiError = AiError.fromError(error);
                 if (aiError.is(AiErrorCode.REQUEST_CANCELLED)) {
+                    task.claimedPriorityMessageIds.clear();
+                    task.snapshot.pendingUserMessages = task.snapshot.pendingUserMessages.map(
+                        (message) => ({
+                            ...message,
+                            delivery: 'queue',
+                            immediate: undefined,
+                        })
+                    );
+                    if (task.sessionId !== null && task.snapshot.pendingUserMessages.length > 0) {
+                        this.sessionPendingQueues.set(
+                            task.sessionId,
+                            cloneTaskValue(
+                                mergePendingUserMessages(
+                                    this.sessionPendingQueues.get(task.sessionId) ?? [],
+                                    task.snapshot.pendingUserMessages
+                                )
+                            )
+                        );
+                    }
                     task.projection.markCancelled();
+                    if (task.snapshot.pendingUserMessages.length > 0) {
+                        this.scheduleQueuedTaskStart(taskId);
+                    }
                 } else {
+                    task.snapshot.pendingUserMessages = [];
+                    if (task.sessionId !== null) {
+                        this.sessionPendingQueues.delete(task.sessionId);
+                    }
                     task.projection.markFailed(aiError.message, aiError.getDisplayMessage());
                 }
                 this.finalizeTaskLifecycle(taskId);
@@ -1191,7 +1384,11 @@ export class SessionTaskCenter {
 
     private async startQueuedTask(taskId: string): Promise<void> {
         const task = this.tasks.get(taskId);
-        if (!task || task.snapshot.status !== 'completed' || task.sessionId === null) {
+        if (
+            !task ||
+            (task.snapshot.status !== 'completed' && task.snapshot.status !== 'cancelled') ||
+            task.sessionId === null
+        ) {
             return;
         }
 
@@ -1200,10 +1397,15 @@ export class SessionTaskCenter {
             return;
         }
 
-        const [next, ...rest] = queued;
+        const nextIndex = queued.findIndex(isDeliverableQueuedMessage);
+        if (nextIndex < 0) {
+            return;
+        }
+        const next = queued[nextIndex];
         if (!next) {
             return;
         }
+        const rest = queued.filter((_, index) => index !== nextIndex);
         // 交接期间保留队列本身（哪怕为空）作为“下一轮正在启动”的标记，
         // 这样用户在启动窗口里的提交仍会落进同一条队列，而不是被当成新任务。
         this.sessionPendingQueues.set(task.sessionId, rest);
@@ -1224,7 +1426,7 @@ export class SessionTaskCenter {
             if (handoffVersion !== task.handoffVersion) {
                 // The user cleared the queue while the hand-over was starting.
                 // Stop the task that already began before it can run a turn.
-                this.cancelTask(started.taskId);
+                this.cancelTask(started.taskId, { preservePending: false });
                 return;
             }
             // The hand-over owns the task lifecycle now; waiters that already
@@ -1342,7 +1544,7 @@ export class SessionTaskCenter {
         ) {
             task.claimedPriorityMessageIds.clear();
             task.projection.syncInteractionRelease(task.interactions.cancelAll(), tt('请求已取消'));
-            if (event.type === 'task_completed') {
+            if (event.type === 'task_completed' || event.type === 'task_cancelled') {
                 // 运行结束前没等到工具边界的插队消息，降级为下一轮排队。
                 task.snapshot.pendingUserMessages = task.snapshot.pendingUserMessages.map(
                     (message) => ({
@@ -1369,7 +1571,10 @@ export class SessionTaskCenter {
                 }
             }
             this.finalizeTaskLifecycle(taskId);
-            if (event.type === 'task_completed' && task.snapshot.pendingUserMessages.length > 0) {
+            if (
+                (event.type === 'task_completed' || event.type === 'task_cancelled') &&
+                task.snapshot.pendingUserMessages.length > 0
+            ) {
                 this.scheduleQueuedTaskStart(taskId);
             }
         }

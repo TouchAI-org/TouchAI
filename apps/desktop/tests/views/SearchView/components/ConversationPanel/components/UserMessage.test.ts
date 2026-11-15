@@ -378,11 +378,13 @@ describe('UserMessage pending delivery', () => {
 
         const bubble = wrapper.get('[data-pending-delivery="queue"]');
         expect(bubble.attributes('data-editing')).toBe('true');
-        expect(bubble.classes()).toContain('border-primary-400');
-        expect(bubble.classes()).toContain('bg-primary-50');
+        expect(bubble.classes()).toContain('border-message-muted');
+        expect(bubble.classes()).toContain('bg-transparent');
+        expect(bubble.classes()).not.toContain('border-primary-400');
+        expect(bubble.classes()).not.toContain('bg-primary-50');
         const actions = wrapper.get('[data-testid="pending-message-actions"]');
-        expect(actions.classes()).toContain('text-message-foreground');
-        expect(actions.classes()).not.toContain('text-message-muted');
+        expect(actions.classes()).toContain('text-message-muted');
+        expect(actions.classes()).not.toContain('text-message-foreground');
         const editStatus = wrapper.get('[data-testid="pending-message-edit-status"]');
         expect(editStatus.text()).toBe('正在编辑');
         expect(editStatus.classes()).not.toContain('text-primary-600');

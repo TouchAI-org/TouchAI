@@ -388,6 +388,7 @@
                 modelName: string
             ) => Promise<void>;
             cancelSearchRequest: () => Promise<void>;
+            clearPendingSearchMessages: () => Promise<void>;
             getQuickSearchFallbackResults?: (query: string) => QuickShortcutItem[];
             resetDraft?: () => void;
             clearSessionToIdle?: () => Promise<void>;
@@ -610,6 +611,8 @@
         promotePendingUserMessage,
         removePendingUserMessage,
         updatePendingUserMessage,
+        beginPendingMessageEdit: holdPendingMessageForEdit,
+        endPendingMessageEdit: releasePendingMessageEdit,
         reorderPendingUserMessages,
         handleRegenerateMessage: handleRegenerateMessageRequest,
     } = useSearchRequestFlow({
@@ -641,19 +644,26 @@
     }
 
     async function beginPendingMessageEdit(message: PendingUserMessage): Promise<void> {
+        if (!holdPendingMessageForEdit(message.id)) {
+            return;
+        }
         if (pendingMessageEdit.value?.messageId !== message.id) {
             // Switching between queued messages keeps the draft the user had
             // before the first edit, so cancelling the last edit still restores it.
-            pendingMessageEdit.value = pendingMessageEdit.value
-                ? {
-                      ...pendingMessageEdit.value,
-                      messageId: message.id,
-                  }
-                : {
-                      messageId: message.id,
-                      previousDraft: buildCurrentInputHistorySnapshot(),
-                      previousModelOverride: { ...modelOverride.value },
-                  };
+            const previousEdit = pendingMessageEdit.value;
+            if (previousEdit) {
+                releasePendingMessageEdit(previousEdit.messageId);
+                pendingMessageEdit.value = {
+                    ...previousEdit,
+                    messageId: message.id,
+                };
+            } else {
+                pendingMessageEdit.value = {
+                    messageId: message.id,
+                    previousDraft: buildCurrentInputHistorySnapshot(),
+                    previousModelOverride: { ...modelOverride.value },
+                };
+            }
         }
         restorePendingMessageDraft(message);
         await nextTick();
@@ -666,6 +676,7 @@
             return;
         }
         pendingMessageEdit.value = null;
+        releasePendingMessageEdit(edit.messageId);
         if (restoreDraft) {
             applyInputHistorySnapshot(edit.previousDraft);
             modelOverride.value = { ...edit.previousModelOverride };
@@ -690,6 +701,7 @@
             // The message left the queue while the user was editing it. Keep the
             // typed draft in place instead of silently sending a duplicate turn.
             pendingMessageEdit.value = null;
+            releasePendingMessageEdit(edit.messageId);
             return true;
         }
 
@@ -715,8 +727,10 @@
         });
         pendingMessageEdit.value = null;
         if (!updated) {
+            releasePendingMessageEdit(edit.messageId);
             return true;
         }
+        releasePendingMessageEdit(edit.messageId);
 
         // Editing borrows the composer without consuming the draft that was
         // already in it. Finishing the edit hands that draft back.
@@ -728,7 +742,11 @@
     }
 
     watch(currentSessionId, () => {
+        const edit = pendingMessageEdit.value;
         pendingMessageEdit.value = null;
+        if (edit) {
+            releasePendingMessageEdit(edit.messageId);
+        }
     });
 
     const floatingPicker = computed(
@@ -2722,6 +2740,10 @@
             },
             async cancelSearchRequest() {
                 cancelRequest();
+                await nextTick();
+            },
+            async clearPendingSearchMessages() {
+                cancelPendingRequest();
                 await nextTick();
             },
             async clearSessionToIdle() {

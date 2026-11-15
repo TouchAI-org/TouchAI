@@ -266,6 +266,8 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         promotePendingUserMessage,
         removePendingUserMessage,
         updatePendingUserMessage,
+        beginPendingMessageEdit,
+        endPendingMessageEdit,
         reorderPendingUserMessages,
         clearPendingUserMessages,
         updatePendingUserMessagesModel,
@@ -550,7 +552,6 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
     }
 
     function cancelRequest() {
-        clearPendingUserMessages();
         if (isLoading.value) {
             cancel();
             invalidateSessionListCache({
@@ -711,6 +712,8 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         promotePendingUserMessage,
         removePendingUserMessage,
         updatePendingUserMessage,
+        beginPendingMessageEdit,
+        endPendingMessageEdit,
         reorderPendingUserMessages,
         handleRegenerateMessage,
     };

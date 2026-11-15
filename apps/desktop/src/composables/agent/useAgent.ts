@@ -385,9 +385,42 @@ export function useAgent(options: UseAiRequestOptions = {}) {
         ) {
             return true;
         }
+        // A run can finish while the user is editing a queued message. The
+        // message may already belong to the session hand-over queue even
+        // though the page still holds the previous task id.
+        return currentSessionId.value !== null
+            ? sessionTaskCenter.updateSessionUserMessage(currentSessionId.value, messageId, input)
+            : false;
+    }
+
+    function setPendingUserMessageEditing(messageId: string, editing: boolean): boolean {
+        if (
+            attachedTaskId.value &&
+            sessionTaskCenter.setTaskUserMessageEditing(attachedTaskId.value, messageId, editing)
+        ) {
+            return true;
+        }
         return currentSessionId.value === null
             ? false
-            : sessionTaskCenter.updateSessionUserMessage(currentSessionId.value, messageId, input);
+            : sessionTaskCenter.setSessionUserMessageEditing(
+                  currentSessionId.value,
+                  messageId,
+                  editing
+              );
+    }
+
+    function beginPendingMessageEdit(messageId: string): boolean {
+        return setPendingUserMessageEditing(messageId, true);
+    }
+
+    function endPendingMessageEdit(messageId: string): boolean {
+        if (setPendingUserMessageEditing(messageId, false)) {
+            return true;
+        }
+        // The page may have switched sessions while the composer still held an
+        // edit. Clear the flag at its owning task or hand-over queue instead of
+        // leaving that message permanently excluded from delivery.
+        return sessionTaskCenter.clearUserMessageEditing(messageId);
     }
 
     function promotePendingUserMessage(messageId: string): boolean {
@@ -502,6 +535,8 @@ export function useAgent(options: UseAiRequestOptions = {}) {
         promotePendingUserMessage,
         removePendingUserMessage,
         updatePendingUserMessage,
+        beginPendingMessageEdit,
+        endPendingMessageEdit,
         reorderPendingUserMessages,
         clearPendingUserMessages,
         updatePendingUserMessagesModel,

@@ -5,11 +5,9 @@
         <div
             :class="[
                 'max-w-[80%] rounded-lg px-4 py-2 break-words',
-                isEditing
-                    ? 'border border-dashed border-primary-400 bg-primary-50'
-                    : isQueued
-                      ? 'border border-dashed border-message-muted bg-transparent'
-                      : 'bg-secondary',
+                isQueued
+                    ? 'border border-dashed border-message-muted bg-transparent'
+                    : 'bg-secondary',
             ]"
             data-testid="user-message-bubble"
             :data-pending-delivery="message.pendingDelivery"
@@ -98,10 +96,7 @@
         <div
             v-if="isQueued"
             data-testid="pending-message-actions"
-            :class="[
-                'mt-1 flex items-center gap-1 text-caption',
-                isEditing ? 'text-message-foreground' : 'text-message-muted',
-            ]"
+            class="mt-1 flex items-center gap-1 text-caption text-message-muted"
         >
             <template v-if="isEditing">
                 <span data-testid="pending-message-edit-status" class="px-1">

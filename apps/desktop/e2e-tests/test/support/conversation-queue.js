@@ -85,6 +85,7 @@ export async function readConversationMessages() {
             const pendingActions = node.querySelector('[data-testid="pending-message-actions"]');
             const style = bubble ? getComputedStyle(bubble) : null;
             const textStyle = textElement ? getComputedStyle(textElement) : null;
+            const pendingActionsStyle = pendingActions ? getComputedStyle(pendingActions) : null;
 
             return {
                 index,
@@ -101,6 +102,8 @@ export async function readConversationMessages() {
                 editing: pendingBubble?.getAttribute('data-editing') === 'true',
                 hasPendingActions: Boolean(pendingActions),
                 pendingActionText: pendingActions?.textContent?.trim() ?? null,
+                pendingActionColor: pendingActionsStyle?.color ?? null,
+                pendingActionColorRgb: comparableColor(pendingActionsStyle?.color),
                 pendingActionIconCount: pendingActions
                     ? pendingActions.querySelectorAll('svg.app-icon').length
                     : 0,

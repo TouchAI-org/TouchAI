@@ -22,6 +22,9 @@ const { eventServiceOnMock, findSessionByIdMock, notifyMock, sessionTaskCenterMo
             rejectTaskToolCall: vi.fn(() => true),
             removeSessionUserMessage: vi.fn(() => false),
             removeTaskUserMessage: vi.fn(() => false),
+            clearUserMessageEditing: vi.fn(() => false),
+            setSessionUserMessageEditing: vi.fn(() => false),
+            setTaskUserMessageEditing: vi.fn(() => false),
             reorderSessionQueuedMessages: vi.fn(() => true),
             reorderTaskQueuedMessages: vi.fn(() => true),
             startTask: vi.fn(),
@@ -345,6 +348,8 @@ describe('when the user manages messages waiting behind a run', () => {
         sessionTaskCenterMock.removeSessionUserMessage.mockReturnValue(true);
         sessionTaskCenterMock.updateTaskUserMessage.mockReturnValue(false);
         sessionTaskCenterMock.updateSessionUserMessage.mockReturnValue(true);
+        sessionTaskCenterMock.setTaskUserMessageEditing.mockReturnValue(false);
+        sessionTaskCenterMock.setSessionUserMessageEditing.mockReturnValue(true);
         sessionTaskCenterMock.promoteTaskUserMessage.mockReturnValue(false);
         sessionTaskCenterMock.promoteSessionUserMessage.mockReturnValue(true);
         sessionTaskCenterMock.reorderTaskQueuedMessages.mockReturnValue(false);
@@ -360,6 +365,8 @@ describe('when the user manages messages waiting behind a run', () => {
         expect(
             mounted.result.updatePendingUserMessage('message-2', { prompt: 'late edited' })
         ).toBe(true);
+        expect(mounted.result.beginPendingMessageEdit('message-2')).toBe(true);
+        expect(mounted.result.endPendingMessageEdit('message-2')).toBe(true);
         expect(mounted.result.promotePendingUserMessage('message-2')).toBe(true);
         expect(mounted.result.reorderPendingUserMessages(['message-3', 'message-2'])).toBe(true);
         expect(mounted.result.clearPendingUserMessages()).toBe(true);
@@ -373,6 +380,18 @@ describe('when the user manages messages waiting behind a run', () => {
             'message-3',
             'message-2',
         ]);
+        expect(sessionTaskCenterMock.setSessionUserMessageEditing).toHaveBeenNthCalledWith(
+            1,
+            1,
+            'message-2',
+            true
+        );
+        expect(sessionTaskCenterMock.setSessionUserMessageEditing).toHaveBeenNthCalledWith(
+            2,
+            1,
+            'message-2',
+            false
+        );
 
         mounted.unmount();
     });
@@ -386,6 +405,8 @@ describe('when the user manages messages waiting behind a run', () => {
             false
         );
         expect(mounted.result.promotePendingUserMessage('message-1')).toBe(false);
+        expect(mounted.result.beginPendingMessageEdit('message-1')).toBe(false);
+        expect(mounted.result.endPendingMessageEdit('message-1')).toBe(false);
         expect(mounted.result.reorderPendingUserMessages(['message-1'])).toBe(false);
         expect(mounted.result.clearPendingUserMessages()).toBe(false);
         expect(mounted.result.updatePendingUserMessagesModel('model-2', 2)).toBe(false);
