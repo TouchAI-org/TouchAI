@@ -408,7 +408,46 @@ describe('user sends queued and priority messages during a running answer', () =
         assertPendingOrder(beforeDrag, [queuedFirst, queuedSecond]);
         await dragQueuedMessage(
             messageByText(beforeDrag, queuedSecond),
-            messageByText(beforeDrag, queuedFirst)
+            messageByText(beforeDrag, queuedFirst),
+            async () => {
+                const dragPreview = await browser.execute(() => {
+                    const isRendered = (element) => {
+                        const style = getComputedStyle(element);
+                        return (
+                            style.display !== 'none' &&
+                            style.visibility !== 'hidden' &&
+                            Number.parseFloat(style.opacity) > 0
+                        );
+                    };
+                    const fallback = Array.from(
+                        document.querySelectorAll('.sortable-fallback')
+                    ).find(isRendered);
+                    const placeholders = Array.from(
+                        document.querySelectorAll(
+                            '[data-testid="pending-queue-list"] [data-queue-message].invisible'
+                        )
+                    );
+                    return {
+                        fallbackText: fallback?.textContent ?? '',
+                        fallbackVisible: Boolean(fallback),
+                        placeholderCount: placeholders.length,
+                        placeholdersHidden: placeholders.every((element) => !isRendered(element)),
+                    };
+                });
+
+                assertVisible(
+                    dragPreview.fallbackVisible && dragPreview.fallbackText.includes(queuedSecond),
+                    `The pointer-following drag ghost was missing or showed the wrong queue: ${JSON.stringify(
+                        dragPreview
+                    )}.`
+                );
+                assertVisible(
+                    dragPreview.placeholderCount === 1 && dragPreview.placeholdersHidden,
+                    `The drop-position drag ghost was still visible: ${JSON.stringify(
+                        dragPreview
+                    )}.`
+                );
+            }
         );
 
         const afterDrag = await waitForConversation((state) => {

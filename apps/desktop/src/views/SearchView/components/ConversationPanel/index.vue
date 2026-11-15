@@ -120,7 +120,6 @@
                 :fallback-on-body="true"
                 :fallback-tolerance="4"
                 ghost-class="invisible"
-                fallback-class="invisible"
                 @start="cancelNavigation"
             >
                 <div

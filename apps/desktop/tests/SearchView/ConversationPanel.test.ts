@@ -108,7 +108,7 @@ describe('ConversationPanel intrinsic session measurement', () => {
 });
 
 describe('ConversationPanel queued message reordering', () => {
-    it('user sees no faded placeholder while dragging a queued bubble', () => {
+    it('user sees the pointer ghost but no drop-position ghost while dragging a queued bubble', () => {
         const wrapper = mount(ConversationPanel, {
             props: {
                 startDragging: vi.fn().mockResolvedValue(undefined),
@@ -138,7 +138,7 @@ describe('ConversationPanel queued message reordering', () => {
 
         const draggable = wrapper.findComponent({ name: 'VueDraggableStub' });
         expect(draggable.props('ghostClass')).toBe('invisible');
-        expect(draggable.props('fallbackClass')).toBe('invisible');
+        expect(draggable.props('fallbackClass')).not.toBe('invisible');
         wrapper.unmount();
     });
 

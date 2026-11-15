@@ -176,7 +176,7 @@ export async function backgroundColorOf(element) {
     return browser.execute((target) => getComputedStyle(target).backgroundColor, element);
 }
 
-export async function dragQueuedMessage(source, target) {
+export async function dragQueuedMessage(source, target, beforeDrop) {
     const sourceBubble = await $(
         `[data-message-id="${source.id}"] [data-pending-delivery="queue"]`
     );
@@ -219,9 +219,20 @@ export async function dragQueuedMessage(source, target) {
                     y: targetY,
                 },
                 { type: 'pause', duration: 120 },
-                { type: 'pointerUp', button: 0 },
             ],
         },
     ]);
-    await browser.releaseActions();
+
+    try {
+        await beforeDrop?.();
+    } finally {
+        await browser.performActions([
+            {
+                type: 'pointer',
+                id: 'pending-queue-drag',
+                actions: [{ type: 'pointerUp', button: 0 }],
+            },
+        ]);
+        await browser.releaseActions();
+    }
 }
