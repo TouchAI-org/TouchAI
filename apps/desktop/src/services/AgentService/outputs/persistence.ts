@@ -9,6 +9,7 @@ import {
     createSession,
     createSessionTurn,
     createSessionTurnAttempt,
+    deletePendingMessage,
     findAllBuiltInTools,
     findAllMcpTools,
     findLatestContextCompaction,
@@ -107,6 +108,7 @@ interface PersistenceProjectorModel {
 interface PersistenceProjectorOptions {
     prompt: string;
     attachments?: AttachmentIndex[];
+    pendingMessageId?: string;
     model: PersistenceProjectorModel;
     sessionId?: number | null;
     taskId: string;
@@ -200,6 +202,7 @@ function areSamePartDrafts(
 export class PersistenceProjector {
     private readonly prompt: string;
     private readonly attachments: AttachmentIndex[];
+    private readonly pendingMessageId: string | null;
     private readonly model: PersistenceProjectorModel;
     private readonly taskId: string;
     private readonly executionMode: TaskExecutionMode;
@@ -234,6 +237,7 @@ export class PersistenceProjector {
     constructor(options: PersistenceProjectorOptions) {
         this.prompt = options.prompt;
         this.attachments = options.attachments ?? [];
+        this.pendingMessageId = options.pendingMessageId ?? null;
         this.model = options.model;
         this.taskId = options.taskId;
         this.executionMode = options.executionMode;
@@ -289,6 +293,9 @@ export class PersistenceProjector {
                     database: tx,
                     sessionId,
                 }));
+            if (this.pendingMessageId) {
+                await deletePendingMessage(this.pendingMessageId, tx);
+            }
             const turn = await this.ensureTurnRecord(tx, sessionId, userMessageId);
             const attemptState = await this.ensureAttemptRecord(1, initialCheckpoint, tx, turn.id);
 
@@ -818,6 +825,7 @@ export class PersistenceProjector {
     async persistInjectedUserMessage(options: {
         prompt: string;
         attachments?: AttachmentIndex[];
+        pendingMessageId?: string;
     }): Promise<{ messageId: number; source?: ContextMessageSource }> {
         const attachments = options.attachments ?? [];
         if (attachments.length > 0) {
@@ -838,6 +846,9 @@ export class PersistenceProjector {
                 database: tx,
                 sessionId,
             });
+            if (options.pendingMessageId) {
+                await deletePendingMessage(options.pendingMessageId, tx);
+            }
             const row = (await findContextMessageRows(sessionId, { ids: [messageId] }, tx))[0];
             return {
                 sessionId,

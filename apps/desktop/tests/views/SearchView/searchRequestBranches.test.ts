@@ -517,7 +517,7 @@ describe('when a turn completes with pending messages', () => {
         unmount();
     });
 
-    it('user gets the pending message dropped when the turn fails', async () => {
+    it('user keeps the pending message when the turn fails', async () => {
         const { result, unmount } = await mountFlow();
         agentState.isLoading.value = true;
         await result.handleSubmit('queued prompt');
@@ -525,7 +525,7 @@ describe('when a turn completes with pending messages', () => {
         callAgentCallback('onError');
         await flushAsyncWork();
 
-        expect(agentState.clearPendingUserMessages).toHaveBeenCalled();
+        expect(agentState.clearPendingUserMessages).not.toHaveBeenCalled();
 
         unmount();
     });

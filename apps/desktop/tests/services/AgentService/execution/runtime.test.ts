@@ -383,6 +383,7 @@ describe('user starts a turn that needs a new conversation', () => {
         expect(projectorMock.persistInjectedUserMessage).toHaveBeenCalledWith({
             prompt: 'Insert this',
             attachments: [],
+            pendingMessageId: 'pending-1',
         });
         // The stored row is the context source, so the next request can point back at it.
         expect(injected).toEqual({
@@ -432,6 +433,7 @@ describe('user starts a turn that needs a new conversation', () => {
         expect(projectorMock.persistInjectedUserMessage).toHaveBeenCalledWith({
             prompt: 'Steer this',
             attachments: [],
+            pendingMessageId: 'pending-1',
         });
         expect(injected).toEqual({
             messages: [

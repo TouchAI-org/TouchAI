@@ -86,6 +86,8 @@ export interface StartSessionTaskOptions {
      * 而不是先消失再出现一条新消息。
      */
     userMessageId?: string;
+    /** Durable queue row removed in the same transaction as the delivered message. */
+    pendingMessageId?: string;
     sessionId?: number;
     modelId?: string;
     providerId?: number;

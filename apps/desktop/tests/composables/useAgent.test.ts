@@ -27,6 +27,8 @@ const { eventServiceOnMock, findSessionByIdMock, notifyMock, sessionTaskCenterMo
             setTaskUserMessageEditing: vi.fn(() => false),
             reorderSessionQueuedMessages: vi.fn(() => true),
             reorderTaskQueuedMessages: vi.fn(() => true),
+            restoreSessionQueue: vi.fn(async () => []),
+            resumeSessionQueue: vi.fn(),
             startTask: vi.fn(),
             subscribeTask: vi.fn(),
             updateSessionUserMessage: vi.fn(() => false),

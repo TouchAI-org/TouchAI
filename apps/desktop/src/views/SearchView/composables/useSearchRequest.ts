@@ -278,8 +278,8 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
             });
         },
         onError: () => {
-            // 失败的任务不会再投递 pending 消息，清掉避免气泡永远停在待发态。
-            clearPendingUserMessages();
+            // A failed run must not erase prompts the user queued. The queue
+            // stays visible and durable until they remove or retry it.
             invalidateSessionListCache({
                 refreshIfOpen: true,
             });

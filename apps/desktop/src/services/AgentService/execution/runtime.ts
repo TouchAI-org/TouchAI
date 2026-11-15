@@ -163,6 +163,8 @@ export type RuntimeTurnEvent =
 
 export interface ExecuteRequestOptions extends RequestExecutionCallbacks {
     prompt: string;
+    /** Durable queue row removed when this turn's user message is committed. */
+    pendingMessageId?: string;
     sessionId?: number;
     modelId?: string;
     providerId?: number;
@@ -176,6 +178,8 @@ export interface ExecuteRequestOptions extends RequestExecutionCallbacks {
     releasePriorityUserMessages?: (messageIds: string[]) => void;
     /** True once the user clicked Steer now and the message is still undelivered. */
     hasImmediatePriorityUserMessages?: () => boolean;
+    /** Ensure queued rows are durable before a priority delivery claims them. */
+    waitForPendingMessageWrites?: () => Promise<void>;
 }
 
 interface RuntimeContext {
@@ -444,6 +448,7 @@ export class AiConversationRuntime {
             prompt: this.options.prompt,
             attachments,
             model: initialModel,
+            pendingMessageId: this.options.pendingMessageId,
             sessionId: this.options.sessionId ?? null,
             taskId: this.options.taskId ?? crypto.randomUUID(),
             executionMode: this.options.executionMode ?? 'foreground',
@@ -498,6 +503,10 @@ export class AiConversationRuntime {
         if (pending.length === 0) {
             return { messages: [] };
         }
+        // Claim first, then flush. A message enqueued after the claim belongs to
+        // a later boundary; flushing before the claim would leave its insert
+        // racing the delete for a row that is already being delivered.
+        await this.options.waitForPendingMessageWrites?.();
 
         // Steering interrupts this answer even when the message cannot be
         // persisted. Close the assistant row before any await so later output
@@ -603,6 +612,7 @@ export class AiConversationRuntime {
                     const persisted = await persister.persistInjectedUserMessage({
                         prompt: pendingMessage.prompt,
                         attachments: pendingMessage.attachments,
+                        pendingMessageId: pendingMessage.id,
                     });
                     if (persisted.source) {
                         message.contextSource = persisted.source;

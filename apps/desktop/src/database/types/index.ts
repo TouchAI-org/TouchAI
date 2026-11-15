@@ -87,6 +87,40 @@ export interface MessageCreateData {
     updated_at?: string;
 }
 
+export interface SessionPendingMessageEntity {
+    id: string;
+    session_id: number;
+    position: number;
+    prompt: string;
+    model_id: string | null;
+    provider_id: number | null;
+    payload_version: number;
+    payload_json: string;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface SessionPendingMessageCreateData {
+    id: string;
+    session_id: number;
+    prompt: string;
+    model_id?: string | null;
+    provider_id?: number | null;
+    payload_version?: number;
+    payload_json: string;
+    created_at?: string;
+    updated_at?: string;
+}
+
+export interface SessionPendingMessageUpdateData {
+    prompt: string;
+    model_id?: string | null;
+    provider_id?: number | null;
+    payload_version?: number;
+    payload_json: string;
+    updated_at?: string;
+}
+
 // Infer the write contract from the schema so generated projections cannot be supplied.
 export type MessagePartEntity = DbMessagePart;
 export type MessagePartCreateData = DbNewMessagePart;

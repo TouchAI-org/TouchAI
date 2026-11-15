@@ -138,6 +138,45 @@ FROM imported.sessions AS source_sessions
 INNER JOIN main.sessions AS target_sessions
     ON target_sessions.session_id = source_sessions.session_id;
 
+-- Pending messages keep their stable queue ids and attachment hashes. New rows
+-- append after any local queue for the same session so the unique position
+-- index remains valid during repeated imports.
+INSERT INTO main.session_pending_messages (
+    id, session_id, position, prompt, model_id, provider_id,
+    payload_version, payload_json, created_at, updated_at
+)
+SELECT
+    source_pending.id,
+    session_map.target_session_id,
+    coalesce((
+        SELECT max(target_pending.position)
+        FROM main.session_pending_messages AS target_pending
+        WHERE target_pending.session_id = session_map.target_session_id
+    ), -1) + ROW_NUMBER() OVER (
+        PARTITION BY session_map.target_session_id
+        ORDER BY source_pending.position, source_pending.id
+    ),
+    source_pending.prompt,
+    source_pending.model_id,
+    provider_map.target_provider_id,
+    source_pending.payload_version,
+    source_pending.payload_json,
+    source_pending.created_at,
+    source_pending.updated_at
+FROM imported.session_pending_messages AS source_pending
+INNER JOIN temp_session_map AS session_map
+    ON session_map.source_session_id = source_pending.session_id
+LEFT JOIN temp_provider_map AS provider_map
+    ON provider_map.source_provider_id = source_pending.provider_id
+WHERE true
+ON CONFLICT(id) DO UPDATE SET
+    prompt = excluded.prompt,
+    model_id = excluded.model_id,
+    provider_id = excluded.provider_id,
+    payload_version = excluded.payload_version,
+    payload_json = excluded.payload_json,
+    updated_at = excluded.updated_at;
+
 INSERT INTO main.attachments (
     hash, type, original_name, origin_path, mime_type, size, created_at
 )

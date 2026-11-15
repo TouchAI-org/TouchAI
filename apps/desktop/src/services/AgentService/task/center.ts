@@ -30,6 +30,7 @@ import { reportRuntimePersistenceIssue } from '../outputs';
 import { loadSessionHistory } from '../session/history';
 import { TaskInteractions } from './interactions';
 import { NotificationCoalescer } from './notificationCoalescer';
+import { PendingMessagePersistence, type PendingMessageStore } from './pendingMessagePersistence';
 import { SessionTaskProjection } from './projection';
 import type {
     PendingUserMessage,
@@ -65,6 +66,7 @@ interface MutableSessionTask {
 }
 
 const TERMINAL_TASK_RETENTION_MS = 5 * 60 * 1000;
+const MAX_PENDING_USER_MESSAGES = 20;
 
 export { cloneTaskViewSnapshot } from './viewSnapshot';
 
@@ -360,6 +362,7 @@ export class SessionTaskCenter {
      * 还是用户在间隙里先发了一条）都会接管这里剩下的消息，避免卡在已完成任务里。
      */
     private readonly sessionPendingQueues = new Map<number, PendingUserMessage[]>();
+    private readonly pendingMessagePersistence: PendingMessageStore;
     /** Invalidates a session hand-over that was already awaiting `startTask`. */
     private readonly sessionHandoffVersions = new Map<number, number>();
     /** Prevents two terminal tasks from starting the same session queue. */
@@ -369,6 +372,10 @@ export class SessionTaskCenter {
     private readonly notificationCoalescer = new NotificationCoalescer((taskId) =>
         this.flushTaskNotifications(taskId)
     );
+
+    constructor(pendingMessagePersistence: PendingMessageStore = new PendingMessagePersistence()) {
+        this.pendingMessagePersistence = pendingMessagePersistence;
+    }
 
     /**
      * 注册并启动一个新的会话任务。
@@ -439,6 +446,12 @@ export class SessionTaskCenter {
         this.bindTaskToSession(taskId, options.sessionId ?? null);
 
         try {
+            // Bind the session before awaiting persistence. Otherwise two
+            // submissions can both pass the slot check while the first is
+            // waiting and start duplicate tasks for one session.
+            if (options.sessionId !== undefined && options.sessionId !== null) {
+                await this.pendingMessagePersistence.flush(options.sessionId);
+            }
             const historyPromise =
                 options.sessionId !== undefined && options.sessionId !== null
                     ? loadSessionHistory(options.sessionId)
@@ -472,6 +485,7 @@ export class SessionTaskCenter {
             const runtime = new AiConversationRuntime(this.executor, {
                 taskId,
                 prompt: options.prompt,
+                pendingMessageId: options.pendingMessageId,
                 sessionId: options.sessionId,
                 modelId: options.modelId,
                 providerId: options.providerId,
@@ -483,6 +497,11 @@ export class SessionTaskCenter {
                     this.releasePriorityUserMessages(taskId, messageIds),
                 hasImmediatePriorityUserMessages: () =>
                     this.hasImmediatePriorityUserMessages(taskId),
+                waitForPendingMessageWrites: async () => {
+                    if (task.sessionId !== null) {
+                        await this.pendingMessagePersistence.flush(task.sessionId);
+                    }
+                },
                 environment: runtimeEnvironmentResult.value,
                 signal: abortController.signal,
                 onChunk: (chunk) => {
@@ -567,6 +586,7 @@ export class SessionTaskCenter {
             if (task.sessionId !== null) {
                 this.invalidateSessionQueueHandoff(task.sessionId);
                 this.sessionPendingQueues.delete(task.sessionId);
+                this.pendingMessagePersistence.clear(task.sessionId);
             }
         } else if (task.sessionId !== null && task.snapshot.pendingUserMessages.length > 0) {
             this.sessionPendingQueues.set(
@@ -606,6 +626,9 @@ export class SessionTaskCenter {
         if (!task || isTerminalStatus(task.snapshot.status)) {
             return null;
         }
+        if (task.snapshot.pendingUserMessages.length >= MAX_PENDING_USER_MESSAGES) {
+            return null;
+        }
 
         const message: PendingUserMessage = {
             id: crypto.randomUUID(),
@@ -618,6 +641,9 @@ export class SessionTaskCenter {
             createdAt: Date.now(),
         };
         task.snapshot.pendingUserMessages = [...task.snapshot.pendingUserMessages, message];
+        if (task.sessionId !== null) {
+            this.pendingMessagePersistence.enqueue(task.sessionId, message);
+        }
         this.notifySubscribers(taskId);
         return cloneTaskValue(message);
     }
@@ -660,6 +686,7 @@ export class SessionTaskCenter {
 
         const next = [...task.snapshot.pendingUserMessages];
         next[index] = applyPendingUserMessageInput(message, input);
+        const updatedMessage = next[index];
         task.snapshot.pendingUserMessages = next;
         if (task.sessionId !== null) {
             const sessionQueue = this.sessionPendingQueues.get(task.sessionId);
@@ -675,6 +702,9 @@ export class SessionTaskCenter {
                     this.sessionPendingQueues.set(task.sessionId, nextSessionQueue);
                 }
             }
+        }
+        if (task.sessionId !== null && updatedMessage) {
+            this.pendingMessagePersistence.update(task.sessionId, updatedMessage);
         }
         this.notifySubscribers(taskId);
         return true;
@@ -857,6 +887,59 @@ export class SessionTaskCenter {
     }
 
     /**
+     * Load the durable queue for a session that has no in-memory owner yet.
+     *
+     * The caller decides whether opening the session should resume delivery.
+     */
+    async restoreSessionQueue(sessionId: number): Promise<PendingUserMessage[]> {
+        const activeTaskId = this.sessionActiveTaskIndex.get(sessionId);
+        if (activeTaskId) {
+            const task = this.tasks.get(activeTaskId);
+            if (task) {
+                return cloneTaskValue(task.snapshot.pendingUserMessages);
+            }
+        }
+
+        const existing = this.sessionPendingQueues.get(sessionId);
+        if (existing) {
+            return cloneTaskValue(existing);
+        }
+
+        let restored: PendingUserMessage[];
+        try {
+            restored = await this.pendingMessagePersistence.load(sessionId);
+        } catch (error) {
+            log.error('[SessionTaskCenter] Failed to restore the session queue:', error);
+            return [];
+        }
+        const raced = this.sessionPendingQueues.get(sessionId);
+        if (raced) {
+            return cloneTaskValue(raced);
+        }
+        const racedTaskId = this.sessionActiveTaskIndex.get(sessionId);
+        if (racedTaskId) {
+            return cloneTaskValue(this.tasks.get(racedTaskId)?.snapshot.pendingUserMessages ?? []);
+        }
+
+        if (restored.length > 0) {
+            this.sessionPendingQueues.set(sessionId, restored);
+        }
+        return cloneTaskValue(restored);
+    }
+
+    /** Continue a restored queue after the page has made the session visible. */
+    resumeSessionQueue(sessionId: number): void {
+        if (this.sessionActiveTaskIndex.has(sessionId)) {
+            return;
+        }
+        const queued = this.sessionPendingQueues.get(sessionId);
+        if (!queued || queued.length === 0) {
+            return;
+        }
+        this.scheduleSessionQueueStart(sessionId);
+    }
+
+    /**
      * 把一条待投递消息挂到会话上。
      *
      * 回合结束到下一条排队任务启动之间没有活跃任务，但会话已经有待发队列；
@@ -873,10 +956,17 @@ export class SessionTaskCenter {
             if (message) {
                 return message;
             }
+            const activeTask = this.tasks.get(activeTaskId);
+            if (activeTask && !isTerminalStatus(activeTask.snapshot.status)) {
+                return null;
+            }
         }
 
         // 只有确实存在“即将接管的队列”时才写会话队列；否则没有任务会消费它。
         if (!this.sessionPendingQueues.has(sessionId)) {
+            return null;
+        }
+        if ((this.sessionPendingQueues.get(sessionId)?.length ?? 0) >= MAX_PENDING_USER_MESSAGES) {
             return null;
         }
 
@@ -894,6 +984,7 @@ export class SessionTaskCenter {
             message,
         ]);
         this.sessionPendingQueues.set(sessionId, next);
+        this.pendingMessagePersistence.enqueue(sessionId, message);
         this.syncSessionQueueSnapshot(sessionId, next);
         this.scheduleSessionQueueStart(sessionId);
         return cloneTaskValue(message);
@@ -928,6 +1019,10 @@ export class SessionTaskCenter {
         const next = [...queued];
         next[index] = applyPendingUserMessageInput(message, input);
         this.sessionPendingQueues.set(sessionId, next);
+        const updatedMessage = next[index];
+        if (updatedMessage) {
+            this.pendingMessagePersistence.update(sessionId, updatedMessage);
+        }
         this.syncSessionQueueSnapshot(sessionId, next);
         return true;
     }
@@ -950,6 +1045,7 @@ export class SessionTaskCenter {
         }
         task.snapshot.pendingUserMessages = next;
         if (task.sessionId !== null) {
+            this.pendingMessagePersistence.remove(task.sessionId, messageId);
             const sessionQueue = this.sessionPendingQueues.get(task.sessionId);
             if (sessionQueue) {
                 this.sessionPendingQueues.set(
@@ -1011,6 +1107,12 @@ export class SessionTaskCenter {
             return false;
         }
         task.snapshot.pendingUserMessages = next;
+        if (task.sessionId !== null) {
+            this.pendingMessagePersistence.reorder(
+                task.sessionId,
+                next.map((message) => message.id)
+            );
+        }
         this.notifySubscribers(taskId);
         return true;
     }
@@ -1042,6 +1144,7 @@ export class SessionTaskCenter {
         task.claimedPriorityMessageIds.clear();
         if (task.sessionId !== null) {
             this.sessionPendingQueues.delete(task.sessionId);
+            this.pendingMessagePersistence.clear(task.sessionId);
         }
         this.notifySubscribers(taskId);
         return true;
@@ -1063,6 +1166,7 @@ export class SessionTaskCenter {
             return false;
         }
         this.sessionPendingQueues.set(sessionId, next);
+        this.pendingMessagePersistence.remove(sessionId, messageId);
         this.syncSessionQueueSnapshot(sessionId, next);
         this.scheduleSessionQueueStart(sessionId);
         return true;
@@ -1114,6 +1218,10 @@ export class SessionTaskCenter {
             return false;
         }
         this.sessionPendingQueues.set(sessionId, next);
+        this.pendingMessagePersistence.reorder(
+            sessionId,
+            next.map((message) => message.id)
+        );
         this.syncSessionQueueSnapshot(sessionId, next);
         return true;
     }
@@ -1131,6 +1239,7 @@ export class SessionTaskCenter {
         }
         this.invalidateSessionQueueHandoff(sessionId);
         this.sessionPendingQueues.set(sessionId, []);
+        this.pendingMessagePersistence.clear(sessionId);
         this.syncSessionQueueSnapshot(sessionId, []);
         return true;
     }
@@ -1155,6 +1264,9 @@ export class SessionTaskCenter {
                       providerId: providerId ?? undefined,
                   }
         );
+        if (task.sessionId !== null) {
+            this.pendingMessagePersistence.updateModel(task.sessionId, modelId, providerId);
+        }
         this.notifySubscribers(taskId);
         return true;
     }
@@ -1378,35 +1490,30 @@ export class SessionTaskCenter {
             const task = this.tasks.get(taskId);
             if (task && !isTerminalStatus(task.snapshot.status)) {
                 const aiError = AiError.fromError(error);
+                const nextPendingMessages = preparePendingMessagesForNextTurn(
+                    task.sessionId === null
+                        ? []
+                        : (this.sessionPendingQueues.get(task.sessionId) ?? []),
+                    task.snapshot.pendingUserMessages
+                );
+                task.snapshot.pendingUserMessages = nextPendingMessages;
+                if (task.sessionId !== null && nextPendingMessages.length > 0) {
+                    this.sessionPendingQueues.set(
+                        task.sessionId,
+                        cloneTaskValue(nextPendingMessages)
+                    );
+                    this.pendingMessagePersistence.reorder(
+                        task.sessionId,
+                        nextPendingMessages.map((message) => message.id)
+                    );
+                }
                 if (aiError.is(AiErrorCode.REQUEST_CANCELLED)) {
                     task.claimedPriorityMessageIds.clear();
-                    task.snapshot.pendingUserMessages = task.snapshot.pendingUserMessages.map(
-                        (message) => ({
-                            ...message,
-                            delivery: 'queue',
-                            immediate: undefined,
-                        })
-                    );
-                    if (task.sessionId !== null && task.snapshot.pendingUserMessages.length > 0) {
-                        this.sessionPendingQueues.set(
-                            task.sessionId,
-                            cloneTaskValue(
-                                mergePendingUserMessages(
-                                    this.sessionPendingQueues.get(task.sessionId) ?? [],
-                                    task.snapshot.pendingUserMessages
-                                )
-                            )
-                        );
-                    }
                     task.projection.markCancelled();
-                    if (task.snapshot.pendingUserMessages.length > 0) {
+                    if (nextPendingMessages.length > 0) {
                         this.scheduleQueuedTaskStart(taskId);
                     }
                 } else {
-                    task.snapshot.pendingUserMessages = [];
-                    if (task.sessionId !== null) {
-                        this.sessionPendingQueues.delete(task.sessionId);
-                    }
                     task.projection.markFailed(aiError.message, aiError.getDisplayMessage());
                 }
                 this.finalizeTaskLifecycle(taskId);
@@ -1524,6 +1631,7 @@ export class SessionTaskCenter {
             const started = await this.startTask({
                 prompt: next.prompt,
                 userMessageId: next.id,
+                pendingMessageId: next.id,
                 sessionId,
                 modelId: next.modelId ?? sourceTask?.snapshot.currentModel?.modelId,
                 providerId: next.providerId ?? sourceTask?.snapshot.currentModel?.providerId,
@@ -1620,7 +1728,13 @@ export class SessionTaskCenter {
         }
 
         if (event.type === 'task_started') {
+            const previousSessionId = task.sessionId;
             this.bindTaskToSession(taskId, event.sessionId);
+            if (previousSessionId === null && event.sessionId !== null) {
+                for (const message of task.snapshot.pendingUserMessages) {
+                    this.pendingMessagePersistence.enqueue(event.sessionId, message);
+                }
+            }
             return;
         }
 
@@ -1657,26 +1771,21 @@ export class SessionTaskCenter {
         ) {
             task.claimedPriorityMessageIds.clear();
             task.projection.syncInteractionRelease(task.interactions.cancelAll(), tt('请求已取消'));
-            if (event.type === 'task_completed' || event.type === 'task_cancelled') {
-                // 运行结束前没等到工具边界的插队消息，降级为下一轮排队。
-                const nextPendingMessages = preparePendingMessagesForNextTurn(
-                    task.sessionId === null
-                        ? []
-                        : (this.sessionPendingQueues.get(task.sessionId) ?? []),
-                    task.snapshot.pendingUserMessages
+            // Every terminal path keeps the user's queue. A failure stops the
+            // automatic hand-over, but it must not erase messages they queued.
+            const nextPendingMessages = preparePendingMessagesForNextTurn(
+                task.sessionId === null
+                    ? []
+                    : (this.sessionPendingQueues.get(task.sessionId) ?? []),
+                task.snapshot.pendingUserMessages
+            );
+            task.snapshot.pendingUserMessages = nextPendingMessages;
+            if (task.sessionId !== null && nextPendingMessages.length > 0) {
+                this.sessionPendingQueues.set(task.sessionId, cloneTaskValue(nextPendingMessages));
+                this.pendingMessagePersistence.reorder(
+                    task.sessionId,
+                    nextPendingMessages.map((message) => message.id)
                 );
-                task.snapshot.pendingUserMessages = nextPendingMessages;
-                if (task.sessionId !== null && task.snapshot.pendingUserMessages.length > 0) {
-                    this.sessionPendingQueues.set(
-                        task.sessionId,
-                        cloneTaskValue(nextPendingMessages)
-                    );
-                }
-            } else {
-                task.snapshot.pendingUserMessages = [];
-                if (task.sessionId !== null) {
-                    this.sessionPendingQueues.delete(task.sessionId);
-                }
             }
             this.finalizeTaskLifecycle(taskId);
             if (

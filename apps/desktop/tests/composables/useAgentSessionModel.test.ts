@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useAgent } from '@/composables/agent/useAgent';
+import type { PendingUserMessage } from '@/services/AgentService';
 
 /**
  * When a conversation is reopened the page has to pick a model and provider to show in the
@@ -15,6 +16,8 @@ const { getSessionDataMock, sessionTaskCenterMock } = vi.hoisted(() => ({
         approveTaskToolCall: vi.fn(() => true),
         cancelTask: vi.fn(() => true),
         rejectTaskToolCall: vi.fn(() => true),
+        restoreSessionQueue: vi.fn<() => Promise<PendingUserMessage[]>>(async () => []),
+        resumeSessionQueue: vi.fn(),
         startTask: vi.fn(),
         subscribeTask: vi.fn(),
     },
@@ -131,6 +134,28 @@ describe('user reopens a conversation whose model was deleted', () => {
 
         expect(loaded.modelId).toBeNull();
         expect(loaded.providerId).toBe(5);
+
+        mounted.unmount();
+    });
+});
+
+describe('user reopens a conversation with durable pending messages', () => {
+    it('user gets the queued bubbles restored and the queue resumed', async () => {
+        const pending = {
+            id: 'pending-1',
+            prompt: 'continue later',
+            delivery: 'queue' as const,
+            attachments: [],
+            createdAt: 1,
+        };
+        getSessionDataMock.mockResolvedValue(sessionData());
+        sessionTaskCenterMock.restoreSessionQueue.mockResolvedValueOnce([pending]);
+        const mounted = await mountComposable(() => useAgent());
+
+        await mounted.result.openSession(7);
+
+        expect(mounted.result.pendingUserMessages.value).toEqual([pending]);
+        expect(sessionTaskCenterMock.resumeSessionQueue).toHaveBeenCalledWith(7);
 
         mounted.unmount();
     });

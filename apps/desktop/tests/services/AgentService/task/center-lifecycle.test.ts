@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
 import type { TaskResult } from '@/services/AgentService/execution/runtime';
+import type { PendingMessageStore } from '@/services/AgentService/task/pendingMessagePersistence';
 import { computerUseService } from '@/services/ComputerUseService';
 import { log } from '@/services/ObservabilityService';
 import {
@@ -94,8 +95,19 @@ function completesInSession(sessionId: number | null, response = 'done') {
 }
 
 /** The task center is process-wide, so every test builds its own isolated instance. */
+const pendingMessageStore: PendingMessageStore = {
+    enqueue: vi.fn(),
+    update: vi.fn(),
+    remove: vi.fn(),
+    clear: vi.fn(),
+    reorder: vi.fn(),
+    updateModel: vi.fn(),
+    flush: vi.fn(async () => {}),
+    load: vi.fn(async () => []),
+};
+
 function createCenter() {
-    return new SessionTaskCenter();
+    return new SessionTaskCenter(pendingMessageStore);
 }
 
 describe('user starts a conversation task', () => {
