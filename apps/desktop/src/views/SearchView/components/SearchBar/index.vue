@@ -101,7 +101,7 @@
                         @click="handleModelDropdownToggleRequest"
                     >
                         <span
-                            class="truncate text-compact font-medium text-foreground"
+                            class="truncate font-serif text-compact font-medium text-foreground"
                             data-no-i18n="true"
                             translate="no"
                         >
