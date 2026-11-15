@@ -73,3 +73,35 @@ function isModelDropdownSubsequence(needle: string, haystack: string) {
 
     return false;
 }
+
+export type ModelDropdownSortKey = 'name' | 'vendor' | 'provider';
+
+const modelDropdownCollator = new Intl.Collator(undefined, {
+    numeric: true,
+    sensitivity: 'base',
+});
+
+function vendorOf(model: ModelDropdownItem) {
+    return model.providerDriver?.trim() || model.providerName;
+}
+
+function primarySortValue(model: ModelDropdownItem, key: ModelDropdownSortKey) {
+    if (key === 'name') return model.name;
+    if (key === 'vendor') return vendorOf(model);
+    return model.providerName;
+}
+
+export function sortModelDropdownItems(
+    models: ModelDropdownItem[],
+    key: ModelDropdownSortKey,
+    ascending: boolean
+) {
+    return [...models].sort((left, right) => {
+        const primary = modelDropdownCollator.compare(
+            primarySortValue(left, key),
+            primarySortValue(right, key)
+        );
+        const secondary = primary || modelDropdownCollator.compare(left.name, right.name);
+        return (ascending ? secondary : -secondary) || left.id - right.id;
+    });
+}

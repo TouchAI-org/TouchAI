@@ -160,6 +160,7 @@ export interface ModelDropdownItem {
     name: string;
     providerId: number;
     providerName: string;
+    providerDriver?: string;
     providerLogo?: string;
     reasoningLevels?: SelectableReasoningLevel[];
     reasoning: number;

@@ -956,6 +956,7 @@
                 name: model.name,
                 providerId: model.provider_id,
                 providerName: model.provider_name,
+                providerDriver: model.provider_driver,
                 providerLogo: model.provider_logo,
                 reasoningLevels: aiService.getModelReasoningLevels(model, {
                     hasTools: hasEnabledTools.value,

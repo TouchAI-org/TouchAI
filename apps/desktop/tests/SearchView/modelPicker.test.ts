@@ -20,6 +20,7 @@ const data = {
             name: 'GPT-6',
             providerId: 1,
             providerName: 'OpenAI',
+            providerDriver: 'openai',
             providerLogo: 'openai.png',
             reasoning: 1,
             reasoningLevels: ['low', 'medium', 'high', 'max'],
@@ -34,6 +35,7 @@ const data = {
             name: 'Claude Sonnet',
             providerId: 2,
             providerName: 'Anthropic',
+            providerDriver: 'anthropic',
             providerLogo: 'anthropic.png',
             reasoning: 1,
             reasoningLevels: ['low', 'high'],
@@ -99,22 +101,43 @@ describe('given models from two providers and different reasoning capabilities',
         );
     });
 
-    it('user filters by provider logo and returns to all models without losing the search', async () => {
+    it('user sees a numbered model list and no provider tab rail', async () => {
         const { wrapper } = renderPicker();
-        await wrapper.get('button[aria-label="Anthropic"]').trigger('click');
-        expect(wrapper.findAll('[role="option"]').map((row) => row.text())).toEqual([
-            expect.stringContaining('Claude Sonnet'),
-            expect.stringContaining('Plain model'),
-        ]);
-        await wrapper.get('input').setValue('sonnet');
-        await wrapper.get('button[aria-label="All providers"]').trigger('click');
-        expect(wrapper.findAll('[role="option"]')).toHaveLength(1);
-        expect(wrapper.get('[role="option"]').text()).toContain('Claude Sonnet');
+        const rows = wrapper.findAll('[role="option"]');
+
+        expect(rows.map((row) => row.text().trim().slice(0, 1))).toEqual(['1', '2', '3']);
+        expect(wrapper.find('[data-provider-id]').exists()).toBe(false);
+    });
+
+    it('user sorts the visible models by name, vendor, or provider and reverses the direction', async () => {
+        const { wrapper } = renderPicker();
+        const optionNames = () =>
+            wrapper
+                .findAll('[role="option"]')
+                .map((row) => row.attributes('title')!.split(' · ')[0]);
+
+        await wrapper.get('[data-sort-trigger]').trigger('click');
+        await flushPromises();
+        document.querySelector<HTMLElement>('[data-sort-field="name"]')!.click();
+        await flushPromises();
+        expect(optionNames()).toEqual(['Claude Sonnet', 'GPT-6', 'Plain model']);
+
+        await wrapper.get('[data-sort-trigger]').trigger('click');
+        await flushPromises();
+        document.querySelector<HTMLElement>('[data-sort-field="provider"]')!.click();
+        await flushPromises();
+        expect(optionNames()).toEqual(['Claude Sonnet', 'Plain model', 'GPT-6']);
+
+        await wrapper.get('[data-sort-trigger]').trigger('click');
+        await flushPromises();
+        document.querySelector<HTMLElement>('[data-sort-direction="true"]')!.click();
+        await flushPromises();
+        expect(optionNames()).toEqual(['GPT-6', 'Plain model', 'Claude Sonnet']);
     });
 
     it('user chooses a visible model with its displayed numeric shortcut', async () => {
         const { wrapper, onModelSelect } = renderPicker();
-        await wrapper.get('button[aria-label="Anthropic"]').trigger('click');
+        await wrapper.get('input').setValue('sonnet');
         expect(wrapper.get('[role="option"]').text()).toContain('Ctrl+1');
         await wrapper.get('input').trigger('keydown', { key: '1', ctrlKey: true });
         await flushPromises();
