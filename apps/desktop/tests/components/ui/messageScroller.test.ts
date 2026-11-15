@@ -743,6 +743,31 @@ describe('user follows streamed output', () => {
         expect(viewport.scrollTop).toBe(590);
     });
 
+    it('user stays away after a small upward wheel delivers its scroll event', async () => {
+        const wrapper = mountScroller({ followOutput: true });
+        const viewport = viewportOf(wrapper);
+        setScrollMetrics(viewport, {
+            scrollTop: 600,
+            scrollHeight: 1_000,
+            clientHeight: 400,
+        });
+        const scrollTo = stubScrollTo(viewport);
+        await settleLayout();
+        scrollTo.mockClear();
+
+        viewport.scrollTop = 590;
+        viewport.dispatchEvent(new WheelEvent('wheel', { deltaY: -10, bubbles: true }));
+        viewport.dispatchEvent(new Event('scroll'));
+        await settleLayout();
+
+        setScrollHeight(viewport, 1_200);
+        triggerResize();
+        await settleLayout();
+
+        expect(scrollTo).not.toHaveBeenCalled();
+        expect(viewport.scrollTop).toBe(590);
+    });
+
     it('user resumes following after returning to the live edge', async () => {
         const wrapper = mountScroller({ followOutput: true });
         const viewport = viewportOf(wrapper);

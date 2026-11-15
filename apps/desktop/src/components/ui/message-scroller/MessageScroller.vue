@@ -248,7 +248,11 @@
 
         const { scrollHeight, scrollTop, clientHeight } = element;
         const distance = Math.max(0, scrollHeight - scrollTop - clientHeight);
-        const nextFollowing = distance <= props.followThreshold;
+        // Resuming follow only at the true end keeps a small upward wheel from
+        // being undone by the scroll event that follows it.
+        const nextFollowing = following.value
+            ? distance <= props.followThreshold
+            : distance <= END_TOLERANCE;
 
         if (updateFollowing) {
             setFollowing(nextFollowing);
