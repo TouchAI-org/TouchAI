@@ -533,6 +533,73 @@ describe('user waits for a queued message to become the next turn', () => {
         });
         center.cancelTask(next!.taskId, { preservePending: false });
     });
+
+    it('user gets a new queue started while an earlier message remains in edit', async () => {
+        runtimeState.run
+            .mockImplementationOnce(finishableRun(17))
+            .mockImplementation(staysRunningInSession(17));
+        const center = createCenter();
+        const first = await center.startTask({ prompt: 'first', sessionId: 17 });
+        const editing = center.enqueueTaskUserMessage(
+            first.taskId,
+            { prompt: 'editing' },
+            'queue'
+        )!;
+        expect(center.setTaskUserMessageEditing(first.taskId, editing.id, true)).toBe(true);
+
+        finishCurrentTask!();
+        await first.completion;
+        expect(runtimeState.instances).toHaveLength(1);
+
+        const late = center.enqueueSessionUserMessage(17, { prompt: 'late' }, 'queue');
+        expect(late).toMatchObject({ prompt: 'late', delivery: 'queue' });
+
+        await vi.waitFor(() => expect(runtimeState.instances).toHaveLength(2));
+        const next = center.getSessionStatus(17);
+        expect(center.getTaskSnapshot(next!.taskId)?.sessionHistory[0]).toMatchObject({
+            id: late!.id,
+            content: 'late',
+        });
+        expect(center.getTaskSnapshot(next!.taskId)?.pendingUserMessages).toEqual([
+            expect.objectContaining({
+                id: editing.id,
+                prompt: 'editing',
+                editing: true,
+            }),
+        ]);
+        center.cancelTask(next!.taskId, { preservePending: false });
+    });
+
+    it('user gets an edited queue started after the finished task is released', async () => {
+        vi.useFakeTimers();
+        let center!: ReturnType<typeof createCenter>;
+        let editing!: PendingUserMessage;
+        try {
+            runtimeState.run
+                .mockImplementationOnce(finishableRun(18))
+                .mockImplementation(staysRunningInSession(18));
+            center = createCenter();
+            const first = await center.startTask({ prompt: 'first', sessionId: 18 });
+            editing = center.enqueueTaskUserMessage(first.taskId, { prompt: 'editing' }, 'queue');
+            expect(center.setTaskUserMessageEditing(first.taskId, editing.id, true)).toBe(true);
+
+            finishCurrentTask!();
+            await first.completion;
+            await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+            expect(center.getTaskSnapshot(first.taskId)).toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
+
+        expect(center.setSessionUserMessageEditing(18, editing.id, false)).toBe(true);
+        await vi.waitFor(() => expect(runtimeState.instances).toHaveLength(2));
+        const next = center.getSessionStatus(18);
+        expect(center.getTaskSnapshot(next!.taskId)?.sessionHistory[0]).toMatchObject({
+            id: editing.id,
+            content: 'editing',
+        });
+        center.cancelTask(next!.taskId, { preservePending: false });
+    });
 });
 
 describe('user cancels a run with pending messages', () => {

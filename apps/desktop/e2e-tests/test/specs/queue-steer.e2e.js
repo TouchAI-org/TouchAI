@@ -962,6 +962,72 @@ describe('user sends queued and priority messages during a running answer', () =
         );
     });
 
+    it('user can keep queueing and finish editing after the original queue drains', async () => {
+        const releaseFirstAnswer = deferred();
+        const releaseNewQueueAnswer = deferred();
+        const releaseEditedAnswer = deferred();
+        const heldForEdit = 'Queue held after the original answer finishes';
+        const newQueue = 'Queue added while the old queue is held for editing';
+
+        server.planNext(async ({ stream }) => {
+            stream.text('Finishing the answer while one queue remains in edit.');
+            await releaseFirstAnswer.promise;
+            stream.finish('stop');
+        });
+        server.planNext(async ({ stream }) => {
+            stream.text('Running a new queue while the old one is still in edit.');
+            await releaseNewQueueAnswer.promise;
+            stream.finish('stop');
+        });
+        server.planNext(async ({ stream }) => {
+            stream.text('Running the held queue after its edit is cancelled.');
+            await releaseEditedAnswer.promise;
+            stream.finish('stop');
+        });
+
+        await startRunningTurn(server);
+        const { message: heldMessage } = await submitWhileRunning(heldForEdit, 'enter', 'queue', 1);
+        await clickMessageAction(heldMessage, 'pending-message-edit');
+        await waitForConversation(
+            (messages) =>
+                messageByText(messages, heldForEdit)?.editing === true &&
+                pendingMessages(messages).length === 1,
+            'Opening the only queue for editing did not keep it parked.'
+        );
+
+        releaseFirstAnswer.resolve();
+        await waitForConversation(
+            (messages) =>
+                messageByText(messages, heldForEdit)?.editing === true && !loadingMessage(messages),
+            'The edited queue did not remain parked after the original answer finished.'
+        );
+
+        await fillSearchDraft(newQueue);
+        await submitSearchDraft('enter');
+        await server.waitForRequestCount(2);
+        assertLatestUserText(server.requests[1], newQueue);
+        const afterNewQueue = await waitForConversation(
+            (messages) =>
+                messageByText(messages, heldForEdit)?.editing === true &&
+                messageByText(messages, newQueue)?.pendingDelivery === null &&
+                Boolean(loadingMessage(messages)),
+            'A new queue message did not start while the old queue stayed in edit.'
+        );
+
+        await clickMessageAction(
+            messageByText(afterNewQueue, heldForEdit),
+            'pending-message-cancel-edit'
+        );
+        releaseNewQueueAnswer.resolve();
+        await server.waitForRequestCount(3);
+        assertLatestUserText(server.requests[2], heldForEdit);
+        releaseEditedAnswer.resolve();
+        await waitForConversation(
+            (messages) => pendingMessages(messages).length === 0 && !loadingMessage(messages),
+            'The queue stayed stuck after its edit ended and the queue drained.'
+        );
+    });
+
     it('user can cancel editing without removing the queued message', async () => {
         const releaseAnswer = deferred();
         const queuedToEdit = 'Queue whose edit will be cancelled';
