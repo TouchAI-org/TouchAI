@@ -11,6 +11,7 @@ export type NavigationSection =
     | 'computer-use'
     | 'search'
     | 'browser'
+    | 'privacy-filter'
     | 'mcp-tools'
     | 'skills'
     | 'data-management';
