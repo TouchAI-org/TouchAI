@@ -3,12 +3,7 @@
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
     import EmptyState from '@components/EmptyState.vue';
-    import {
-        DropdownMenu,
-        DropdownMenuContent,
-        DropdownMenuItem,
-        DropdownMenuTrigger,
-    } from '@components/ui/dropdown-menu';
+    import ModelLogo from '@components/ModelLogo.vue';
     import { native } from '@services/NativeService';
     import { log } from '@services/ObservabilityService';
     import { FocusScope } from 'reka-ui';
@@ -28,6 +23,7 @@
         matchShortcut,
         normalizeLocalShortcutString,
     } from '@/utils/shortcuts';
+    import BadgedLogo from '@/views/SettingsView/components/AiServices/components/BadgedLogo.vue';
 
     import type { ModelDropdownData, ModelDropdownItem } from '../../types';
     import {
@@ -48,11 +44,13 @@
     }>();
     const emit = defineEmits<{ close: [] }>();
     const pickerRef = ref<HTMLElement | null>(null);
+    const modelListRef = ref<HTMLElement | null>(null);
     const searchInputRef = ref<InstanceType<typeof Input> | null>(null);
     const listId = useId();
     const localSearchQuery = ref(props.data?.searchQuery ?? '');
     const sortKey = ref<ModelDropdownSortKey | null>(null);
     const sortAscending = ref(true);
+    const sortMenuOpen = ref(false);
     const highlightedIndex = ref(0);
     const selecting = ref(false);
     const selectionError = ref(false);
@@ -62,6 +60,18 @@
         { key: 'provider', labelKey: 'popup.modelDropdown.sort.provider' },
     ];
     const allModels = computed(() => props.data?.models ?? []);
+    const providers = computed(() => [
+        ...new Map(
+            allModels.value.map((model) => [
+                model.providerId,
+                {
+                    id: model.providerId,
+                    name: model.providerName,
+                    logo: model.providerLogo ?? '',
+                },
+            ])
+        ).values(),
+    ]);
     const models = computed(() => {
         const filtered = filterModelDropdownItems(allModels.value, localSearchQuery.value);
         return sortKey.value
@@ -156,6 +166,37 @@
         if (!sortKey.value) return;
         sortAscending.value = !sortAscending.value;
         highlightedIndex.value = 0;
+    }
+
+    function toggleSortMenu() {
+        sortMenuOpen.value = !sortMenuOpen.value;
+    }
+
+    function closeSortMenu() {
+        sortMenuOpen.value = false;
+    }
+
+    function chooseSort(key: ModelDropdownSortKey) {
+        setSortKey(key);
+        closeSortMenu();
+    }
+
+    function chooseSortDirection() {
+        toggleSortDirection();
+        closeSortMenu();
+    }
+
+    async function scrollToProvider(providerId: number | null) {
+        const index =
+            providerId === null
+                ? 0
+                : models.value.findIndex((model) => model.providerId === providerId);
+        if (index < 0) return;
+        highlightedIndex.value = index;
+        await nextTick();
+        modelListRef.value
+            ?.querySelector<HTMLElement>(`[data-model-id="${models.value[index]!.id}"]`)
+            ?.scrollIntoView({ block: 'start' });
     }
 
     async function scrollToHighlighted(moveFocus = false) {
@@ -254,55 +295,101 @@
             data-search-controls="true"
             role="dialog"
             :aria-label="t('search.toolbar.selectModel')"
-            class="model-dropdown-popover search-surface-elevated flex h-96 w-160 flex-col overflow-hidden text-foreground"
+            class="model-dropdown-popover search-surface-elevated flex h-96 w-128 flex-col overflow-hidden text-foreground"
             :style="{
                 maxHeight: 'var(--search-overlay-max-height, 24rem)',
-                maxWidth: 'var(--search-overlay-max-width, 40rem)',
+                maxWidth: 'var(--search-overlay-max-width, 32rem)',
             }"
             @keydown="handleKeyDown"
+            @click="closeSortMenu"
         >
-            <div class="flex min-w-0 flex-1 flex-col">
-                <div class="flex h-12 shrink-0 items-center gap-1 border-b border-border px-3">
-                    <AppIcon name="search" class="size-4 shrink-0 text-muted-foreground" />
-                    <Input
-                        ref="searchInputRef"
-                        variant="search"
-                        :model-value="localSearchQuery"
-                        :placeholder="t('popup.modelDropdown.searchPlaceholder')"
-                        :aria-label="t('popup.modelDropdown.searchPlaceholder')"
-                        role="combobox"
-                        aria-expanded="true"
-                        aria-autocomplete="list"
-                        :aria-controls="listId"
-                        :aria-activedescendant="
-                            highlightedModel ? `${listId}-${highlightedModel.id}` : undefined
+            <div class="flex min-h-0 flex-1">
+                <nav
+                    class="custom-scrollbar-thin flex w-14 shrink-0 flex-col items-center gap-1 overflow-y-auto border-r border-border px-1 py-2"
+                    :aria-label="t('popup.modelDropdown.providers')"
+                >
+                    <Button
+                        variant="toolbar"
+                        size="icon"
+                        data-provider-index="all"
+                        :aria-label="t('popup.modelDropdown.allProviders')"
+                        :title="t('popup.modelDropdown.allProviders')"
+                        @click="scrollToProvider(null)"
+                    >
+                        <AppIcon name="grid-alt" class="size-5" />
+                    </Button>
+                    <div class="my-1 w-7 border-t border-border" />
+                    <Button
+                        v-for="provider in providers"
+                        :key="provider.id"
+                        variant="toolbar"
+                        size="icon"
+                        :data-provider-index="provider.id"
+                        :aria-label="provider.name"
+                        :title="provider.name"
+                        :aria-current="
+                            highlightedModel?.providerId === provider.id ? 'true' : undefined
                         "
-                        @update:model-value="handleSearchInput"
-                    />
-                    <DropdownMenu>
-                        <DropdownMenuTrigger as-child>
-                            <Button
-                                variant="toolbar"
-                                size="icon-sm"
-                                data-sort-trigger="true"
-                                :aria-label="t('popup.modelDropdown.sortTitle')"
-                                :title="t('popup.modelDropdown.sortTitle')"
-                            >
-                                <AppIcon name="sort" class="size-4" />
-                            </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent
-                            align="end"
-                            :side-offset="4"
-                            data-search-controls="true"
-                            class="min-w-44 rounded-lg border border-border bg-surface-floating p-1 font-serif text-foreground shadow-lg"
+                        :class="
+                            highlightedModel?.providerId === provider.id
+                                ? 'bg-surface-active text-foreground'
+                                : ''
+                        "
+                        :disabled="selecting"
+                        @click="scrollToProvider(provider.id)"
+                    >
+                        <BadgedLogo :logo="provider.logo" :name="provider.name" />
+                    </Button>
+                </nav>
+                <div class="flex min-h-0 min-w-0 flex-1 flex-col">
+                    <div
+                        class="relative flex h-12 shrink-0 items-center gap-1 border-b border-border px-3"
+                    >
+                        <AppIcon name="search" class="size-4 shrink-0 text-muted-foreground" />
+                        <Input
+                            ref="searchInputRef"
+                            variant="search"
+                            :model-value="localSearchQuery"
+                            :placeholder="t('popup.modelDropdown.searchPlaceholder')"
+                            :aria-label="t('popup.modelDropdown.searchPlaceholder')"
+                            role="combobox"
+                            aria-expanded="true"
+                            aria-autocomplete="list"
+                            :aria-controls="listId"
+                            :aria-activedescendant="
+                                highlightedModel ? `${listId}-${highlightedModel.id}` : undefined
+                            "
+                            @update:model-value="handleSearchInput"
+                        />
+                        <Button
+                            variant="toolbar"
+                            size="icon-sm"
+                            data-sort-trigger="true"
+                            :aria-label="t('popup.modelDropdown.sortTitle')"
+                            :title="t('popup.modelDropdown.sortTitle')"
+                            :aria-expanded="sortMenuOpen"
+                            aria-haspopup="menu"
+                            @click.stop="toggleSortMenu"
                         >
-                            <DropdownMenuItem
+                            <AppIcon name="sort" class="size-4" />
+                        </Button>
+                        <div
+                            v-if="sortMenuOpen"
+                            data-sort-menu="true"
+                            role="menu"
+                            class="absolute top-full right-0 z-20 mt-1 min-w-44 rounded-lg border border-border bg-surface-floating p-1 font-serif text-foreground shadow-lg"
+                            @click.stop
+                            @keydown.esc.stop="closeSortMenu"
+                        >
+                            <button
                                 v-for="option in sortOptions"
                                 :key="option.key"
+                                type="button"
+                                role="menuitemradio"
                                 :data-sort-field="option.key"
-                                class="rounded-sm px-2 py-1.5 text-sm text-foreground data-[highlighted]:bg-surface-hover"
-                                @select="setSortKey(option.key)"
+                                :aria-checked="sortKey === option.key"
+                                class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-foreground outline-none hover:bg-surface-hover focus-visible:bg-surface-hover"
+                                @click="chooseSort(option.key)"
                             >
                                 <AppIcon
                                     name="check"
@@ -310,13 +397,15 @@
                                     :class="sortKey === option.key ? '' : 'invisible'"
                                 />
                                 {{ t(option.labelKey) }}
-                            </DropdownMenuItem>
+                            </button>
                             <div class="my-1 border-t border-border"></div>
-                            <DropdownMenuItem
+                            <button
+                                type="button"
+                                role="menuitem"
                                 data-sort-direction="true"
                                 :disabled="sortKey === null"
-                                class="rounded-sm px-2 py-1.5 text-sm text-foreground data-[highlighted]:bg-surface-hover"
-                                @select="toggleSortDirection"
+                                class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-foreground outline-none hover:bg-surface-hover focus-visible:bg-surface-hover disabled:pointer-events-none disabled:opacity-50"
+                                @click="chooseSortDirection"
                             >
                                 <AppIcon
                                     :name="sortAscending ? 'chevron-up' : 'chevron-down'"
@@ -329,98 +418,101 @@
                                             : 'popup.modelDropdown.sort.descending'
                                     )
                                 }}
-                            </DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
-                </div>
-                <div
-                    :id="listId"
-                    class="custom-scrollbar-thin min-h-0 flex-1 overflow-y-auto p-2"
-                    role="listbox"
-                    :aria-label="t('search.toolbar.selectModel')"
-                >
-                    <Button
-                        v-for="(model, index) in models"
-                        :id="`${listId}-${model.id}`"
-                        :key="model.id"
-                        variant="picker"
-                        size="sm"
-                        role="option"
-                        :data-model-id="model.id"
-                        :data-highlighted="index === highlightedIndex"
-                        :aria-selected="isCurrent(model)"
-                        :tabindex="index === highlightedIndex ? 0 : -1"
-                        :title="`${model.name} · ${model.providerName}`"
-                        :disabled="selecting"
-                        @mouseenter="highlightedIndex = index"
-                        @focus="highlightedIndex = index"
-                        @click="handleSelect(model)"
+                            </button>
+                        </div>
+                    </div>
+                    <div
+                        :id="listId"
+                        ref="modelListRef"
+                        class="custom-scrollbar-thin min-h-0 flex-1 overflow-y-auto p-2"
+                        role="listbox"
+                        :aria-label="t('search.toolbar.selectModel')"
                     >
-                        <span
-                            aria-hidden="true"
-                            class="flex size-6 shrink-0 items-center justify-center rounded-sm bg-surface-sunken text-2xs font-medium text-muted-foreground tabular-nums"
+                        <Button
+                            v-for="(model, index) in models"
+                            :id="`${listId}-${model.id}`"
+                            :key="model.id"
+                            variant="picker"
+                            size="sm"
+                            role="option"
+                            :data-model-id="model.id"
+                            :data-highlighted="index === highlightedIndex"
+                            :aria-selected="isCurrent(model)"
+                            :tabindex="index === highlightedIndex ? 0 : -1"
+                            :title="`${model.name} · ${model.providerName}`"
+                            :disabled="selecting"
+                            @mouseenter="highlightedIndex = index"
+                            @focus="highlightedIndex = index"
+                            @click="handleSelect(model)"
                         >
-                            {{ index + 1 }}
-                        </span>
-                        <span
-                            class="min-w-0 flex-1 truncate text-left"
-                            data-no-i18n="true"
-                            translate="no"
-                        >
-                            {{ model.name }}
-                            <span class="text-muted-foreground">· {{ model.providerName }}</span>
-                        </span>
-                        <span
-                            v-if="
-                                model.modelId === data?.activeModelId &&
-                                model.providerId === data?.activeProviderId
+                            <ModelLogo
+                                :model-id="model.modelId"
+                                :name="model.name"
+                                size="sm"
+                                class="shrink-0"
+                            />
+                            <span
+                                class="min-w-0 flex-1 truncate text-left"
+                                data-no-i18n="true"
+                                translate="no"
+                            >
+                                {{ model.name }}
+                                <span class="text-muted-foreground">
+                                    · {{ model.providerName }}
+                                </span>
+                            </span>
+                            <span
+                                v-if="
+                                    model.modelId === data?.activeModelId &&
+                                    model.providerId === data?.activeProviderId
+                                "
+                                class="model-dropdown-state-badge shrink-0 text-2xs whitespace-nowrap text-muted-foreground"
+                            >
+                                {{ t('common.default') }}
+                            </span>
+                            <kbd
+                                v-if="shortcutFor(index)"
+                                class="shrink-0 rounded-sm bg-surface-sunken px-1 text-2xs font-normal text-muted-foreground"
+                            >
+                                {{ formatShortcutForDisplay(shortcutFor(index)) }}
+                            </kbd>
+                            <AppIcon
+                                v-if="isCurrent(model)"
+                                name="check"
+                                class="size-3.5 shrink-0"
+                                :aria-label="t('common.current')"
+                            />
+                        </Button>
+                        <EmptyState
+                            v-if="models.length === 0"
+                            :title="
+                                t(
+                                    hasFilter
+                                        ? 'popup.modelDropdown.empty.noMatches'
+                                        : 'popup.modelDropdown.empty.noModels'
+                                )
                             "
-                            class="model-dropdown-state-badge shrink-0 text-2xs whitespace-nowrap text-muted-foreground"
+                            :icon="hasFilter ? 'search' : 'database'"
+                            size="compact"
                         >
-                            {{ t('common.default') }}
-                        </span>
-                        <kbd
-                            v-if="shortcutFor(index)"
-                            class="shrink-0 rounded-sm bg-surface-sunken px-1 text-2xs font-normal text-muted-foreground"
-                        >
-                            {{ formatShortcutForDisplay(shortcutFor(index)) }}
-                        </kbd>
-                        <AppIcon
-                            v-if="isCurrent(model)"
-                            name="check"
-                            class="size-3.5 shrink-0"
-                            :aria-label="t('common.current')"
-                        />
-                    </Button>
-                    <EmptyState
-                        v-if="models.length === 0"
-                        :title="
-                            t(
-                                hasFilter
-                                    ? 'popup.modelDropdown.empty.noMatches'
-                                    : 'popup.modelDropdown.empty.noModels'
-                            )
-                        "
-                        :icon="hasFilter ? 'search' : 'database'"
-                        size="compact"
-                    >
-                        <template #description>
-                            <span v-if="hasFilter">
-                                {{ t('popup.modelDropdown.empty.tryShorter') }}
-                            </span>
-                            <span v-else>
-                                {{ t('popup.modelDropdown.emptySetupPrefix') }}
-                                <Button
-                                    variant="link"
-                                    size="sm"
-                                    @click="openSettingsFromEmptyState"
-                                >
-                                    {{ t('popup.modelDropdown.settingsCenter') }}
-                                </Button>
-                                {{ t('popup.modelDropdown.emptySetupSuffix') }}
-                            </span>
-                        </template>
-                    </EmptyState>
+                            <template #description>
+                                <span v-if="hasFilter">
+                                    {{ t('popup.modelDropdown.empty.tryShorter') }}
+                                </span>
+                                <span v-else>
+                                    {{ t('popup.modelDropdown.emptySetupPrefix') }}
+                                    <Button
+                                        variant="link"
+                                        size="sm"
+                                        @click="openSettingsFromEmptyState"
+                                    >
+                                        {{ t('popup.modelDropdown.settingsCenter') }}
+                                    </Button>
+                                    {{ t('popup.modelDropdown.emptySetupSuffix') }}
+                                </span>
+                            </template>
+                        </EmptyState>
+                    </div>
                 </div>
             </div>
             <div class="shrink-0 border-t border-border px-3 py-2.5">

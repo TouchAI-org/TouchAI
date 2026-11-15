@@ -101,12 +101,13 @@ describe('given models from two providers and different reasoning capabilities',
         );
     });
 
-    it('user sees a numbered model list and no provider tab rail', async () => {
+    it('user uses the provider logo column as a list index without filtering', async () => {
         const { wrapper } = renderPicker();
-        const rows = wrapper.findAll('[role="option"]');
 
-        expect(rows.map((row) => row.text().trim().slice(0, 1))).toEqual(['1', '2', '3']);
-        expect(wrapper.find('[data-provider-id]').exists()).toBe(false);
+        expect(wrapper.get('nav').findAll('button')).toHaveLength(3);
+        await wrapper.get('button[aria-label="Anthropic"]').trigger('click');
+        expect(wrapper.findAll('[role="option"]')).toHaveLength(3);
+        expect(wrapper.get('[data-model-id="20"]').attributes('data-highlighted')).toBe('true');
     });
 
     it('user sorts the visible models by name, vendor, or provider and reverses the direction', async () => {
