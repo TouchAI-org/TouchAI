@@ -471,6 +471,45 @@ describe('user waits for a queued message to become the next turn', () => {
         });
     });
 
+    it('user gets an undelivered steer before earlier queues when the run ends', async () => {
+        runtimeState.run
+            .mockImplementationOnce(finishableRun(19))
+            .mockImplementation(staysRunningInSession(19));
+        const center = createCenter();
+        const first = await center.startTask({ prompt: 'first', sessionId: 19 });
+        const queuedFirst = center.enqueueTaskUserMessage(
+            first.taskId,
+            { prompt: 'queued first' },
+            'queue'
+        );
+        const queuedSecond = center.enqueueTaskUserMessage(
+            first.taskId,
+            { prompt: 'queued second' },
+            'queue'
+        );
+        const steered = center.enqueueTaskUserMessage(
+            first.taskId,
+            { prompt: 'steer last' },
+            'priority'
+        );
+
+        finishCurrentTask!();
+        await first.completion;
+
+        await vi.waitFor(() => expect(runtimeState.instances).toHaveLength(2));
+        const next = center.getSessionStatus(19);
+        const nextSnapshot = center.getTaskSnapshot(next!.taskId);
+        expect(nextSnapshot?.sessionHistory[0]).toMatchObject({
+            id: steered!.id,
+            content: 'steer last',
+        });
+        expect(nextSnapshot?.pendingUserMessages.map((message) => message.id)).toEqual([
+            queuedFirst!.id,
+            queuedSecond!.id,
+        ]);
+        center.cancelTask(next!.taskId, { preservePending: false });
+    });
+
     it('user gets a queued message skipped while it is being edited', async () => {
         runtimeState.run
             .mockImplementationOnce(finishableRun(13))
@@ -559,6 +598,46 @@ describe('user waits for a queued message to become the next turn', () => {
         expect(center.getTaskSnapshot(next!.taskId)?.sessionHistory[0]).toMatchObject({
             id: late!.id,
             content: 'late',
+        });
+        expect(center.getTaskSnapshot(next!.taskId)?.pendingUserMessages).toEqual([
+            expect.objectContaining({
+                id: editing.id,
+                prompt: 'editing',
+                editing: true,
+            }),
+        ]);
+        center.cancelTask(next!.taskId, { preservePending: false });
+    });
+
+    it('user gets a steer added in the hand-off window started before an edited queue', async () => {
+        runtimeState.run
+            .mockImplementationOnce(finishableRun(20))
+            .mockImplementation(staysRunningInSession(20));
+        const center = createCenter();
+        const first = await center.startTask({ prompt: 'first', sessionId: 20 });
+        const editing = center.enqueueTaskUserMessage(
+            first.taskId,
+            { prompt: 'editing' },
+            'queue'
+        )!;
+        expect(center.setTaskUserMessageEditing(first.taskId, editing.id, true)).toBe(true);
+
+        finishCurrentTask!();
+        await first.completion;
+        expect(runtimeState.instances).toHaveLength(1);
+
+        const steered = center.enqueueSessionUserMessage(
+            20,
+            { prompt: 'steer in hand-off' },
+            'priority'
+        );
+        expect(steered).toMatchObject({ prompt: 'steer in hand-off', delivery: 'priority' });
+
+        await vi.waitFor(() => expect(runtimeState.instances).toHaveLength(2));
+        const next = center.getSessionStatus(20);
+        expect(center.getTaskSnapshot(next!.taskId)?.sessionHistory[0]).toMatchObject({
+            id: steered!.id,
+            content: 'steer in hand-off',
         });
         expect(center.getTaskSnapshot(next!.taskId)?.pendingUserMessages).toEqual([
             expect.objectContaining({

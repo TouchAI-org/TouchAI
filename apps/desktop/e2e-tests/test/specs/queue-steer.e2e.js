@@ -639,6 +639,80 @@ describe('user sends queued and priority messages during a running answer', () =
         );
     });
 
+    it('user gets a steer that misses the end of the run ahead of earlier queues', async () => {
+        const releaseAnswer = deferred();
+        const holdSteerAnswer = deferred();
+        const holdFirstQueueAnswer = deferred();
+        const queuedFirst = 'Queue submitted before the steer';
+        const queuedSecond = 'Second queue submitted before the steer';
+        const steered = 'Steer submitted after both queues';
+
+        server.planNext(async ({ stream }) => {
+            stream.text('Answer with no tool call.');
+            await releaseAnswer.promise;
+            stream.finish('stop');
+        });
+        server.planNext(async ({ stream }) => {
+            stream.text('Answer for the downgraded steer.');
+            await holdSteerAnswer.promise;
+            stream.finish('stop');
+        });
+        server.planNext(async ({ stream }) => {
+            stream.text('Answer for the first queue.');
+            await holdFirstQueueAnswer.promise;
+            stream.finish('stop');
+        });
+        server.planNext(({ stream }) => {
+            stream.text('Answer for the second queue.');
+            stream.finish('stop');
+        });
+
+        await startRunningTurn(server);
+        await submitWhileRunning(queuedFirst, 'enter', 'queue', 1);
+        await submitWhileRunning(queuedSecond, 'enter', 'queue', 2);
+        await submitWhileRunning(steered, 'modified', 'priority', 3);
+
+        const beforeCompletion = await readConversationMessages();
+        assertPendingOrder(beforeCompletion, [steered, queuedFirst, queuedSecond]);
+        assertSolidSteer(messageByText(beforeCompletion, steered));
+        assertQueuedMessage(messageByText(beforeCompletion, queuedFirst));
+        assertQueuedMessage(messageByText(beforeCompletion, queuedSecond));
+
+        releaseAnswer.resolve();
+        await server.waitForRequestCount(2);
+        assertReceivedUserTexts(server.requests[1], [INITIAL_PROMPT, steered]);
+
+        const downgraded = await waitForConversation(
+            (state) =>
+                messageByText(state, steered)?.pendingDelivery === null &&
+                messageByText(state, queuedFirst)?.pendingDelivery === 'queue' &&
+                Boolean(loadingMessage(state)),
+            'The downgraded steer did not start ahead of the queues submitted before it.'
+        );
+        assertDeliveredUserMessage(messageByText(downgraded, steered));
+        assertQueuedMessage(messageByText(downgraded, queuedFirst));
+        assertQueuedMessage(messageByText(downgraded, queuedSecond));
+
+        holdSteerAnswer.resolve();
+        await server.waitForRequestCount(3);
+        assertLatestUserText(server.requests[2], queuedFirst);
+        await waitForConversation(
+            (state) =>
+                messageByText(state, queuedFirst)?.pendingDelivery === null &&
+                messageByText(state, queuedSecond)?.pendingDelivery === 'queue' &&
+                Boolean(loadingMessage(state)),
+            'The first queue did not run after the downgraded steer turn.'
+        );
+
+        holdFirstQueueAnswer.resolve();
+        await server.waitForRequestCount(4);
+        assertLatestUserText(server.requests[3], queuedSecond);
+        await waitForConversation(
+            (state) => pendingMessages(state).length === 0 && !loadingMessage(state),
+            'The second queue did not run after the first queue turn.'
+        );
+    });
+
     it('user steers again after one tool boundary while earlier queues stay pending', async () => {
         const releaseFirstBoundary = deferred();
         const releaseSecondBoundary = deferred();

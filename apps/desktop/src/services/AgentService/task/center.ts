@@ -113,6 +113,32 @@ function isDeliverableQueuedMessage(message: PendingUserMessage): boolean {
     return message.delivery === 'queue' && message.editing !== true;
 }
 
+function findNextDeliverableMessageIndex(messages: readonly PendingUserMessage[]): number {
+    const priorityIndex = messages.findIndex(
+        (message) => message.delivery === 'priority' && message.editing !== true
+    );
+    return priorityIndex >= 0 ? priorityIndex : messages.findIndex(isDeliverableQueuedMessage);
+}
+
+/**
+ * A steer that missed its delivery boundary still belongs ahead of the queues
+ * that were already waiting when it was submitted.
+ */
+function preparePendingMessagesForNextTurn(
+    ...lists: ReadonlyArray<readonly PendingUserMessage[]>
+): PendingUserMessage[] {
+    const merged = mergePendingUserMessages(...lists);
+    const priority = merged
+        .filter((message) => message.delivery === 'priority')
+        .map((message) => ({
+            ...message,
+            delivery: 'queue' as const,
+            immediate: undefined,
+        }));
+    const queued = merged.filter((message) => message.delivery !== 'priority');
+    return [...priority, ...queued];
+}
+
 /**
  * Reorder only the queued messages, preserving the slots occupied by steers.
  *
@@ -1475,7 +1501,7 @@ export class SessionTaskCenter {
             return;
         }
 
-        const nextIndex = queued.findIndex(isDeliverableQueuedMessage);
+        const nextIndex = findNextDeliverableMessageIndex(queued);
         if (nextIndex < 0) {
             return;
         }
@@ -1633,22 +1659,17 @@ export class SessionTaskCenter {
             task.projection.syncInteractionRelease(task.interactions.cancelAll(), tt('请求已取消'));
             if (event.type === 'task_completed' || event.type === 'task_cancelled') {
                 // 运行结束前没等到工具边界的插队消息，降级为下一轮排队。
-                task.snapshot.pendingUserMessages = task.snapshot.pendingUserMessages.map(
-                    (message) => ({
-                        ...message,
-                        delivery: 'queue',
-                        immediate: undefined,
-                    })
+                const nextPendingMessages = preparePendingMessagesForNextTurn(
+                    task.sessionId === null
+                        ? []
+                        : (this.sessionPendingQueues.get(task.sessionId) ?? []),
+                    task.snapshot.pendingUserMessages
                 );
+                task.snapshot.pendingUserMessages = nextPendingMessages;
                 if (task.sessionId !== null && task.snapshot.pendingUserMessages.length > 0) {
                     this.sessionPendingQueues.set(
                         task.sessionId,
-                        cloneTaskValue(
-                            mergePendingUserMessages(
-                                this.sessionPendingQueues.get(task.sessionId) ?? [],
-                                task.snapshot.pendingUserMessages
-                            )
-                        )
+                        cloneTaskValue(nextPendingMessages)
                     );
                 }
             } else {
