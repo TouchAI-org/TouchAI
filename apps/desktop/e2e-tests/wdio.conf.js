@@ -6,14 +6,19 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 import { provisionFontForAppRoot } from './e2e-font.js';
+import { useIsolatedGlobalShortcut, waitForE2eBridge } from './test/support/desktop.js';
 import { SKILL_FIXTURE_CONTENT, SKILL_FIXTURE_NAME } from './test/support/fixtures.js';
-import { resolveE2eAppBinaryPath, resolveTauriBuildArgs } from './wdio.paths.js';
+import {
+    resolveE2eAppBinaryPath,
+    resolveE2eRuntimeDirectory,
+    resolveTauriBuildArgs,
+} from './wdio.paths.js';
 import { withE2eWebView2Env } from './webview2-env.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const desktopRoot = path.resolve(__dirname, '..');
 const repoRoot = path.resolve(desktopRoot, '..', '..');
-const runtimeRoot = path.resolve(repoRoot, '.e2e-runtime');
+const runtimeRoot = resolveE2eRuntimeDirectory(repoRoot);
 const visualBaselineRoot = path.resolve(__dirname, '__snapshots__');
 const visualRuntimeRoot = path.resolve(runtimeRoot, 'visual');
 const updateVisualBaselines = process.env.UPDATE_VISUAL_BASELINE === '1';
@@ -193,6 +198,7 @@ export const config = {
             path.join(__dirname, 'test/specs/clipboard-paste.e2e.js'),
             path.join(__dirname, 'test/specs/path-reference.e2e.js'),
             path.join(__dirname, 'test/specs/queue-steer.e2e.js'),
+            path.join(__dirname, 'test/specs/queue-recovery.e2e.js'),
         ],
     ],
     bail: 1,
@@ -359,6 +365,10 @@ export const config = {
         });
 
         await waitForDriverServer(4444);
+    },
+    before: async () => {
+        await waitForE2eBridge();
+        await useIsolatedGlobalShortcut(sessionRuntimePath);
     },
     afterSession: () => {
         closeTauriDriver();

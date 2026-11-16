@@ -116,6 +116,10 @@ function createCompletionStream(response, responseIndex) {
                 },
             ]);
         },
+        disconnect() {
+            ended = true;
+            response.destroy();
+        },
         finish(reason = 'stop') {
             if (ended || response.destroyed || response.writableEnded) {
                 return;

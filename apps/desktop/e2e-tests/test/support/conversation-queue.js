@@ -35,28 +35,29 @@ export async function fillSearchDraft(text) {
  * The semantic intent is deliberately not encoded here: a spec passes the
  * physical chord so it can prove which setting the running app applied.
  */
-export async function submitSearchDraft(chord) {
+export async function pressEditorKey(value, { modified = false, shift = false } = {}) {
     const editor = await editorElement();
     await editor.click();
+    const modifiers = [modified ? PRIMARY_MODIFIER_KEY : null, shift ? '\uE008' : null].filter(
+        Boolean
+    );
     await browser.performActions([
         {
             type: 'key',
             id: 'queue-steer-keyboard',
-            actions:
-                chord === 'modified'
-                    ? [
-                          { type: 'keyDown', value: PRIMARY_MODIFIER_KEY },
-                          { type: 'keyDown', value: '\uE006' },
-                          { type: 'keyUp', value: '\uE006' },
-                          { type: 'keyUp', value: PRIMARY_MODIFIER_KEY },
-                      ]
-                    : [
-                          { type: 'keyDown', value: '\uE006' },
-                          { type: 'keyUp', value: '\uE006' },
-                      ],
+            actions: [
+                ...modifiers.map((modifier) => ({ type: 'keyDown', value: modifier })),
+                { type: 'keyDown', value },
+                { type: 'keyUp', value },
+                ...modifiers.reverse().map((modifier) => ({ type: 'keyUp', value: modifier })),
+            ],
         },
     ]);
     await browser.releaseActions();
+}
+
+export async function submitSearchDraft(chord) {
+    await pressEditorKey('\uE006', { modified: chord === 'modified' });
     await browser.waitUntil(async () => (await (await editorElement()).getText()).trim() === '', {
         timeoutMsg: `Submitting with ${chord} Enter left the prompt in the editor.`,
     });
@@ -165,6 +166,31 @@ export function messageByText(state, text) {
 
 export function loadingMessage(state) {
     return state.find((message) => message.loading) ?? null;
+}
+
+export async function clickMessageAction(message, testId) {
+    const action = await $(`[data-message-id="${message.id}"] [data-testid="${testId}"]`);
+    await browser.execute((element) => {
+        element.scrollIntoView({ block: 'center', inline: 'nearest' });
+    }, action);
+    await action.waitForClickable();
+    const hitTarget = await browser.execute((element) => {
+        const rect = element.getBoundingClientRect();
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+        const target = document.elementFromPoint(centerX, centerY);
+        return {
+            hitsAction: Boolean(target && (target === element || element.contains(target))),
+            target: target?.outerHTML?.slice(0, 240) ?? null,
+            rect: { top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left },
+        };
+    }, action);
+    if (!hitTarget.hitsAction) {
+        throw new Error(
+            `The ${testId} action was covered at its click point: ${JSON.stringify(hitTarget)}.`
+        );
+    }
+    await action.click();
 }
 
 export async function hoverPendingAction(message, testId) {

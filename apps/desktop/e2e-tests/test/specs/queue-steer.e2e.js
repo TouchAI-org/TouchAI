@@ -10,6 +10,7 @@
 import { createAgentStreamServer, deferred } from '../support/agent-stream.js';
 import {
     backgroundColorOf,
+    clickMessageAction,
     dragQueuedMessage,
     editorElement,
     fillSearchDraft,
@@ -17,6 +18,7 @@ import {
     loadingMessage,
     messageByText,
     pendingMessages,
+    pressEditorKey,
     readConversationMessages,
     submitSearchDraft,
     waitForConversation,
@@ -160,6 +162,20 @@ function assertLatestUserText(request, expectedText) {
     );
 }
 
+function assertSequentialUserTurns(server, expectedTexts) {
+    assertVisible(
+        server.requests.length === expectedTexts.length,
+        `Expected ${expectedTexts.length} model requests, received ${server.requests.length}.`
+    );
+    for (const [index, request] of server.requests.entries()) {
+        assertReceivedUserTexts(request, expectedTexts.slice(0, index + 1));
+    }
+    assertVisible(
+        server.protocolError === null,
+        `The local model server reported a protocol error: ${server.protocolError}`
+    );
+}
+
 async function startRunningTurn(server) {
     await fillSearchDraft(INITIAL_PROMPT);
     await submitSearchDraft('enter');
@@ -192,30 +208,6 @@ async function submitWhileRunning(text, chord, delivery, expectedPendingCount) {
         } instead of ${delivery}.`
     );
     return { state, message };
-}
-
-async function clickMessageAction(message, testId) {
-    const action = await $(`[data-message-id="${message.id}"] [data-testid="${testId}"]`);
-    await browser.execute((element) => {
-        element.scrollIntoView({ block: 'center', inline: 'nearest' });
-    }, action);
-    await action.waitForClickable();
-    const hitTarget = await browser.execute((element) => {
-        const rect = element.getBoundingClientRect();
-        const x = rect.left + rect.width / 2;
-        const y = rect.top + rect.height / 2;
-        const target = document.elementFromPoint(x, y);
-        return {
-            hitsAction: Boolean(target && (target === element || element.contains(target))),
-            target: target?.outerHTML?.slice(0, 240) ?? null,
-            rect: { top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left },
-        };
-    }, action);
-    assertVisible(
-        hitTarget.hitsAction,
-        `The ${testId} action was covered at its click point: ${JSON.stringify(hitTarget)}.`
-    );
-    await action.click();
 }
 
 async function assertPendingActionHasNoHoverBackground(message, testId) {
@@ -576,6 +568,158 @@ describe('user sends queued and priority messages during a running answer', () =
             (state) => pendingMessages(state).length === 0 && !loadingMessage(state),
             'The downgraded message did not finish its next turn.'
         );
+    });
+
+    it('user sends a burst of mixed messages once with steers before earlier queues and empty Enter ignored', async () => {
+        const releaseAnswer = deferred();
+        const queues = Array.from({ length: 6 }, (_, index) => `Burst queue ${index + 1}`);
+        const steers = ['Burst priority one', 'Burst priority two'];
+
+        server.planNext(async ({ stream }) => {
+            stream.text('Holding a text-only answer during rapid submissions.');
+            await releaseAnswer.promise;
+            stream.finish();
+        });
+        for (const text of [...steers, ...queues]) {
+            server.planNext(({ stream }) => {
+                stream.text(`Answer for ${text}.`);
+                stream.finish();
+            });
+        }
+
+        await startRunningTurn(server);
+        let pendingCount = 0;
+        for (const [index, text] of queues.entries()) {
+            await submitWhileRunning(text, 'enter', 'queue', ++pendingCount);
+            if (index === 2 || index === 5) {
+                await submitWhileRunning(
+                    steers[index === 2 ? 0 : 1],
+                    'modified',
+                    'priority',
+                    ++pendingCount
+                );
+            }
+        }
+        for (let index = 0; index < 3; index += 1) {
+            await submitSearchDraft('enter');
+        }
+        assertPendingOrder(await readConversationMessages(), [...steers, ...queues]);
+        assertVisible(
+            server.requests.length === 1,
+            'Pending or empty input started a second turn.'
+        );
+
+        releaseAnswer.resolve();
+        await server.waitForRequestCount(9);
+        await waitForConversation(
+            (state) => pendingMessages(state).length === 0 && !loadingMessage(state),
+            'The rapid submissions did not drain.'
+        );
+        assertSequentialUserTurns(server, [INITIAL_PROMPT, ...steers, ...queues]);
+    });
+
+    it('user removes the head and a middle queue then sends only the retained messages and a new tail', async () => {
+        const releaseAnswer = deferred();
+        const queues = Array.from({ length: 4 }, (_, index) => `Removable queue ${index + 1}`);
+        const newTail = 'Queue appended after removals';
+        const retained = [queues[1], queues[3], newTail];
+
+        server.planNext(async ({ stream }) => {
+            stream.text('Holding the answer while unwanted messages are removed.');
+            await releaseAnswer.promise;
+            stream.finish();
+        });
+        for (const text of retained) {
+            server.planNext(({ stream }) => {
+                stream.text(`Answer for ${text}.`);
+                stream.finish();
+            });
+        }
+
+        await startRunningTurn(server);
+        for (const [index, text] of queues.entries()) {
+            await submitWhileRunning(text, 'enter', 'queue', index + 1);
+        }
+        for (const text of [queues[0], queues[2]]) {
+            await clickMessageAction(
+                messageByText(await readConversationMessages(), text),
+                'pending-message-remove'
+            );
+            await waitForConversation(
+                (state) => !messageByText(state, text),
+                `Removing ${text} did not remove its pending bubble.`
+            );
+        }
+        await submitWhileRunning(newTail, 'enter', 'queue', 3);
+        assertPendingOrder(await readConversationMessages(), retained);
+
+        releaseAnswer.resolve();
+        await server.waitForRequestCount(4);
+        await waitForConversation(
+            (state) => pendingMessages(state).length === 0 && !loadingMessage(state),
+            'Removing messages prevented the retained queue from draining.'
+        );
+        assertSequentialUserTurns(server, [INITIAL_PROMPT, ...retained]);
+    });
+
+    it('user saves Chinese multiline text in a middle queue without submitting its newline or changing its slot', async () => {
+        const releaseAnswer = deferred();
+        const firstQueue = 'Queue before the multiline edit';
+        const original = 'Middle queue opened for a multiline edit';
+        const lastQueue = 'Queue after the multiline edit';
+        const firstLine = '中文第一行';
+        const secondLine = '第二行，请保留换行。';
+        const edited = `${firstLine}\n${secondLine}`;
+
+        server.planNext(async ({ stream }) => {
+            stream.text('Holding the answer while a multiline edit is composed.');
+            await releaseAnswer.promise;
+            stream.finish();
+        });
+        for (const text of [firstQueue, edited, lastQueue]) {
+            server.planNext(({ stream }) => {
+                stream.text(`Answer for ${text}.`);
+                stream.finish();
+            });
+        }
+
+        await startRunningTurn(server);
+        await submitWhileRunning(firstQueue, 'enter', 'queue', 1);
+        const { message } = await submitWhileRunning(original, 'enter', 'queue', 2);
+        await submitWhileRunning(lastQueue, 'enter', 'queue', 3);
+        await clickMessageAction(message, 'pending-message-edit');
+        await waitForConversation(
+            (state) => messageByText(state, original)?.editing,
+            'The middle queue did not enter editing state.'
+        );
+        await pressEditorKey('a', { modified: true });
+        await browser.keys([firstLine]);
+        await browser.keys(['Shift', 'Enter']);
+        await browser.releaseActions();
+        await browser.keys([secondLine]);
+        const draft = await (await editorElement()).getText();
+        assertVisible(
+            draft === edited,
+            `The multiline edit lost its text: ${JSON.stringify(draft)}.`
+        );
+        assertVisible(server.requests.length === 1, 'Shift+Enter sent the unfinished edit.');
+        assertPendingOrder(await readConversationMessages(), [firstQueue, original, lastQueue]);
+
+        await submitSearchDraft('enter');
+        const saved = await waitForConversation(
+            (state) =>
+                messageByText(state, edited)?.id === message.id &&
+                !messageByText(state, edited)?.editing,
+            'Saving the multiline edit did not replace the same pending message.'
+        );
+        assertPendingOrder(saved, [firstQueue, edited, lastQueue]);
+        releaseAnswer.resolve();
+        await server.waitForRequestCount(4);
+        await waitForConversation(
+            (state) => pendingMessages(state).length === 0 && !loadingMessage(state),
+            'The queue containing a multiline edit did not drain.'
+        );
+        assertSequentialUserTurns(server, [INITIAL_PROMPT, firstQueue, edited, lastQueue]);
     });
 
     it('user keeps a queue behind a steer downgraded at the end of a run', async () => {
@@ -1107,6 +1251,67 @@ describe('user sends queued and priority messages during a running answer', () =
         );
     });
 
+    it('user saves an edit after all runnable messages finish and can queue another message behind it', async () => {
+        const releaseFirstAnswer = deferred();
+        const releaseEditedAnswer = deferred();
+        const parked = 'Queue parked while the rest finish';
+        const runnable = 'Queue that finishes while editing';
+        const edited = 'Edited queue saved after every other turn finished';
+        const newQueue = 'New queue after saving an idle edit';
+
+        server.planNext(async ({ stream }) => {
+            stream.text('Finishing the original answer with one message parked.');
+            await releaseFirstAnswer.promise;
+            stream.finish();
+        });
+        server.planNext(({ stream }) => {
+            stream.text('Finishing the last runnable message.');
+            stream.finish();
+        });
+        server.planNext(async ({ stream }) => {
+            stream.text('Answering the saved edit.');
+            await releaseEditedAnswer.promise;
+            stream.finish();
+        });
+        server.planNext(({ stream }) => {
+            stream.text('Answering the newly queued message.');
+            stream.finish();
+        });
+
+        await startRunningTurn(server);
+        const { message } = await submitWhileRunning(parked, 'enter', 'queue', 1);
+        await submitWhileRunning(runnable, 'enter', 'queue', 2);
+        await clickMessageAction(message, 'pending-message-edit');
+        await waitForConversation(
+            (state) => messageByText(state, parked)?.editing,
+            'The first queue did not remain parked for editing.'
+        );
+        releaseFirstAnswer.resolve();
+        await server.waitForRequestCount(2);
+        await waitForConversation(
+            (state) => messageByText(state, parked)?.editing && !loadingMessage(state),
+            'The parked message ran before its edit finished.'
+        );
+
+        await fillSearchDraft(edited);
+        await submitSearchDraft('enter');
+        await server.waitForRequestCount(3);
+        await waitForConversation(
+            (state) =>
+                messageByText(state, edited)?.pendingDelivery === null &&
+                Boolean(loadingMessage(state)),
+            'Saving the idle edit did not start its answer.'
+        );
+        await submitWhileRunning(newQueue, 'enter', 'queue', 1);
+        releaseEditedAnswer.resolve();
+        await server.waitForRequestCount(4);
+        await waitForConversation(
+            (state) => pendingMessages(state).length === 0 && !loadingMessage(state),
+            'The queue stayed stuck after saving the edit.'
+        );
+        assertSequentialUserTurns(server, [INITIAL_PROMPT, runnable, edited, newQueue]);
+    });
+
     it('user can cancel editing without removing the queued message', async () => {
         const releaseAnswer = deferred();
         const queuedToEdit = 'Queue whose edit will be cancelled';
@@ -1300,7 +1505,7 @@ describe('user sends queued and priority messages during a running answer', () =
         await startRunningTurn(server);
         await submitWhileRunning(queuedOne, 'enter', 'queue', 1);
         await submitWhileRunning(queuedTwo, 'enter', 'queue', 2);
-        await callE2eBridge('cancelSearchRequest');
+        await pressEditorKey('\uE00C');
         releaseCancelledAnswer.resolve();
 
         await server.waitForRequestCount(2);

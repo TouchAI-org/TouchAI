@@ -10,6 +10,8 @@
  * broke.
  */
 
+import path from 'node:path';
+
 import { SEARCH_FIXTURE_QUERY, SEARCH_FIXTURE_RESULTS } from './fixtures.js';
 
 const DEFAULT_TIMEOUT_MS = 15000;
@@ -120,6 +122,38 @@ export async function callE2eBridge(methodName, ...args) {
             `E2E bridge call "${methodName}" failed: ${result?.error ?? 'unknown error'}`
         );
     }
+}
+
+export async function useIsolatedGlobalShortcut(appRoot) {
+    assertVisible(
+        typeof appRoot === 'string' && path.isAbsolute(appRoot),
+        'Shortcut fixtures require an isolated E2E application root.'
+    );
+    const state = await browser.execute(async () => ({
+        runtime: await window.__TAURI_INTERNALS__.invoke('get_runtime_info'),
+        dataDirectory: await window.__TAURI_INTERNALS__.invoke('get_app_directory_path', {
+            directory: 'DATA',
+        }),
+    }));
+    assertVisible(
+        state.runtime?.isE2eTestMode === true &&
+            typeof state.dataDirectory === 'string' &&
+            path.resolve(state.dataDirectory) === path.resolve(appRoot, 'data'),
+        'Shortcut fixtures must only change their own isolated E2E application.'
+    );
+
+    const result = await browser.execute(async () => {
+        const shortcut = 'Ctrl+Alt+Shift+F12';
+        await window.__TAURI_INTERNALS__.invoke('register_global_shortcut', { shortcut });
+        return window.__TAURI_INTERNALS__.invoke('database_query', {
+            request: {
+                sql: 'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+                params: ['global_shortcut', shortcut],
+                method: 'run',
+            },
+        });
+    });
+    assertVisible(result.rowsAffected === 1, 'The isolated E2E shortcut was not saved.');
 }
 
 export async function findElementByTestId(testId) {
