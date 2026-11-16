@@ -137,17 +137,18 @@ export function useAgent(options: UseAiRequestOptions = {}) {
      * 长会话的渲染开销由布界挂载（窗口化）控制，不会随消息数线性增长 DOM。
      */
     async function loadPersistedSession(sessionId: number): Promise<LoadedSessionInfo> {
+        const observationId = requestId;
         const [loaded, restoredPendingMessages] = await Promise.all([
             loadCompleteSessionHistory(sessionId),
             sessionTaskCenter.restoreSessionQueue(sessionId),
         ]);
-        sessionHistory.value = loaded.history;
-        currentSessionId.value = loaded.session.id;
-        pendingUserMessages.value = restoredPendingMessages;
-        resetTransientState();
-        // Cold resume follows the queue products users expect: opening a
-        // session with durable pending messages continues from its head.
-        sessionTaskCenter.resumeSessionQueue(sessionId);
+        if (observationId === requestId) {
+            sessionHistory.value = loaded.history;
+            currentSessionId.value = loaded.session.id;
+            pendingUserMessages.value = restoredPendingMessages;
+            resetTransientState();
+            sessionTaskCenter.resumeSessionQueue(sessionId);
+        }
 
         return {
             sessionId: loaded.session.id,

@@ -16,7 +16,17 @@
     import { getCurrentWindow } from '@tauri-apps/api/window';
     import { storeToRefs } from 'pinia';
     import { useStateMachine } from 'reka-ui';
-    import { computed, nextTick, onMounted, onUnmounted, reactive, ref, toRef, watch } from 'vue';
+    import {
+        computed,
+        nextTick,
+        onBeforeUnmount,
+        onMounted,
+        onUnmounted,
+        reactive,
+        ref,
+        toRef,
+        watch,
+    } from 'vue';
 
     import type { SearchKeybindingActionId, SearchKeybindings } from '@/config/searchKeybindings';
     import {
@@ -672,16 +682,23 @@
         await controller.focusSearchInput();
     }
 
-    async function cancelPendingMessageEdit(restoreDraft = true): Promise<void> {
+    function finishPendingMessageEdit(restoreDraft = true): PendingMessageEdit | null {
         const edit = pendingMessageEdit.value;
         if (!edit) {
-            return;
+            return null;
         }
         pendingMessageEdit.value = null;
         releasePendingMessageEdit(edit.messageId);
         if (restoreDraft) {
             applyInputHistorySnapshot(edit.previousDraft);
             modelOverride.value = { ...edit.previousModelOverride };
+        }
+        return edit;
+    }
+
+    async function cancelPendingMessageEdit(): Promise<void> {
+        if (!finishPendingMessageEdit()) {
+            return;
         }
         await nextTick();
         await controller.focusSearchInput();
@@ -702,8 +719,7 @@
         if (!message) {
             // The message left the queue while the user was editing it. Keep the
             // typed draft in place instead of silently sending a duplicate turn.
-            pendingMessageEdit.value = null;
-            releasePendingMessageEdit(edit.messageId);
+            finishPendingMessageEdit(false);
             return true;
         }
 
@@ -727,28 +743,21 @@
             modelId: modelOverride.value.modelId ?? undefined,
             providerId: modelOverride.value.providerId ?? undefined,
         });
-        pendingMessageEdit.value = null;
+        finishPendingMessageEdit(updated);
         if (!updated) {
-            releasePendingMessageEdit(edit.messageId);
             return true;
         }
-        releasePendingMessageEdit(edit.messageId);
-
-        // Editing borrows the composer without consuming the draft that was
-        // already in it. Finishing the edit hands that draft back.
-        applyInputHistorySnapshot(edit.previousDraft);
-        modelOverride.value = { ...edit.previousModelOverride };
         await nextTick();
         await controller.focusSearchInput();
         return true;
     }
 
     watch(currentSessionId, () => {
-        const edit = pendingMessageEdit.value;
-        pendingMessageEdit.value = null;
-        if (edit) {
-            releasePendingMessageEdit(edit.messageId);
-        }
+        finishPendingMessageEdit(false);
+    });
+
+    onBeforeUnmount(() => {
+        finishPendingMessageEdit(false);
     });
 
     const floatingPicker = computed(
@@ -2519,19 +2528,20 @@
             return;
         }
 
-        if (action === 'sendNow') {
-            if (pendingMessageEdit.value?.messageId === messageId) {
-                pendingMessageEdit.value = null;
+        if (action === 'sendNow' || action === 'remove') {
+            const editFinished = pendingMessageEdit.value?.messageId === messageId;
+            if (editFinished) {
+                finishPendingMessageEdit();
             }
-            promotePendingUserMessage(messageId);
-            return;
-        }
-
-        if (action === 'remove') {
-            if (pendingMessageEdit.value?.messageId === messageId) {
-                pendingMessageEdit.value = null;
+            if (action === 'sendNow') {
+                promotePendingUserMessage(messageId);
+            } else {
+                removePendingUserMessage(messageId);
             }
-            removePendingUserMessage(messageId);
+            if (editFinished) {
+                await nextTick();
+                await controller.focusSearchInput();
+            }
             return;
         }
 

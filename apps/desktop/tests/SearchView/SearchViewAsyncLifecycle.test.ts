@@ -97,6 +97,8 @@ const {
             approvePendingToolApproval: ReturnType<typeof vi.fn>;
             rejectPendingToolApproval: ReturnType<typeof vi.fn>;
             settleUserQuestion: ReturnType<typeof vi.fn>;
+            beginPendingMessageEdit: ReturnType<typeof vi.fn>;
+            endPendingMessageEdit: ReturnType<typeof vi.fn>;
         } | null,
     },
     resizeState: {
@@ -660,20 +662,26 @@ describe('SearchView async overlay and listener lifecycle', () => {
     }
 
     describe('given a queued message and a different composer model', () => {
-        it.each([
-            {
-                label: 'saved model',
-                selection: { modelId: 'queued-model', providerId: 2 },
-                expected: { modelId: 'queued-model', providerId: 2 },
-            },
-            {
-                label: 'default model',
-                selection: {},
-                expected: { modelId: null, providerId: null },
-            },
-        ])(
-            'user edits with the queued $label and recovers their composer selection on cancel',
-            async ({ selection, expected }) => {
+        it.each(
+            [
+                {
+                    label: 'saved model',
+                    selection: { modelId: 'queued-model', providerId: 2 },
+                    expected: { modelId: 'queued-model', providerId: 2 },
+                },
+                {
+                    label: 'default model',
+                    selection: {},
+                    expected: { modelId: null, providerId: null },
+                },
+            ].flatMap((scenario) => [
+                { ...scenario, action: 'cancelEdit', ending: 'cancel' },
+                { ...scenario, action: 'remove', ending: 'removing the message' },
+                { ...scenario, action: 'sendNow', ending: 'sending the message immediately' },
+            ])
+        )(
+            'user edits with the queued $label and recovers their composer selection on $ending',
+            async ({ selection, expected, action }) => {
                 const wrapper = mountSearchView();
                 await flushPromises();
                 const message: PendingUserMessage = {
@@ -708,13 +716,61 @@ describe('SearchView async overlay and listener lifecycle', () => {
                 expect(editor.props('queryText')).toBe('Queued prompt');
                 expect(editor.props('modelOverride')).toEqual(expected);
 
-                conversation.vm.$emit('pendingAction', 'cancelEdit', message.id);
+                conversation.vm.$emit('pendingAction', action, message.id);
                 await flushPromises();
 
                 expect(editor.props('queryText')).toBe('Unsent composer draft');
                 expect(editor.props('modelOverride')).toEqual(originalSelection);
             }
         );
+
+        it('user leaves the view during an edit and the queued message is no longer parked', async () => {
+            const wrapper = mountSearchView();
+            await flushPromises();
+            const flow = requestFlowState.current!;
+            const message: PendingUserMessage = {
+                id: 'queued-message',
+                prompt: 'Queued prompt',
+                attachments: [],
+                delivery: 'queue',
+                createdAt: 1,
+            };
+            flow.pendingUserMessages.value = [message];
+            flow.sessionHistory.value = [
+                { id: 'prior', role: 'user', content: 'Previous prompt', parts: [], timestamp: 1 },
+            ];
+            flow.beginPendingMessageEdit.mockImplementation((messageId: string) => {
+                flow.pendingUserMessages.value = flow.pendingUserMessages.value.map((entry) =>
+                    entry.id === messageId ? { ...entry, editing: true } : entry
+                );
+                return true;
+            });
+            flow.endPendingMessageEdit.mockImplementation((messageId: string) => {
+                flow.pendingUserMessages.value = flow.pendingUserMessages.value.map((entry) =>
+                    entry.id === messageId ? { ...entry, editing: undefined } : entry
+                );
+                return true;
+            });
+            await nextTick();
+
+            wrapper
+                .findComponent({ name: 'ConversationPanel' })
+                .vm.$emit('pendingAction', 'edit', message.id);
+            await flushPromises();
+            expect(flow.pendingUserMessages.value[0]?.editing).toBe(true);
+
+            wrapper.unmount();
+            wrappers.splice(wrappers.indexOf(wrapper), 1);
+            await flushPromises();
+
+            expect(flow.pendingUserMessages.value).toEqual([
+                expect.objectContaining({
+                    id: message.id,
+                    prompt: message.prompt,
+                    editing: undefined,
+                }),
+            ]);
+        });
     });
 
     it('user given a conversation and skill draft when typing @ then searches the local filename in the existing file panel', async () => {

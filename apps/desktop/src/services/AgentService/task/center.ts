@@ -663,6 +663,12 @@ export class SessionTaskCenter {
         if (!task) {
             return false;
         }
+        if (isTerminalStatus(task.snapshot.status) && task.sessionId !== null) {
+            const activeTaskId = this.sessionActiveTaskIndex.get(task.sessionId);
+            if (activeTaskId && activeTaskId !== taskId) {
+                return this.updateTaskUserMessage(activeTaskId, messageId, input);
+            }
+        }
         if (task.claimedPriorityMessageIds.has(messageId)) {
             return false;
         }
@@ -713,7 +719,16 @@ export class SessionTaskCenter {
     /** Temporarily park a queued message while the user edits it in the composer. */
     setTaskUserMessageEditing(taskId: string, messageId: string, editing: boolean): boolean {
         const task = this.tasks.get(taskId);
-        if (!task || task.claimedPriorityMessageIds.has(messageId)) {
+        if (!task) {
+            return false;
+        }
+        if (isTerminalStatus(task.snapshot.status) && task.sessionId !== null) {
+            const activeTaskId = this.sessionActiveTaskIndex.get(task.sessionId);
+            if (activeTaskId && activeTaskId !== taskId) {
+                return this.setTaskUserMessageEditing(activeTaskId, messageId, editing);
+            }
+        }
+        if (task.claimedPriorityMessageIds.has(messageId)) {
             return false;
         }
 
@@ -1082,7 +1097,7 @@ export class SessionTaskCenter {
 
         const next = [...task.snapshot.pendingUserMessages];
         const message = next[index];
-        if (!message) {
+        if (!message || message.editing === true) {
             return false;
         }
         next[index] = { ...message, delivery: 'priority', immediate: true };
@@ -1192,7 +1207,7 @@ export class SessionTaskCenter {
 
         const next = [...queued];
         const message = next[index];
-        if (!message) {
+        if (!message || message.editing === true) {
             return false;
         }
         next[index] = { ...message, delivery: 'priority', immediate: true };
@@ -1547,7 +1562,9 @@ export class SessionTaskCenter {
 
         const claimed = task.snapshot.pendingUserMessages.filter(
             (message) =>
-                message.delivery === 'priority' && !task.claimedPriorityMessageIds.has(message.id)
+                message.delivery === 'priority' &&
+                message.editing !== true &&
+                !task.claimedPriorityMessageIds.has(message.id)
         );
         for (const message of claimed) {
             task.claimedPriorityMessageIds.add(message.id);
@@ -1574,7 +1591,10 @@ export class SessionTaskCenter {
         }
 
         return task.snapshot.pendingUserMessages.some(
-            (message) => message.delivery === 'priority' && message.immediate === true
+            (message) =>
+                message.delivery === 'priority' &&
+                message.immediate === true &&
+                message.editing !== true
         );
     }
 
@@ -1659,12 +1679,13 @@ export class SessionTaskCenter {
             if (handoffVersion !== (this.sessionHandoffVersions.get(sessionId) ?? 0)) {
                 return;
             }
-            this.sessionPendingQueues.set(
-                sessionId,
-                mergePendingUserMessages(queued, this.sessionPendingQueues.get(sessionId) ?? [])
+            const restored = mergePendingUserMessages(
+                [next],
+                this.sessionPendingQueues.get(sessionId) ?? []
             );
+            this.sessionPendingQueues.set(sessionId, restored);
             if (sourceTask) {
-                sourceTask.snapshot.pendingUserMessages = cloneTaskValue(queued);
+                sourceTask.snapshot.pendingUserMessages = cloneTaskValue(restored);
                 this.notifySubscribers(sourceTask.taskId);
             }
             log.error('[SessionTaskCenter] Failed to deliver queued user messages:', error);

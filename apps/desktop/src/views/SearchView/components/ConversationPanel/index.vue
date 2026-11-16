@@ -545,39 +545,38 @@
 
     watch(() => displayMessages.value[0]?.id, cancelNavigation);
 
-    watch(
-        () => displayMessages.value.length,
-        async (newLength, oldLength) => {
-            if (newLength === 0 && oldLength > 0) {
-                showScrollToBottom.value = false;
-                await nextTick();
-                refreshScrollToBottomVisibility();
-                return;
-            }
-
-            if (newLength <= oldLength) return;
-
-            const appendedMessages = displayMessages.value.slice(oldLength, newLength);
-            const latestAppendedUserMessage = [...appendedMessages]
-                .reverse()
-                .find((message) => message.role === 'user');
-
+    watch(displayMessages, async (messages, previousMessages) => {
+        const newLength = messages.length;
+        const oldLength = previousMessages.length;
+        if (newLength === 0 && oldLength > 0) {
+            showScrollToBottom.value = false;
             await nextTick();
-
-            if (outputScrollBehavior.value === 'follow_output') {
-                if (latestAppendedUserMessage) {
-                    revealLatestContent();
-                }
-                return;
-            }
-
-            if (outputScrollBehavior.value === 'jump_to_top' && latestAppendedUserMessage) {
-                scrollToUserMessageTop(latestAppendedUserMessage.id);
-            }
-
             refreshScrollToBottomVisibility();
+            return;
         }
-    );
+
+        if (newLength <= oldLength) return;
+
+        const previousIds = new Set(previousMessages.map((message) => message.id));
+        const latestAppendedUserMessage = [...messages]
+            .reverse()
+            .find((message) => message.role === 'user' && !previousIds.has(message.id));
+
+        await nextTick();
+
+        if (outputScrollBehavior.value === 'follow_output') {
+            if (latestAppendedUserMessage) {
+                revealLatestContent();
+            }
+            return;
+        }
+
+        if (outputScrollBehavior.value === 'jump_to_top' && latestAppendedUserMessage) {
+            scrollToUserMessageTop(latestAppendedUserMessage.id);
+        }
+
+        refreshScrollToBottomVisibility();
+    });
 
     watch(
         outputScrollBehavior,

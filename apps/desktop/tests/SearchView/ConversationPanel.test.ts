@@ -1,6 +1,12 @@
-import { mount } from '@vue/test-utils';
+import { flushPromises, mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick } from 'vue';
+
+const scrollSettings = vi.hoisted(() => ({ outputScrollBehavior: 'follow_output' }));
+
+beforeEach(() => {
+    scrollSettings.outputScrollBehavior = 'follow_output';
+});
 
 vi.mock('@components/AppIcon.vue', () => ({
     default: { props: ['name'], template: '<span />' },
@@ -14,7 +20,7 @@ vi.mock('@/stores/settings', async () => {
     const { ref } = await import('vue');
     return {
         useSettingsStore: () => ({
-            outputScrollBehavior: ref('follow_output'),
+            outputScrollBehavior: ref(scrollSettings.outputScrollBehavior),
             initialize: vi.fn().mockResolvedValue(undefined),
         }),
     };
@@ -108,6 +114,76 @@ describe('ConversationPanel intrinsic session measurement', () => {
 });
 
 describe('ConversationPanel queued message reordering', () => {
+    it('user adds a priority message ahead of an existing queue and jumps to the new message', async () => {
+        scrollSettings.outputScrollBehavior = 'jump_to_top';
+        const bounds = vi
+            .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+            .mockImplementation(function (this: HTMLElement) {
+                const messageId = this.getAttribute('data-message-id');
+                const top = messageId === 'priority-1' ? 300 : messageId === 'queue-1' ? 600 : 0;
+                return new DOMRect(0, top, 200, 100);
+            });
+        const queueMessage = {
+            id: 'queue-1',
+            prompt: 'already queued',
+            attachments: [],
+            delivery: 'queue' as const,
+            createdAt: 3,
+        };
+        const wrapper = mount(ConversationPanel, {
+            props: {
+                startDragging: vi.fn().mockResolvedValue(undefined),
+                messages: [
+                    { id: 'user-1', role: 'user', content: 'prompt', parts: [], timestamp: 1 },
+                    {
+                        id: 'assistant-1',
+                        role: 'assistant',
+                        content: 'answer',
+                        parts: [],
+                        timestamp: 2,
+                    },
+                ],
+                pendingMessages: [queueMessage],
+                isLoading: true,
+                error: null,
+                isPinned: false,
+                historyOpen: false,
+            },
+        });
+        const viewport = wrapper.get('section').element as HTMLElement;
+        Object.defineProperties(viewport, {
+            scrollHeight: { configurable: true, value: 1_000 },
+            clientHeight: { configurable: true, value: 400 },
+            scrollTo: {
+                configurable: true,
+                value: ({ top }: ScrollToOptions) => {
+                    viewport.scrollTop = top ?? 0;
+                },
+            },
+        });
+
+        try {
+            await flushPromises();
+            await wrapper.setProps({
+                pendingMessages: [
+                    queueMessage,
+                    {
+                        ...queueMessage,
+                        id: 'priority-1',
+                        prompt: 'new steer',
+                        delivery: 'priority',
+                    },
+                ],
+            });
+            await flushPromises();
+
+            expect(viewport.scrollTop).toBe(288);
+        } finally {
+            wrapper.unmount();
+            bounds.mockRestore();
+        }
+    });
+
     it('user sees the pointer ghost but no drop-position ghost while dragging a queued bubble', () => {
         const wrapper = mount(ConversationPanel, {
             props: {
