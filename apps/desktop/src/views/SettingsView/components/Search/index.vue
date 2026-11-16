@@ -119,6 +119,30 @@
             keyPlaceholder: 'settings.search.provider.deepseek.keyPlaceholder',
             quotaLabel: 'settings.search.provider.deepseek.quota',
         },
+        keenable: {
+            label: 'settings.search.provider.keenable',
+            description: 'settings.search.provider.keenable.description',
+            keyPlaceholder: 'settings.search.provider.keenable.keyPlaceholder',
+            quotaLabel: 'settings.search.provider.keenable.quota',
+        },
+        zhihu: {
+            label: 'settings.search.provider.zhihu',
+            description: 'settings.search.provider.zhihu.description',
+            keyPlaceholder: 'settings.search.provider.zhihu.keyPlaceholder',
+            quotaLabel: 'settings.search.provider.zhihu.quota',
+        },
+        yuanbao: {
+            label: 'settings.search.provider.yuanbao',
+            description: 'settings.search.provider.yuanbao.description',
+            keyPlaceholder: 'settings.search.provider.yuanbao.keyPlaceholder',
+            quotaLabel: 'settings.search.provider.yuanbao.quota',
+        },
+        grok: {
+            label: 'settings.search.provider.grok',
+            description: 'settings.search.provider.grok.description',
+            keyPlaceholder: 'settings.search.provider.grok.keyPlaceholder',
+            quotaLabel: 'settings.search.provider.grok.quota',
+        },
     };
 
     const intentMessages: Record<

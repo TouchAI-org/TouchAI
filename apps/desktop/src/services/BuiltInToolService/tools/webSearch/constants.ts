@@ -30,6 +30,10 @@ export const WEB_SEARCH_PROVIDERS = [
     'github',
     'searxng',
     'deepseek',
+    'keenable',
+    'zhihu',
+    'yuanbao',
+    'grok',
 ] as const satisfies readonly SearchProviderId[];
 
 export type WebSearchIntent = SearchRouteIntent;
@@ -60,7 +64,7 @@ export const webSearchArgsSchema = z.object({
 export const WEB_SEARCH_TOOL_DESCRIPTION = [
     'Search for candidate web sources through one consolidated research entry point.',
     'Use this for discovery only; use web_fetch to read specific URLs and browser for rendered or interactive pages.',
-    'For general research, use anysearch by default; auto follows user settings and normally resolves to anysearch. Choose a specialized provider only when one source type is clearly best: github for repositories/releases/issues, openalex or semantic_scholar for papers, wikipedia for encyclopedic background, searxng for a configured metasearch instance, and deepseek for Chinese or long-tail web content.',
+    'For general research, use anysearch by default; auto follows user settings and normally resolves to anysearch. Choose a specialized provider only when one source type is clearly best: github for repositories/releases/issues, openalex or semantic_scholar for papers, wikipedia for encyclopedic background, searxng for a configured metasearch instance, deepseek for Chinese or long-tail web content, keenable for an independent index with clean page text, zhihu for first-hand Chinese discussion and experience, yuanbao for Tencent ecosystem and Chinese news, and grok for real-time web and X discussion.',
 ].join(' ');
 
 function providerRecommendations(providers: readonly WebSearchProvider[]): string {

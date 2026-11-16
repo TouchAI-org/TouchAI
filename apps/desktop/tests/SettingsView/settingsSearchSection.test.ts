@@ -157,8 +157,12 @@ describe('user edits the search settings', () => {
             expect.stringContaining('Tavily'),
             expect.stringContaining('Exa'),
             expect.stringContaining('Firecrawl'),
+            expect.stringContaining('Keenable'),
             expect.stringContaining('SearXNG'),
             expect.stringContaining('DeepSeek'),
+            expect.stringContaining('知乎'),
+            expect.stringContaining('元宝搜索'),
+            expect.stringContaining('Grok'),
         ]);
         expect(wrapper.get('[data-testid="search-provider-quota-brave"]').classes()).toContain(
             'rounded'

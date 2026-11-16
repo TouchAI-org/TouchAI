@@ -57,6 +57,10 @@ describe('user searches the web from the assistant', () => {
                 'github',
                 'searxng',
                 'deepseek',
+                'keenable',
+                'zhihu',
+                'yuanbao',
+                'grok',
             ],
         });
     });

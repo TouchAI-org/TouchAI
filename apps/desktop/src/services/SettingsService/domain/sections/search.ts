@@ -16,6 +16,10 @@ export const SEARCH_PROVIDER_IDS = [
     'firecrawl',
     'searxng',
     'deepseek',
+    'keenable',
+    'zhihu',
+    'yuanbao',
+    'grok',
 ] as const;
 
 export const SEARCH_ROUTE_INTENTS = [
@@ -152,6 +156,46 @@ export const SEARCH_PROVIDER_METADATA: Record<SearchProviderId, SearchProviderMe
         sourceName: 'DeepSeek',
         recommendation:
             'DeepSeek in-house engine with stronger Chinese and long-tail recall; requires a DeepSeek API key.',
+    },
+    keenable: {
+        id: 'keenable',
+        enabledByDefault: true,
+        apiKeyRequirement: 'optional',
+        endpointRequirement: 'none',
+        displayName: 'Keenable',
+        sourceName: 'Keenable',
+        recommendation:
+            'Independent web index with clean extracted snippets and publish-date filters; keyless calls are rate limited.',
+    },
+    zhihu: {
+        id: 'zhihu',
+        enabledByDefault: false,
+        apiKeyRequirement: 'required',
+        endpointRequirement: 'none',
+        displayName: 'Zhihu',
+        sourceName: 'Zhihu',
+        recommendation:
+            'Chinese Q&A and first-hand experience from Zhihu, with authority levels and vote counts; requires an Access Secret.',
+    },
+    yuanbao: {
+        id: 'yuanbao',
+        enabledByDefault: false,
+        apiKeyRequirement: 'required',
+        endpointRequirement: 'none',
+        displayName: 'Yuanbao',
+        sourceName: 'Yuanbao',
+        recommendation:
+            'Tencent ecosystem and Chinese time-sensitive web content across news, government and academic verticals; requires a service key.',
+    },
+    grok: {
+        id: 'grok',
+        enabledByDefault: false,
+        apiKeyRequirement: 'required',
+        endpointRequirement: 'none',
+        displayName: 'Grok',
+        sourceName: 'Grok',
+        recommendation:
+            'Real-time web and X discussion through the Grok web_search tool; requires an xAI API key.',
     },
 };
 

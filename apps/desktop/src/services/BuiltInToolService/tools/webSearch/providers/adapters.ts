@@ -11,12 +11,16 @@ import { deepSeekSearchAdapter } from './deepseek';
 import { exaAdapter } from './exa';
 import { firecrawlAdapter } from './firecrawl';
 import { githubAdapter } from './github';
+import { grokAdapter } from './grok';
+import { keenableAdapter } from './keenable';
 import { openAlexAdapter } from './openalex';
 import { searxngAdapter } from './searxng';
 import { semanticScholarAdapter } from './semanticScholar';
 import { tavilyAdapter } from './tavily';
 import type { WebSearchProviderAdapter } from './types';
 import { wikipediaAdapter } from './wikipedia';
+import { yuanbaoAdapter } from './yuanbao';
+import { zhihuAdapter } from './zhihu';
 
 function requiresApiKey(provider: SearchProviderId): boolean {
     return SEARCH_PROVIDER_METADATA[provider].apiKeyRequirement === 'required';
@@ -64,6 +68,10 @@ export const WEB_SEARCH_PROVIDER_ADAPTERS = [
     firecrawlAdapter,
     searxngAdapter,
     deepSeekSearchAdapter,
+    keenableAdapter,
+    zhihuAdapter,
+    yuanbaoAdapter,
+    grokAdapter,
 ] as const satisfies readonly WebSearchProviderAdapter[];
 
 export const WEB_SEARCH_PROVIDER_ADAPTER_BY_ID = Object.fromEntries(
