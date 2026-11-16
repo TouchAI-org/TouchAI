@@ -738,6 +738,42 @@ describe('user follows streamed output', () => {
         expect(wrapper.emitted('followChange')).toContainEqual([false]);
     });
 
+    it.each([1, 8, 20, 64])(
+        'user moves the scrollbar up %i pixels and stays paused through output until returning to the live edge',
+        async (distance) => {
+            const wrapper = mountScroller({ followOutput: true });
+            const viewport = viewportOf(wrapper);
+            const scroller = wrapper.vm as unknown as MessageScrollerHandle;
+            setScrollMetrics(viewport, { scrollTop: 600 });
+            stubScrollTo(viewport);
+            await settleLayout();
+
+            viewport.scrollTop -= distance;
+            viewport.dispatchEvent(new Event('scroll'));
+            expect(scroller.getState().following).toBe(false);
+
+            setScrollHeight(viewport, 1_200);
+            triggerResize();
+            await settleLayout();
+            expect(viewport.scrollTop).toBe(600 - distance);
+
+            viewport.scrollTop = 792;
+            viewport.dispatchEvent(new Event('scroll'));
+            await settleLayout();
+            expect(scroller.getState().following).toBe(false);
+
+            viewport.scrollTop = 800;
+            viewport.dispatchEvent(new Event('scroll'));
+            await settleLayout();
+            expect(scroller.getState().following).toBe(true);
+
+            setScrollHeight(viewport, 1_400);
+            triggerResize();
+            await settleLayout();
+            expect(viewport.scrollTop).toBe(1_000);
+        }
+    );
+
     it('user stays in place when an upward scroll is followed by a resize', async () => {
         const wrapper = mountScroller({ followOutput: true });
         const viewport = viewportOf(wrapper);

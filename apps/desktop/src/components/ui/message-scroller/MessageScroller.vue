@@ -525,13 +525,12 @@
             measuredState?.clientHeight !== element.clientHeight;
         const positionChanged = measuredState?.scrollTop !== element.scrollTop;
         const scrolledDown = element.scrollTop > (measuredState?.scrollTop ?? element.scrollTop);
-        if (
-            !programmaticScroll &&
-            positionChanged &&
-            !layoutChanged &&
-            (following.value || scrolledDown)
-        ) {
-            readState(true);
+        if (!programmaticScroll && positionChanged && !layoutChanged) {
+            if (scrolledDown) {
+                readState(true);
+            } else {
+                setFollowing(false);
+            }
         }
         scheduleMeasure(false, layoutChanged);
     }
