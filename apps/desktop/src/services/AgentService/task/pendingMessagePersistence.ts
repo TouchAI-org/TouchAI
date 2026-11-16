@@ -37,10 +37,6 @@ interface PendingMessagePayloadV1 {
     excludeFromHistory?: boolean;
 }
 
-interface DecodedPendingMessage {
-    message: PendingUserMessage;
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -154,7 +150,7 @@ function buildCreateData(sessionId: number, message: PendingUserMessage, payload
     };
 }
 
-async function decodeRow(row: SessionPendingMessageEntity): Promise<DecodedPendingMessage | null> {
+async function decodeRow(row: SessionPendingMessageEntity): Promise<PendingUserMessage | null> {
     const payload = parsePayload(row.payload_json);
     if (!payload) {
         log.error('[PendingMessagePersistence] Dropping an invalid pending message payload:', {
@@ -193,16 +189,14 @@ async function decodeRow(row: SessionPendingMessageEntity): Promise<DecodedPendi
     });
 
     return {
-        message: {
-            id: row.id,
-            prompt: row.prompt,
-            attachments,
-            inputSnapshot,
-            modelId: row.model_id ?? undefined,
-            providerId: row.provider_id ?? undefined,
-            delivery: 'queue',
-            createdAt: parseDbDateTimestamp(row.created_at),
-        },
+        id: row.id,
+        prompt: row.prompt,
+        attachments,
+        inputSnapshot,
+        modelId: row.model_id ?? undefined,
+        providerId: row.provider_id ?? undefined,
+        delivery: 'queue',
+        createdAt: parseDbDateTimestamp(row.created_at),
     };
 }
 
@@ -271,7 +265,7 @@ export class PendingMessagePersistence implements PendingMessageStore {
         await this.flush(sessionId);
         const rows = await findPendingMessagesBySessionId(sessionId);
         const decoded = await Promise.all(rows.map((row) => decodeRow(row)));
-        return decoded.flatMap((entry) => (entry ? [entry.message] : []));
+        return decoded.filter((message): message is PendingUserMessage => message !== null);
     }
 
     private schedule(sessionId: number, write: () => Promise<void>): void {
