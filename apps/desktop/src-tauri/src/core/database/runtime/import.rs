@@ -13,6 +13,8 @@ use super::super::{
     protocol::types::{DatabaseImportMode, DatabaseImportRequest},
 };
 
+const MAX_USAGE_BASELINE_BYTES: i64 = 16 * 1024 * 1024;
+
 /// 原备份只读；所有升级只发生在临时副本，导入不猜测旧字段或中间格式。
 pub(crate) async fn run_import_backup(
     pool: SqlitePool,
@@ -70,6 +72,20 @@ pub(crate) async fn run_import_backup(
                     "数据库存在重复的供应商或模型标识，无法安全导入；请先消除重复项".to_string(),
                 );
             }
+            let oversized_usage = sqlx::query_scalar::<_, i64>(
+                "SELECT EXISTS (SELECT 1 FROM main.statistics WHERE key = 'usage_rollup_baseline' AND length(CAST(value AS BLOB)) > ? UNION ALL SELECT 1 FROM imported.statistics WHERE key = 'usage_rollup_baseline' AND length(CAST(value AS BLOB)) > ?)",
+            ).bind(MAX_USAGE_BASELINE_BYTES).bind(MAX_USAGE_BASELINE_BYTES)
+                .fetch_one(&mut *connection).await.map_err(|error| format!("Failed to validate archived usage: {error}"))?;
+            if oversized_usage != 0 { return Err("database_import_usage_conflict".into()); }
+            execute_sql_artifact_on_connection(
+                &mut connection, &database_contract, &["artifacts", "import", "usage_prepare.sql"],
+            ).await?;
+            let conflict_sql = super::super::contract::read_sql_artifact(
+                &database_contract, &["artifacts", "import", "usage_conflict.sql"],
+            )?;
+            let usage_conflict: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(conflict_sql))
+                .fetch_one(&mut *connection).await.map_err(|error| format!("Failed to check archived usage overlap: {error}"))?;
+            if usage_conflict != 0 { return Err("database_import_usage_conflict".into()); }
             if matches!(request.mode, DatabaseImportMode::Full) {
                 execute_sql_artifact_on_connection(
                     &mut connection,
@@ -84,6 +100,13 @@ pub(crate) async fn run_import_backup(
                 &["artifacts", "import", "chat_merge.sql"],
             )
             .await?;
+            // Preserve archived days separately from the live rows that were just merged.
+            execute_sql_artifact_on_connection(
+                &mut connection, &database_contract, &["artifacts", "import", "usage_finish.sql"],
+            ).await?;
+            execute_sql_artifact_on_connection(
+                &mut connection, &database_contract, &["artifacts", "storage", "rollup.sql"],
+            ).await?;
             // A full restore carries the consent decision the snapshot preserves,
             // and applying it belongs to this transaction: a failed import must
             // not leave a half-applied choice behind, and a restoring opt-out

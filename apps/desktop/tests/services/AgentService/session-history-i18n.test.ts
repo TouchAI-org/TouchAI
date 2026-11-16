@@ -39,6 +39,9 @@ function createTurn(overrides: Partial<SessionTurnHistoryRow>): SessionTurnHisto
     return {
         id: 1,
         session_id: 1,
+        model_id: 1,
+        model_name: 'Saved model',
+        provider_name: 'Saved provider',
         task_id: 'task-1',
         execution_mode: 'foreground',
         prompt_snapshot_json: '{}',

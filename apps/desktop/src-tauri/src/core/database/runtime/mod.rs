@@ -3,19 +3,20 @@
 //! 数据库运行时状态与事务托管。
 
 mod analytics_snapshot;
+mod bundle;
 mod executor;
 mod import;
 
 use std::{
     collections::HashMap,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, Instant},
 };
 
 use log::{info, warn};
 use sqlx::{Sqlite, SqlitePool};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
 
 use crate::core::system::paths::{app_directory_path, AppDirectory};
 
@@ -47,6 +48,7 @@ struct TransactionEntry {
     window_label: String,
     connection: Option<sqlx::pool::PoolConnection<Sqlite>>,
     expires_at: Instant,
+    _maintenance: OwnedRwLockReadGuard<()>,
 }
 
 #[derive(Clone)]
@@ -65,6 +67,7 @@ struct DatabaseRuntimeInner {
     database_path: PathBuf,
     database_contract: DatabaseContractSource,
     tx_registry: Mutex<HashMap<String, SharedTxEntry>>,
+    maintenance_gate: Arc<RwLock<()>>,
 }
 
 impl DatabaseRuntime {
@@ -95,6 +98,7 @@ impl DatabaseRuntime {
         &self,
         request: DatabaseQueryRequest,
     ) -> Result<DatabaseQueryResponse, String> {
+        let _access = self.read_access().await;
         reject_top_level_transaction_sql(&request.sql)?;
         execute_request(&self.inner.pool, request).await
     }
@@ -105,6 +109,30 @@ impl DatabaseRuntime {
     /// this pool instead of opening a second connection or database.
     pub(crate) fn pool(&self) -> &SqlitePool {
         &self.inner.pool
+    }
+
+    pub(crate) fn database_path(&self) -> &Path {
+        &self.inner.database_path
+    }
+
+    pub(crate) fn storage_artifact(&self, name: &str) -> Result<String, String> {
+        super::contract::read_sql_artifact(
+            &self.inner.database_contract,
+            &["artifacts", "storage", name],
+        )
+    }
+
+    pub(crate) async fn read_access(&self) -> OwnedRwLockReadGuard<()> {
+        self.inner.maintenance_gate.clone().read_owned().await
+    }
+
+    /// Long maintenance is refused rather than stalling a live transaction or task.
+    pub(crate) async fn maintenance(&self) -> Result<OwnedRwLockWriteGuard<()>, String> {
+        self.inner
+            .maintenance_gate
+            .clone()
+            .try_write_owned()
+            .map_err(|_| "storage_busy".to_string())
     }
 
     pub async fn batch(
@@ -127,6 +155,7 @@ impl DatabaseRuntime {
         window_label: String,
         behavior: Option<DatabaseTransactionBehavior>,
     ) -> Result<String, String> {
+        let maintenance = self.read_access().await;
         let mut connection = self
             .inner
             .pool
@@ -148,6 +177,7 @@ impl DatabaseRuntime {
             window_label,
             connection: Some(connection),
             expires_at: Instant::now() + TX_IDLE_TIMEOUT,
+            _maintenance: maintenance,
         }));
 
         self.inner
@@ -225,14 +255,23 @@ impl DatabaseRuntime {
     }
 
     pub async fn export_backup(&self, target_path: &str) -> Result<(), String> {
+        let _access = self.read_access().await;
+        let database_path = self.database_path().to_path_buf();
+        let destination = PathBuf::from(target_path);
+        let (database_path, destination) = tauri::async_runtime::spawn_blocking(move || {
+            let source = crate::core::storage::files::resolve_platform_path(&database_path)?;
+            let destination = crate::core::storage::files::resolve_platform_path(&destination)?;
+            crate::core::storage::files::refuse_same_file(&source, &destination)?;
+            Ok::<_, String>((source, destination))
+        })
+        .await
+        .map_err(|_| "storage_io_failed")??;
         // A snapshot taken by VACUUM INTO is transactionally consistent with the
         // live database and cannot race a checkpoint-then-copy. Analytics identity,
         // consent epoch and queued payloads are scrubbed from the offline copy,
         // never from the live tables, so the exported schema stays valid and
         // restorable while the explicit consent choice travels with the user.
-        let parent = self
-            .inner
-            .database_path
+        let parent = database_path
             .parent()
             .ok_or_else(|| "数据库路径没有父目录".to_string())?;
         let snapshot = tempfile::tempdir_in(parent)
@@ -245,9 +284,26 @@ impl DatabaseRuntime {
             .map_err(|error| format!("Failed to snapshot database for export: {error}"))?;
         // The returned consent choice matters to an import, never to an export.
         let _ = analytics_snapshot::sanitize_analytics_snapshot(&snapshot_path).await?;
-        std::fs::copy(&snapshot_path, target_path)
-            .map_err(|error| format!("Failed to export database backup: {error}"))?;
-        Ok(())
+        // The destination is replaced atomically, never truncated through an existing hard link.
+        tauri::async_runtime::spawn_blocking(move || {
+            let _access = _access;
+            let _snapshot = snapshot;
+            let parent = destination.parent().ok_or("storage_invalid_path")?;
+            crate::core::storage::files::validate_path(&destination)?;
+            let temporary =
+                tempfile::NamedTempFile::new_in(parent).map_err(|_| "storage_io_failed")?;
+            std::fs::copy(&snapshot_path, temporary.path()).map_err(|_| "storage_io_failed")?;
+            temporary
+                .as_file()
+                .sync_all()
+                .map_err(|_| "storage_io_failed")?;
+            temporary
+                .persist(&destination)
+                .map_err(|_| "storage_io_failed")?;
+            Ok::<_, String>(())
+        })
+        .await
+        .map_err(|_| "storage_io_failed".to_string())?
     }
 
     /// 导入备份前先确认没有活动事务，避免和前端写入并发冲突。
@@ -255,6 +311,7 @@ impl DatabaseRuntime {
         if !self.inner.tx_registry.lock().await.is_empty() {
             return Err("当前仍有进行中的数据库事务，请稍后重试导入".to_string());
         }
+        let _maintenance = self.maintenance().await?;
 
         run_import_backup(
             self.inner.pool.clone(),
@@ -339,6 +396,7 @@ impl DatabaseRuntime {
                 database_path,
                 database_contract,
                 tx_registry: Mutex::new(HashMap::new()),
+                maintenance_gate: Arc::new(RwLock::new(())),
             }),
         };
         if spawn_tx_cleanup {

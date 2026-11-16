@@ -10,6 +10,8 @@ import {
 import { interceptTauriInvoke } from '@tests/utils/tauri';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import clearSessionsSql from '@/database/artifacts/storage/clear_sessions.sql?raw';
+
 import { openMigratedDatabase } from './sqliteHarness';
 
 /**
@@ -37,6 +39,10 @@ function routeQueriesTo(database: ReturnType<typeof openMigratedDatabase>) {
         if (call.cmd === 'database_tx_rollback') {
             database.exec('ROLLBACK');
             return null;
+        }
+        if (call.cmd === 'storage_clear_history') {
+            database.exec(clearSessionsSql);
+            return undefined;
         }
         if (call.cmd !== 'database_query' && call.cmd !== 'database_tx_query') return undefined;
         const { request } = call.payload as {

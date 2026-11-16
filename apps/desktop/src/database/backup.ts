@@ -11,6 +11,21 @@ export interface ProgressCallback {
     (message: string, progress: number): void;
 }
 
+export class DatabaseBackupCommittedError extends Error {
+    readonly code = 'DATABASE_BACKUP_COMMITTED';
+
+    constructor() {
+        super(t('database.backup.importCleanupPending'));
+        this.name = 'DatabaseBackupCommittedError';
+    }
+}
+
+export function isDatabaseBackupCommittedError(
+    error: unknown
+): error is DatabaseBackupCommittedError {
+    return error instanceof DatabaseBackupCommittedError;
+}
+
 export class DatabaseBackupCancelledError extends Error {
     readonly code = 'DATABASE_BACKUP_CANCELLED';
 
@@ -45,6 +60,10 @@ class DatabaseBackupService {
             defaultPath: this.buildBackupFileName(),
             filters: [
                 {
+                    name: t('database.backup.dialog.fullFilterName'),
+                    extensions: ['zip'],
+                },
+                {
                     name: t('database.backup.dialog.filterName'),
                     extensions: ['db'],
                 },
@@ -72,6 +91,10 @@ class DatabaseBackupService {
         const sourcePath = await open({
             filters: [
                 {
+                    name: t('database.backup.dialog.fullFilterName'),
+                    extensions: ['zip'],
+                },
+                {
                     name: t('database.backup.dialog.filterName'),
                     extensions: ['db'],
                 },
@@ -86,10 +109,20 @@ class DatabaseBackupService {
         }
 
         onProgress?.(t('database.backup.importing'), 30);
-        await native.database.importBackup({
-            sourcePath,
-            mode,
-        });
+        try {
+            await native.database.importBackup({ sourcePath, mode });
+        } catch (error) {
+            const message =
+                typeof error === 'string' ? error : error instanceof Error ? error.message : '';
+            if (message.startsWith('database_import_usage_conflict')) {
+                const conflict = new Error(t('database.backup.usageConflict'));
+                (conflict as Error & { cause?: unknown }).cause = error;
+                throw conflict;
+            }
+            if (message.startsWith('database_import_committed:'))
+                throw new DatabaseBackupCommittedError();
+            throw error;
+        }
         onProgress?.(t('database.backup.importComplete'), 100);
 
         return true;
@@ -100,7 +133,7 @@ class DatabaseBackupService {
      */
     private buildBackupFileName(): string {
         const timestamp = Math.floor(Date.now() / 1000);
-        return `touchai-backup-${timestamp}.db`;
+        return `touchai-backup-${timestamp}.zip`;
     }
 }
 

@@ -76,6 +76,16 @@ describe('user reviews a usage ranking', () => {
         expect(wrapper.emitted('select')).toEqual([[2]]);
     });
 
+    it('user can still read removed-model usage but cannot select a deleted configuration as a filter', async () => {
+        const wrapper = mountRanking({ items: [item({ id: null, name: 'Removed model' })] });
+        const row = wrapper.get<HTMLButtonElement>('[data-testid="settings-usage-ranking-row"]');
+        expect(row.text()).toContain('Removed model');
+        expect(row.element.disabled).toBe(true);
+        expect(row.attributes('aria-pressed')).toBe('false');
+        await row.trigger('click');
+        expect(wrapper.emitted('select')).toBeUndefined();
+    });
+
     it('user clears the filter by clicking the selected row again', async () => {
         const wrapper = mountRanking({ selectedId: 2 });
 

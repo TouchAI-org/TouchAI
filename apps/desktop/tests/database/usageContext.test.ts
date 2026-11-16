@@ -39,6 +39,7 @@ function sampleRow(input: SampleInput) {
         createdAt: input.createdAt,
         modelId: input.modelId,
         modelName: input.modelName,
+        providerName: 'Provider A',
         window: input.window,
         // promptTokens = input + cacheRead + cacheWrite
         promptTokens: input.inputTokens + input.cacheReadTokens,
@@ -414,6 +415,7 @@ describe('when a sampled turn has an unusable breakdown', () => {
                         createdAt: '2026-05-01 10:00:00',
                         modelId: 1,
                         modelName: 'Model A',
+                        providerName: 'Provider A',
                         window: 200_000,
                         promptTokens: 1_000,
                         cacheReadTokens: 0,

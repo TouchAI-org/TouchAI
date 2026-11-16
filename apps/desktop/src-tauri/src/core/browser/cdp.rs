@@ -60,12 +60,9 @@ const MAX_DIAGNOSTIC_ARGS: usize = 8;
 const MAX_CDP_DIAGNOSTIC_MESSAGE_BYTES: usize = 64 * 1024;
 const MAX_CDP_HTTP_BODY_BYTES: usize = 256 * 1024;
 const MAX_TRACKED_REQUEST_URLS: usize = 200;
-const SCREENSHOT_ARTIFACT_PREFIX: &str = "browser-screenshot-";
-const MAX_SCREENSHOT_ARTIFACTS: usize = 50;
 const MAX_SCREENSHOT_ARTIFACT_BYTES: usize = 5 * 1024 * 1024;
 const MAX_SCREENSHOT_ARTIFACT_BASE64_BYTES: usize = ((MAX_SCREENSHOT_ARTIFACT_BYTES + 2) / 3) * 4;
 const MAX_CDP_COMMAND_MESSAGE_BYTES: usize = MAX_SCREENSHOT_ARTIFACT_BASE64_BYTES + 256 * 1024;
-const SCREENSHOT_ARTIFACT_TTL: Duration = Duration::from_secs(60 * 60);
 const TRUNCATED_SUFFIX: &str = " ...[truncated]";
 #[cfg(target_os = "macos")]
 const SELECT_ALL_MODIFIER: i32 = 4;
@@ -199,10 +196,14 @@ pub async fn observe_page(
     } else {
         None
     };
-    let file_path = screenshot_base64
-        .as_deref()
-        .map(write_screenshot_artifact)
-        .transpose()?;
+    let file_path = if let Some(bytes) = screenshot_base64 {
+        tokio::task::spawn_blocking(move || write_screenshot_artifact(&bytes))
+            .await
+            .map_err(|_| "Browser screenshot worker failed".to_string())?
+            .map(Some)?
+    } else {
+        None
+    };
     let diagnostics =
         collect_page_diagnostics(endpoint, &target, include_console, include_network).await?;
 
@@ -1142,7 +1143,7 @@ async fn focus_and_verify_editable(
 }
 
 fn write_screenshot_artifact(base64_png: &str) -> Result<PathBuf, String> {
-    write_screenshot_artifact_in(base64_png, &screenshot_artifact_directory())
+    write_screenshot_artifact_in(base64_png, &screenshot_artifact_directory()?)
 }
 
 fn write_screenshot_artifact_in(base64_png: &str, directory: &Path) -> Result<PathBuf, String> {
@@ -1155,7 +1156,7 @@ fn write_screenshot_artifact_in(base64_png: &str, directory: &Path) -> Result<Pa
     if bytes.len() > MAX_SCREENSHOT_ARTIFACT_BYTES {
         return Err("Browser screenshot artifact is too large".to_string());
     }
-    let _ = prune_screenshot_artifacts_in(directory, SystemTime::now());
+    crate::core::storage::files::validate_path(directory)?;
     fs::create_dir_all(directory).map_err(|error| {
         format!("Failed to create browser screenshot artifact directory: {error}")
     })?;
@@ -1168,35 +1169,33 @@ fn write_screenshot_artifact_in(base64_png: &str, directory: &Path) -> Result<Pa
         "browser-screenshot-{}-{nonce}.png",
         std::process::id()
     ));
-    fs::write(&path, bytes)
+    crate::core::storage::files::validate_path(&path)?;
+    use std::io::Write;
+    let mut file = fs::File::options()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .map_err(|error| format!("Failed to create browser screenshot artifact: {error}"))?;
+    file.write_all(&bytes)
         .map_err(|error| format!("Failed to write browser screenshot artifact: {error}"))?;
     harden_artifact_file(&path)?;
-    let _ = prune_screenshot_artifacts_in(directory, SystemTime::now());
     Ok(path)
 }
 
-pub fn prune_screenshot_artifacts() -> Result<(), String> {
-    prune_screenshot_artifacts_in(&screenshot_artifact_directory(), SystemTime::now())
-}
-
-fn screenshot_artifact_directory() -> PathBuf {
-    static ARTIFACT_DIR: OnceLock<PathBuf> = OnceLock::new();
+fn screenshot_artifact_directory() -> Result<PathBuf, String> {
+    static ARTIFACT_DIR: OnceLock<Result<PathBuf, String>> = OnceLock::new();
     ARTIFACT_DIR
         .get_or_init(|| {
-            tempfile::Builder::new()
-                .prefix("touchai-browser-artifacts-")
-                .tempdir()
-                .map(|dir| dir.keep())
-                .unwrap_or_else(|_| {
-                    std::env::temp_dir().join(format!(
-                        "touchai-browser-artifacts-{}-{}",
-                        std::process::id(),
-                        SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .map(|duration| duration.as_nanos())
-                            .unwrap_or_default()
-                    ))
-                })
+            crate::core::system::paths::app_directory_path(
+                crate::core::system::paths::AppDirectory::Cache,
+            )
+            .and_then(|cache| crate::core::storage::files::resolve_platform_path(&cache))
+            .map(|cache| {
+                cache.join("temporary").join(format!(
+                    "touchai-browser-artifacts-{}",
+                    uuid::Uuid::new_v4(),
+                ))
+            })
         })
         .clone()
 }
@@ -1226,49 +1225,6 @@ fn harden_artifact_file(path: &Path) -> Result<(), String> {
 
 #[cfg(not(unix))]
 fn harden_artifact_file(_path: &Path) -> Result<(), String> {
-    Ok(())
-}
-
-fn prune_screenshot_artifacts_in(directory: &Path, now: SystemTime) -> Result<(), String> {
-    if !directory.exists() {
-        return Ok(());
-    }
-
-    let mut retained = Vec::new();
-    let entries = fs::read_dir(directory).map_err(|error| {
-        format!("Failed to read browser screenshot artifact directory: {error}")
-    })?;
-    for entry in entries.flatten() {
-        let file_name = entry.file_name();
-        let file_name = file_name.to_string_lossy();
-        if !file_name.starts_with(SCREENSHOT_ARTIFACT_PREFIX) || !file_name.ends_with(".png") {
-            continue;
-        }
-
-        let path = entry.path();
-        let Ok(metadata) = entry.metadata() else {
-            continue;
-        };
-        let modified = metadata.modified().unwrap_or(UNIX_EPOCH);
-        let expired = now
-            .duration_since(modified)
-            .map(|age| age > SCREENSHOT_ARTIFACT_TTL)
-            .unwrap_or(false);
-        if expired {
-            let _ = fs::remove_file(path);
-        } else {
-            retained.push((modified, path));
-        }
-    }
-
-    if retained.len() > MAX_SCREENSHOT_ARTIFACTS {
-        retained.sort_by_key(|(modified, _)| *modified);
-        let excess = retained.len() - MAX_SCREENSHOT_ARTIFACTS;
-        for (_, path) in retained.into_iter().take(excess) {
-            let _ = fs::remove_file(path);
-        }
-    }
-
     Ok(())
 }
 
@@ -2086,60 +2042,105 @@ mod tests {
         assert!(diagnostics.network.len() < 100);
     }
 
-    #[test]
-    fn screenshot_artifact_writer_prunes_to_retention_cap() {
-        let temp = TempDir::new().expect("temp dir");
-        let artifact_dir = temp.path().join("touchai-browser-artifacts");
-        fs::create_dir_all(&artifact_dir).expect("artifact dir");
-        for index in 0..(MAX_SCREENSHOT_ARTIFACTS + 5) {
-            fs::write(
-                artifact_dir.join(format!(
-                    "{SCREENSHOT_ARTIFACT_PREFIX}{}-{index}.png",
-                    std::process::id()
-                )),
-                [index as u8],
-            )
-            .expect("write artifact");
-        }
-
-        prune_screenshot_artifacts_in(&artifact_dir, SystemTime::now()).expect("prune artifacts");
-
-        let retained = fs::read_dir(&artifact_dir)
-            .expect("read artifact dir")
-            .flatten()
-            .filter(|entry| {
-                entry
-                    .file_name()
-                    .to_string_lossy()
-                    .starts_with(SCREENSHOT_ARTIFACT_PREFIX)
-            })
-            .count();
-        assert_eq!(retained, MAX_SCREENSHOT_ARTIFACTS);
+    fn private_directory() -> TempDir {
+        tempfile::tempdir_in(fs::canonicalize(std::env::temp_dir()).expect("physical temp parent"))
+            .expect("private fixture")
     }
 
     #[test]
-    fn screenshot_artifact_prune_removes_expired_generated_files_and_preserves_unrelated() {
-        let temp = TempDir::new().expect("temp dir");
+    fn user_given_many_existing_screenshots_when_capturing_again_then_keeps_every_earlier_original()
+    {
+        let temp = private_directory();
         let artifact_dir = temp.path().join("touchai-browser-artifacts");
         fs::create_dir_all(&artifact_dir).expect("artifact dir");
-        let old_path = artifact_dir.join(format!("{SCREENSHOT_ARTIFACT_PREFIX}old.png"));
-        let fresh_path = artifact_dir.join(format!("{SCREENSHOT_ARTIFACT_PREFIX}fresh.png"));
-        let unrelated_path = artifact_dir.join("unrelated.png");
-        fs::write(&old_path, [1]).expect("write old");
-        fs::write(&fresh_path, [2]).expect("write fresh");
-        fs::write(&unrelated_path, [3]).expect("write unrelated");
+        for index in 0..60 {
+            fs::write(
+                artifact_dir.join(format!("browser-screenshot-1-{index}.png")),
+                [index as u8],
+            )
+            .expect("older artifact");
+        }
+        let payload = base64::engine::general_purpose::STANDARD.encode([137, 80, 78, 71]);
+        let current = write_screenshot_artifact_in(&payload, &artifact_dir).expect("capture");
+        assert_eq!(
+            fs::read(current).expect("new screenshot"),
+            vec![137, 80, 78, 71]
+        );
+        for index in 0..60 {
+            assert_eq!(
+                fs::read(artifact_dir.join(format!("browser-screenshot-1-{index}.png")))
+                    .expect("earlier original"),
+                vec![index as u8]
+            );
+        }
+    }
 
-        let now = SystemTime::now() + SCREENSHOT_ARTIFACT_TTL + Duration::from_secs(1);
-        prune_screenshot_artifacts_in(&artifact_dir, now).expect("prune artifacts");
+    #[test]
+    fn user_given_an_expired_screenshot_when_capturing_again_then_defers_its_retention_to_storage_references(
+    ) {
+        let temp = private_directory();
+        let artifact_dir = temp.path().join("touchai-browser-artifacts");
+        fs::create_dir_all(&artifact_dir).expect("artifact dir");
+        let original = artifact_dir.join("browser-screenshot-1-1.png");
+        fs::write(&original, b"full resolution original").expect("old screenshot");
+        fs::File::options()
+            .write(true)
+            .open(&original)
+            .expect("fixture handle")
+            .set_times(fs::FileTimes::new().set_modified(UNIX_EPOCH + Duration::from_secs(10)))
+            .expect("old modification time");
+        let payload = base64::engine::general_purpose::STANDARD.encode([137, 80, 78, 71]);
+        write_screenshot_artifact_in(&payload, &artifact_dir).expect("capture");
+        assert_eq!(
+            fs::read(original).expect("recoverable original"),
+            b"full resolution original"
+        );
+    }
 
-        assert!(!old_path.exists());
-        assert!(!fresh_path.exists());
-        assert!(unrelated_path.exists());
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn user_given_a_redirected_screenshot_directory_when_capturing_then_does_not_touch_external_files(
+    ) {
+        let temp = private_directory();
+        let outside = temp.path().join("outside");
+        fs::create_dir(&outside).expect("external fixture");
+        let original = outside.join("browser-screenshot-1-1.png");
+        fs::write(&original, b"external original").expect("external file");
+        fs::File::options()
+            .write(true)
+            .open(&original)
+            .expect("fixture handle")
+            .set_times(fs::FileTimes::new().set_modified(UNIX_EPOCH + Duration::from_secs(10)))
+            .expect("old modification time");
+        let artifact_dir = temp.path().join("touchai-browser-artifacts");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outside, &artifact_dir).expect("private redirect");
+        #[cfg(windows)]
+        assert!(std::process::Command::new("cmd")
+            .args(["/D", "/C", "mklink", "/J"])
+            .arg(&artifact_dir)
+            .arg(&outside)
+            .output()
+            .expect("private junction")
+            .status
+            .success());
+        let payload = base64::engine::general_purpose::STANDARD.encode([137, 80, 78, 71]);
+        assert!(write_screenshot_artifact_in(&payload, &artifact_dir).is_err());
+        assert_eq!(
+            fs::read(original).expect("external file preserved"),
+            b"external original"
+        );
+        assert_eq!(
+            fs::read_dir(outside)
+                .expect("external directory unchanged")
+                .count(),
+            1
+        );
     }
 
     #[test]
     fn screenshot_artifact_writer_decodes_base64_to_png_file() {
-        let temp = TempDir::new().expect("temp dir");
+        let temp = private_directory();
         let artifact_dir = temp.path().join("touchai-browser-artifacts");
 
         let payload = base64::engine::general_purpose::STANDARD.encode([137, 80, 78, 71]);
@@ -2153,8 +2154,8 @@ mod tests {
 
     #[test]
     fn screenshot_artifact_directory_is_randomized_per_runtime() {
-        let first = screenshot_artifact_directory();
-        let second = screenshot_artifact_directory();
+        let first = screenshot_artifact_directory().expect("managed artifact path");
+        let second = screenshot_artifact_directory().expect("managed artifact path");
 
         assert_eq!(first, second);
         assert!(first

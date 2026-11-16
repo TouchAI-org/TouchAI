@@ -4,7 +4,7 @@
  */
 import { resolvePastedPathAttachment } from '@services/SearchService/pastedPath';
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { type Ref, ref } from 'vue';
+import { getCurrentScope, onScopeDispose, type Ref, ref, watch } from 'vue';
 
 import { t } from '@/i18n';
 import {
@@ -15,6 +15,8 @@ import {
 } from '@/services/AgentService/infrastructure/attachments';
 import { clipboardService } from '@/services/ClipboardService';
 import type { ClipboardPayload, QuickShortcutItem } from '@/services/NativeService/types';
+import { log } from '@/services/ObservabilityService';
+import { acquireStorageActivity } from '@/services/StorageService';
 import { isImagePath } from '@/utils/path';
 
 import type { SearchModelCapabilities, SearchModelOverride } from '../types';
@@ -26,6 +28,7 @@ import {
 
 interface UseSearchAttachmentsOptions {
     attachments?: Ref<Index[]>;
+    hasRetainedAttachments?: () => boolean;
 }
 
 interface UseSearchDraftControllerOptions {
@@ -47,6 +50,47 @@ interface ImportClipboardPayloadOptions {
  */
 export function useSearchAttachments(options: UseSearchAttachmentsOptions = {}) {
     const attachments = options.attachments ?? ref<Index[]>([]);
+    const needsProtection = () =>
+        attachments.value.length > 0 || Boolean(options.hasRetainedAttachments?.());
+    if (getCurrentScope()) {
+        let generation = 0;
+        let disposed = false;
+        let release: (() => Promise<void>) | null = null;
+        const releaseLease = (lease: (() => Promise<void>) | null) => {
+            void lease?.().catch((error) =>
+                log.error('[SearchDraft] Storage protection release failed', error)
+            );
+        };
+        const stop = watch(
+            needsProtection,
+            (hasAttachments) => {
+                const current = ++generation;
+                releaseLease(release);
+                release = null;
+                if (!hasAttachments) return;
+                void acquireStorageActivity()
+                    .then(async (lease) => {
+                        if (disposed || current !== generation || !needsProtection()) {
+                            await lease();
+                        } else {
+                            release = lease;
+                        }
+                    })
+                    .catch((error) =>
+                        log.error('[SearchDraft] Storage protection unavailable', error)
+                    );
+            },
+            // Snapshot and visible attachments change together during history navigation.
+            { immediate: true, flush: 'post' }
+        );
+        onScopeDispose(() => {
+            disposed = true;
+            generation++;
+            stop();
+            releaseLease(release);
+            release = null;
+        });
+    }
     const modelCapabilities = ref<SearchModelCapabilities>({
         supportsImages: false,
         supportsFiles: false,

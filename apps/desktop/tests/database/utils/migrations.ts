@@ -17,11 +17,46 @@ function readStatements(tag: string): string[] {
         .filter(Boolean);
 }
 
+function isForeignKeyPragma(statement: string): boolean {
+    return /^PRAGMA foreign_keys\s*=/i.test(statement);
+}
+
+/** Mirrors the native migration executor: rebuild pragmas cannot run inside a transaction. */
+export function applyMigrationTag(db: InstanceType<typeof DatabaseSync>, tag: string) {
+    const statements = readStatements(tag);
+    if (!statements.some(isForeignKeyPragma)) {
+        db.exec('BEGIN');
+        try {
+            for (const statement of statements) db.exec(statement);
+            db.exec('COMMIT');
+        } catch (error) {
+            db.exec('ROLLBACK');
+            throw error;
+        }
+        return;
+    }
+
+    const enabled = Number(db.prepare('PRAGMA foreign_keys').get()?.foreign_keys ?? 1) !== 0;
+    db.exec('PRAGMA foreign_keys=OFF');
+    try {
+        db.exec('BEGIN');
+        try {
+            for (const statement of statements) {
+                if (!isForeignKeyPragma(statement)) db.exec(statement);
+            }
+            db.exec('COMMIT');
+        } catch (error) {
+            db.exec('ROLLBACK');
+            throw error;
+        }
+    } finally {
+        db.exec(enabled ? 'PRAGMA foreign_keys=ON' : 'PRAGMA foreign_keys=OFF');
+    }
+}
+
 export function applyMigrations(db: InstanceType<typeof DatabaseSync>) {
     for (const entry of journal.entries) {
-        for (const statement of readStatements(entry.tag)) {
-            db.exec(statement);
-        }
+        applyMigrationTag(db, entry.tag);
     }
 }
 

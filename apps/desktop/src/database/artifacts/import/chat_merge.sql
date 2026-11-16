@@ -32,15 +32,15 @@ INNER JOIN main.providers AS target
 -- the target's default model selection during a chat-only import.
 INSERT INTO main.models (
     provider_id, name, model_id, is_default, last_used_at,
-    attachment, modalities, open_weights, reasoning, release_date,
+    attachment, modalities, open_weights, reasoning, reasoning_options, release_date,
     temperature, tool_call, knowledge, context_limit, output_limit,
-    is_custom_metadata, created_at, updated_at
+    is_custom_metadata, upstream_metadata, created_at, updated_at
 )
 SELECT
     provider_map.target_provider_id, source.name, source.model_id, 0, source.last_used_at,
-    source.attachment, source.modalities, source.open_weights, source.reasoning,
+    source.attachment, source.modalities, source.open_weights, source.reasoning, source.reasoning_options,
     source.release_date, source.temperature, source.tool_call, source.knowledge,
-    source.context_limit, source.output_limit, source.is_custom_metadata,
+    source.context_limit, source.output_limit, source.is_custom_metadata, source.upstream_metadata,
     source.created_at, source.updated_at
 FROM imported.models AS source
 INNER JOIN temp_provider_map AS provider_map
@@ -438,6 +438,8 @@ SELECT
     source_turns.id AS source_turn_id,
     session_map.target_session_id,
     model_map.target_model_id,
+    source_turns.model_name,
+    source_turns.provider_name,
     source_turns.task_id,
     source_turns.execution_mode,
     source_turns.prompt_snapshot_json,
@@ -447,12 +449,19 @@ SELECT
     source_turns.error_message,
     source_turns.tokens_used,
     source_turns.duration_ms,
+    source_turns.input_tokens, source_turns.output_tokens, source_turns.cache_read_tokens,
+    source_turns.cache_write_tokens, source_turns.reasoning_tokens, source_turns.total_cost_micros,
+    source_turns.unpriced_calls, source_turns.ttft_ms, source_turns.first_text_ms,
+    source_turns.llm_call_count, source_turns.tool_call_count, source_turns.kind,
+    source_turns.model_switch_count, source_turns.tool_argument_error_count,
+    source_turns.empty_response_count, source_turns.hit_iteration_ceiling,
+    source_turns.error_code, source_turns.retry_scope, source_turns.prompt_breakdown_json,
     source_turns.created_at,
     source_turns.updated_at
 FROM imported.session_turns AS source_turns
 LEFT JOIN temp_session_map AS session_map
     ON session_map.source_session_id = source_turns.session_id
-INNER JOIN temp_model_map AS model_map
+LEFT JOIN temp_model_map AS model_map
     ON model_map.source_model_id = source_turns.model_id
 LEFT JOIN temp_message_map AS prompt_message_map
     ON prompt_message_map.source_message_id = source_turns.prompt_message_id
@@ -460,13 +469,19 @@ LEFT JOIN temp_message_map AS response_message_map
     ON response_message_map.source_message_id = source_turns.response_message_id;
 
 INSERT INTO main.session_turns (
-    session_id, model_id, task_id, execution_mode, prompt_snapshot_json,
+    session_id, model_id, model_name, provider_name, task_id, execution_mode, prompt_snapshot_json,
     prompt_message_id, response_message_id, status, error_message,
-    tokens_used, duration_ms, created_at, updated_at
+    tokens_used, duration_ms, input_tokens, output_tokens, cache_read_tokens,
+    cache_write_tokens, reasoning_tokens, total_cost_micros, unpriced_calls,
+    ttft_ms, first_text_ms, llm_call_count, tool_call_count, kind,
+    model_switch_count, tool_argument_error_count, empty_response_count, hit_iteration_ceiling,
+    error_code, retry_scope, prompt_breakdown_json, created_at, updated_at
 )
 SELECT
     resolved_turns.target_session_id,
     resolved_turns.target_model_id,
+    resolved_turns.model_name,
+    resolved_turns.provider_name,
     resolved_turns.task_id,
     resolved_turns.execution_mode,
     resolved_turns.prompt_snapshot_json,
@@ -476,6 +491,13 @@ SELECT
     resolved_turns.error_message,
     resolved_turns.tokens_used,
     resolved_turns.duration_ms,
+    resolved_turns.input_tokens, resolved_turns.output_tokens, resolved_turns.cache_read_tokens,
+    resolved_turns.cache_write_tokens, resolved_turns.reasoning_tokens, resolved_turns.total_cost_micros,
+    resolved_turns.unpriced_calls, resolved_turns.ttft_ms, resolved_turns.first_text_ms,
+    resolved_turns.llm_call_count, resolved_turns.tool_call_count, resolved_turns.kind,
+    resolved_turns.model_switch_count, resolved_turns.tool_argument_error_count,
+    resolved_turns.empty_response_count, resolved_turns.hit_iteration_ceiling,
+    resolved_turns.error_code, resolved_turns.retry_scope, resolved_turns.prompt_breakdown_json,
     resolved_turns.created_at,
     resolved_turns.updated_at
 FROM temp_resolved_turns AS resolved_turns
@@ -483,7 +505,6 @@ WHERE NOT EXISTS (
     SELECT 1
     FROM main.session_turns AS existing_turns
     WHERE existing_turns.session_id IS resolved_turns.target_session_id
-      AND existing_turns.model_id = resolved_turns.target_model_id
       AND existing_turns.task_id = resolved_turns.task_id
       AND existing_turns.prompt_message_id IS resolved_turns.target_prompt_message_id
       AND existing_turns.created_at = resolved_turns.created_at
@@ -501,7 +522,6 @@ SELECT
 FROM temp_resolved_turns AS resolved_turns
 INNER JOIN main.session_turns AS target_turns
     ON target_turns.session_id IS resolved_turns.target_session_id
-   AND target_turns.model_id = resolved_turns.target_model_id
    AND target_turns.task_id = resolved_turns.task_id
    AND target_turns.prompt_message_id IS resolved_turns.target_prompt_message_id
    AND target_turns.created_at = resolved_turns.created_at
@@ -520,12 +540,25 @@ SET status_badge_dismissed_turn_id = (
 WHERE id IN (SELECT target_session_id FROM temp_session_map);
 
 UPDATE main.session_turns
-SET (response_message_id, status, error_message, tokens_used, duration_ms,
-     execution_mode, prompt_snapshot_json, updated_at) = (
+SET (model_id, model_name, provider_name, response_message_id, status, error_message, tokens_used, duration_ms,
+     execution_mode, prompt_snapshot_json, input_tokens, output_tokens, cache_read_tokens,
+     cache_write_tokens, reasoning_tokens, total_cost_micros, unpriced_calls, ttft_ms, first_text_ms,
+     llm_call_count, tool_call_count, kind, model_switch_count, tool_argument_error_count,
+     empty_response_count, hit_iteration_ceiling, error_code, retry_scope, prompt_breakdown_json, updated_at) = (
     SELECT
+        coalesce(resolved_turns.target_model_id, main.session_turns.model_id),
+        coalesce(main.session_turns.model_name, resolved_turns.model_name),
+        coalesce(main.session_turns.provider_name, resolved_turns.provider_name),
         resolved_turns.target_response_message_id, resolved_turns.status,
         resolved_turns.error_message, resolved_turns.tokens_used, resolved_turns.duration_ms,
-        resolved_turns.execution_mode, resolved_turns.prompt_snapshot_json, resolved_turns.updated_at
+        resolved_turns.execution_mode, resolved_turns.prompt_snapshot_json,
+        resolved_turns.input_tokens, resolved_turns.output_tokens, resolved_turns.cache_read_tokens,
+        resolved_turns.cache_write_tokens, resolved_turns.reasoning_tokens, resolved_turns.total_cost_micros,
+        resolved_turns.unpriced_calls, resolved_turns.ttft_ms, resolved_turns.first_text_ms,
+        resolved_turns.llm_call_count, resolved_turns.tool_call_count, resolved_turns.kind,
+        resolved_turns.model_switch_count, resolved_turns.tool_argument_error_count,
+        resolved_turns.empty_response_count, resolved_turns.hit_iteration_ceiling,
+        resolved_turns.error_code, resolved_turns.retry_scope, resolved_turns.prompt_breakdown_json, resolved_turns.updated_at
     FROM temp_turn_map AS turn_map
     INNER JOIN temp_resolved_turns AS resolved_turns
         ON resolved_turns.source_turn_id = turn_map.source_turn_id
@@ -535,8 +568,9 @@ WHERE id IN (SELECT target_turn_id FROM temp_turn_map);
 
 INSERT INTO main.session_turn_attempts (
     turn_id, attempt_index, max_retries, status, checkpoint_json,
-    delivery_manifest_json, error_message, duration_ms, started_at,
-    finished_at, created_at, updated_at
+    delivery_manifest_json, error_message, duration_ms, input_tokens, output_tokens,
+    cache_read_tokens, cache_write_tokens, reasoning_tokens, total_cost_micros,
+    unpriced_calls, ttft_ms, llm_call_count, started_at, finished_at, created_at, updated_at
 )
 SELECT
     turn_map.target_turn_id,
@@ -557,6 +591,9 @@ SELECT
     source_attempts.delivery_manifest_json,
     source_attempts.error_message,
     source_attempts.duration_ms,
+    source_attempts.input_tokens, source_attempts.output_tokens, source_attempts.cache_read_tokens,
+    source_attempts.cache_write_tokens, source_attempts.reasoning_tokens, source_attempts.total_cost_micros,
+    source_attempts.unpriced_calls, source_attempts.ttft_ms, source_attempts.llm_call_count,
     source_attempts.started_at,
     source_attempts.finished_at,
     source_attempts.created_at,
@@ -571,6 +608,15 @@ ON CONFLICT(turn_id, attempt_index) DO UPDATE SET
     delivery_manifest_json = excluded.delivery_manifest_json,
     error_message = excluded.error_message,
     duration_ms = excluded.duration_ms,
+    input_tokens = excluded.input_tokens,
+    output_tokens = excluded.output_tokens,
+    cache_read_tokens = excluded.cache_read_tokens,
+    cache_write_tokens = excluded.cache_write_tokens,
+    reasoning_tokens = excluded.reasoning_tokens,
+    total_cost_micros = excluded.total_cost_micros,
+    unpriced_calls = excluded.unpriced_calls,
+    ttft_ms = excluded.ttft_ms,
+    llm_call_count = excluded.llm_call_count,
     started_at = excluded.started_at,
     finished_at = excluded.finished_at,
     updated_at = excluded.updated_at;

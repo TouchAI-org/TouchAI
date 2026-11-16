@@ -3,6 +3,8 @@ import { createRequire } from 'node:module';
 
 import { describe, expect, it } from 'vitest';
 
+import { applyMigrationTag } from './utils/migrations';
+
 const { DatabaseSync } = createRequire(import.meta.url)(
     'node:sqlite'
 ) as typeof import('node:sqlite');
@@ -14,22 +16,8 @@ const journal = JSON.parse(readFileSync(`${root}/meta/_journal.json`, 'utf8')) a
 
 function applyMigrations(db: InstanceType<typeof DatabaseSync>) {
     for (const entry of journal.entries) {
-        db.exec('BEGIN');
-        try {
-            for (const statement of migrationStatements(entry.tag)) db.exec(statement);
-            db.exec('COMMIT');
-        } catch (error) {
-            db.exec('ROLLBACK');
-            throw error;
-        }
+        applyMigrationTag(db, entry.tag);
     }
-}
-
-function migrationStatements(tag: string) {
-    return readFileSync(`${root}/${tag}.sql`, 'utf8')
-        .split('--> statement-breakpoint')
-        .map((statement) => statement.trim())
-        .filter(Boolean);
 }
 
 function migrated() {

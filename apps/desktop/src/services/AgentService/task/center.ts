@@ -7,6 +7,7 @@ import { tt } from '@/i18n';
 import { eventService } from '@/services/EventService';
 import { AppEvent, type SessionStatusReminderPayload } from '@/services/EventService/types';
 import { waitForAgentStartupCapabilities } from '@/services/StartupService/capabilities';
+import { acquireStorageActivity, retainStoragePaths } from '@/services/StorageService';
 import { createPerfTrace } from '@/utils/perfTrace';
 import {
     buildWaitingApprovalBody,
@@ -56,6 +57,10 @@ interface MutableSessionTask {
     lastPublishedReminderKey: string | null;
     /** 上次发布给订阅者的展示快照，用于复用未变消息的对象引用。 */
     publishedView: TaskViewSnapshot | null;
+    releaseStorage: (() => Promise<void>) | null;
+    releaseStoragePins: (() => Promise<void>) | null;
+    storageInputs: StartSessionTaskOptions['attachments'];
+    storageRunning: boolean;
 }
 
 const TERMINAL_TASK_RETENTION_MS = 5 * 60 * 1000;
@@ -288,6 +293,10 @@ export class SessionTaskCenter {
             lastPublishedSessionId: null,
             lastPublishedReminderKey: null,
             publishedView: null,
+            releaseStorage: null,
+            releaseStoragePins: null,
+            storageInputs: options.attachments,
+            storageRunning: false,
         };
 
         this.tasks.set(taskId, task);
@@ -295,6 +304,10 @@ export class SessionTaskCenter {
         this.bindTaskToSession(taskId, options.sessionId ?? null);
 
         try {
+            task.releaseStorage = await acquireStorageActivity();
+            if (!this.tasks.has(taskId)) {
+                throw new AiError(AiErrorCode.REQUEST_CANCELLED);
+            }
             const historyPromise =
                 options.sessionId !== undefined && options.sessionId !== null
                     ? loadSessionHistory(options.sessionId)
@@ -350,6 +363,7 @@ export class SessionTaskCenter {
                 },
             });
 
+            task.storageRunning = true;
             const completion = this.runTask(taskId, runtime);
             task.completion = completion;
 
@@ -359,6 +373,13 @@ export class SessionTaskCenter {
                 completion,
             };
         } catch (error) {
+            await task.releaseStorage?.().catch((releaseError) => {
+                log.error(
+                    '[SessionTaskCenter] Failed to release startup storage protection',
+                    releaseError
+                );
+            });
+            task.releaseStorage = null;
             this.releaseTask(taskId);
             throw error;
         }
@@ -612,6 +633,19 @@ export class SessionTaskCenter {
             task.abortController.abort();
             task.detachAbortRelay();
             task.interactions.cancelAll();
+            if (!task.storageRunning) {
+                void task.releaseStorage?.().catch((error) => {
+                    log.error(
+                        '[SessionTaskCenter] Failed to release disposed storage activity',
+                        error
+                    );
+                });
+                task.releaseStorage = null;
+            }
+            void task.releaseStoragePins?.().catch((error) => {
+                log.error('[SessionTaskCenter] Failed to release disposed input pins', error);
+            });
+            task.releaseStoragePins = null;
         }
         this.tasks.clear();
         this.sessionActiveTaskIndex.clear();
@@ -619,6 +653,8 @@ export class SessionTaskCenter {
 
     /** 执行任务运行时，处理完成/取消/失败的终态转换。 */
     private async runTask(taskId: string, runtime: AiConversationRuntime): Promise<TaskResult> {
+        const storageOwner = this.tasks.get(taskId);
+        const releaseStorage = storageOwner?.releaseStorage;
         try {
             return await runtime.run();
         } catch (error) {
@@ -639,6 +675,41 @@ export class SessionTaskCenter {
                 await computerUseService.endActivity(task.abortController.signal).catch((error) => {
                     log.warn('[SessionTaskCenter] Failed to release computer-use feedback:', error);
                 });
+            }
+            let retained = false;
+            if (storageOwner) storageOwner.storageRunning = false;
+            if (task && isTerminalStatus(task.snapshot.status)) {
+                try {
+                    task.releaseStoragePins = await retainStoragePaths(
+                        (task.storageInputs ?? []).flatMap((attachment) => [
+                            attachment.path,
+                            attachment.originPath,
+                        ])
+                    );
+                } catch (error) {
+                    // Keep the full lease until task-retention expiry when narrow pinning fails.
+                    retained = true;
+                    log.error(
+                        '[SessionTaskCenter] Failed to retain recoverable task inputs',
+                        error
+                    );
+                }
+                if (!this.tasks.has(taskId)) {
+                    retained = false;
+                    await task.releaseStoragePins?.().catch((error) => {
+                        log.error(
+                            '[SessionTaskCenter] Failed to release retired input pins',
+                            error
+                        );
+                    });
+                    task.releaseStoragePins = null;
+                }
+            }
+            if (!retained) {
+                await releaseStorage?.().catch((error) => {
+                    log.error('[SessionTaskCenter] Failed to release storage protection', error);
+                });
+                if (storageOwner) storageOwner.releaseStorage = null;
             }
             if (task && isTerminalStatus(task.snapshot.status)) {
                 this.scheduleTaskRelease(taskId);
@@ -794,6 +865,16 @@ export class SessionTaskCenter {
             }
         }
 
+        if (!task.storageRunning) {
+            void task.releaseStorage?.().catch((error) => {
+                log.error('[SessionTaskCenter] Failed to release retained storage activity', error);
+            });
+            task.releaseStorage = null;
+        }
+        void task.releaseStoragePins?.().catch((error) => {
+            log.error('[SessionTaskCenter] Failed to release retained input pins', error);
+        });
+        task.releaseStoragePins = null;
         this.tasks.delete(taskId);
     }
 

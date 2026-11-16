@@ -6533,6 +6533,7 @@ dependencies = [
  "futures",
  "html5gum",
  "image",
+ "libc",
  "libloading 0.8.9",
  "log",
  "notify-rust",

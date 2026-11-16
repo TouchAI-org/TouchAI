@@ -8,7 +8,7 @@ import {
 import { and, between, desc, eq, inArray, isNotNull, type SQL, sql } from 'drizzle-orm';
 
 import { db } from '../index';
-import { models, sessionTurns } from '../schema';
+import { models, providers, sessionTurns } from '../schema';
 import type { UsageFilter } from './usageStats';
 
 // ============================================================================
@@ -64,7 +64,7 @@ export interface ContextProfile {
 export interface ContextTurnPoint {
     turnId: number;
     createdAt: string;
-    modelId: number;
+    modelId: number | null;
     promptTokens: number;
     window: number;
     fillRate: number;
@@ -225,8 +225,9 @@ function buildTags(input: {
 interface RawTurnSample {
     turnId: number;
     createdAt: string;
-    modelId: number;
+    modelId: number | null;
     modelName: string;
+    providerName: string;
     window: number;
     promptTokens: number;
     cacheReadTokens: number;
@@ -269,7 +270,8 @@ async function loadSamples(filter: UsageFilter): Promise<RawTurnSample[]> {
             turnId: sessionTurns.id,
             createdAt: sessionTurns.created_at,
             modelId: sessionTurns.model_id,
-            modelName: models.name,
+            modelName: sql<string>`coalesce(${sessionTurns.model_name}, ${models.name}, '—')`,
+            providerName: sql<string>`coalesce(${sessionTurns.provider_name}, ${providers.name}, '—')`,
             window: sql<number>`coalesce(${models.context_limit}, 0)`,
             promptTokens: sql<number>`(
                 ${sessionTurns.input_tokens}
@@ -282,7 +284,8 @@ async function loadSamples(filter: UsageFilter): Promise<RawTurnSample[]> {
             failed: sql<number>`case when ${sessionTurns.status} = 'failed' then 1 else 0 end`,
         })
         .from(sessionTurns)
-        .innerJoin(models, eq(models.id, sessionTurns.model_id))
+        .leftJoin(models, eq(models.id, sessionTurns.model_id))
+        .leftJoin(providers, eq(providers.id, models.provider_id))
         .where(buildSampleWhere(filter))
         .orderBy(desc(sessionTurns.created_at), desc(sessionTurns.id))
         .limit(SAMPLE_LIMIT)
@@ -293,6 +296,7 @@ async function loadSamples(filter: UsageFilter): Promise<RawTurnSample[]> {
         createdAt: row.createdAt,
         modelId: row.modelId,
         modelName: row.modelName,
+        providerName: row.providerName,
         window: row.window,
         promptTokens: row.promptTokens,
         cacheReadTokens: row.cacheReadTokens,
@@ -300,6 +304,12 @@ async function loadSamples(filter: UsageFilter): Promise<RawTurnSample[]> {
         breakdown: row.breakdown,
         failed: row.failed === 1,
     }));
+}
+
+function modelIdentity(sample: RawTurnSample): string {
+    return sample.modelId === null
+        ? JSON.stringify([sample.modelName, sample.providerName])
+        : `model:${sample.modelId}`;
 }
 
 /** 聚合一批采样的上下文画像 */
@@ -373,7 +383,7 @@ function profileFromSamples(
     for (let index = 1; index < chronological.length; index += 1) {
         const previous = chronological[index - 1]!;
         const current = chronological[index]!;
-        if (previous.modelId !== current.modelId) {
+        if (modelIdentity(previous) !== modelIdentity(current)) {
             continue;
         }
         const delta = current.promptTokens - previous.promptTokens;
@@ -478,20 +488,21 @@ export async function getContextProfiles(filter: UsageFilter): Promise<{
 
     const overall = profileFromSamples(samples, { modelId: null, modelName: '' });
 
-    const byModel = new Map<number, RawTurnSample[]>();
+    const byModel = new Map<string, RawTurnSample[]>();
     for (const sample of samples) {
-        const bucket = byModel.get(sample.modelId);
+        const identity = modelIdentity(sample);
+        const bucket = byModel.get(identity);
         if (bucket) {
             bucket.push(sample);
         } else {
-            byModel.set(sample.modelId, [sample]);
+            byModel.set(identity, [sample]);
         }
     }
 
-    const models = [...byModel.entries()]
-        .map(([modelId, modelSamples]) =>
+    const models = [...byModel.values()]
+        .map((modelSamples) =>
             profileFromSamples(modelSamples, {
-                modelId,
+                modelId: modelSamples[0]!.modelId,
                 modelName: modelSamples[0]?.modelName ?? '',
             })
         )
@@ -519,7 +530,7 @@ export async function getContextTurnPoints(
         const previous = index > 0 ? chronological[index - 1]! : null;
         const isCompaction =
             previous !== null &&
-            previous.modelId === sample.modelId &&
+            modelIdentity(previous) === modelIdentity(sample) &&
             previous.promptTokens >= COMPACTION_MIN_TOKENS &&
             sample.promptTokens < previous.promptTokens * COMPACTION_RATIO;
 

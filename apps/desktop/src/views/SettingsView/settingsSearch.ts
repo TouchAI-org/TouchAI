@@ -3,6 +3,7 @@ import type { AppIconName } from '@components/appIconMap';
 import { SEARCH_KEYBINDING_DEFINITIONS } from '@/config/searchKeybindings';
 import { type MessageKey, t } from '@/i18n';
 import { messages } from '@/i18n/messages';
+import { STORAGE_SETTINGS_SEARCH_ITEMS } from '@/services/SettingsService/domain/sections/registry';
 
 import { flattenSettingsNavigation, type NavigationSection } from './settingsNavigation';
 
@@ -133,6 +134,7 @@ const settingDefinitions: Partial<Record<NavigationSection, SearchItemDefinition
         },
     ],
     'data-management': [
+        ...STORAGE_SETTINGS_SEARCH_ITEMS,
         { labelKey: 'settings.dataManagement.stats', targetId: 'data-stats' },
         { labelKey: 'settings.dataManagement.clearAllSessions', targetId: 'data-clear-sessions' },
         { labelKey: 'settings.dataManagement.clearAllMessages', targetId: 'data-clear-messages' },

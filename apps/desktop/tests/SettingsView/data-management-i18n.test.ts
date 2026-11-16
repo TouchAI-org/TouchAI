@@ -1,156 +1,107 @@
-import { mount } from '@vue/test-utils';
-import { createPinia } from 'pinia';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { DatabaseQueryRequest } from '@services/NativeService/database';
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
+import { createPinia, disposePinia } from 'pinia';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { toast } from 'vue-sonner';
 
-import { MetaKey } from '@/database/schema';
+import { MetaKey, StatisticKey } from '@/database/schema';
 import { setLocale } from '@/i18n';
 import BadgedLogo from '@/views/SettingsView/components/AiServices/components/BadgedLogo.vue';
 import ImportModeDialog from '@/views/SettingsView/components/DataManagement/components/ImportModeDialog.vue';
 import ProgressDialog from '@/views/SettingsView/components/DataManagement/components/ProgressDialog.vue';
 import DataManagement from '@/views/SettingsView/components/DataManagement/index.vue';
 
-const {
-    countMessagesMock,
-    countSessionsMock,
-    countSessionTurnsMock,
-    getStatisticMock,
-    importDatabaseMock,
-    relaunchMock,
-    setMetaMock,
-} = vi.hoisted(() => ({
-    countMessagesMock: vi.fn(),
-    countSessionsMock: vi.fn(),
-    countSessionTurnsMock: vi.fn(),
-    getStatisticMock: vi.fn(),
-    importDatabaseMock: vi.fn(),
-    relaunchMock: vi.fn(),
-    setMetaMock: vi.fn(),
-}));
+import { getLastTauriInvokeCall, mockTauriCommand } from '../utils/tauri';
 
-vi.mock('@database/queries', () => ({
-    countMessages: countMessagesMock,
-    countSessions: countSessionsMock,
-    countSessionTurns: countSessionTurnsMock,
-    deleteAllMessages: vi.fn(),
-    deleteAllSessions: vi.fn(),
-    deleteAllSessionTurns: vi.fn(),
-    getStatistic: getStatisticMock,
-}));
+let pinia: ReturnType<typeof createPinia>;
+let host: HTMLDivElement;
+const wrappers: VueWrapper[] = [];
+const storedMeta = new Map<string, string>();
 
-vi.mock('@database/queries/touchaiMeta', () => ({
-    setMeta: setMetaMock,
-}));
-
-vi.mock('@database/backup', () => ({
-    databaseBackup: {
-        exportDatabase: vi.fn(),
-        importDatabase: importDatabaseMock,
-    },
-    isDatabaseBackupCancelledError: (error: unknown) =>
-        typeof error === 'object' &&
-        error !== null &&
-        (error as { code?: unknown }).code === 'DATABASE_BACKUP_CANCELLED',
-}));
-
-vi.mock('@composables/useAlert', () => ({
-    useAlert: () => ({
-        error: vi.fn(),
-        success: vi.fn(),
-    }),
-}));
-
-vi.mock('@composables/useConfirm', () => ({
-    useConfirm: () => ({
-        confirm: vi.fn(),
-    }),
-}));
-
-vi.mock('@tauri-apps/plugin-process', () => ({
-    relaunch: relaunchMock,
-}));
-
-vi.mock('@/services/AgentService/infrastructure/modelMetadata', () => ({
-    updateModelMetadata: vi.fn(),
-}));
-
-vi.mock('@components/AppIcon.vue', () => ({
-    default: {
-        name: 'AppIcon',
-        props: ['name'],
-        template: '<span data-testid="app-icon" />',
-    },
-}));
-
-vi.mock('@components/DialogShell.vue', () => ({
-    default: {
-        name: 'DialogShell',
-        props: ['maxWidthClass', 'contentClass'],
-        template:
-            '<section data-testid="dialog-shell" :class="[maxWidthClass, contentClass]"><slot /></section>',
-    },
-}));
-
-vi.mock('@components/ui/button', () => ({
-    Button: {
-        name: 'Button',
-        props: ['variant', 'size'],
-        template: '<button><slot /></button>',
-    },
-}));
-
-vi.mock('@/views/SettingsView/components/DataManagement/components/DiagnosticsSection.vue', () => ({
-    default: {
-        name: 'SettingsDiagnosticsSection',
-        template:
-            '<section data-testid="settings-diagnostics-section">Diagnostics and support</section>',
-    },
-}));
-
-vi.mock('@/views/SettingsView/components/DataManagement/components/AnalyticsSection.vue', () => ({
-    default: {
-        name: 'SettingsAnalyticsSection',
-        template:
-            '<section data-testid="settings-analytics-section">Privacy and product analytics</section>',
-    },
-}));
-
-async function flushMountedPromises() {
-    for (let index = 0; index < 4; index += 1) {
-        await Promise.resolve();
-    }
+function dialog() {
+    const element = document.querySelector<HTMLElement>('[role=dialog]');
+    expect(element).not.toBeNull();
+    return element!;
 }
 
-describe('user manages the app data', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
-        setLocale('zh-CN');
-        countSessionsMock.mockResolvedValue(1);
-        countMessagesMock.mockResolvedValue(2);
-        countSessionTurnsMock.mockResolvedValue(3);
-        getStatisticMock.mockResolvedValue('2026-05-20T12:34:00Z');
-        importDatabaseMock.mockResolvedValue(true);
-
-        setMetaMock.mockResolvedValue(undefined);
-    });
-
-    it('user sees model metadata last-updated text in English with localized date formatting', async () => {
-        setLocale('en-US');
-
-        const wrapper = mount(DataManagement, {
-            global: {
-                plugins: [createPinia()],
-                stubs: {
-                    ImportModeDialog: true,
-                    ProgressDialog: true,
+beforeEach(() => {
+    vi.useFakeTimers();
+    pinia = createPinia();
+    setLocale('zh-CN');
+    vi.stubGlobal('CSS', { escape: (value: string) => value });
+    host = document.createElement('div');
+    document.body.appendChild(host);
+    storedMeta.clear();
+    mockTauriCommand('database_query', (payload: unknown) => {
+        const { request } = payload as { request: DatabaseQueryRequest };
+        let rows: Array<Record<string, unknown>> = [];
+        if (request.sql.includes('count(')) {
+            const count = request.sql.includes('from "sessions"')
+                ? 1
+                : request.sql.includes('from "messages"')
+                  ? 2
+                  : 3;
+            rows = [{ count }];
+        } else if (request.sql.includes('from "statistics"')) {
+            rows = [
+                {
+                    id: 1,
+                    key: StatisticKey.MODEL_METADATA_LAST_UPDATED_AT,
+                    value: '2026-05-20T12:34:00Z',
+                    created_at: '',
+                    updated_at: '',
                 },
-            },
-        });
+            ];
+        } else if (request.sql.includes('insert into "touchai_meta"')) {
+            storedMeta.set(String(request.params?.[0]), String(request.params?.[1]));
+        }
+        return { rows, rowsAffected: 0, lastInsertId: null };
+    });
+    mockTauriCommand('storage_scan', () => ({
+        categories: [],
+        totalBytes: 0,
+        reclaimableBytes: 0,
+        databaseFreeBytes: 0,
+        warnings: [],
+        busy: false,
+    }));
+    mockTauriCommand('analytics_get_state', () => ({
+        status: 'disabled',
+        consentEpoch: 0,
+        queueDepth: 0,
+        pendingBytes: 0,
+        buildEligible: false,
+        transportReady: false,
+    }));
+    mockTauriCommand('obs_diagnostic_mode_status', () => ({ enabled: false, expiresAtMs: 0 }));
+    mockTauriCommand('obs_preview_bundle', () => ({ files: [], totalBytes: 0, truncated: false }));
+});
 
-        await flushMountedPromises();
+afterEach(async () => {
+    for (const wrapper of wrappers.splice(0)) wrapper.unmount();
+    disposePinia(pinia);
+    host.remove();
+    toast.dismiss();
+    await vi.runOnlyPendingTimersAsync();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    setLocale('zh-CN');
+});
+
+describe('given local data settings and dialogs are displayed in English', () => {
+    it('user opens data settings and sees model metadata dates and the additive storage section localized', async () => {
+        setLocale('en-US');
+        const wrapper = mount(DataManagement, {
+            attachTo: host,
+            global: { plugins: [pinia] },
+        });
+        wrappers.push(wrapper);
+        await flushPromises();
 
         expect(wrapper.text()).toContain('Data & privacy');
         expect(wrapper.text()).toContain('Data statistics');
         expect(wrapper.text()).toContain('Conversation sessions');
+        expect(wrapper.text()).toContain('Storage');
         expect(wrapper.text()).toContain('Clear all conversation history');
         expect(wrapper.text()).toContain('Data updates');
         expect(wrapper.text()).toContain('Model database');
@@ -172,17 +123,13 @@ describe('user manages the app data', () => {
         expect(wrapper.text()).not.toContain('数据与隐私');
     });
 
-    it('user keeps the built-in provider badge localized without truncating longer labels', () => {
+    it('user opens a built-in provider and its localized badge does not truncate longer labels', () => {
         setLocale('en-US');
-
         const wrapper = mount(BadgedLogo, {
-            props: {
-                logo: 'missing-provider.svg',
-                name: 'Built In Provider',
-                showBadge: true,
-            },
+            attachTo: host,
+            props: { logo: 'missing-provider.svg', name: 'Built In Provider', showBadge: true },
         });
-
+        wrappers.push(wrapper);
         const badge = wrapper.get('[data-testid="provider-built-in-badge"]');
 
         expect(badge.text()).toBe('Built-in');
@@ -192,80 +139,80 @@ describe('user manages the app data', () => {
         expect(badge.classes()).not.toContain('max-w-[4.5rem]');
     });
 
-    it('user sees import mode dialog in English with wrapping-safe option buttons', () => {
+    it('user opens import choices and sees localized options that can wrap', async () => {
         setLocale('en-US');
+        const wrapper = mount(ImportModeDialog, { attachTo: host, props: { isLoading: false } });
+        wrappers.push(wrapper);
+        await flushPromises();
+        const choices = dialog();
 
-        const wrapper = mount(ImportModeDialog, {
-            props: {
-                isLoading: false,
-            },
-        });
-
-        expect(wrapper.text()).toContain('Choose import mode');
-        expect(wrapper.text()).toContain('Import conversation data only');
-        expect(wrapper.text()).toContain('Overwrite settings and import conversations');
-        expect(wrapper.text()).not.toContain('选择导入模式');
-
-        const modeButtons = wrapper.findAll('button').slice(0, 2);
-        expect(modeButtons[0]?.classes()).toContain('whitespace-normal');
-        expect(modeButtons[1]?.classes()).toContain('whitespace-normal');
+        expect(choices.textContent).toContain('Choose import mode');
+        expect(choices.textContent).toContain('Import conversation data only');
+        expect(choices.textContent).toContain('Overwrite settings and import conversations');
+        expect(choices.textContent).not.toContain('选择导入模式');
+        const modeButtons = [...choices.querySelectorAll('button')].filter(
+            (button) =>
+                button.textContent?.includes('import conversation') ||
+                button.textContent?.includes('Import conversation')
+        );
+        expect(modeButtons).toHaveLength(2);
+        for (const button of modeButtons) expect(button.classList).toContain('whitespace-normal');
     });
 
-    it('user allows long progress messages and paths to break in the progress dialog', () => {
+    it('user reads a long backup path and the progress message can wrap without losing the progress value', async () => {
         const wrapper = mount(ProgressDialog, {
+            attachTo: host,
             props: {
                 title: 'Database exported',
                 message:
-                    'E:\\very\\long\\backup\\path\\with\\many\\segments\\touchai-settings-backup-2026-05-22.db',
+                    'E:\\very\\long\\backup\\path\\with\\many\\segments\\touchai-backup-2026-05-22.zip',
                 progress: 42,
                 status: 'success',
                 dismissible: true,
             },
         });
+        wrappers.push(wrapper);
+        await flushPromises();
+        const message = document.querySelector('[data-testid="progress-message"]')!;
+        expect(message).not.toBeNull();
 
-        const message = wrapper.get('[data-testid="progress-message"]');
-
-        expect(message.classes()).toContain('break-words');
-        expect(message.classes()).toContain('whitespace-normal');
-        expect(message.classes()).toContain('[overflow-wrap:anywhere]');
-        expect(wrapper.text()).toContain('42%');
+        expect(message.classList).toContain('break-words');
+        expect(message.classList).toContain('whitespace-normal');
+        expect(message.classList).toContain('[overflow-wrap:anywhere]');
+        expect(dialog().textContent).toContain('42%');
     });
 
-    it('user persists import-success startup notification as a source payload instead of translated text', async () => {
+    it('user imports settings and the persisted startup notice retains a source payload for the next language', async () => {
         setLocale('en-US');
-        vi.useFakeTimers();
+        mockTauriCommand('plugin:dialog|open', () => 'fixture-backup.zip');
+        mockTauriCommand('database_import_backup', () => undefined);
+        const wrapper = mount(DataManagement, {
+            attachTo: host,
+            global: { plugins: [pinia] },
+        });
+        wrappers.push(wrapper);
+        await flushPromises();
+        await wrapper
+            .get('[data-settings-search-target="import-settings"] button')
+            .trigger('click');
+        await flushPromises();
+        const fullImport = [...dialog().querySelectorAll<HTMLButtonElement>('button')].find(
+            (button) => button.textContent?.includes('Overwrite settings and import conversations')
+        );
+        expect(fullImport).toBeDefined();
+        fullImport!.click();
+        await flushPromises();
 
-        try {
-            const wrapper = mount(DataManagement, {
-                global: {
-                    stubs: {
-                        ProgressDialog: true,
-                    },
-                },
-            });
-            await flushMountedPromises();
-
-            const buttons = wrapper.findAll('button');
-            await buttons[buttons.length - 1]?.trigger('click');
-            await wrapper.getComponent(ImportModeDialog).vm.$emit('select', 'full');
-            await flushMountedPromises();
-
-            expect(setMetaMock).toHaveBeenCalledWith({
-                key: MetaKey.IMPORT_SUCCESS,
-                value: JSON.stringify({
-                    type: 'import-success',
-                    version: 1,
-                    importMode: 'full',
-                }),
-            });
-            expect(JSON.stringify(setMetaMock.mock.calls)).not.toContain(
-                'Data imported successfully'
-            );
-
-            vi.clearAllTimers();
-            wrapper.unmount();
-        } finally {
-            vi.useRealTimers();
-        }
+        expect(storedMeta.get(MetaKey.IMPORT_SUCCESS)).toBe(
+            JSON.stringify({
+                type: 'import-success',
+                version: 1,
+                importMode: 'full',
+            })
+        );
+        expect(storedMeta.get(MetaKey.IMPORT_SUCCESS)).not.toContain('Data imported successfully');
+        expect(getLastTauriInvokeCall('database_import_backup')?.payload).toEqual({
+            request: { sourcePath: 'fixture-backup.zip', mode: 'full' },
+        });
     });
 });

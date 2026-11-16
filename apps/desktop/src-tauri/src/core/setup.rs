@@ -195,15 +195,25 @@ pub fn setup_app(app: &mut tauri::App) -> Result<(), String> {
         app_directory_path(crate::core::system::paths::AppDirectory::ComputerUse)?,
         app_directory_path(crate::core::system::paths::AppDirectory::AssetsBin)?,
     ));
-    app.manage(database_runtime);
+    app.manage(database_runtime.clone());
     info!("Database runtime initialized.");
 
-    let clipboard_runtime = crate::core::system::clipboard::ClipboardRuntime::initialize()
-        .map_err(|error| {
-            error!("Failed to initialize clipboard runtime: {}", error);
-            show_initialization_failed_dialog(app);
-            error
-        })?;
+    let storage_runtime = crate::core::storage::StorageRuntime::new(
+        database_runtime,
+        app_directory_path(crate::core::system::paths::AppDirectory::Cache)?,
+    );
+    if !crate::core::system::runtime::is_e2e_test_mode() {
+        storage_runtime.spawn_cache_maintenance(app.handle().clone());
+    }
+    app.manage(storage_runtime.clone());
+
+    let clipboard_runtime =
+        crate::core::system::clipboard::ClipboardRuntime::initialize_with_storage(storage_runtime)
+            .map_err(|error| {
+                error!("Failed to initialize clipboard runtime: {}", error);
+                show_initialization_failed_dialog(app);
+                error
+            })?;
     app.manage(clipboard_runtime);
     info!("Clipboard runtime initialized.");
 

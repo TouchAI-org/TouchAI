@@ -14,6 +14,7 @@ import { quickSearch } from './quickSearch';
 import { runtime } from './runtime';
 import { shortcut } from './shortcut';
 import { skills } from './skills';
+import { storage } from './storage';
 import { updater } from './updater';
 import { window } from './window';
 
@@ -92,6 +93,7 @@ export {
     runtime,
     shortcut,
     skills,
+    storage,
     updater,
     window,
 };
@@ -114,5 +116,6 @@ export const native = {
     mcp,
     quickSearch,
     runtime,
+    storage,
     updater,
 } as const;

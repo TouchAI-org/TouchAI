@@ -15,6 +15,7 @@ pub mod paths;
 pub mod quick_search;
 pub mod shortcut;
 pub mod skills;
+pub mod storage;
 pub mod updater;
 pub mod window;
 
@@ -73,6 +74,14 @@ pub fn invoke_handler<R: tauri::Runtime>(
         database::database_tx_rollback,
         database::database_export_backup,
         database::database_import_backup,
+        storage::storage_scan,
+        storage::storage_cleanup,
+        storage::storage_compact_database,
+        storage::storage_clear_history,
+        storage::storage_hold,
+        storage::storage_pin_paths,
+        storage::storage_release,
+        storage::storage_publish_attachment,
         analytics::analytics_get_state,
         analytics::analytics_set_enabled,
         analytics::analytics_clear_pending,

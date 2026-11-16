@@ -42,7 +42,8 @@
      * Clicking the selected row again clears the filter, so returning to the
      * unfiltered view does not require hunting for a reset control.
      */
-    function pick(id: number): void {
+    function pick(id: number | null): void {
+        if (id === null) return;
         emit('select', props.selectedId === id ? null : id);
     }
 
@@ -168,18 +169,19 @@
             >
                 <button
                     v-for="item in items"
-                    :key="item.id"
+                    :key="`${item.id ?? 'removed'}:${item.name}`"
                     type="button"
+                    :disabled="item.id === null"
                     data-testid="settings-usage-ranking-row"
                     class="flex w-full items-center gap-2.5 rounded-action px-2 text-left transition-colors"
                     :class="
-                        selectedId === item.id
+                        item.id !== null && selectedId === item.id
                             ? 'bg-neutral-900/[0.06]'
                             : 'hover:bg-neutral-900/[0.04]'
                     "
                     :style="{ height: `${ROW_HEIGHT}px` }"
                     :title="[item.name, subtitleOf(item)].filter(Boolean).join('\n')"
-                    :aria-pressed="selectedId === item.id"
+                    :aria-pressed="item.id !== null && selectedId === item.id"
                     @click="pick(item.id)"
                 >
                     <span class="w-[42%] min-w-0 shrink-0 truncate text-[12.5px] text-neutral-900">

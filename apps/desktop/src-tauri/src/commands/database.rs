@@ -83,11 +83,51 @@ pub async fn database_tx_rollback(
 
 /// 导出数据库备份。
 #[tauri::command]
-pub async fn database_export_backup(
+pub async fn database_export_backup<R: Runtime>(
+    app: AppHandle<R>,
     runtime: State<'_, DatabaseRuntime>,
     target_path: String,
 ) -> Result<(), String> {
-    runtime.export_backup(&target_path).await
+    let storage = app
+        .try_state::<crate::core::storage::StorageRuntime>()
+        .map(|state| state.inner().clone());
+    let runtime = runtime.inner().clone();
+    tokio::spawn(async move {
+        let _storage_guard = match &storage {
+            Some(storage) => Some(storage.exclusive().await?),
+            None => None,
+        };
+        let target = std::path::Path::new(&target_path);
+        match target.extension().and_then(|extension| extension.to_str()) {
+            Some(extension) if extension.eq_ignore_ascii_case("zip") => {
+                let storage = storage.ok_or("storage_io_failed")?;
+                runtime
+                    .export_full_backup(target, storage.cache_root())
+                    .await
+            }
+            Some(extension) if extension.eq_ignore_ascii_case("db") => {
+                if let Some(storage) = &storage {
+                    let cache = storage.cache_root().to_path_buf();
+                    let destination = target.to_path_buf();
+                    let inside = tokio::task::spawn_blocking(move || {
+                        let cache = crate::core::storage::files::resolve_platform_path(&cache)?;
+                        let destination =
+                            crate::core::storage::files::resolve_platform_path(&destination)?;
+                        Ok::<_, String>(destination.starts_with(cache))
+                    })
+                    .await
+                    .map_err(|_| "storage_io_failed")??;
+                    if inside {
+                        return Err("storage_invalid_path".into());
+                    }
+                }
+                runtime.export_backup(&target_path).await
+            }
+            _ => Err("storage_invalid_path".into()),
+        }
+    })
+    .await
+    .map_err(|_| "storage_io_failed".to_string())?
 }
 
 /// 导入数据库备份。
@@ -101,10 +141,46 @@ pub fn database_import_backup<R: Runtime>(
     request: DatabaseImportRequest,
 ) -> Result<(), String> {
     tauri::async_runtime::block_on(async {
-        runtime.import_backup(request).await?;
-        if let Some(analytics) = app.try_state::<AnalyticsRuntime>() {
-            analytics.synchronize_after_restore().await?;
+        let storage = app
+            .try_state::<crate::core::storage::StorageRuntime>()
+            .map(|state| state.inner().clone());
+        let _storage_guard = match &storage {
+            Some(storage) => Some(storage.exclusive().await?),
+            None => None,
+        };
+        let extension = std::path::Path::new(&request.source_path)
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        let result = if extension == "zip" {
+            let storage = storage.ok_or("storage_io_failed")?;
+            runtime
+                .import_full_backup(request, storage.cache_root())
+                .await
+        } else if extension == "db" {
+            runtime.import_backup(request).await.map_err(|error| {
+                if error.starts_with("Failed to detach import database:") {
+                    format!("database_import_committed:{error}")
+                } else {
+                    error
+                }
+            })
+        } else {
+            return Err("storage_invalid_path".into());
+        };
+        let synchronize = if let Some(analytics) = app.try_state::<AnalyticsRuntime>() {
+            analytics.synchronize_after_restore().await
+        } else {
+            Ok(())
+        };
+        match (result, synchronize) {
+            (Ok(()), Ok(())) => Ok(()),
+            (Err(error), Ok(())) => Err(error),
+            (Ok(()), Err(error)) => Err(format!("database_import_committed:{error}")),
+            (Err(error), Err(synchronize)) => Err(format!(
+                "{error}; analytics reconciliation failed: {synchronize}"
+            )),
         }
-        Ok(())
     })
 }

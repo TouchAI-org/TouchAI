@@ -15,6 +15,7 @@ pub mod observability;
 pub mod product_config;
 pub mod search;
 pub mod setup;
+pub mod storage;
 pub mod system;
 pub mod updater;
 pub mod window;

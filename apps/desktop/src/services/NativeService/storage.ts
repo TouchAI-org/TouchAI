@@ -1,0 +1,96 @@
+import { invoke } from './invoke';
+
+export type StorageCategory =
+    | 'attachments'
+    | 'clipboard'
+    | 'thumbnails'
+    | 'temporary'
+    | 'recordings'
+    | 'logs'
+    | 'database'
+    | 'assets'
+    | 'browser';
+export type StorageHistoryKind = 'sessions' | 'messages' | 'turns';
+
+export interface StorageCategoryUsage {
+    id: StorageCategory;
+    bytes: number;
+    reclaimableBytes: number;
+    fileCount: number;
+}
+
+export interface StorageSummary {
+    categories: StorageCategoryUsage[];
+    totalBytes: number;
+    reclaimableBytes: number;
+    databaseFreeBytes: number;
+    warnings: string[];
+    busy: boolean;
+}
+
+export interface StorageCleanupResult {
+    removedFiles: number;
+    releasedBytes: number;
+    pendingBytes: number;
+    failedFiles: number;
+    failures: { path: string; code: string }[];
+    summary: StorageSummary;
+}
+
+export interface StorageCompactionResult {
+    beforeBytes: number;
+    afterBytes: number;
+    releasedBytes: number;
+}
+
+export interface StoragePublishedAttachment {
+    hash: string;
+    path: string;
+    size: number;
+}
+
+export const SAFE_STORAGE_CATEGORIES: readonly StorageCategory[] = [
+    'attachments',
+    'clipboard',
+    'thumbnails',
+    'temporary',
+];
+
+export const storage = {
+    scan(): Promise<StorageSummary> {
+        return invoke('storage_scan');
+    },
+    cleanup(
+        categories: StorageCategory[] = [...SAFE_STORAGE_CATEGORIES]
+    ): Promise<StorageCleanupResult> {
+        return invoke('storage_cleanup', { categories });
+    },
+    compactDatabase(): Promise<StorageCompactionResult> {
+        return invoke('storage_compact_database');
+    },
+    clearHistory(kind: StorageHistoryKind): Promise<void> {
+        return invoke('storage_clear_history', { kind });
+    },
+    hold(): Promise<string> {
+        return invoke('storage_hold');
+    },
+    pinPaths(paths: string[]): Promise<string> {
+        return invoke('storage_pin_paths', { paths });
+    },
+    release(activityId: string): Promise<void> {
+        return invoke('storage_release', { activityId });
+    },
+    publishAttachment(
+        type: 'image' | 'file',
+        sourcePath: string,
+        expectedHash?: string,
+        aliasSourcePath?: string
+    ): Promise<StoragePublishedAttachment> {
+        return invoke('storage_publish_attachment', {
+            attachmentType: type,
+            sourcePath,
+            expectedHash,
+            aliasSourcePath,
+        });
+    },
+} as const;

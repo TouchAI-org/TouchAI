@@ -101,6 +101,7 @@ struct ClipboardRuntimeInner {
     context: Mutex<ClipboardContext>,
     image_cache: ClipboardImageCache,
     watcher_shutdown: Mutex<Option<WatcherShutdown>>,
+    storage: Option<crate::core::storage::StorageRuntime>,
 }
 
 struct ClipboardRuntimeWatcher {
@@ -123,6 +124,18 @@ impl ClipboardSnapshotReadMode {
 impl ClipboardRuntime {
     /// 初始化剪贴板运行时、缓存目录和系统 watcher。
     pub fn initialize() -> Result<Self, String> {
+        Self::initialize_inner(None)
+    }
+
+    pub fn initialize_with_storage(
+        storage: crate::core::storage::StorageRuntime,
+    ) -> Result<Self, String> {
+        Self::initialize_inner(Some(storage))
+    }
+
+    fn initialize_inner(
+        storage: Option<crate::core::storage::StorageRuntime>,
+    ) -> Result<Self, String> {
         let image_cache = ClipboardImageCache::initialize()?;
 
         let runtime =
@@ -134,6 +147,7 @@ impl ClipboardRuntime {
                     })?),
                     image_cache,
                     watcher_shutdown: Mutex::new(None),
+                    storage,
                 }),
             };
 
@@ -229,8 +243,29 @@ impl ClipboardRuntime {
         Ok(())
     }
 
+    pub fn protected_paths(&self) -> Result<Vec<std::path::PathBuf>, String> {
+        let state = self.inner.state.lock().map_err(|_| "storage_busy")?;
+        Ok(state
+            .latest_snapshot
+            .as_ref()
+            .map(|snapshot| {
+                snapshot
+                    .image_paths
+                    .iter()
+                    .chain(&snapshot.file_paths)
+                    .map(std::path::PathBuf::from)
+                    .collect()
+            })
+            .unwrap_or_default())
+    }
+
     /// 从系统剪贴板刷新最新快照。
     fn refresh_latest_snapshot(&self, mode: ClipboardSnapshotReadMode) -> Result<(), String> {
+        let _storage = self
+            .inner
+            .storage
+            .as_ref()
+            .map(|storage| storage.blocking_access());
         let next_snapshot = self.read_snapshot_from_system(mode)?;
         let mut state = self.inner.state.lock().map_err(|error| error.to_string())?;
 

@@ -91,7 +91,6 @@ impl BrowserRuntime {
             process
         };
         drop(process);
-        let _ = cdp::prune_screenshot_artifacts();
         self.status()
     }
 

@@ -391,6 +391,26 @@ describe('user sees the archive used only for queries it can answer', () => {
     });
 });
 
+describe('given old call details were explicitly cleared', () => {
+    it('user keeps archived daily totals when new calls arrive on the same day', async () => {
+        const database = openDatabase();
+        routeQueriesTo(database);
+        seed(database);
+        seedTurn(database, { id: 1, createdAt: '2026-05-01 10:00:00', inputTokens: 100 });
+        await rollupUsageDaily();
+        database.exec(readFileSync(`${databaseRoot}/artifacts/storage/clear_turns.sql`, 'utf8'));
+        seedTurn(database, { id: 2, createdAt: '2026-05-01 11:00:00', inputTokens: 25 });
+        await rollupUsageDaily();
+        await rollupUsageDaily();
+        expect(
+            database.prepare('SELECT request_count, input_tokens FROM usage_daily_rollups').get()
+        ).toEqual({
+            request_count: 2,
+            input_tokens: 125,
+        });
+    });
+});
+
 describe('user sees usage maintenance run at startup', () => {
     it('user sees the rollup run and its run time recorded', async () => {
         const database = openDatabase();

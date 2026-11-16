@@ -42,9 +42,9 @@ WHERE EXISTS (
 
 INSERT INTO main.models (
     provider_id, name, model_id, is_default, last_used_at,
-    attachment, modalities, open_weights, reasoning, release_date,
+    attachment, modalities, open_weights, reasoning, reasoning_options, release_date,
     temperature, tool_call, knowledge, context_limit, output_limit,
-    is_custom_metadata, created_at, updated_at
+    is_custom_metadata, upstream_metadata, created_at, updated_at
 )
 SELECT
     target_providers.id,
@@ -56,6 +56,7 @@ SELECT
     source.modalities,
     source.open_weights,
     source.reasoning,
+    source.reasoning_options,
     source.release_date,
     source.temperature,
     source.tool_call,
@@ -63,6 +64,7 @@ SELECT
     source.context_limit,
     source.output_limit,
     source.is_custom_metadata,
+    source.upstream_metadata,
     source.created_at,
     source.updated_at
 FROM imported.models AS source
@@ -79,14 +81,14 @@ WHERE NOT EXISTS (
 );
 
 UPDATE main.models
-SET (name, is_default, last_used_at, attachment, modalities, open_weights, reasoning,
+SET (name, is_default, last_used_at, attachment, modalities, open_weights, reasoning, reasoning_options,
      release_date, temperature, tool_call, knowledge, context_limit, output_limit,
-     is_custom_metadata, updated_at) = (
+     is_custom_metadata, upstream_metadata, updated_at) = (
     SELECT
         source.name, source.is_default, source.last_used_at, source.attachment,
-        source.modalities, source.open_weights, source.reasoning, source.release_date,
+        source.modalities, source.open_weights, source.reasoning, source.reasoning_options, source.release_date,
         source.temperature, source.tool_call, source.knowledge, source.context_limit,
-        source.output_limit, source.is_custom_metadata, source.updated_at
+        source.output_limit, source.is_custom_metadata, source.upstream_metadata, source.updated_at
     FROM imported.models AS source
     INNER JOIN imported.providers AS source_providers
         ON source_providers.id = source.provider_id
@@ -119,11 +121,17 @@ FROM imported.statistics;
 
 INSERT INTO main.llm_metadata (
     model_id, name, attachment, modalities, open_weights, reasoning, reasoning_options,
-    release_date, temperature, tool_call, knowledge, [limit], created_at, updated_at
+    release_date, temperature, tool_call, knowledge, [limit],
+    input_cost_per_million, output_cost_per_million, cache_read_cost_per_million,
+    cache_write_cost_per_million, reasoning_cost_per_million, cost_currency, cost_tiers,
+    created_at, updated_at
 )
 SELECT
     model_id, name, attachment, modalities, open_weights, reasoning, reasoning_options,
-    release_date, temperature, tool_call, knowledge, [limit], created_at, updated_at
+    release_date, temperature, tool_call, knowledge, [limit],
+    input_cost_per_million, output_cost_per_million, cache_read_cost_per_million,
+    cache_write_cost_per_million, reasoning_cost_per_million, cost_currency, cost_tiers,
+    created_at, updated_at
 FROM imported.llm_metadata;
 
 INSERT INTO main.llm_metadata_aliases (alias, model_id)

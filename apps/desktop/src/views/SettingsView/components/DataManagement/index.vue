@@ -5,16 +5,15 @@
     import { useConfirm } from '@composables/useConfirm';
     import {
         databaseBackup,
+        DatabaseBackupCancelledError,
         type ImportMode,
         isDatabaseBackupCancelledError,
+        isDatabaseBackupCommittedError,
     } from '@database/backup';
     import {
         countMessages,
         countSessions,
         countSessionTurns,
-        deleteAllMessages,
-        deleteAllSessions,
-        deleteAllSessionTurns,
         getStatistic,
     } from '@database/queries';
     import { setMeta } from '@database/queries/touchaiMeta';
@@ -28,6 +27,7 @@
     import { formatDateTime } from '@/i18n/format';
     import { updateModelMetadata } from '@/services/AgentService/infrastructure/modelMetadata';
     import { serializeImportSuccessStartupPayload } from '@/services/StartupService';
+    import { storageService } from '@/services/StorageService';
     import { useSettingsStore } from '@/stores/settings';
 
     defineOptions({
@@ -38,6 +38,7 @@
     import DiagnosticsSection from './components/DiagnosticsSection.vue';
     import ImportModeDialog from './components/ImportModeDialog.vue';
     import ProgressDialog from './components/ProgressDialog.vue';
+    import StorageSection from './components/StorageSection.vue';
 
     interface DataStats {
         sessions: number;
@@ -83,8 +84,12 @@
     const restartCountdown = ref<number | null>(null);
 
     const isLoading = ref(false);
+    const storageSection = ref<InstanceType<typeof StorageSection> | null>(null);
+    const storageBusy = ref(false);
+    const dataActionsDisabled = computed(() => isLoading.value || storageBusy.value);
     const modelMetadataLastUpdatedAt = ref<string | null>(null);
     let countdownTimer: ReturnType<typeof setInterval> | null = null;
+    let disposed = false;
 
     const alert = useAlert();
     const { confirm } = useConfirm();
@@ -139,16 +144,18 @@
         const value = await getStatistic({
             key: StatisticKey.MODEL_METADATA_LAST_UPDATED_AT,
         });
-        modelMetadataLastUpdatedAt.value = value;
+        if (!disposed) modelMetadataLastUpdatedAt.value = value;
     };
 
     const loadStats = async () => {
+        if (disposed) return;
         try {
             const [sessionsCount, messagesCount, sessionTurnsCount] = await Promise.all([
                 countSessions(),
                 countMessages(),
                 countSessionTurns(),
             ]);
+            if (disposed) return;
 
             stats.value = {
                 sessions: sessionsCount,
@@ -156,86 +163,120 @@
                 sessionTurns: sessionTurnsCount,
             };
         } catch (error) {
+            if (disposed) return;
             log.error('Failed to load stats:', error);
             alert.error(t('settings.dataManagement.loadStatsFailed'));
         }
     };
+
+    async function recoverCommittedClear(error: unknown): Promise<boolean> {
+        const message =
+            typeof error === 'string' ? error : error instanceof Error ? error.message : '';
+        if (!message.startsWith('storage_history_committed:')) return false;
+        if (!disposed) {
+            await loadStats();
+            await storageSection.value?.refresh();
+            alert.warning(t('settings.storage.historyCleanupPending'));
+        }
+        return true;
+    }
 
     onMounted(async () => {
         await Promise.all([loadStats(), loadMetadataUpdatedAt()]);
     });
 
     onUnmounted(() => {
+        disposed = true;
         importDialog.dispatch('dispose');
         progressDialog.dispatch('dispose');
         if (countdownTimer) {
             clearInterval(countdownTimer);
             countdownTimer = null;
         }
+        if (restartCountdown.value !== null) {
+            void relaunch().catch((error) =>
+                log.error('[DataManagement] Imported data requires a restart', error)
+            );
+        }
     });
 
     const handleClearSessions = async () => {
+        if (disposed || dataActionsDisabled.value) return;
         const confirmed = await confirm({
             title: t('settings.dataManagement.clearAllSessions'),
             message: t('settings.dataManagement.clearAllSessionsConfirm'),
             type: 'danger',
         });
 
-        if (confirmed) {
+        if (confirmed && !disposed && !dataActionsDisabled.value) {
             try {
                 isLoading.value = true;
-                await deleteAllSessions();
+                await storageService.clearHistory('sessions');
+                if (disposed) return;
                 alert.success(t('settings.dataManagement.clearSessionsSuccess'));
                 await loadStats();
+                await storageSection.value?.refresh();
             } catch (error) {
                 log.error('Failed to clear sessions:', error);
+                if (disposed) return;
+                if (await recoverCommittedClear(error)) return;
                 alert.error(t('settings.dataManagement.clearSessionsFailed'));
             } finally {
-                isLoading.value = false;
+                if (!disposed) isLoading.value = false;
             }
         }
     };
 
     const handleClearMessages = async () => {
+        if (disposed || dataActionsDisabled.value) return;
         const confirmed = await confirm({
             title: t('settings.dataManagement.clearAllMessages'),
             message: t('settings.dataManagement.clearAllMessagesConfirm'),
             type: 'danger',
         });
 
-        if (confirmed) {
+        if (confirmed && !disposed && !dataActionsDisabled.value) {
             try {
                 isLoading.value = true;
-                await deleteAllMessages();
+                await storageService.clearHistory('messages');
+                if (disposed) return;
                 alert.success(t('settings.dataManagement.clearMessagesSuccess'));
                 await loadStats();
+                await storageSection.value?.refresh();
             } catch (error) {
                 log.error('Failed to clear messages:', error);
+                if (disposed) return;
+                if (await recoverCommittedClear(error)) return;
                 alert.error(t('settings.dataManagement.clearMessagesFailed'));
             } finally {
-                isLoading.value = false;
+                if (!disposed) isLoading.value = false;
             }
         }
     };
 
     const handleClearSessionTurns = async () => {
+        if (disposed || dataActionsDisabled.value) return;
         const confirmed = await confirm({
             title: t('settings.dataManagement.clearSessionTurns'),
             message: t('settings.dataManagement.clearSessionTurnsConfirm'),
             type: 'danger',
         });
 
-        if (confirmed) {
+        if (confirmed && !disposed && !dataActionsDisabled.value) {
             try {
                 isLoading.value = true;
-                await deleteAllSessionTurns();
+                await storageService.clearHistory('turns');
+                if (disposed) return;
                 alert.success(t('settings.dataManagement.clearSessionTurnsSuccess'));
                 await loadStats();
+                await storageSection.value?.refresh();
             } catch (error) {
                 log.error('Failed to clear session turns:', error);
+                if (disposed) return;
+                if (await recoverCommittedClear(error)) return;
                 alert.error(t('settings.dataManagement.clearSessionTurnsFailed'));
             } finally {
-                isLoading.value = false;
+                if (!disposed) isLoading.value = false;
             }
         }
     };
@@ -247,22 +288,32 @@
     };
 
     const handleExportSettings = async () => {
+        if (disposed || dataActionsDisabled.value) return;
         try {
             isLoading.value = true;
             progressTitle.value = t('settings.dataManagement.exporting');
             progressStatus.value = 'loading';
 
             const exportedPath = await databaseBackup.exportDatabase((msg, prog) => {
+                if (disposed) {
+                    if (prog < 100)
+                        throw new DatabaseBackupCancelledError(
+                            t('database.backup.exportCancelled')
+                        );
+                    return;
+                }
                 if (!showProgressDialog.value) {
                     showProgressDialog.value = true;
                 }
                 updateProgress(msg, prog);
             });
 
+            if (disposed) return;
             showProgressDialog.value = false;
             alert.success(t('settings.dataManagement.exported', { path: exportedPath }));
         } catch (error) {
             log.error('Failed to export settings:', error);
+            if (disposed) return;
             showProgressDialog.value = false;
 
             const message =
@@ -271,11 +322,12 @@
                 alert.error(translateDataManagementMessage(message));
             }
         } finally {
-            isLoading.value = false;
+            if (!disposed) isLoading.value = false;
         }
     };
 
     const openImportModeDialog = () => {
+        if (disposed || dataActionsDisabled.value) return;
         showImportModeDialog.value = true;
     };
 
@@ -306,12 +358,40 @@
                     clearInterval(countdownTimer);
                     countdownTimer = null;
                 }
-                relaunch();
+                void relaunch().catch((error) => {
+                    log.error('[DataManagement] Imported data requires a manual restart', error);
+                    if (!disposed) alert.warning(t('database.backup.restartRequired'));
+                });
             }
         }, 1000);
     };
 
+    const finishImportedData = async (mode: ImportMode) => {
+        try {
+            await setMeta({
+                key: MetaKey.IMPORT_SUCCESS,
+                value: serializeImportSuccessStartupPayload(mode),
+            });
+        } catch (error) {
+            log.warn(
+                '[DataManagement] Imported data committed but startup notice could not be saved',
+                error
+            );
+        }
+        try {
+            if (disposed) {
+                await relaunch();
+            } else {
+                await startRestartCountdown();
+            }
+        } catch (error) {
+            log.error('[DataManagement] Imported data requires a manual restart', error);
+            if (!disposed) alert.warning(t('database.backup.restartRequired'));
+        }
+    };
+
     const handleImportSettings = async (mode: ImportMode) => {
+        if (disposed || dataActionsDisabled.value) return;
         showImportModeDialog.value = false;
 
         try {
@@ -321,6 +401,13 @@
             restartCountdown.value = null;
 
             const result = await databaseBackup.importDatabase(mode, (msg, prog) => {
+                if (disposed) {
+                    if (prog < 100)
+                        throw new DatabaseBackupCancelledError(
+                            t('database.backup.importCancelled')
+                        );
+                    return;
+                }
                 if (!showProgressDialog.value) {
                     showProgressDialog.value = true;
                 }
@@ -332,17 +419,15 @@
                 return;
             }
 
-            // 保存源数据而不是当前语言文案；重启后按导入后的语言显示通知。
-            await setMeta({
-                key: MetaKey.IMPORT_SUCCESS,
-                value: serializeImportSuccessStartupPayload(mode),
-            });
-
-            // 开始重启倒计时
-            await startRestartCountdown();
+            await finishImportedData(mode);
         } catch (error) {
+            if (isDatabaseBackupCommittedError(error)) {
+                if (!disposed) alert.warning(error.message);
+                await finishImportedData(mode);
+                return;
+            }
             log.error('Failed to import settings:', error);
-
+            if (disposed) return;
             showProgressDialog.value = false;
 
             const message =
@@ -351,7 +436,7 @@
                 alert.error(translateDataManagementMessage(message));
             }
         } finally {
-            isLoading.value = false;
+            if (!disposed) isLoading.value = false;
         }
     };
 
@@ -415,6 +500,12 @@
                 </div>
             </section>
 
+            <StorageSection
+                ref="storageSection"
+                :disabled="isLoading"
+                @busy-change="storageBusy = $event"
+            />
+
             <section class="space-y-4">
                 <h2 class="settings-section-title">{{ t('settings.dataManagement.history') }}</h2>
                 <div
@@ -436,7 +527,7 @@
                         </div>
                         <Button
                             variant="danger"
-                            :disabled="isLoading || stats.sessions === 0"
+                            :disabled="dataActionsDisabled || stats.sessions === 0"
                             @click="handleClearSessions"
                         >
                             {{ t('common.clear') }}
@@ -458,7 +549,7 @@
                         </div>
                         <Button
                             variant="danger"
-                            :disabled="isLoading || stats.messages === 0"
+                            :disabled="dataActionsDisabled || stats.messages === 0"
                             @click="handleClearMessages"
                         >
                             {{ t('common.clear') }}
@@ -480,7 +571,7 @@
                         </div>
                         <Button
                             variant="danger"
-                            :disabled="isLoading || stats.sessionTurns === 0"
+                            :disabled="dataActionsDisabled || stats.sessionTurns === 0"
                             @click="handleClearSessionTurns"
                         >
                             {{ t('common.clear') }}
@@ -516,7 +607,7 @@
                             <CustomSelect
                                 :model-value="settingsStore.usageDetailRetentionDays"
                                 :options="retentionOptions"
-                                :disabled="savingRetention"
+                                :disabled="savingRetention || dataActionsDisabled"
                                 trigger-test-id="settings-data-retention-trigger"
                                 @update:model-value="saveRetention"
                             />
@@ -548,7 +639,7 @@
                         </div>
                         <Button
                             variant="strong"
-                            :disabled="isLoading"
+                            :disabled="dataActionsDisabled"
                             @click="handleUpdateModelMetadata"
                         >
                             {{ t('common.update') }}
@@ -577,7 +668,7 @@
                         </div>
                         <Button
                             variant="strong"
-                            :disabled="isLoading"
+                            :disabled="dataActionsDisabled"
                             @click="handleExportSettings"
                         >
                             {{ t('common.export') }}
@@ -599,7 +690,7 @@
                         </div>
                         <Button
                             variant="strong"
-                            :disabled="isLoading"
+                            :disabled="dataActionsDisabled"
                             @click="openImportModeDialog"
                         >
                             {{ t('common.import') }}
@@ -615,7 +706,7 @@
             <ImportModeDialog
                 v-if="isImportModeDialogMounted"
                 :open="showImportModeDialog"
-                :is-loading="isLoading"
+                :is-loading="dataActionsDisabled"
                 @close="showImportModeDialog = false"
                 @select="handleImportSettings"
                 @closed="handleImportModeDialogClosed"

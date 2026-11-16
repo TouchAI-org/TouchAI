@@ -102,6 +102,8 @@ interface PersistenceProjectorModel {
     id: number;
     model_id: string;
     provider_id: number;
+    name?: string;
+    provider_name?: string;
 }
 
 interface PersistenceProjectorOptions {
@@ -234,7 +236,13 @@ export class PersistenceProjector {
     constructor(options: PersistenceProjectorOptions) {
         this.prompt = options.prompt;
         this.attachments = options.attachments ?? [];
-        this.model = options.model;
+        this.model = {
+            id: options.model.id,
+            model_id: options.model.model_id,
+            provider_id: options.model.provider_id,
+            name: options.model.name,
+            provider_name: options.model.provider_name,
+        };
         this.taskId = options.taskId;
         this.executionMode = options.executionMode;
         this.promptSnapshot = options.promptSnapshot;
@@ -1309,6 +1317,8 @@ export class PersistenceProjector {
             {
                 session_id: resolvedSessionId,
                 model_id: this.model.id,
+                model_name: this.model.name,
+                provider_name: this.model.provider_name,
                 task_id: this.taskId,
                 execution_mode: this.executionMode,
                 prompt_snapshot_json: serializePromptSnapshot(this.promptSnapshot),

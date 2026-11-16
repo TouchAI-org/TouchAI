@@ -1,5 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
+import { storage } from '@services/NativeService/storage';
 import { and, asc, count, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 
 import { type DatabaseExecutor, db } from '../index';
@@ -129,5 +130,5 @@ export const countMessages = async (): Promise<number> => {
  * @returns 无。
  */
 export const deleteAllMessages = async (): Promise<void> => {
-    await db.delete(messages).run();
+    await storage.clearHistory('messages');
 };

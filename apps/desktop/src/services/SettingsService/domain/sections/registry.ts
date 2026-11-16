@@ -23,6 +23,41 @@ import {
     serializeSearchSettingsConfig,
 } from './search';
 
+export interface SettingsSearchItem {
+    labelKey: MessageKey;
+    descriptionKey?: MessageKey;
+    targetId: string;
+}
+
+export const STORAGE_SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
+    {
+        labelKey: 'settings.storage.title',
+        descriptionKey: 'settings.storage.search.usage',
+        targetId: 'storage',
+    },
+    { labelKey: 'settings.storage.category.attachments', targetId: 'storage-category-attachments' },
+    { labelKey: 'settings.storage.category.clipboard', targetId: 'storage-category-clipboard' },
+    { labelKey: 'settings.storage.category.thumbnails', targetId: 'storage-category-thumbnails' },
+    { labelKey: 'settings.storage.category.temporary', targetId: 'storage-category-temporary' },
+    { labelKey: 'settings.storage.category.recordings', targetId: 'storage-category-recordings' },
+    { labelKey: 'settings.storage.category.logs', targetId: 'storage-category-logs' },
+    { labelKey: 'settings.storage.category.database', targetId: 'storage-category-database' },
+    { labelKey: 'settings.storage.category.assets', targetId: 'storage-category-assets' },
+    { labelKey: 'settings.storage.category.browser', targetId: 'storage-category-browser' },
+    {
+        labelKey: 'settings.storage.safeCleanup',
+        descriptionKey: 'settings.storage.search.cleanup',
+        targetId: 'storage-cleanup',
+    },
+    {
+        labelKey: 'settings.storage.compactDatabase',
+        descriptionKey: 'settings.storage.search.compaction',
+        targetId: 'storage-compaction',
+    },
+    { labelKey: 'settings.storage.managedRecordings', targetId: 'storage-recordings' },
+    { labelKey: 'settings.storage.managedLogs', targetId: 'storage-logs' },
+];
+
 export interface SettingsValidationIssue {
     path: string;
     message: string;

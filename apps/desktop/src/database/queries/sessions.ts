@@ -1,10 +1,11 @@
 ﻿// Copyright (c) 2026. 千诚. Licensed under GPL v3
 
+import { storage } from '@services/NativeService/storage';
 import { and, count, desc, eq, inArray, or, sql } from 'drizzle-orm';
 import { aliasedTable } from 'drizzle-orm/alias';
 
 import { type DatabaseExecutor, db } from '../index';
-import { messages, models, sessions, sessionTurns } from '../schema';
+import { messages, models, providers, sessions, sessionTurns } from '../schema';
 import type { SessionCreateData, SessionEntity, SessionUpdateData } from '../types';
 import { messageText } from './messageParts';
 import { buildSessionSearchTrigramExpression } from './sessionSearchTrigrams';
@@ -82,7 +83,18 @@ export const createSession = async (
     data: SessionCreateData,
     database: DatabaseExecutor = db
 ): Promise<SessionEntity> => {
-    const createdSession = await database.insert(sessions).values(data).returning().get();
+    const createdSession = await database
+        .insert(sessions)
+        .values({
+            ...data,
+            ...(data.provider_id === undefined
+                ? {}
+                : {
+                      provider_id: sql`(SELECT ${providers.id} FROM ${providers} WHERE ${providers.id} = ${data.provider_id})`,
+                  }),
+        })
+        .returning()
+        .get();
 
     if (!createdSession || createdSession.id === undefined) {
         throw new Error('Failed to create session');
@@ -215,6 +227,11 @@ export const updateSession = async ({
         .update(sessions)
         .set({
             ...sessionPatch,
+            ...(sessionPatch.provider_id === undefined
+                ? {}
+                : {
+                      provider_id: sql`(SELECT ${providers.id} FROM ${providers} WHERE ${providers.id} = ${sessionPatch.provider_id})`,
+                  }),
             updated_at: sql`datetime('now')`,
         })
         .where(eq(sessions.id, id))
@@ -388,5 +405,5 @@ export const countSessions = async (): Promise<number> => {
  * 删除所有会话。
  */
 export const deleteAllSessions = async (): Promise<void> => {
-    await db.delete(sessions).run();
+    await storage.clearHistory('sessions');
 };
