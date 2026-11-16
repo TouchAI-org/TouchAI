@@ -62,6 +62,19 @@ const data = {
 } as ModelDropdownData;
 
 const wrappers: ReturnType<typeof mount>[] = [];
+
+async function openSortMenu(wrapper: ReturnType<typeof mount>) {
+    await wrapper.get('[data-sort-trigger]').trigger('click');
+    await flushPromises();
+}
+
+async function clickSortItem(wrapper: ReturnType<typeof mount>, selector: string) {
+    const item = document.querySelector<HTMLElement>(selector);
+    if (!item) throw new Error(`sort item missing: ${selector}`);
+    item.click();
+    await flushPromises();
+    expect(wrapper.find('[data-sort-trigger]').attributes('aria-expanded')).toBe('false');
+}
 function renderPicker(onModelSelect = vi.fn().mockResolvedValue(undefined)) {
     const wrapper = mount(ModelDropdownPopup, {
         attachTo: document.body,
@@ -117,22 +130,16 @@ describe('given models from two providers and different reasoning capabilities',
                 .findAll('[role="option"]')
                 .map((row) => row.attributes('title')!.split(' · ')[0]);
 
-        await wrapper.get('[data-sort-trigger]').trigger('click');
-        await flushPromises();
-        document.querySelector<HTMLElement>('[data-sort-field="name"]')!.click();
-        await flushPromises();
+        await openSortMenu(wrapper);
+        await clickSortItem(wrapper, '[data-sort-field="name"]');
         expect(optionNames()).toEqual(['Claude Sonnet', 'GPT-6', 'Plain model']);
 
-        await wrapper.get('[data-sort-trigger]').trigger('click');
-        await flushPromises();
-        document.querySelector<HTMLElement>('[data-sort-field="provider"]')!.click();
-        await flushPromises();
+        await openSortMenu(wrapper);
+        await clickSortItem(wrapper, '[data-sort-field="provider"]');
         expect(optionNames()).toEqual(['Claude Sonnet', 'Plain model', 'GPT-6']);
 
-        await wrapper.get('[data-sort-trigger]').trigger('click');
-        await flushPromises();
-        document.querySelector<HTMLElement>('[data-sort-direction="true"]')!.click();
-        await flushPromises();
+        await openSortMenu(wrapper);
+        await clickSortItem(wrapper, '[data-sort-direction="true"]');
         expect(optionNames()).toEqual(['GPT-6', 'Plain model', 'Claude Sonnet']);
     });
 

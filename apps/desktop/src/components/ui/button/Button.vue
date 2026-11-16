@@ -52,6 +52,19 @@
                 link: 'text-primary-600 underline-offset-4 hover:underline',
                 toolbar:
                     'text-muted-foreground hover:bg-surface-active hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus aria-expanded:bg-surface-active aria-pressed:bg-surface-active',
+                /*
+                 * A vertical index rail: same resting look as `toolbar`, plus the
+                 * current-section highlight the rail needs. It is a variant rather
+                 * than a call-site override so the rail cannot drift per screen.
+                 */
+                rail: 'text-muted-foreground hover:bg-surface-active hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus data-[current=true]:bg-surface-active data-[current=true]:text-foreground',
+                /*
+                 * A segment inside a grouped control. The track is the caller's, the
+                 * pill is the primitive's: selecting lifts the segment onto the
+                 * floating surface and marks it with the interactive colour.
+                 */
+                segment:
+                    'justify-center text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus aria-checked:bg-surface-floating aria-checked:text-primary',
                 picker: 'w-full justify-start text-foreground hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-focus data-[highlighted=true]:bg-surface-active aria-checked:bg-surface-active',
             },
             size: {

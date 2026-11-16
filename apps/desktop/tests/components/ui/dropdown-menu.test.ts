@@ -96,6 +96,29 @@ describe('ui/DropdownMenu', () => {
         expect(disabled?.hasAttribute('data-disabled')).toBe(true);
     });
 
+    it('renders inside the caller subtree when the portal is disabled', async () => {
+        mount(
+            {
+                components: { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger },
+                template: `
+                    <div data-host>
+                        <DropdownMenu :open="true">
+                            <DropdownMenuTrigger as-child>
+                                <button type="button">打开</button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent disable-portal force-mount>内容</DropdownMenuContent>
+                        </DropdownMenu>
+                    </div>
+                `,
+            },
+            { attachTo: document.body }
+        );
+        await flushPromises();
+
+        const host = document.querySelector('[data-host]');
+        expect(host?.querySelector('[role="menu"]')).not.toBeNull();
+    });
+
     it('keeps the trigger element when as-child is used', async () => {
         mountMenu();
         await flushPromises();

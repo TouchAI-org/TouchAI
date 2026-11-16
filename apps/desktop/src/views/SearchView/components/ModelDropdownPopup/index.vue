@@ -4,6 +4,12 @@
     import AppIcon from '@components/AppIcon.vue';
     import EmptyState from '@components/EmptyState.vue';
     import ModelLogo from '@components/ModelLogo.vue';
+    import {
+        DropdownMenu,
+        DropdownMenuContent,
+        DropdownMenuItem,
+        DropdownMenuTrigger,
+    } from '@components/ui/dropdown-menu';
     import { native } from '@services/NativeService';
     import { log } from '@services/ObservabilityService';
     import { FocusScope } from 'reka-ui';
@@ -50,7 +56,6 @@
     const localSearchQuery = ref(props.data?.searchQuery ?? '');
     const sortKey = ref<ModelDropdownSortKey | null>(null);
     const sortAscending = ref(true);
-    const sortMenuOpen = ref(false);
     const highlightedIndex = ref(0);
     const selecting = ref(false);
     const selectionError = ref(false);
@@ -168,24 +173,6 @@
         highlightedIndex.value = 0;
     }
 
-    function toggleSortMenu() {
-        sortMenuOpen.value = !sortMenuOpen.value;
-    }
-
-    function closeSortMenu() {
-        sortMenuOpen.value = false;
-    }
-
-    function chooseSort(key: ModelDropdownSortKey) {
-        setSortKey(key);
-        closeSortMenu();
-    }
-
-    function chooseSortDirection() {
-        toggleSortDirection();
-        closeSortMenu();
-    }
-
     async function scrollToProvider(providerId: number | null) {
         const index =
             providerId === null
@@ -301,7 +288,6 @@
                 maxWidth: 'var(--search-overlay-max-width, 32rem)',
             }"
             @keydown="handleKeyDown"
-            @click="closeSortMenu"
         >
             <div class="flex min-h-0 flex-1">
                 <nav
@@ -309,7 +295,7 @@
                     :aria-label="t('popup.modelDropdown.providers')"
                 >
                     <Button
-                        variant="toolbar"
+                        variant="rail"
                         size="icon"
                         data-provider-index="all"
                         :aria-label="t('popup.modelDropdown.allProviders')"
@@ -322,7 +308,7 @@
                     <Button
                         v-for="provider in providers"
                         :key="provider.id"
-                        variant="toolbar"
+                        variant="rail"
                         size="icon"
                         :data-provider-index="provider.id"
                         :aria-label="provider.name"
@@ -330,11 +316,7 @@
                         :aria-current="
                             highlightedModel?.providerId === provider.id ? 'true' : undefined
                         "
-                        :class="
-                            highlightedModel?.providerId === provider.id
-                                ? 'bg-surface-active text-foreground'
-                                : ''
-                        "
+                        :data-current="highlightedModel?.providerId === provider.id"
                         :disabled="selecting"
                         @click="scrollToProvider(provider.id)"
                     >
@@ -361,65 +343,59 @@
                             "
                             @update:model-value="handleSearchInput"
                         />
-                        <Button
-                            variant="toolbar"
-                            size="icon-sm"
-                            data-sort-trigger="true"
-                            :aria-label="t('popup.modelDropdown.sortTitle')"
-                            :title="t('popup.modelDropdown.sortTitle')"
-                            :aria-expanded="sortMenuOpen"
-                            aria-haspopup="menu"
-                            @click.stop="toggleSortMenu"
-                        >
-                            <AppIcon name="sort" class="size-4" />
-                        </Button>
-                        <div
-                            v-if="sortMenuOpen"
-                            data-sort-menu="true"
-                            role="menu"
-                            class="absolute top-full right-0 z-20 mt-1 min-w-44 rounded-lg border border-border bg-surface-floating p-1 font-serif text-foreground shadow-lg"
-                            @click.stop
-                            @keydown.esc.stop="closeSortMenu"
-                        >
-                            <button
-                                v-for="option in sortOptions"
-                                :key="option.key"
-                                type="button"
-                                role="menuitemradio"
-                                :data-sort-field="option.key"
-                                :aria-checked="sortKey === option.key"
-                                class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-foreground outline-none hover:bg-surface-hover focus-visible:bg-surface-hover"
-                                @click="chooseSort(option.key)"
+                        <DropdownMenu>
+                            <DropdownMenuTrigger as-child>
+                                <Button
+                                    variant="toolbar"
+                                    size="icon-sm"
+                                    data-sort-trigger="true"
+                                    :aria-label="t('popup.modelDropdown.sortTitle')"
+                                    :title="t('popup.modelDropdown.sortTitle')"
+                                >
+                                    <AppIcon name="sort" class="size-4" />
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent
+                                disable-portal
+                                align="end"
+                                data-search-controls="true"
+                                class="min-w-44 p-1"
                             >
-                                <AppIcon
-                                    name="check"
-                                    class="size-3.5 shrink-0"
-                                    :class="sortKey === option.key ? '' : 'invisible'"
-                                />
-                                {{ t(option.labelKey) }}
-                            </button>
-                            <div class="my-1 border-t border-border"></div>
-                            <button
-                                type="button"
-                                role="menuitem"
-                                data-sort-direction="true"
-                                :disabled="sortKey === null"
-                                class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-foreground outline-none hover:bg-surface-hover focus-visible:bg-surface-hover disabled:pointer-events-none disabled:opacity-50"
-                                @click="chooseSortDirection"
-                            >
-                                <AppIcon
-                                    :name="sortAscending ? 'chevron-up' : 'chevron-down'"
-                                    class="size-3.5 shrink-0"
-                                />
-                                {{
-                                    t(
-                                        sortAscending
-                                            ? 'popup.modelDropdown.sort.ascending'
-                                            : 'popup.modelDropdown.sort.descending'
-                                    )
-                                }}
-                            </button>
-                        </div>
+                                <DropdownMenuItem
+                                    v-for="option in sortOptions"
+                                    :key="option.key"
+                                    :data-sort-field="option.key"
+                                    class="rounded-sm px-2 py-1.5"
+                                    @select="setSortKey(option.key)"
+                                >
+                                    <AppIcon
+                                        name="check"
+                                        class="size-3.5 shrink-0"
+                                        :class="sortKey === option.key ? '' : 'invisible'"
+                                    />
+                                    {{ t(option.labelKey) }}
+                                </DropdownMenuItem>
+                                <div class="my-1 border-t border-border"></div>
+                                <DropdownMenuItem
+                                    data-sort-direction="true"
+                                    :disabled="sortKey === null"
+                                    class="rounded-sm px-2 py-1.5"
+                                    @select="toggleSortDirection"
+                                >
+                                    <AppIcon
+                                        :name="sortAscending ? 'chevron-up' : 'chevron-down'"
+                                        class="size-3.5 shrink-0"
+                                    />
+                                    {{
+                                        t(
+                                            sortAscending
+                                                ? 'popup.modelDropdown.sort.ascending'
+                                                : 'popup.modelDropdown.sort.descending'
+                                        )
+                                    }}
+                                </DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
                     </div>
                     <div
                         :id="listId"
@@ -522,7 +498,7 @@
                     </span>
                     <span
                         v-if="highlightedModel"
-                        class="min-w-0 truncate font-serif font-medium text-foreground"
+                        class="min-w-0 truncate font-medium text-foreground"
                     >
                         {{ highlightedModel.name }}
                     </span>
@@ -536,14 +512,14 @@
                     <Button
                         v-for="level in reasoningLevels"
                         :key="level"
-                        variant="picker"
+                        variant="segment"
                         size="sm"
                         role="radio"
                         :data-reasoning-level="level"
                         :aria-checked="selectedLevel === level"
                         :tabindex="selectedLevel === level ? 0 : -1"
                         :disabled="selecting"
-                        class="min-w-16 flex-1 justify-center px-2 text-xs text-muted-foreground aria-checked:text-primary"
+                        class="min-w-16 flex-1 px-2 text-xs"
                         @click="highlightedModel && handleSelect(highlightedModel, level)"
                     >
                         <span class="truncate">

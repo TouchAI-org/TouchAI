@@ -46,6 +46,8 @@ describe('user sees a button', () => {
             'ghost',
             'link',
             'toolbar',
+            'rail',
+            'segment',
             'picker',
         ] as const;
 
