@@ -768,6 +768,99 @@ describe('user follows streamed output', () => {
         expect(viewport.scrollTop).toBe(590);
     });
 
+    it.each([1, 8])(
+        'user scrolls up %i pixels near the live edge and is not pulled back by later output',
+        async (distance) => {
+            const wrapper = mountScroller({ followOutput: true });
+            const viewport = viewportOf(wrapper);
+            setScrollMetrics(viewport, { scrollTop: 600 });
+            stubScrollTo(viewport);
+            await settleLayout();
+
+            viewport.dispatchEvent(new WheelEvent('wheel', { deltaY: -distance, bubbles: true }));
+            viewport.scrollTop -= distance;
+            viewport.dispatchEvent(new Event('scroll'));
+            await settleLayout();
+            setScrollHeight(viewport, 1_200);
+            triggerResize();
+            await settleLayout();
+
+            expect(viewport.scrollTop).toBe(600 - distance);
+        }
+    );
+
+    it('user scrolls up during window expansion and stays paused when the larger viewport clamps their position', async () => {
+        const wrapper = mountScroller({ followOutput: true });
+        const viewport = viewportOf(wrapper);
+        setScrollMetrics(viewport, { scrollTop: 600 });
+        stubScrollTo(viewport);
+        await settleLayout();
+
+        viewport.dispatchEvent(new WheelEvent('wheel', { deltaY: -8, bubbles: true }));
+        viewport.scrollTop = 592;
+        viewport.dispatchEvent(new Event('scroll'));
+        await settleLayout();
+        setScrollMetrics(viewport, { scrollTop: 540, clientHeight: 460 });
+        viewport.dispatchEvent(new Event('scroll'));
+        triggerResize();
+        await settleLayout();
+        (wrapper.vm as unknown as MessageScrollerHandle).recalculate();
+        setScrollHeight(viewport, 1_200);
+        triggerResize();
+        await settleLayout();
+
+        expect(viewport.scrollTop).toBe(540);
+    });
+
+    it('user scrolls the toolbar up one pixel and stays at that reading position during output', async () => {
+        const wrapper = mountScroller({ followOutput: true });
+        const viewport = viewportOf(wrapper);
+        setScrollMetrics(viewport, { scrollTop: 600 });
+        stubScrollTo(viewport);
+        await settleLayout();
+
+        (wrapper.vm as unknown as MessageScrollerHandle).scrollBy(-1);
+        await settleLayout();
+        setScrollHeight(viewport, 1_200);
+        triggerResize();
+        await settleLayout();
+
+        expect(viewport.scrollTop).toBe(599);
+    });
+
+    it.each(['wheel', 'keyboard', 'toolbar'])(
+        'user deliberately scrolls down with the %s at a resized live edge and resumes following',
+        async (gesture) => {
+            const wrapper = mountScroller({ followOutput: true });
+            const viewport = viewportOf(wrapper);
+            setScrollMetrics(viewport, { scrollTop: 600 });
+            stubScrollTo(viewport);
+            await settleLayout();
+            viewport.dispatchEvent(new WheelEvent('wheel', { deltaY: -8, bubbles: true }));
+            viewport.scrollTop = 592;
+            viewport.dispatchEvent(new Event('scroll'));
+            await settleLayout();
+            setScrollMetrics(viewport, { scrollTop: 540, clientHeight: 460 });
+            viewport.dispatchEvent(new Event('scroll'));
+            triggerResize();
+            await settleLayout();
+
+            if (gesture === 'wheel') {
+                viewport.dispatchEvent(new WheelEvent('wheel', { deltaY: 8, bubbles: true }));
+            } else if (gesture === 'keyboard') {
+                viewport.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+            } else {
+                (wrapper.vm as unknown as MessageScrollerHandle).scrollBy(8);
+            }
+            await settleLayout();
+            setScrollHeight(viewport, 1_200);
+            triggerResize();
+            await settleLayout();
+
+            expect(viewport.scrollTop).toBe(740);
+        }
+    );
+
     it('user resumes following after returning to the live edge', async () => {
         const wrapper = mountScroller({ followOutput: true });
         const viewport = viewportOf(wrapper);

@@ -272,6 +272,7 @@
     }
 
     function setFollowing(next: boolean): void {
+        if (!next) measureUpdatesFollowing = false;
         if (following.value === next) return;
         following.value = next;
         emit('followChange', next);
@@ -491,7 +492,7 @@
         interruptProgrammaticScroll();
         if (deltaY < 0) setFollowing(false);
         element.scrollTop += deltaY;
-        scheduleMeasure(true);
+        scheduleMeasure(deltaY > 0);
     }
 
     function isAtEnd(): boolean {
@@ -523,8 +524,12 @@
             measuredState?.scrollHeight !== element.scrollHeight ||
             measuredState?.clientHeight !== element.clientHeight;
         const positionChanged = measuredState?.scrollTop !== element.scrollTop;
+        const scrolledDown = element.scrollTop > (measuredState?.scrollTop ?? element.scrollTop);
         scheduleMeasure(
-            !programmaticScroll && positionChanged && (!following.value || !layoutChanged),
+            !programmaticScroll &&
+                positionChanged &&
+                !layoutChanged &&
+                (following.value || scrolledDown),
             layoutChanged
         );
     }
@@ -532,6 +537,7 @@
     function handleWheel(event: WheelEvent): void {
         interruptProgrammaticScroll();
         if (event.deltaY < 0) setFollowing(false);
+        else if (event.deltaY > 0 && readState().atEnd) setFollowing(true);
     }
 
     function handleTouchStart(): void {
@@ -558,6 +564,8 @@
             (event.key === ' ' && event.shiftKey)
         ) {
             setFollowing(false);
+        } else if (['ArrowDown', 'PageDown', 'End', ' '].includes(event.key) && readState().atEnd) {
+            setFollowing(true);
         }
     }
 
@@ -687,7 +695,7 @@
         getViewportElement: () => viewport.value,
         getContentHeight,
         isAtEnd,
-        recalculate: () => measure(true),
+        recalculate: () => measure(false),
         scrollBy,
         scrollToEnd,
         scrollToItem,
