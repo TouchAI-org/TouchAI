@@ -1,4 +1,17 @@
-import type { PromptSnapshot } from './types';
+import type { PromptInputSnapshot, PromptSnapshot } from './types';
+
+export function createPromptInputSnapshot(
+    input?: PromptInputSnapshot
+): PromptInputSnapshot | undefined {
+    const snapshot: PromptInputSnapshot = {
+        ...(input?.skills?.length
+            ? { skills: input.skills.map((skill) => ({ name: skill.name, path: skill.path })) }
+            : {}),
+        ...(input?.editorDoc ? { editorDoc: input.editorDoc } : {}),
+        ...(input?.excludeFromHistory ? { excludeFromHistory: true } : {}),
+    };
+    return Object.keys(snapshot).length > 0 ? snapshot : undefined;
+}
 
 /** Skill bodies are request context; only their identity and hash belong in history. */
 export function summarizePromptSnapshot(snapshot: PromptSnapshot): PromptSnapshot {

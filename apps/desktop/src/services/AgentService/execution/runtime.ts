@@ -611,6 +611,7 @@ export class AiConversationRuntime {
                     prompt: pendingMessage.prompt,
                     attachments: pendingMessage.attachments,
                     pendingMessageId: pendingMessage.id,
+                    inputSnapshot: pendingMessage.inputSnapshot,
                 });
                 if (persisted.source) {
                     message.contextSource = persisted.source;

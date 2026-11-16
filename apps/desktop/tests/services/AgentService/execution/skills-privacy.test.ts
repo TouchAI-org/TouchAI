@@ -23,12 +23,14 @@ import {
     type RuntimeTurnEvent,
 } from '@/services/AgentService/execution/runtime';
 import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
+import { loadSessionHistory } from '@/services/AgentService/session/history';
 import { SessionTaskCenter } from '@/services/AgentService/task/center';
 import { PendingMessagePersistence } from '@/services/AgentService/task/pendingMessagePersistence';
 import { SessionTaskProjection } from '@/services/AgentService/task/projection/projection';
 import type { PendingUserMessage, SessionTaskSnapshot } from '@/services/AgentService/task/types';
 import { eventService } from '@/services/EventService';
 import { AppEvent } from '@/services/EventService/types';
+import type { InputHistorySnapshot } from '@/types/session';
 
 const { httpFetch } = vi.hoisted(() => ({ httpFetch: vi.fn() }));
 vi.mock('@tauri-apps/plugin-http', () => ({ fetch: httpFetch }));
@@ -161,7 +163,8 @@ function cachedAttachment(type: AttachmentIndex['type']): AttachmentIndex {
 function durablePriorityRun(
     messages: PendingUserMessage[],
     onStart?: () => void,
-    sessionId?: number
+    sessionId?: number,
+    inputSnapshot?: InputHistorySnapshot
 ) {
     const persistence = new PendingMessagePersistence();
     const state = {
@@ -175,6 +178,7 @@ function durablePriorityRun(
         prompt: 'Continue the active answer',
         taskId: crypto.randomUUID(),
         sessionId,
+        inputSnapshot,
         takePriorityUserMessages: () => {
             const available = state.pending.filter((message) => !state.claimed.has(message.id));
             for (const message of available) state.claimed.add(message.id);
@@ -840,6 +844,297 @@ describe('given priority messages have a durable queue entry', () => {
                 .all()
         ).toHaveLength(1);
     });
+});
+
+describe('given pending inputs become ordinary messages in an active conversation', () => {
+    beforeEach(() => {
+        httpFetch.mockResolvedValueOnce(response(true)).mockImplementation(async () => response());
+    });
+
+    it('user reloads ordinary and inserted messages with their own committed input metadata', async () => {
+        const initialInput: InputHistorySnapshot = {
+            text: 'Continue the active answer',
+            attachments: [],
+            skills: [{ name: 'widget', path: widgetSkillFile().path }],
+            editorDoc: {
+                type: 'doc',
+                content: [
+                    { type: 'paragraph', content: [{ type: 'text', text: 'Original input' }] },
+                ],
+            },
+            excludeFromHistory: true,
+        };
+        const messages = [
+            priorityMessage('with-all-metadata', '总结这段中文输入'),
+            priorityMessage('with-editor', 'Keep this formatted input'),
+            priorityMessage('with-history-flag', 'Exclude only this input'),
+            priorityMessage('without-metadata', 'Plain inserted input'),
+            priorityMessage('skill-only', ''),
+        ];
+        messages[0]!.inputSnapshot = {
+            text: messages[0]!.prompt,
+            attachments: [],
+            skills: [{ name: 'summary', path: skillFile().path }],
+            editorDoc: {
+                type: 'doc',
+                content: [
+                    { type: 'paragraph', content: [{ type: 'text', text: messages[0]!.prompt }] },
+                ],
+            },
+            excludeFromHistory: true,
+        };
+        messages[1]!.inputSnapshot = {
+            text: messages[1]!.prompt,
+            attachments: [],
+            editorDoc: {
+                type: 'doc',
+                content: [
+                    {
+                        type: 'paragraph',
+                        content: [
+                            { type: 'text', marks: [{ type: 'bold' }], text: messages[1]!.prompt },
+                        ],
+                    },
+                ],
+            },
+        };
+        messages[2]!.inputSnapshot = {
+            text: messages[2]!.prompt,
+            attachments: [],
+            excludeFromHistory: true,
+        };
+        messages[4]!.inputSnapshot = {
+            text: '',
+            attachments: [],
+            skills: [{ name: 'summary', path: skillFile().path }],
+        };
+        const { runtime, state } = durablePriorityRun(messages, undefined, undefined, initialInput);
+
+        await expect(runtime.run()).resolves.toMatchObject({ response: 'Three concise points.' });
+        const history = await loadSessionHistory(state.sessionId!);
+
+        expect(
+            history
+                .filter((message) => message.role === 'user')
+                .map((message) => message.inputSnapshot)
+        ).toEqual([
+            initialInput,
+            ...messages.map(
+                (message) =>
+                    message.inputSnapshot ?? {
+                        text: message.prompt,
+                        attachments: [],
+                    }
+            ),
+        ]);
+        expect(state.pending).toEqual([]);
+        await expect(new PendingMessagePersistence().load(state.sessionId!)).resolves.toEqual([]);
+        expect(database.prepare('SELECT id FROM session_turns').all()).toHaveLength(1);
+        expect(database.prepare('SELECT id FROM session_turn_attempts').all()).toHaveLength(1);
+        for (const table of ['session_turns', 'session_turn_attempts', 'message_parts']) {
+            expect(JSON.stringify(database.prepare(`SELECT * FROM ${table}`).all())).not.toContain(
+                privateMarker
+            );
+        }
+        expect(JSON.stringify(state.events)).not.toContain(privateMarker);
+        expect(state.events).toContainEqual(
+            expect.objectContaining({
+                type: 'prompt_snapshot_ready',
+                snapshot: expect.objectContaining({
+                    userPrompt: initialInput.text,
+                    inputSnapshot: {
+                        skills: initialInput.skills,
+                        editorDoc: initialInput.editorDoc,
+                        excludeFromHistory: true,
+                    },
+                }),
+            })
+        );
+    });
+
+    it.each(['snapshot write', 'pending removal', 'transaction commit'] as const)(
+        'user retains the complete pending input when %s fails and restores its metadata after explicit recovery',
+        async (failure) => {
+            const message = priorityMessage('recover-input', 'Recover the complete inserted input');
+            message.inputSnapshot = {
+                text: message.prompt,
+                attachments: [],
+                skills: [{ name: 'summary', path: skillFile().path }],
+                editorDoc: {
+                    type: 'doc',
+                    content: [
+                        { type: 'paragraph', content: [{ type: 'text', text: message.prompt }] },
+                    ],
+                },
+                excludeFromHistory: true,
+            };
+            const { runtime, state } = durablePriorityRun([message], () => {
+                if (failure === 'transaction commit') {
+                    let failurePending = true;
+                    routeQueriesTo(database, {
+                        beforeCommit: () => {
+                            if (
+                                failurePending &&
+                                database
+                                    .prepare('SELECT id FROM message_parts WHERE content = ?')
+                                    .get(message.prompt)
+                            ) {
+                                failurePending = false;
+                                throw new Error('Input commit unavailable');
+                            }
+                        },
+                    });
+                } else {
+                    database.exec(
+                        failure === 'snapshot write'
+                            ? `CREATE TEMP TRIGGER input_handoff_failure
+                            BEFORE UPDATE OF prompt_snapshot_json ON session_turns
+                            BEGIN SELECT RAISE(ABORT, 'Input snapshot unavailable'); END`
+                            : `CREATE TEMP TRIGGER input_handoff_failure
+                            BEFORE DELETE ON session_pending_messages
+                            BEGIN SELECT RAISE(ABORT, 'Pending removal unavailable'); END`
+                    );
+                }
+            });
+
+            await expect(runtime.run()).rejects.toBeInstanceOf(Error);
+
+            expect(state.pending).toEqual([message]);
+            expect(state.claimed.size).toBe(0);
+            expect(state.issues).toContainEqual(
+                expect.objectContaining({ phase: 'user_message_delivery' })
+            );
+            expect(state.events.some((event) => event.type === 'user_messages_delivered')).toBe(
+                false
+            );
+            expect(
+                httpFetch.mock.calls.every(([, init]) => !init.body.includes(message.prompt))
+            ).toBe(true);
+            expect(
+                database
+                    .prepare('SELECT id FROM message_parts WHERE content = ?')
+                    .all(message.prompt)
+            ).toEqual([]);
+            expect(
+                JSON.stringify(
+                    database.prepare('SELECT prompt_snapshot_json FROM session_turns').all()
+                )
+            ).not.toContain(message.prompt);
+            const restored = await new PendingMessagePersistence().load(state.sessionId!);
+            expect(restored).toEqual([
+                expect.objectContaining({
+                    id: message.id,
+                    prompt: message.prompt,
+                    inputSnapshot: message.inputSnapshot,
+                }),
+            ]);
+            expect(
+                (await loadSessionHistory(state.sessionId!)).filter(
+                    (entry) => entry.role === 'user'
+                )
+            ).toHaveLength(1);
+
+            if (failure === 'transaction commit') routeQueriesTo(database);
+            else database.exec('DROP TRIGGER input_handoff_failure');
+            httpFetch.mockReset();
+            httpFetch
+                .mockResolvedValueOnce(response(true))
+                .mockImplementation(async () => response());
+            const recovered = durablePriorityRun(
+                restored.map((pending) => ({ ...pending, delivery: 'priority' })),
+                undefined,
+                state.sessionId!
+            );
+            await expect(recovered.runtime.run()).resolves.toMatchObject({
+                response: 'Three concise points.',
+            });
+
+            const history = await loadSessionHistory(state.sessionId!);
+            expect(
+                history.filter((entry) => entry.role === 'user' && entry.content === message.prompt)
+            ).toEqual([expect.objectContaining({ inputSnapshot: message.inputSnapshot })]);
+            await expect(new PendingMessagePersistence().load(state.sessionId!)).resolves.toEqual(
+                []
+            );
+            expect(
+                httpFetch.mock.calls.filter(([, init]) => init.body.includes(message.prompt))
+            ).toHaveLength(1);
+        }
+    );
+
+    it.each(['older snapshot', 'removed original input', 'one damaged inserted input'] as const)(
+        'user reloads the remaining committed inputs with %s without losing unrelated metadata',
+        async (context) => {
+            const messages = [
+                priorityMessage('first-input', 'First inserted input'),
+                priorityMessage('second-input', 'Second inserted input'),
+            ];
+            for (const message of messages) {
+                message.inputSnapshot = {
+                    text: message.prompt,
+                    attachments: [],
+                    skills: [{ name: 'summary', path: skillFile().path }],
+                    excludeFromHistory: true,
+                };
+            }
+            const initialInput: InputHistorySnapshot = {
+                text: 'Continue the active answer',
+                attachments: [],
+                skills: [{ name: 'widget', path: widgetSkillFile().path }],
+                excludeFromHistory: true,
+            };
+            const { runtime, state } = durablePriorityRun(
+                messages,
+                undefined,
+                undefined,
+                initialInput
+            );
+            await runtime.run();
+
+            if (context === 'older snapshot') {
+                database.exec(
+                    "UPDATE session_turns SET prompt_snapshot_json = json_remove(prompt_snapshot_json, '$.inputSnapshot', '$.messageInputSnapshots')"
+                );
+            } else if (context === 'removed original input') {
+                database.exec(
+                    'DELETE FROM messages WHERE id = (SELECT prompt_message_id FROM session_turns)'
+                );
+            } else {
+                const messageRow = database
+                    .prepare(
+                        `SELECT messages.id FROM messages
+                    JOIN message_parts ON message_parts.message_id = messages.id
+                    WHERE messages.role = 'user' AND message_parts.content = ?`
+                    )
+                    .get(messages[0]!.prompt) as { id: number };
+                database
+                    .prepare(
+                        'UPDATE session_turns SET prompt_snapshot_json = json_set(prompt_snapshot_json, ?, json(?))'
+                    )
+                    .run(`$.messageInputSnapshots."${messageRow.id}"`, '{"skills":"invalid"}');
+            }
+
+            const history = (await loadSessionHistory(state.sessionId!)).filter(
+                (message) => message.role === 'user'
+            );
+            if (context === 'older snapshot') {
+                expect(history.map((message) => message.inputSnapshot)).toEqual([
+                    { text: initialInput.text, attachments: [], skills: initialInput.skills },
+                    ...messages.map((message) => ({ text: message.prompt, attachments: [] })),
+                ]);
+            } else if (context === 'removed original input') {
+                expect(history.map((message) => message.inputSnapshot)).toEqual(
+                    messages.map((message) => message.inputSnapshot)
+                );
+            } else {
+                expect(history.map((message) => message.inputSnapshot)).toEqual([
+                    initialInput,
+                    { text: messages[0]!.prompt, attachments: [] },
+                    messages[1]!.inputSnapshot,
+                ]);
+            }
+        }
+    );
 });
 
 describe('given a skill is activated during a conversation that needs a retry', () => {

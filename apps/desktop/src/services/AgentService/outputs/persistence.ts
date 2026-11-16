@@ -3,6 +3,7 @@
 import { type DatabaseExecutor, db } from '@database';
 import {
     appendMessagePart,
+    appendSessionTurnInputSnapshot,
     createMessage,
     createMessageAttachment,
     createMessageParts,
@@ -81,8 +82,8 @@ import {
 import type { AiToolCall } from '../contracts/tooling';
 import type { AttemptCheckpoint } from '../execution/executor';
 import { canonicalJson } from '../infrastructure/providers/ai-sdk/cache';
-import { serializePromptSnapshot } from '../prompt/serialization';
-import type { PromptSnapshot } from '../prompt/types';
+import { createPromptInputSnapshot, serializePromptSnapshot } from '../prompt/serialization';
+import type { PromptInputSnapshot, PromptSnapshot } from '../prompt/types';
 import type { TaskExecutionMode } from '../task/types';
 
 /**
@@ -830,8 +831,10 @@ export class PersistenceProjector {
         prompt: string;
         attachments?: AttachmentIndex[];
         pendingMessageId?: string;
+        inputSnapshot?: PromptInputSnapshot;
     }): Promise<{ messageId: number; source?: ContextMessageSource }> {
         const attachments = options.attachments ?? [];
+        const inputSnapshot = createPromptInputSnapshot(options.inputSnapshot);
         if (attachments.length > 0) {
             await Promise.all(
                 attachments.map((attachment) => prepareAttachmentForPersistence(attachment))
@@ -850,6 +853,14 @@ export class PersistenceProjector {
                 database: tx,
                 sessionId,
             });
+            const turn = inputSnapshot
+                ? await appendSessionTurnInputSnapshot({
+                      id: this.getTurnId(),
+                      messageId,
+                      inputSnapshotJson: JSON.stringify(inputSnapshot),
+                      database: tx,
+                  })
+                : this.turn;
             if (options.pendingMessageId) {
                 await deletePendingMessage(options.pendingMessageId, tx);
             }
@@ -857,11 +868,13 @@ export class PersistenceProjector {
             return {
                 sessionId,
                 messageId,
+                turn,
                 source: row ? await contextMessageSource(row) : undefined,
             };
         });
 
         this.sessionId = result.sessionId;
+        this.turn = result.turn;
         this.closeOutputBoundary();
         return { messageId: result.messageId, source: result.source };
     }

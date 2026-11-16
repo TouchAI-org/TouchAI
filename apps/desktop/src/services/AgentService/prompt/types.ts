@@ -82,3 +82,7 @@ export interface PromptSnapshot extends PromptAssembly {
     systemPrompt: string;
     inputSnapshot?: PromptInputSnapshot;
 }
+
+export interface PersistedPromptSnapshot extends PromptSnapshot {
+    messageInputSnapshots?: Record<string, PromptInputSnapshot>;
+}
