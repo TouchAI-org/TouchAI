@@ -8,6 +8,7 @@ import { event, log } from '@services/ObservabilityService';
 import { ATTR } from '@services/ObservabilityService/attributes';
 import { classifyError } from '@services/ObservabilityService/errors';
 import { withSpan } from '@services/ObservabilityService/tracing';
+import { DrizzleQueryError } from 'drizzle-orm';
 
 import { t } from '@/i18n';
 import {
@@ -492,8 +493,8 @@ export class AiConversationRuntime {
     /**
      * 在安全边界投递插队消息：工具轮结束，或用户点击「插队」后当前回答中断处。
      *
-     * 消息先按普通用户消息落库，再作为下一条上下文发给模型；落库失败不会
-     * 阻断对话，只是与普通轮次一样报告持久化问题。
+     * 消息先按普通用户消息落库，再作为下一条上下文发给模型；落库失败保留
+     * 待发消息并报告错误，避免重启后重复执行已发给模型的消息。
      */
     private async deliverPriorityUserMessages(
         persister: PersistenceProjector,
@@ -503,17 +504,6 @@ export class AiConversationRuntime {
         if (pending.length === 0) {
             return { messages: [] };
         }
-        // Claim first, then flush. A message enqueued after the claim belongs to
-        // a later boundary; flushing before the claim would leave its insert
-        // racing the delete for a row that is already being delivered.
-        await this.options.waitForPendingMessageWrites?.();
-
-        // Steering interrupts this answer even when the message cannot be
-        // persisted. Close the assistant row before any await so later output
-        // cannot overwrite the interrupted partial answer.
-        persister.closeOutputBoundary();
-
-        const attachmentCapabilities = getModelAttachmentCapabilities(model);
         const delivered: DeliveredPendingUserMessage[] = [];
         const rejectedMessageIds: string[] = [];
         const messages: AiMessage[] = [];
@@ -521,6 +511,9 @@ export class AiConversationRuntime {
         const settledMessageIds = new Set<string>();
 
         try {
+            persister.closeOutputBoundary();
+            await this.options.waitForPendingMessageWrites?.();
+            const attachmentCapabilities = getModelAttachmentCapabilities(model);
             for (const pendingMessage of pending) {
                 if (this.options.signal?.aborted) {
                     break;
@@ -531,6 +524,7 @@ export class AiConversationRuntime {
                     attachmentCapabilities
                 );
                 if (unsupportedAttachmentTypes.length > 0) {
+                    await persister.discardPendingUserMessage(pendingMessage.id);
                     await this.reportPersistenceIssue({
                         phase: 'user_message_delivery',
                         title: t('agent.priorityMessage.unsupportedAttachmentsTitle'),
@@ -571,6 +565,7 @@ export class AiConversationRuntime {
                         '[AiConversationRuntime] Failed to build an inserted user message:',
                         error
                     );
+                    await persister.discardPendingUserMessage(pendingMessage.id);
                     await this.reportPersistenceIssue({
                         phase: 'user_message_delivery',
                         ...buildPersistenceIssue('agent.persistenceIssue.userMessageDelivery'),
@@ -593,6 +588,7 @@ export class AiConversationRuntime {
                         '[AiConversationRuntime] Failed to load skills for an inserted user message:',
                         error
                     );
+                    await persister.discardPendingUserMessage(pendingMessage.id);
                     await this.reportPersistenceIssue({
                         phase: 'user_message_delivery',
                         title: t('agent.priorityMessage.skillLoadFailedTitle'),
@@ -608,25 +604,13 @@ export class AiConversationRuntime {
                     break;
                 }
 
-                try {
-                    const persisted = await persister.persistInjectedUserMessage({
-                        prompt: pendingMessage.prompt,
-                        attachments: pendingMessage.attachments,
-                        pendingMessageId: pendingMessage.id,
-                    });
-                    if (persisted.source) {
-                        message.contextSource = persisted.source;
-                    }
-                } catch (error) {
-                    log.error(
-                        '[AiConversationRuntime] Failed to persist an inserted user message:',
-                        error
-                    );
-                    await this.reportPersistenceIssue({
-                        phase: 'user_message_delivery',
-                        ...buildPersistenceIssue('agent.persistenceIssue.userMessageDelivery'),
-                        error,
-                    });
+                const persisted = await persister.persistInjectedUserMessage({
+                    prompt: pendingMessage.prompt,
+                    attachments: pendingMessage.attachments,
+                    pendingMessageId: pendingMessage.id,
+                });
+                if (persisted.source) {
+                    message.contextSource = persisted.source;
                 }
 
                 messages.push(message);
@@ -646,29 +630,40 @@ export class AiConversationRuntime {
                 });
                 settledMessageIds.add(pendingMessage.id);
             }
+        } catch (error) {
+            const failure = error instanceof DrizzleQueryError ? (error.cause ?? error) : error;
+            log.error('[AiConversationRuntime] Failed to settle inserted user messages:', {
+                taskId: this.options.taskId,
+                sessionId: persister.getSessionId(),
+                errorType: failure instanceof Error ? failure.name : typeof failure,
+            });
+            await this.reportPersistenceIssue({
+                phase: 'user_message_delivery',
+                ...buildPersistenceIssue('agent.persistenceIssue.userMessageDelivery'),
+                error: failure,
+            });
+            throw failure;
         } finally {
+            if (rejectedMessageIds.length > 0 && this.options.taskId) {
+                this.notifyTurnEvent({
+                    type: 'user_messages_rejected',
+                    taskId: this.options.taskId,
+                    messageIds: rejectedMessageIds,
+                });
+            }
+            if (delivered.length > 0 && this.options.taskId) {
+                this.notifyTurnEvent({
+                    type: 'user_messages_delivered',
+                    taskId: this.options.taskId,
+                    messages: delivered,
+                });
+            }
             const unsettledMessageIds = pending
                 .map((message) => message.id)
                 .filter((id) => !settledMessageIds.has(id));
             if (unsettledMessageIds.length > 0) {
                 this.options.releasePriorityUserMessages?.(unsettledMessageIds);
             }
-        }
-
-        if (rejectedMessageIds.length > 0 && this.options.taskId) {
-            this.notifyTurnEvent({
-                type: 'user_messages_rejected',
-                taskId: this.options.taskId,
-                messageIds: rejectedMessageIds,
-            });
-        }
-
-        if (delivered.length > 0 && this.options.taskId) {
-            this.notifyTurnEvent({
-                type: 'user_messages_delivered',
-                taskId: this.options.taskId,
-                messages: delivered,
-            });
         }
 
         return {

@@ -54,6 +54,35 @@ export async function appendPendingMessage(
         .run();
 }
 
+export async function savePendingMessage(
+    data: SessionPendingMessageCreateData,
+    database: DatabaseExecutor = db
+): Promise<void> {
+    if (database === db) {
+        await db.transaction((tx) => savePendingMessage(data, tx));
+        return;
+    }
+
+    await database
+        .insert(sessionPendingMessages)
+        .values({
+            ...data,
+            position: sql`(SELECT coalesce(max(${sessionPendingMessages.position}), -1) + 1 FROM ${sessionPendingMessages} WHERE ${sessionPendingMessages.session_id} = ${data.session_id})`,
+        })
+        .onConflictDoUpdate({
+            target: sessionPendingMessages.id,
+            set: {
+                prompt: data.prompt,
+                model_id: data.model_id,
+                provider_id: data.provider_id,
+                payload_version: data.payload_version,
+                payload_json: data.payload_json,
+                updated_at: sql`datetime('now')`,
+            },
+        })
+        .run();
+}
+
 export async function updatePendingMessage(
     messageId: string,
     data: SessionPendingMessageUpdateData,

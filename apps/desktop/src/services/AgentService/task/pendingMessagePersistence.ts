@@ -1,14 +1,15 @@
+import { db } from '@database';
 import {
-    appendPendingMessage,
     clearPendingMessagesForSession,
     deletePendingMessage,
     findPendingMessagesBySessionId,
     reorderPendingMessages,
-    updatePendingMessage,
+    savePendingMessage,
     updatePendingMessagesModel,
 } from '@database/queries';
 import type { SessionPendingMessageEntity } from '@database/types';
 import { log } from '@services/ObservabilityService';
+import { DrizzleQueryError } from 'drizzle-orm';
 
 import {
     type AttachmentIndex,
@@ -99,10 +100,12 @@ async function snapshotAttachments(
             continue;
         }
         if (result.status === 'rejected') {
-            log.error('[PendingMessagePersistence] Failed to cache attachment:', result.reason);
-            continue;
+            throw result.reason;
         }
-        if (!attachment.hash || seen.has(attachment.hash)) {
+        if (!attachment.hash) {
+            throw new Error('A queued attachment has no persisted content hash');
+        }
+        if (seen.has(attachment.hash)) {
             continue;
         }
         seen.add(attachment.hash);
@@ -211,6 +214,73 @@ export interface PendingMessageStore {
     load(sessionId: number): Promise<PendingUserMessage[]>;
 }
 
+type PendingMutation =
+    | { type: 'save'; message: PendingUserMessage; isNew: boolean }
+    | { type: 'remove' };
+
+interface PendingWriteBatch {
+    messages: Map<string, PendingMutation>;
+    clear: boolean;
+    model?: { modelId: string | null; providerId: number | null };
+    order?: readonly string[];
+}
+
+interface SessionWrites {
+    pending: PendingWriteBatch;
+    active?: PendingWriteBatch;
+    running?: Promise<void>;
+    failure?: { error: unknown };
+}
+
+function createWriteBatch(): PendingWriteBatch {
+    return { messages: new Map(), clear: false };
+}
+
+function hasPendingWrites(batch: PendingWriteBatch): boolean {
+    return batch.clear || batch.messages.size > 0 || !!batch.model || !!batch.order;
+}
+
+function applyModelToBatch(batch: PendingWriteBatch): void {
+    if (!batch.model) {
+        return;
+    }
+    for (const mutation of batch.messages.values()) {
+        if (mutation.type === 'save') {
+            mutation.message = {
+                ...mutation.message,
+                modelId: batch.model.modelId ?? undefined,
+                providerId: batch.model.providerId ?? undefined,
+            };
+        }
+    }
+}
+
+function mergeWriteBatches(
+    previous: PendingWriteBatch,
+    latest: PendingWriteBatch
+): PendingWriteBatch {
+    if (latest.clear) {
+        return latest;
+    }
+    if (latest.model) {
+        previous.model = latest.model;
+        applyModelToBatch(previous);
+    }
+    for (const [messageId, mutation] of latest.messages) {
+        const older = previous.messages.get(messageId);
+        if (older?.type === 'save' && older.isNew) {
+            if (mutation.type === 'remove') {
+                previous.messages.delete(messageId);
+                continue;
+            }
+            mutation.isNew = true;
+        }
+        previous.messages.set(messageId, mutation);
+    }
+    previous.order = latest.order ?? previous.order;
+    return previous;
+}
+
 /**
  * Serializes pending-message writes per session and restores them from SQLite.
  *
@@ -219,73 +289,190 @@ export interface PendingMessageStore {
  * a row cannot be deleted before its insert has reached SQLite.
  */
 export class PendingMessagePersistence implements PendingMessageStore {
-    private readonly writes = new Map<number, Promise<void>>();
+    private readonly writes = new Map<number, SessionWrites>();
 
     enqueue(sessionId: number, message: PendingUserMessage): void {
-        this.schedule(sessionId, async () => {
-            const payloadJson = await serializePayload(message);
-            await appendPendingMessage(buildCreateData(sessionId, message, payloadJson));
+        this.schedule(sessionId, (batch) => {
+            batch.messages.set(message.id, { type: 'save', message, isNew: true });
         });
     }
 
     update(sessionId: number, message: PendingUserMessage): void {
-        this.schedule(sessionId, async () => {
-            const payloadJson = await serializePayload(message);
-            await updatePendingMessage(message.id, {
-                prompt: message.prompt,
-                model_id: message.modelId ?? null,
-                provider_id: message.providerId ?? null,
-                payload_version: PENDING_MESSAGE_PAYLOAD_VERSION,
-                payload_json: payloadJson,
+        this.schedule(sessionId, (batch, active) => {
+            const previous = batch.messages.get(message.id) ?? active?.messages.get(message.id);
+            batch.messages.set(message.id, {
+                type: 'save',
+                message,
+                isNew: previous?.type === 'save' && previous.isNew,
             });
         });
     }
 
     remove(sessionId: number, messageId: string): void {
-        this.schedule(sessionId, () => deletePendingMessage(messageId));
+        this.schedule(sessionId, (batch, active) => {
+            const previous = batch.messages.get(messageId);
+            if (previous?.type === 'save' && previous.isNew && !active?.messages.has(messageId)) {
+                batch.messages.delete(messageId);
+            } else {
+                batch.messages.set(messageId, { type: 'remove' });
+            }
+        });
     }
 
     clear(sessionId: number): void {
-        this.schedule(sessionId, () => clearPendingMessagesForSession(sessionId));
+        this.schedule(sessionId, (batch) => {
+            batch.clear = true;
+            batch.messages.clear();
+            batch.model = undefined;
+            batch.order = undefined;
+        });
     }
 
     reorder(sessionId: number, orderedMessageIds: readonly string[]): void {
-        this.schedule(sessionId, () => reorderPendingMessages(sessionId, orderedMessageIds));
+        this.schedule(sessionId, (batch) => {
+            batch.order = [...orderedMessageIds];
+        });
     }
 
     updateModel(sessionId: number, modelId: string | null, providerId: number | null): void {
-        this.schedule(sessionId, () => updatePendingMessagesModel(sessionId, modelId, providerId));
+        this.schedule(sessionId, (batch) => {
+            batch.model = { modelId, providerId };
+            applyModelToBatch(batch);
+        });
     }
 
     async flush(sessionId: number): Promise<void> {
-        await this.writes.get(sessionId);
+        const state = this.writes.get(sessionId);
+        if (!state) {
+            return;
+        }
+        if (!state.running) {
+            this.startWrites(sessionId, state);
+        }
+        while (state.running) {
+            await state.running;
+        }
+        if (state.failure) {
+            throw state.failure.error;
+        }
     }
 
     async load(sessionId: number): Promise<PendingUserMessage[]> {
         await this.flush(sessionId);
         const rows = await findPendingMessagesBySessionId(sessionId);
-        const decoded = await Promise.all(rows.map((row) => decodeRow(row)));
+        const decoded = await Promise.all(
+            rows.map(async (row) => {
+                try {
+                    return await decodeRow(row);
+                } catch (error) {
+                    log.error('[PendingMessagePersistence] Failed to restore a pending message:', {
+                        id: row.id,
+                        sessionId: row.session_id,
+                        errorType: error instanceof Error ? error.name : typeof error,
+                    });
+                    return null;
+                }
+            })
+        );
         return decoded.filter((message): message is PendingUserMessage => message !== null);
     }
 
-    private schedule(sessionId: number, write: () => Promise<void>): void {
-        const previous = this.writes.get(sessionId) ?? Promise.resolve();
-        const next = previous
-            .catch(() => {
-                // Keep later writes independent from an earlier failed write.
-            })
-            .then(write)
-            .catch((error) => {
-                log.error(
-                    '[PendingMessagePersistence] Failed to persist a pending message:',
-                    error
-                );
-            });
-        this.writes.set(sessionId, next);
-        void next.finally(() => {
-            if (this.writes.get(sessionId) === next) {
+    private schedule(
+        sessionId: number,
+        change: (batch: PendingWriteBatch, active?: PendingWriteBatch) => void
+    ): void {
+        const state: SessionWrites = this.writes.get(sessionId) ?? { pending: createWriteBatch() };
+        this.writes.set(sessionId, state);
+        change(state.pending, state.active);
+        if (!state.running) {
+            this.startWrites(sessionId, state);
+        }
+    }
+
+    private startWrites(sessionId: number, state: SessionWrites): void {
+        state.failure = undefined;
+        if (!hasPendingWrites(state.pending)) {
+            this.writes.delete(sessionId);
+            return;
+        }
+        state.running = this.persistBatches(sessionId, state).finally(() => {
+            state.running = undefined;
+            if (state.failure) {
+                return;
+            }
+            if (hasPendingWrites(state.pending)) {
+                this.startWrites(sessionId, state);
+            } else if (this.writes.get(sessionId) === state) {
                 this.writes.delete(sessionId);
             }
         });
+    }
+
+    private async persistBatches(sessionId: number, state: SessionWrites): Promise<void> {
+        while (hasPendingWrites(state.pending)) {
+            const batch = state.pending;
+            state.pending = createWriteBatch();
+            state.active = batch;
+            try {
+                const saved = new Map<string, ReturnType<typeof buildCreateData>>();
+                for (const [messageId, mutation] of batch.messages) {
+                    if (mutation.type === 'save') {
+                        saved.set(
+                            messageId,
+                            buildCreateData(
+                                sessionId,
+                                mutation.message,
+                                await serializePayload(mutation.message)
+                            )
+                        );
+                    }
+                }
+                await db.transaction(async (database) => {
+                    if (batch.clear) {
+                        await clearPendingMessagesForSession(sessionId, database);
+                    }
+                    if (batch.model) {
+                        await updatePendingMessagesModel(
+                            sessionId,
+                            batch.model.modelId,
+                            batch.model.providerId,
+                            database
+                        );
+                    }
+                    for (const [messageId, mutation] of batch.messages) {
+                        if (mutation.type === 'save') {
+                            await savePendingMessage(saved.get(messageId)!, database);
+                        } else {
+                            await deletePendingMessage(messageId, database);
+                        }
+                    }
+                    if (batch.order) {
+                        await reorderPendingMessages(sessionId, batch.order, database);
+                    }
+                });
+                if (!state.pending.clear) {
+                    for (const messageId of saved.keys()) {
+                        const pending = state.pending.messages.get(messageId);
+                        if (pending?.type === 'save') {
+                            pending.isNew = false;
+                        }
+                    }
+                }
+            } catch (error) {
+                state.pending = mergeWriteBatches(batch, state.pending);
+                if (hasPendingWrites(state.pending)) {
+                    state.failure = {
+                        error: error instanceof DrizzleQueryError ? (error.cause ?? error) : error,
+                    };
+                    log.error('[PendingMessagePersistence] Failed to persist pending messages:', {
+                        sessionId,
+                        errorType: error instanceof Error ? error.name : typeof error,
+                    });
+                }
+                return;
+            } finally {
+                state.active = undefined;
+            }
+        }
     }
 }

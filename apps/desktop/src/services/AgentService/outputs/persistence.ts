@@ -816,6 +816,10 @@ export class PersistenceProjector {
         this.assistantMessageId = null;
     }
 
+    async discardPendingUserMessage(pendingMessageId: string): Promise<void> {
+        await deletePendingMessage(pendingMessageId);
+    }
+
     /**
      * 写入一条运行中插队的用户消息。
      *

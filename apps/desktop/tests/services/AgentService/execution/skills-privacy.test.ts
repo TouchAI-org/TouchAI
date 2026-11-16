@@ -17,10 +17,13 @@ import type { AiStreamChunk } from '@/services/AgentService/contracts/protocol';
 import { AiRequestExecutor } from '@/services/AgentService/execution';
 import {
     AiConversationRuntime,
+    type RuntimePersistenceIssue,
     type RuntimeTurnEvent,
 } from '@/services/AgentService/execution/runtime';
+import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
+import { PendingMessagePersistence } from '@/services/AgentService/task/pendingMessagePersistence';
 import { SessionTaskProjection } from '@/services/AgentService/task/projection/projection';
-import type { SessionTaskSnapshot } from '@/services/AgentService/task/types';
+import type { PendingUserMessage, SessionTaskSnapshot } from '@/services/AgentService/task/types';
 
 const { httpFetch } = vi.hoisted(() => ({ httpFetch: vi.fn() }));
 vi.mock('@tauri-apps/plugin-http', () => ({ fetch: httpFetch }));
@@ -118,6 +121,326 @@ beforeEach(() => {
 afterEach(() => {
     resetObservabilityForTests();
     closeTestDatabases();
+});
+
+function priorityMessage(id: string, prompt: string): PendingUserMessage {
+    return { id, prompt, attachments: [], delivery: 'priority', createdAt: Date.now() };
+}
+
+function cachedAttachment(type: AttachmentIndex['type']): AttachmentIndex {
+    const hash = 'a'.repeat(64);
+    const name = type === 'image' ? 'photo.png' : 'notes.txt';
+    const mimeType = type === 'image' ? 'image/png' : 'text/plain';
+    const originPath = `/test/${name}`;
+    database
+        .prepare(
+            `INSERT INTO attachments (id, hash, type, original_name, origin_path, mime_type)
+        VALUES (1, ?, ?, ?, ?, ?)`
+        )
+        .run(hash, type, name, originPath, mimeType);
+    return {
+        id: 'cached-attachment',
+        attachmentId: 1,
+        hash,
+        type,
+        name,
+        path: `/test/cache/${name}`,
+        originPath,
+        mimeType,
+        supportStatus: 'supported',
+    };
+}
+
+function durablePriorityRun(
+    messages: PendingUserMessage[],
+    onStart?: () => void,
+    sessionId?: number
+) {
+    const persistence = new PendingMessagePersistence();
+    const state = {
+        sessionId: sessionId ?? null,
+        pending: [...messages],
+        claimed: new Set<string>(),
+        events: [] as RuntimeTurnEvent[],
+        issues: [] as RuntimePersistenceIssue[],
+    };
+    const runtime = new AiConversationRuntime(new AiRequestExecutor(), {
+        prompt: 'Continue the active answer',
+        taskId: crypto.randomUUID(),
+        sessionId,
+        takePriorityUserMessages: () => {
+            const available = state.pending.filter((message) => !state.claimed.has(message.id));
+            for (const message of available) state.claimed.add(message.id);
+            return available;
+        },
+        releasePriorityUserMessages: (messageIds) => {
+            for (const messageId of messageIds) state.claimed.delete(messageId);
+        },
+        waitForPendingMessageWrites: async () => {
+            if (state.sessionId === null) throw new Error('The session has not been saved');
+            await persistence.flush(state.sessionId);
+        },
+        environment: {
+            reportPersistenceIssue: (issue) => {
+                state.issues.push(issue);
+            },
+        },
+        onTurnEvent: (event) => {
+            state.events.push(event);
+            if (event.type === 'task_started') {
+                state.sessionId = event.sessionId;
+                if (state.sessionId === null) throw new Error('The session has not been saved');
+                for (const message of messages) persistence.enqueue(state.sessionId, message);
+                onStart?.();
+            }
+            if (
+                event.type === 'user_messages_delivered' ||
+                event.type === 'user_messages_rejected'
+            ) {
+                const settled = new Set(
+                    event.type === 'user_messages_delivered'
+                        ? event.messages.map((message) => message.id)
+                        : event.messageIds
+                );
+                state.pending = state.pending.filter((message) => !settled.has(message.id));
+                for (const messageId of settled) state.claimed.delete(messageId);
+            }
+        },
+    });
+    return { runtime, persistence, state };
+}
+
+describe('given priority messages have a durable queue entry', () => {
+    beforeEach(() => {
+        httpFetch.mockResolvedValueOnce(response(true)).mockImplementation(async () => response());
+    });
+
+    it('user keeps a steer retryable without sending it when its history transaction fails', async () => {
+        const { runtime, state } = durablePriorityRun(
+            [priorityMessage('pending-1', 'Priority one')],
+            () => {
+                database.exec(`CREATE TEMP TRIGGER injected_write_failure
+                BEFORE INSERT ON message_parts WHEN NEW.type = 'text' AND NEW.content = 'Priority one'
+                BEGIN SELECT RAISE(ABORT, 'history storage unavailable'); END`);
+            }
+        );
+
+        await expect(runtime.run()).rejects.toBeInstanceOf(Error);
+
+        expect(state.pending.map((message) => message.id)).toEqual(['pending-1']);
+        expect(state.issues).toContainEqual(
+            expect.objectContaining({ phase: 'user_message_delivery' })
+        );
+        expect(state.events.some((event) => event.type === 'user_messages_delivered')).toBe(false);
+        expect(httpFetch.mock.calls.every(([, init]) => !init.body.includes('Priority one'))).toBe(
+            true
+        );
+        expect(
+            database
+                .prepare("SELECT content FROM message_parts WHERE content = 'Priority one'")
+                .all()
+        ).toEqual([]);
+
+        database.exec('DROP TRIGGER injected_write_failure');
+        const restored = await new PendingMessagePersistence().load(state.sessionId!);
+        expect(restored).toEqual([
+            expect.objectContaining({ id: 'pending-1', prompt: 'Priority one' }),
+        ]);
+        httpFetch.mockReset();
+        httpFetch.mockResolvedValueOnce(response(true)).mockImplementation(async () => response());
+        const recovered = durablePriorityRun(
+            restored.map((message) => ({ ...message, delivery: 'priority' })),
+            undefined,
+            state.sessionId!
+        );
+        await expect(recovered.runtime.run()).resolves.toMatchObject({
+            response: 'Three concise points.',
+        });
+        expect(recovered.state.pending).toEqual([]);
+        await expect(new PendingMessagePersistence().load(state.sessionId!)).resolves.toEqual([]);
+        expect(
+            database
+                .prepare("SELECT content FROM message_parts WHERE content = 'Priority one'")
+                .all()
+        ).toHaveLength(1);
+        expect(httpFetch.mock.calls.some(([, init]) => init.body.includes('Priority one'))).toBe(
+            true
+        );
+    });
+
+    it('user regains a steer claim when the queue cannot reach its durability boundary', async () => {
+        const { runtime, persistence, state } = durablePriorityRun(
+            [priorityMessage('pending-1', 'Unsaved priority')],
+            () => {
+                database.exec(`CREATE TEMP TRIGGER pending_write_failure
+                BEFORE INSERT ON session_pending_messages
+                BEGIN SELECT RAISE(ABORT, 'queue storage unavailable'); END`);
+            }
+        );
+        await expect(runtime.run()).rejects.toBeInstanceOf(Error);
+        expect(state.pending.map((message) => message.id)).toEqual(['pending-1']);
+        expect(state.claimed.size).toBe(0);
+        expect(state.events.some((event) => event.type === 'user_messages_delivered')).toBe(false);
+        expect(state.issues).toContainEqual(
+            expect.objectContaining({ phase: 'user_message_delivery' })
+        );
+        expect(
+            httpFetch.mock.calls.every(([, init]) => !init.body.includes('Unsaved priority'))
+        ).toBe(true);
+
+        database.exec('DROP TRIGGER pending_write_failure');
+        await persistence.flush(state.sessionId!);
+        await expect(new PendingMessagePersistence().load(state.sessionId!)).resolves.toEqual([
+            expect.objectContaining({ id: 'pending-1', prompt: 'Unsaved priority' }),
+        ]);
+    });
+
+    it.each(['unsupported image', 'unreadable file', 'unavailable skill'] as const)(
+        'user rejects a steer with an %s and it never reappears after history reload',
+        async (reason) => {
+            const message = priorityMessage('pending-1', 'Rejected priority');
+            if (reason === 'unavailable skill') {
+                message.inputSnapshot = {
+                    text: message.prompt,
+                    attachments: [],
+                    skills: [{ name: 'summary', path: skillFile().path }],
+                };
+                mockTauriCommand('agent_skills_read_enabled_user_file', () => {
+                    throw new Error('Skill file unavailable');
+                });
+            } else {
+                message.attachments = [
+                    cachedAttachment(reason === 'unreadable file' ? 'file' : 'image'),
+                ];
+                if (reason === 'unreadable file') {
+                    database.exec(
+                        `UPDATE models SET attachment = 1, modalities = '{"input":["text","file"],"output":["text"]}'`
+                    );
+                    mockTauriCommand('plugin:fs|open', () => {
+                        throw new Error('Attachment unavailable');
+                    });
+                }
+            }
+            const { runtime, state } = durablePriorityRun([message]);
+            await expect(runtime.run()).resolves.toMatchObject({
+                response: 'Three concise points.',
+            });
+            expect(state.pending).toEqual([]);
+            expect(state.events).toContainEqual(
+                expect.objectContaining({
+                    type: 'user_messages_rejected',
+                    messageIds: ['pending-1'],
+                })
+            );
+            expect(state.events.some((event) => event.type === 'user_messages_delivered')).toBe(
+                false
+            );
+            await expect(new PendingMessagePersistence().load(state.sessionId!)).resolves.toEqual(
+                []
+            );
+            expect(
+                httpFetch.mock.calls.every(([, init]) => !init.body.includes(message.prompt))
+            ).toBe(true);
+        }
+    );
+
+    it('user retains a rejected steer for recovery when its durable removal fails', async () => {
+        const message = priorityMessage('pending-1', 'Keep rejected priority');
+        message.inputSnapshot = {
+            text: message.prompt,
+            attachments: [],
+            skills: [{ name: 'summary', path: skillFile().path }],
+        };
+        mockTauriCommand('agent_skills_read_enabled_user_file', () => {
+            throw new Error('Skill file unavailable');
+        });
+        const { runtime, state } = durablePriorityRun([message], () => {
+            database.exec(`CREATE TEMP TRIGGER pending_delete_failure
+                BEFORE DELETE ON session_pending_messages
+                BEGIN SELECT RAISE(ABORT, 'queue removal unavailable'); END`);
+        });
+
+        await expect(runtime.run()).rejects.toBeInstanceOf(Error);
+        expect(state.pending.map((pending) => pending.id)).toEqual(['pending-1']);
+        expect(state.claimed.size).toBe(0);
+        expect(state.events.some((event) => event.type === 'user_messages_rejected')).toBe(false);
+        expect(state.events.some((event) => event.type === 'user_messages_delivered')).toBe(false);
+        expect(state.issues).toContainEqual(
+            expect.objectContaining({ phase: 'user_message_delivery' })
+        );
+        await expect(new PendingMessagePersistence().load(state.sessionId!)).resolves.toEqual([
+            expect.objectContaining({
+                id: 'pending-1',
+                prompt: message.prompt,
+                inputSnapshot: expect.objectContaining({ skills: message.inputSnapshot.skills }),
+            }),
+        ]);
+    });
+
+    it('user restores only uncommitted steers when a later message in the same batch fails', async () => {
+        const messages = [
+            priorityMessage('pending-1', 'First committed priority'),
+            priorityMessage('pending-2', 'Second failed priority'),
+        ];
+        const { runtime, state } = durablePriorityRun(messages, () => {
+            database.exec(`CREATE TEMP TRIGGER injected_write_failure
+                BEFORE INSERT ON message_parts WHEN NEW.type = 'text' AND NEW.content = 'Second failed priority'
+                BEGIN SELECT RAISE(ABORT, 'history storage unavailable'); END`);
+        });
+        await expect(runtime.run()).rejects.toBeInstanceOf(Error);
+        expect(state.pending.map((message) => message.id)).toEqual(['pending-2']);
+        expect(state.events).toContainEqual(
+            expect.objectContaining({
+                type: 'user_messages_delivered',
+                messages: [expect.objectContaining({ id: 'pending-1' })],
+            })
+        );
+        const restored = await new PendingMessagePersistence().load(state.sessionId!);
+        expect(restored).toEqual([
+            expect.objectContaining({ id: 'pending-2', prompt: 'Second failed priority' }),
+        ]);
+        expect(
+            database
+                .prepare(
+                    "SELECT content FROM message_parts WHERE content = 'First committed priority'"
+                )
+                .all()
+        ).toHaveLength(1);
+        expect(
+            database
+                .prepare(
+                    "SELECT content FROM message_parts WHERE content = 'Second failed priority'"
+                )
+                .all()
+        ).toEqual([]);
+
+        database.exec('DROP TRIGGER injected_write_failure');
+        httpFetch.mockReset();
+        httpFetch.mockResolvedValueOnce(response(true)).mockImplementation(async () => response());
+        const recovered = durablePriorityRun(
+            restored.map((message) => ({ ...message, delivery: 'priority' })),
+            undefined,
+            state.sessionId!
+        );
+        await expect(recovered.runtime.run()).resolves.toMatchObject({
+            response: 'Three concise points.',
+        });
+        await expect(new PendingMessagePersistence().load(state.sessionId!)).resolves.toEqual([]);
+        expect(
+            database
+                .prepare(
+                    "SELECT content FROM message_parts WHERE content = 'First committed priority'"
+                )
+                .all()
+        ).toHaveLength(1);
+        expect(
+            database
+                .prepare(
+                    "SELECT content FROM message_parts WHERE content = 'Second failed priority'"
+                )
+                .all()
+        ).toHaveLength(1);
+    });
 });
 
 describe('given a skill is activated during a conversation that needs a retry', () => {

@@ -68,6 +68,7 @@ const {
         markFailed: vi.fn(async () => undefined),
         beginNextAttempt: vi.fn(async () => undefined),
         closeOutputBoundary: vi.fn(),
+        discardPendingUserMessage: vi.fn(async () => undefined),
         persistInjectedUserMessage: vi.fn(async () => ({
             messageId: 11,
             source: { id: 11, fingerprint: 'f'.repeat(64) },
@@ -752,7 +753,8 @@ describe('user starts a turn that needs a new conversation', () => {
         projectorMock.persistInjectedUserMessage.mockRejectedValueOnce(
             new Error('database is locked')
         );
-        const { runtime } = run(executor, {
+        const releasePriorityUserMessages = vi.fn();
+        const { runtime, events } = run(executor, {
             taskId: 'task-1',
             takePriorityUserMessages: () => [
                 {
@@ -763,21 +765,21 @@ describe('user starts a turn that needs a new conversation', () => {
                     createdAt: 1,
                 },
             ],
+            releasePriorityUserMessages,
         });
 
         await runtime.run();
 
         const attemptOptions = executor.runAttempt.mock.calls[0]![0] as ExecuteRequestOptions;
-        const injected = await attemptOptions.onToolBoundary!({
-            persister: projectorMock as never,
-            model: createModel(),
-        });
+        await expect(
+            attemptOptions.onToolBoundary!({
+                persister: projectorMock as never,
+                model: createModel(),
+            })
+        ).rejects.toThrow('database is locked');
 
-        // Persistence failure keeps the conversation usable, but the next
-        // answer must never reuse the interrupted assistant output row.
-        expect(injected).toEqual({
-            messages: [{ role: 'user', content: 'Steer this' }],
-        });
+        expect(events.some((event) => event.type === 'user_messages_delivered')).toBe(false);
+        expect(releasePriorityUserMessages).toHaveBeenCalledWith(['pending-1']);
         expect(projectorMock.closeOutputBoundary).toHaveBeenCalled();
     });
 

@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 
+import { mockTauriCommand } from '@tests/utils/tauri';
 import { getTableConfig } from 'drizzle-orm/sqlite-core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -161,6 +162,244 @@ describe('when the app restarts with durable pending messages', () => {
         await persistence.flush(1);
 
         await expect(new PendingMessagePersistence().load(1)).resolves.toEqual([]);
+    });
+
+    it('user gets an unresolved write error until the complete queued prompt is durably saved', async () => {
+        database.exec(`CREATE TEMP TRIGGER pending_write_failure
+            BEFORE INSERT ON session_pending_messages
+            BEGIN SELECT RAISE(ABORT, 'queue storage unavailable'); END`);
+        const persistence = new PendingMessagePersistence();
+        persistence.enqueue(1, queuedMessage('pending-1', 'retry me'));
+
+        await expect(persistence.flush(1)).rejects.toThrow('queue storage unavailable');
+        expect(database.prepare('SELECT id FROM session_pending_messages').all()).toEqual([]);
+
+        database.exec('DROP TRIGGER pending_write_failure');
+        await expect(persistence.flush(1)).resolves.toBeUndefined();
+        await expect(new PendingMessagePersistence().load(1)).resolves.toEqual([
+            expect.objectContaining({ id: 'pending-1', prompt: 'retry me' }),
+        ]);
+    });
+
+    it('user recovers the latest edits, removals, model and order after storage becomes available', async () => {
+        database.exec(`CREATE TEMP TRIGGER pending_write_failure
+            BEFORE INSERT ON session_pending_messages
+            BEGIN SELECT RAISE(ABORT, 'queue storage unavailable'); END`);
+        const persistence = new PendingMessagePersistence();
+        persistence.enqueue(1, queuedMessage('pending-1', 'original'));
+        persistence.enqueue(1, queuedMessage('pending-2', 'remove me'));
+        await persistence.flush(1).catch(() => undefined);
+
+        persistence.update(1, queuedMessage('pending-1', 'saved edit'));
+        persistence.remove(1, 'pending-2');
+        persistence.enqueue(1, queuedMessage('pending-3', 'new message'));
+        persistence.updateModel(1, 'model-c', 3);
+        persistence.reorder(1, ['pending-3', 'pending-1']);
+        database.exec('DROP TRIGGER pending_write_failure');
+        await persistence.flush(1);
+
+        await expect(new PendingMessagePersistence().load(1)).resolves.toEqual([
+            expect.objectContaining({
+                id: 'pending-3',
+                prompt: 'new message',
+                modelId: 'model-c',
+                providerId: 3,
+            }),
+            expect.objectContaining({
+                id: 'pending-1',
+                prompt: 'saved edit',
+                modelId: 'model-c',
+                providerId: 3,
+            }),
+        ]);
+    });
+
+    it('user keeps every attachment in a queued prompt when caching fails and is later retried', async () => {
+        mockTauriCommand('plugin:fs|stat', () => {
+            throw new Error('attachment unavailable');
+        });
+        const persistence = new PendingMessagePersistence();
+        persistence.enqueue(
+            1,
+            queuedMessage('pending-1', 'with my folder', {
+                attachments: [
+                    {
+                        id: 'draft-folder',
+                        type: 'file',
+                        path: '/test/docs',
+                        originPath: '/test/docs',
+                        name: 'docs',
+                        supportStatus: 'supported',
+                    },
+                ],
+            })
+        );
+
+        await expect(persistence.flush(1)).rejects.toThrow('attachment unavailable');
+        expect(database.prepare('SELECT id FROM session_pending_messages').all()).toEqual([]);
+
+        mockTauriCommand('plugin:fs|stat', {
+            isDirectory: true,
+            isFile: false,
+            isSymlink: false,
+            size: 0,
+        });
+        mockTauriCommand('plugin:fs-pro|full_name', 'docs');
+        await persistence.flush(1);
+        const restored = await new PendingMessagePersistence().load(1);
+
+        expect(restored).toEqual([
+            expect.objectContaining({
+                id: 'pending-1',
+                prompt: 'with my folder',
+                attachments: [
+                    expect.objectContaining({
+                        name: 'docs',
+                        originPath: '/test/docs',
+                        hash: expect.any(String),
+                    }),
+                ],
+            }),
+        ]);
+    });
+
+    it.each(['commit', 'rollback'] as const)(
+        'user keeps newer edits, removals and explicit models when an earlier write reaches %s',
+        async (outcome) => {
+            const persistence = new PendingMessagePersistence();
+            let changed = false;
+            routeQueriesTo(database, {
+                beforeCommit: () => {
+                    if (changed) return;
+                    changed = true;
+                    persistence.update(1, queuedMessage('pending-1', 'latest edit'));
+                    persistence.remove(1, 'pending-2');
+                    persistence.updateModel(1, 'shared-model', 3);
+                    persistence.enqueue(
+                        1,
+                        queuedMessage('pending-3', 'new message', {
+                            modelId: 'explicit-model',
+                            providerId: 3,
+                        })
+                    );
+                    persistence.reorder(1, ['pending-3', 'pending-1']);
+                    if (outcome === 'rollback') throw new Error('commit unavailable');
+                },
+            });
+            persistence.enqueue(1, queuedMessage('pending-1', 'original'));
+            persistence.enqueue(1, queuedMessage('pending-2', 'remove me'));
+
+            if (outcome === 'rollback') {
+                await expect(persistence.flush(1)).rejects.toThrow('commit unavailable');
+                expect(database.prepare('SELECT id FROM session_pending_messages').all()).toEqual(
+                    []
+                );
+            }
+            await persistence.flush(1);
+
+            await expect(new PendingMessagePersistence().load(1)).resolves.toEqual([
+                expect.objectContaining({
+                    id: 'pending-3',
+                    prompt: 'new message',
+                    modelId: 'explicit-model',
+                }),
+                expect.objectContaining({
+                    id: 'pending-1',
+                    prompt: 'latest edit',
+                    modelId: 'shared-model',
+                }),
+            ]);
+        }
+    );
+
+    it('user clears a failed queue and persists only messages submitted after the clear', async () => {
+        const persistence = new PendingMessagePersistence();
+        persistence.enqueue(1, queuedMessage('pending-1', 'old committed prompt'));
+        await persistence.flush(1);
+        database.exec(`CREATE TEMP TRIGGER pending_write_failure
+            BEFORE UPDATE ON session_pending_messages
+            BEGIN SELECT RAISE(ABORT, 'queue storage unavailable'); END`);
+        persistence.update(1, queuedMessage('pending-1', 'failed edit'));
+        await expect(persistence.flush(1)).rejects.toThrow('queue storage unavailable');
+
+        persistence.clear(1);
+        persistence.enqueue(1, queuedMessage('pending-2', 'after clearing'));
+        database.exec('DROP TRIGGER pending_write_failure');
+        await persistence.flush(1);
+
+        await expect(new PendingMessagePersistence().load(1)).resolves.toEqual([
+            expect.objectContaining({ id: 'pending-2', prompt: 'after clearing' }),
+        ]);
+    });
+
+    it('user repeatedly edits and removes temporary prompts during an outage without reviving stale work', async () => {
+        database.exec(`CREATE TEMP TRIGGER pending_write_failure
+            BEFORE INSERT ON session_pending_messages
+            BEGIN SELECT RAISE(ABORT, 'queue storage unavailable'); END`);
+        const persistence = new PendingMessagePersistence();
+        persistence.enqueue(1, queuedMessage('pending-1', 'original'));
+        await expect(persistence.flush(1)).rejects.toThrow('queue storage unavailable');
+
+        for (let revision = 0; revision < 100; revision += 1) {
+            persistence.update(1, queuedMessage('pending-1', `edit ${revision}`));
+            const messageId = `temporary-${revision}`;
+            persistence.enqueue(1, queuedMessage(messageId, 'remove before recovery'));
+            persistence.remove(1, messageId);
+        }
+        database.exec('DROP TRIGGER pending_write_failure');
+        await persistence.flush(1);
+
+        await expect(new PendingMessagePersistence().load(1)).resolves.toEqual([
+            expect.objectContaining({ id: 'pending-1', prompt: 'edit 99' }),
+        ]);
+    });
+
+    it('user restores valid queued prompts while a failed attachment row remains recoverable', async () => {
+        database
+            .prepare(
+                `INSERT INTO attachments (hash, type, original_name, origin_path, mime_type)
+            VALUES ('aaa-image', 'image', 'photo.png', '/test/photo.png', 'image/png')`
+            )
+            .run();
+        database
+            .prepare(
+                `INSERT INTO session_pending_messages (id, session_id, position, prompt, payload_json)
+            VALUES ('pending-bad-cache', 1, 0, 'with photo', ?), ('pending-valid', 1, 1, 'plain text', '{}')`
+            )
+            .run(
+                JSON.stringify({
+                    attachments: [
+                        {
+                            hash: 'aaa-image',
+                            type: 'image',
+                            name: 'photo.png',
+                            originPath: '/test/photo.png',
+                        },
+                    ],
+                })
+            );
+        mockTauriCommand('get_app_directory_path', '/test/cache');
+        mockTauriCommand('plugin:path|join', (payload: unknown) =>
+            (payload as { paths: string[] }).paths.join('/')
+        );
+        mockTauriCommand('plugin:fs|mkdir', () => {
+            throw new Error('cache unavailable');
+        });
+
+        await expect(new PendingMessagePersistence().load(1)).resolves.toEqual([
+            expect.objectContaining({ id: 'pending-valid', prompt: 'plain text' }),
+        ]);
+        expect(
+            database.prepare('SELECT id FROM session_pending_messages ORDER BY position').all()
+        ).toEqual([{ id: 'pending-bad-cache' }, { id: 'pending-valid' }]);
+
+        mockTauriCommand('plugin:fs|mkdir', undefined);
+        const restored = await new PendingMessagePersistence().load(1);
+        expect(restored.map((message) => message.id)).toEqual([
+            'pending-bad-cache',
+            'pending-valid',
+        ]);
+        expect(restored[0]?.attachments).toEqual([expect.objectContaining({ hash: 'aaa-image' })]);
     });
 
     it('user keeps the prompt when one attachment hash no longer resolves', async () => {
