@@ -7,7 +7,7 @@ WITH snapshot_refs AS MATERIALIZED (
     UNION ALL
     SELECT reference.key, reference.type, reference.atom
     FROM session_turns AS turn, json_tree(turn.prompt_snapshot_json) AS reference
-    WHERE reference.key IN ('attachmentId', 'hash', 'path', 'sourcePath', 'source_path', 'originPath', 'origin_path')
+    WHERE reference.key IN ('hash', 'path', 'sourcePath', 'source_path', 'originPath', 'origin_path')
 )
 DELETE FROM attachments AS attachment
 WHERE NOT EXISTS (

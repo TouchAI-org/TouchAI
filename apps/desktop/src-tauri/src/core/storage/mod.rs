@@ -117,7 +117,7 @@ pub struct PublishedAttachment {
     pub size: u64,
 }
 
-#[derive(Clone, Copy, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HistoryKind {
     Sessions,
@@ -769,9 +769,15 @@ impl StorageRuntime {
             );
         }
         let mut nodes = 1_000_000_usize;
-        for query in [
-            "SELECT CASE WHEN length(CAST(data AS BLOB)) <= ? THEN data END AS value FROM message_parts WHERE type IN ('attachment', 'tool_call') LIMIT ?",
-            "SELECT CASE WHEN length(CAST(prompt_snapshot_json AS BLOB)) <= ? THEN prompt_snapshot_json END AS value FROM session_turns LIMIT ?",
+        for (query, include_ids) in [
+            (
+                "SELECT CASE WHEN length(CAST(data AS BLOB)) <= ? THEN data END AS value FROM message_parts WHERE type IN ('attachment', 'tool_call') LIMIT ?",
+                true,
+            ),
+            (
+                "SELECT CASE WHEN length(CAST(prompt_snapshot_json AS BLOB)) <= ? THEN prompt_snapshot_json END AS value FROM session_turns LIMIT ?",
+                false,
+            ),
         ] {
             let mut count = 0;
             let mut stream = sqlx::query(query).bind(MAX_JSON_BYTES as i64)
@@ -782,7 +788,15 @@ impl StorageRuntime {
                 let raw: Option<String> = row.try_get("value").map_err(|_| "storage_scan_incomplete")?;
                 let value: Value = serde_json::from_str(raw.as_deref().ok_or("storage_scan_incomplete")?)
                     .map_err(|_| "storage_scan_incomplete")?;
-                collect_references(&value, &mut ids, &mut hashes, &mut persistent_paths, &mut nodes, 0)?;
+                collect_references(
+                    &value,
+                    &mut ids,
+                    &mut hashes,
+                    &mut persistent_paths,
+                    &mut nodes,
+                    0,
+                    include_ids,
+                )?;
             }
         }
         protected.extend(
@@ -843,6 +857,7 @@ fn collect_references(
     paths: &mut HashSet<String>,
     nodes: &mut usize,
     depth: usize,
+    include_ids: bool,
 ) -> Result<(), String> {
     if *nodes == 0 || depth > 64 || paths.len() > MAX_ROWS {
         return Err("storage_scan_incomplete".into());
@@ -850,8 +865,10 @@ fn collect_references(
     *nodes -= 1;
     match value {
         Value::Object(object) => {
-            if let Some(id) = object.get("attachmentId").and_then(Value::as_i64) {
-                ids.insert(id);
+            if include_ids {
+                if let Some(id) = object.get("attachmentId").and_then(Value::as_i64) {
+                    ids.insert(id);
+                }
             }
             if let Some(hash) = object.get("hash").and_then(Value::as_str) {
                 if files::is_hash(hash, 64) {
@@ -859,12 +876,12 @@ fn collect_references(
                 }
             }
             for child in object.values() {
-                collect_references(child, ids, hashes, paths, nodes, depth + 1)?;
+                collect_references(child, ids, hashes, paths, nodes, depth + 1, include_ids)?;
             }
         }
         Value::Array(array) => {
             for child in array {
-                collect_references(child, ids, hashes, paths, nodes, depth + 1)?;
+                collect_references(child, ids, hashes, paths, nodes, depth + 1, include_ids)?;
             }
         }
         Value::String(value) if value.len() <= 65_536 && Path::new(value).is_absolute() => {

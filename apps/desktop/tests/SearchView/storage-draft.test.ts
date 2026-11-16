@@ -1,6 +1,6 @@
 import { mockTauriCommand } from '@tests/utils/tauri';
 import { flushPromises } from '@vue/test-utils';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { type EffectScope, effectScope, ref } from 'vue';
 
 import { storageService } from '@/services/StorageService';
@@ -121,6 +121,44 @@ describe('given a draft contains an app-owned attachment', () => {
         draft.clearAttachments();
         await flushPromises();
         await expect(storageService.cleanup()).resolves.toEqual(result);
+    });
+
+    it('user retries draft protection after temporary storage maintenance finishes', async () => {
+        vi.useFakeTimers();
+        let attempts = 0;
+        let protectedByHost = false;
+        try {
+            mockTauriCommand('storage_hold', () => {
+                attempts += 1;
+                if (attempts === 1) throw new Error('storage_busy');
+                protectedByHost = true;
+                return 'retry-lease';
+            });
+            mockTauriCommand('storage_release', () => {
+                protectedByHost = false;
+            });
+            mockTauriCommand('storage_cleanup', () => {
+                if (protectedByHost) throw new Error('storage_busy');
+                return result;
+            });
+            scope = effectScope();
+            const draft = scope.run(() => useSearchAttachments())!;
+            draft.attachments.value.push(attachment);
+            await flushPromises();
+            expect(attempts).toBe(1);
+            await expect(storageService.cleanup()).resolves.toEqual(result);
+
+            await vi.advanceTimersByTimeAsync(1500);
+            await flushPromises();
+            expect(attempts).toBe(2);
+            await expect(storageService.cleanup()).rejects.toThrow('storage_busy');
+
+            draft.clearAttachments();
+            await flushPromises();
+            expect(protectedByHost).toBe(false);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('user can clean storage when draft protection cannot be acquired', async () => {

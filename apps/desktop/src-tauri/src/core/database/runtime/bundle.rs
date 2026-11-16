@@ -1604,7 +1604,6 @@ fn publish_files(
         files: Vec::new(),
         directories: Vec::new(),
     };
-    let mut shared: BTreeMap<String, PathBuf> = BTreeMap::new();
     let result = (|| {
         if absent.is_empty() {
             return Ok(());
@@ -1622,31 +1621,6 @@ fn publish_files(
                 continue;
             }
             let immutable = immutable_managed_path(&file.path, &blob.sha256);
-            if immutable {
-                if let Some(source) = shared.get(&blob.sha256) {
-                    match fs::hard_link(source, &target) {
-                        Ok(()) => {
-                            let identity = crate::core::storage::files::physical_file(&target)
-                                .ok()
-                                .and_then(|file| file.identity);
-                            publication.files.push((file.path.clone(), identity));
-                            continue;
-                        }
-                        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-                            if !verify_existing(&target, blob)? {
-                                return Err("Restored managed file disappeared".into());
-                            }
-                            continue;
-                        }
-                        Err(error) if crate::core::storage::files::link_unavailable(&error) => {}
-                        Err(error) => {
-                            return Err(format!(
-                                "Failed to link restored immutable content: {error}"
-                            ))
-                        }
-                    }
-                }
-            }
             let mut temporary = NamedTempFile::new_in(&parent)
                 .map_err(|error| format!("Failed to prepare restored managed file: {error}"))?;
             let mut source = File::open(blob_path(workspace, &blob.sha256))
@@ -1663,16 +1637,15 @@ fn publish_files(
                 .sync_all()
                 .map_err(|error| format!("Failed to flush restored managed file: {error}"))?;
             check_directory(&parent, false)?;
+            let identity = crate::core::storage::files::physical_handle(temporary.as_file())?
+                .identity
+                .ok_or_else(|| "Restored managed file has no physical identity".to_string())?;
             match temporary.persist_noclobber(&target) {
                 Ok(file_handle) => {
-                    let identity = crate::core::storage::files::physical_handle(&file_handle)
-                        .ok()
-                        .and_then(|file| file.identity);
                     drop(file_handle);
-                    publication.files.push((file.path.clone(), identity));
+                    publication.files.push((file.path.clone(), Some(identity)));
                     if immutable {
                         crate::core::storage::files::mark_immutable(&target)?;
-                        shared.insert(blob.sha256.clone(), target.clone());
                     }
                 }
                 Err(error) if error.error.kind() == io::ErrorKind::AlreadyExists => {

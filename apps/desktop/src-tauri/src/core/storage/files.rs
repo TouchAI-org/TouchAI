@@ -812,7 +812,40 @@ pub(crate) fn remove_owned(
         if physical_handle(&file)?.identity.as_ref() != Some(expected) {
             return Err("storage_invalid_path".into());
         }
-        if unsafe { libc::unlinkat(directory.as_raw_fd(), leaf.as_ptr(), 0) } != 0 {
+        // Rename to a private name first: unlinking the leaf after checking a separate
+        // handle would delete whatever another process placed there in the meantime.
+        let quarantine_name = format!(".storage-delete-{}", uuid::Uuid::new_v4());
+        let quarantine =
+            CString::new(quarantine_name.as_bytes()).map_err(|_| "storage_invalid_path")?;
+        if unsafe {
+            libc::renameat(
+                directory.as_raw_fd(),
+                leaf.as_ptr(),
+                directory.as_raw_fd(),
+                quarantine.as_ptr(),
+            )
+        } != 0
+        {
+            return Err("storage_io_failed".into());
+        }
+        let quarantine_fd = unsafe {
+            libc::openat(
+                directory.as_raw_fd(),
+                quarantine.as_ptr(),
+                libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            )
+        };
+        if quarantine_fd < 0 {
+            return Err("storage_io_failed".into());
+        }
+        let quarantined = unsafe { File::from_raw_fd(quarantine_fd) };
+        if physical_handle(&quarantined)?.identity.as_ref() != Some(expected) {
+            // Never delete or overwrite whoever won the name race; leave it recoverable.
+            return Err("storage_invalid_path".into());
+        }
+        drop(quarantined);
+        drop(file);
+        if unsafe { libc::unlinkat(directory.as_raw_fd(), quarantine.as_ptr(), 0) } != 0 {
             return Err("storage_io_failed".into());
         }
         return Ok(());

@@ -11,6 +11,7 @@ import {
     providers,
     sessions,
     sessionTurns,
+    statistics,
     usageDailyRollups,
 } from '../schema';
 
@@ -580,6 +581,66 @@ export const getUsageTrendFromArchive = async (): Promise<{
         .orderBy(usageDailyRollups.day)
         .all();
 
+    return { bucket: 'day', points: foldTrendRows(rows) };
+};
+
+/** Archived totals are immutable once a turn detail is cleared. */
+export const getUsageBaselineTrend = async (): Promise<{
+    bucket: 'day';
+    points: UsageTrendPoint[];
+}> => {
+    const stored = await db
+        .select({ value: statistics.value })
+        .from(statistics)
+        .where(eq(statistics.key, 'usage_rollup_baseline'))
+        .get();
+    if (!stored?.value) {
+        return { bucket: 'day', points: [] };
+    }
+
+    let entries: unknown;
+    try {
+        entries = JSON.parse(stored.value);
+    } catch {
+        return { bucket: 'day', points: [] };
+    }
+    if (!Array.isArray(entries)) {
+        return { bucket: 'day', points: [] };
+    }
+
+    const number = (value: unknown): number =>
+        typeof value === 'number' && Number.isFinite(value) ? value : 0;
+    const rows = entries.flatMap((entry) => {
+        if (!entry || typeof entry !== 'object') return [];
+        const record = entry as Record<string, unknown>;
+        if (typeof record.day !== 'string' || !record.day) return [];
+        const input = number(record.input_tokens);
+        const output = number(record.output_tokens);
+        const read = number(record.cache_read_tokens);
+        const write = number(record.cache_write_tokens);
+        return [
+            {
+                key: record.day,
+                groupName: typeof record.model_name === 'string' ? record.model_name : '—',
+                requests: number(record.request_count),
+                tokens: input + output + read + write,
+                costMicros: number(record.total_cost_micros),
+            },
+        ];
+    });
+
+    return { bucket: 'day', points: foldTrendRows(rows) };
+};
+
+function foldTrendRows(
+    rows: Array<{
+        key: string;
+        groupName: string;
+        requests: number;
+        tokens: number;
+        costMicros: number;
+    }>
+): UsageTrendPoint[] {
     const byBucket = new Map<string, UsageTrendPoint>();
     for (const row of rows) {
         let point = byBucket.get(row.key);
@@ -605,8 +666,8 @@ export const getUsageTrendFromArchive = async (): Promise<{
         point.segments.sort((left, right) => right.tokens - left.tokens);
     }
 
-    return { bucket: 'day', points: [...byBucket.values()] };
-};
+    return [...byBucket.values()];
+}
 
 /** The archive cannot serve a filtered trend; it has no id dimension. */
 export function canUseUsageArchive(filter: UsageFilter): boolean {

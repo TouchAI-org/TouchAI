@@ -442,7 +442,30 @@ SELECT
     source_turns.provider_name,
     source_turns.task_id,
     source_turns.execution_mode,
-    source_turns.prompt_snapshot_json,
+    CASE
+        WHEN json_type(source_turns.prompt_snapshot_json, '$.attachments') = 'array' THEN
+            json_set(
+                source_turns.prompt_snapshot_json,
+                '$.attachments',
+                json((
+                    SELECT json_group_array(
+                        json_set(
+                            attachment.value,
+                            '$.attachmentId',
+                            coalesce((
+                                SELECT target_attachment.id
+                                FROM imported.attachments AS source_attachment
+                                INNER JOIN main.attachments AS target_attachment
+                                    ON target_attachment.hash = source_attachment.hash
+                                WHERE source_attachment.id = json_extract(attachment.value, '$.attachmentId')
+                            ), json_extract(attachment.value, '$.attachmentId'))
+                        )
+                    )
+                    FROM json_each(source_turns.prompt_snapshot_json, '$.attachments') AS attachment
+                ))
+            )
+        ELSE source_turns.prompt_snapshot_json
+    END AS prompt_snapshot_json,
     prompt_message_map.target_message_id AS target_prompt_message_id,
     response_message_map.target_message_id AS target_response_message_id,
     source_turns.status,
@@ -504,10 +527,7 @@ FROM temp_resolved_turns AS resolved_turns
 WHERE NOT EXISTS (
     SELECT 1
     FROM main.session_turns AS existing_turns
-    WHERE existing_turns.session_id IS resolved_turns.target_session_id
-      AND existing_turns.task_id = resolved_turns.task_id
-      AND existing_turns.prompt_message_id IS resolved_turns.target_prompt_message_id
-      AND existing_turns.created_at = resolved_turns.created_at
+    WHERE existing_turns.task_id = resolved_turns.task_id
 );
 
 CREATE TEMP TABLE temp_turn_map (
@@ -521,10 +541,7 @@ SELECT
     MIN(target_turns.id) AS target_turn_id
 FROM temp_resolved_turns AS resolved_turns
 INNER JOIN main.session_turns AS target_turns
-    ON target_turns.session_id IS resolved_turns.target_session_id
-   AND target_turns.task_id = resolved_turns.task_id
-   AND target_turns.prompt_message_id IS resolved_turns.target_prompt_message_id
-   AND target_turns.created_at = resolved_turns.created_at
+    ON target_turns.task_id = resolved_turns.task_id
 GROUP BY resolved_turns.source_turn_id;
 
 UPDATE main.sessions
@@ -540,15 +557,17 @@ SET status_badge_dismissed_turn_id = (
 WHERE id IN (SELECT target_session_id FROM temp_session_map);
 
 UPDATE main.session_turns
-SET (model_id, model_name, provider_name, response_message_id, status, error_message, tokens_used, duration_ms,
+SET (session_id, model_id, model_name, provider_name, prompt_message_id, response_message_id, status, error_message, tokens_used, duration_ms,
      execution_mode, prompt_snapshot_json, input_tokens, output_tokens, cache_read_tokens,
      cache_write_tokens, reasoning_tokens, total_cost_micros, unpriced_calls, ttft_ms, first_text_ms,
      llm_call_count, tool_call_count, kind, model_switch_count, tool_argument_error_count,
      empty_response_count, hit_iteration_ceiling, error_code, retry_scope, prompt_breakdown_json, updated_at) = (
     SELECT
+        coalesce(resolved_turns.target_session_id, main.session_turns.session_id),
         coalesce(resolved_turns.target_model_id, main.session_turns.model_id),
         coalesce(main.session_turns.model_name, resolved_turns.model_name),
         coalesce(main.session_turns.provider_name, resolved_turns.provider_name),
+        coalesce(resolved_turns.target_prompt_message_id, main.session_turns.prompt_message_id),
         resolved_turns.target_response_message_id, resolved_turns.status,
         resolved_turns.error_message, resolved_turns.tokens_used, resolved_turns.duration_ms,
         resolved_turns.execution_mode, resolved_turns.prompt_snapshot_json,

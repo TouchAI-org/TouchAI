@@ -44,6 +44,9 @@ interface ImportClipboardPayloadOptions {
     trimTextBoundary?: boolean;
 }
 
+/** A draft must keep retrying while a backup/import/cleanup temporarily owns storage. */
+const PROTECTION_RETRY_MS = 1500;
+
 /**
  * 搜索页附件输入层。
  * 负责维护附件列表、模型能力对应的支持状态，以及剪贴板导入。
@@ -56,29 +59,47 @@ export function useSearchAttachments(options: UseSearchAttachmentsOptions = {}) 
         let generation = 0;
         let disposed = false;
         let release: (() => Promise<void>) | null = null;
+        let retryTimer: ReturnType<typeof setTimeout> | null = null;
+        const clearRetry = () => {
+            if (retryTimer !== null) {
+                clearTimeout(retryTimer);
+                retryTimer = null;
+            }
+        };
         const releaseLease = (lease: (() => Promise<void>) | null) => {
             void lease?.().catch((error) =>
                 log.error('[SearchDraft] Storage protection release failed', error)
             );
         };
+        const acquire = (current: number): void => {
+            void acquireStorageActivity()
+                .then(async (lease) => {
+                    if (disposed || current !== generation || !needsProtection()) {
+                        await lease();
+                    } else {
+                        release = lease;
+                    }
+                })
+                .catch((error) => {
+                    log.error('[SearchDraft] Storage protection unavailable', error);
+                    if (disposed || current !== generation || !needsProtection()) return;
+                    retryTimer = setTimeout(() => {
+                        retryTimer = null;
+                        if (!disposed && current === generation && needsProtection()) {
+                            acquire(current);
+                        }
+                    }, PROTECTION_RETRY_MS);
+                });
+        };
         const stop = watch(
             needsProtection,
             (hasAttachments) => {
                 const current = ++generation;
+                clearRetry();
                 releaseLease(release);
                 release = null;
                 if (!hasAttachments) return;
-                void acquireStorageActivity()
-                    .then(async (lease) => {
-                        if (disposed || current !== generation || !needsProtection()) {
-                            await lease();
-                        } else {
-                            release = lease;
-                        }
-                    })
-                    .catch((error) =>
-                        log.error('[SearchDraft] Storage protection unavailable', error)
-                    );
+                acquire(current);
             },
             // Snapshot and visible attachments change together during history navigation.
             { immediate: true, flush: 'post' }
@@ -87,6 +108,7 @@ export function useSearchAttachments(options: UseSearchAttachmentsOptions = {}) 
             disposed = true;
             generation++;
             stop();
+            clearRetry();
             releaseLease(release);
             release = null;
         });

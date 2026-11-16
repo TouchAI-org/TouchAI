@@ -38,7 +38,7 @@ Hard links are not snapshots and are never used to adopt external user files. Pu
 
 Cleanup is conservative: it processes recognized files under managed roots only, rejects reparse points and unknown filesystem identities, protects all attachment rows plus referenced app-owned originals, and rechecks references under the database maintenance gate. The default cleanup excludes recordings, logs, browser profiles and installed assets. Those categories are measured separately. Explicit recording/log cleanup is a destructive action with its own confirmation.
 
-Full backups use an independent compressed archive, a versioned manifest and SHA-256 verification. Import validates paths, entry types, sizes and hashes before publication. Old database imports remain available. Cache format or backup manifest changes do not change database structure.
+Full backups use an independent compressed archive, a versioned manifest and SHA-256 verification. Import validates paths, entry types, sizes and hashes before publication. Restored files are independent copies, not hard links to archive blobs or to another restored path. Old database imports remain available. Cache format or backup manifest changes do not change database structure.
 
 ## Historical reference correction
 
@@ -49,6 +49,8 @@ New turns resolve the model association and names in the same insert. Existing r
 SQLite rebuilds the turns table for this constraint change. Foreign-key pragma handling runs outside the native migration transaction; otherwise the generated `PRAGMA foreign_keys=OFF` is ignored and dropping the old table can cascade into attempts. The migration preserves the AUTOINCREMENT watermark and validates foreign keys before commit. Downgrading to a writer using the previous schema is not supported; take an independent backup before upgrading.
 
 Usage and context queries use outer joins so removed configuration cannot hide retained rows. Removed model ranking rows remain readable but cannot be selected as a current configuration filter.
+
+Imports match existing turns by their stable task identity, which survives message/session clearing, then restore the saved session and prompt links. Prompt snapshot attachment rowids are remapped by attachment hash. The all-time trend adds frozen baseline days to live detail and uses rollup rows only for legacy days that have neither; this avoids hiding a baseline when the same day receives new requests.
 
 ## Limits
 

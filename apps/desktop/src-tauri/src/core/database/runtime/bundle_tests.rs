@@ -155,7 +155,7 @@ async fn seed_history(installation: &Installation) {
     .bind(model)
     .bind(json!({
         "attachments": [
-            {"originPath": first, "hash": content_hash(SAVED_BYTES)},
+            {"attachmentId": attachment_id, "originPath": first, "hash": content_hash(SAVED_BYTES)},
             {"originPath": external}
         ],
         "inputSnapshot": {"editorDoc": {"attrs": {"origin_path": second}}},
@@ -585,6 +585,86 @@ async fn user_given_a_model_deleted_after_restoring_when_importing_the_same_back
 }
 
 #[tokio::test]
+async fn user_given_cleared_messages_or_sessions_when_restoring_then_keeps_one_turn_and_its_usage()
+{
+    for kind in [
+        crate::core::storage::HistoryKind::Messages,
+        crate::core::storage::HistoryKind::Sessions,
+    ] {
+        let backup_root = private_directory();
+        let source = Installation::new().await;
+        seed_history(&source).await;
+        seed_usage(&source).await;
+        let expected = usage_json(&source, DAILY_USAGE).await;
+        let backup = backup_root.path().join(format!("cleared-{kind:?}.zip"));
+        source
+            .runtime
+            .export_full_backup(&backup, &source.cache)
+            .await
+            .expect("full backup");
+        let storage =
+            crate::core::storage::StorageRuntime::new(source.runtime.clone(), source.cache.clone());
+        storage
+            .clear_history(kind, Vec::new())
+            .await
+            .expect("clear detail");
+        let target = Installation::new().await;
+        restore(&target, &backup)
+            .await
+            .expect("restore after clear");
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM session_turns")
+                .fetch_one(target.runtime.pool())
+                .await
+                .expect("one turn"),
+            1,
+            "{kind:?}"
+        );
+        let links: (Option<i64>, Option<i64>) =
+            sqlx::query_as("SELECT session_id, prompt_message_id FROM session_turns")
+                .fetch_one(target.runtime.pool())
+                .await
+                .expect("restored links");
+        assert!(
+            links.0.is_some() && links.1.is_some(),
+            "{kind:?}: {links:?}"
+        );
+        assert_eq!(usage_json(&target, DAILY_USAGE).await, expected, "{kind:?}");
+        target.close().await;
+        source.close().await;
+    }
+}
+
+#[tokio::test]
+async fn user_given_a_duplicate_prompt_attachment_id_when_restoring_then_maps_it_to_the_restored_attachment(
+) {
+    let backup_root = private_directory();
+    let source = Installation::new().await;
+    seed_history(&source).await;
+    let backup = backup_root.path().join("prompt-attachment.zip");
+    source
+        .runtime
+        .export_full_backup(&backup, &source.cache)
+        .await
+        .expect("full backup");
+    source.close().await;
+    let target = Installation::new().await;
+    sqlx::query("INSERT INTO attachments(hash,type,original_name,origin_path,mime_type,size) VALUES(?, 'file', 'local.txt', '/local', 'text/plain', 1)")
+        .bind(content_hash(b"unrelated local attachment")).execute(target.runtime.pool()).await.expect("local attachment");
+    restore(&target, &backup).await.expect("restore");
+    let remapped: i64 = sqlx::query_scalar("SELECT json_extract(prompt_snapshot_json, '$.attachments[0].attachmentId') FROM session_turns")
+        .fetch_one(target.runtime.pool()).await.expect("prompt attachment id");
+    let restored: i64 = sqlx::query_scalar("SELECT id FROM attachments WHERE hash = ?")
+        .bind(content_hash(SAVED_BYTES))
+        .fetch_one(target.runtime.pool())
+        .await
+        .expect("restored attachment");
+    assert_eq!(remapped, restored);
+    assert_ne!(remapped, 1);
+    target.close().await;
+}
+
+#[tokio::test]
 async fn user_given_shared_content_when_exporting_then_gets_each_content_object_archived_once() {
     let backup_root = private_directory();
     let source = Installation::new().await;
@@ -729,14 +809,14 @@ async fn user_given_an_independent_backup_when_restoring_elsewhere_then_reads_sa
             SAVED_BYTES
         );
     }
-    assert_eq!(
+    assert_ne!(
         crate::core::storage::files::physical_file(&attachment_path(&target.cache))
             .expect("attachment identity")
             .identity,
         crate::core::storage::files::physical_file(&target.cache.join("clipboard/17.png"))
             .expect("original identity")
             .identity,
-        "immutable aliases restore without duplicating file contents",
+        "restored copies must not share an inode",
     );
     let origin: String = sqlx::query_scalar("SELECT origin_path FROM attachments")
         .fetch_one(target.runtime.pool())
