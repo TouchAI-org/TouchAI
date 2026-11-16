@@ -120,6 +120,17 @@ describe('user runs desktop regressions with isolated data', () => {
             ).toThrow('dedicated directory');
         }
     );
+
+    it.each(['..', '../..', '/work'])(
+        'user given a checkout ancestor %s when starting tests then cannot clear the checkout or sibling directories',
+        (directory) => {
+            expect(() =>
+                resolveE2eRuntimeDirectory('/work/project', {
+                    TOUCHAI_E2E_RUNTIME_ROOT: directory,
+                })
+            ).toThrow('dedicated directory');
+        }
+    );
 });
 
 describe('user runs isolated desktop tests beside their installed application', () => {

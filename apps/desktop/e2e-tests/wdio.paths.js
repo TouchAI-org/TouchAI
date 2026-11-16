@@ -14,9 +14,14 @@ export function resolveE2eRuntimeDirectory(repoRoot, env = process.env) {
         repoRoot,
         env.TOUCHAI_E2E_RUNTIME_ROOT?.trim() || '.e2e-runtime'
     );
-    if (directory === path.parse(directory).root || directory === path.resolve(repoRoot)) {
+    const checkoutRelativePath = path.relative(directory, path.resolve(repoRoot));
+    const containsCheckout =
+        !path.isAbsolute(checkoutRelativePath) &&
+        checkoutRelativePath !== '..' &&
+        !checkoutRelativePath.startsWith(`..${path.sep}`);
+    if (directory === path.parse(directory).root || containsCheckout) {
         throw new Error(
-            'The E2E runtime must be a dedicated directory, not a drive or checkout root.'
+            'The E2E runtime must be a dedicated directory, not a drive, checkout root or checkout ancestor.'
         );
     }
     return directory;

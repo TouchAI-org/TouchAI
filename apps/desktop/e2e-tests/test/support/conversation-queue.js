@@ -197,7 +197,20 @@ export async function hoverPendingAction(message, testId) {
     const action = await $(`[data-message-id="${message.id}"] [data-testid="${testId}"]`);
     await action.waitForDisplayed();
     await action.moveTo();
-    await browser.pause(80);
+    await browser.waitUntil(
+        () =>
+            browser.execute(
+                (target) =>
+                    target.matches(':hover') &&
+                    target
+                        .getAnimations({ subtree: true })
+                        .every(
+                            (animation) => !animation.pending && animation.playState !== 'running'
+                        ),
+                action
+            ),
+        { timeoutMsg: `The ${testId} action did not reach its settled hover state.` }
+    );
     return action;
 }
 
@@ -213,16 +226,34 @@ export async function dragQueuedMessage(source, target, beforeDrop) {
         `[data-message-id="${target.id}"] [data-pending-delivery="queue"]`
     );
     await sourceBubble.scrollIntoView();
-    await browser.pause(120);
+    let settledRects;
+    await browser.waitUntil(
+        async () => {
+            const rects = await browser.execute(
+                (...elements) =>
+                    elements.map((element) => {
+                        const { left, top, width, height } = element.getBoundingClientRect();
+                        return { left, top, width, height };
+                    }),
+                sourceBubble,
+                targetBubble
+            );
+            const stable = rects.every((rect, index) =>
+                ['left', 'top', 'width', 'height'].every(
+                    (coordinate) => rect[coordinate] === settledRects?.[index]?.[coordinate]
+                )
+            );
+            settledRects = rects;
+            return stable;
+        },
+        { timeoutMsg: 'The queued-message drag targets did not reach stable positions.' }
+    );
 
-    const sourceLocation = await sourceBubble.getLocation();
-    const sourceSize = await sourceBubble.getSize();
-    const targetLocation = await targetBubble.getLocation();
-    const targetSize = await targetBubble.getSize();
-    const sourceX = Math.round(sourceLocation.x + sourceSize.width / 2);
-    const sourceY = Math.round(sourceLocation.y + sourceSize.height / 2);
-    const targetX = Math.round(targetLocation.x + targetSize.width / 2);
-    const targetY = Math.round(targetLocation.y + targetSize.height / 2);
+    const [sourceRect, targetRect] = settledRects;
+    const sourceX = Math.round(sourceRect.left + sourceRect.width / 2);
+    const sourceY = Math.round(sourceRect.top + sourceRect.height / 2);
+    const targetX = Math.round(targetRect.left + targetRect.width / 2);
+    const targetY = Math.round(targetRect.top + targetRect.height / 2);
 
     await browser.performActions([
         {
