@@ -481,6 +481,9 @@ export class AiConversationRuntime {
                     ...buildPersistenceIssue('agent.persistenceIssue.turnStart'),
                     error,
                 });
+                if (this.options.pendingMessageId) {
+                    throw error;
+                }
             });
 
         return {
@@ -912,9 +915,11 @@ export class AiConversationRuntime {
 
         let resumeCheckpoint = context.initialCheckpoint;
         const requestToolApproval = this.wrapToolApproval();
+        let requestStartRecorded = false;
 
         try {
             await context.requestStartRecordPromise;
+            requestStartRecorded = true;
 
             // The panel needs usage while streaming, and pricing is static, so
             // one lookup at the start of the turn is enough; persisting later
@@ -996,8 +1001,6 @@ export class AiConversationRuntime {
                 if (this.providerTtftMs === null && attemptResult.firstTtftMs !== null) {
                     this.providerTtftMs = attemptResult.firstTtftMs;
                 }
-
-                await context.requestStartRecordPromise;
 
                 if (attemptResult.type === 'completed') {
                     return await this.handleCompleted(context, attemptResult);
@@ -1146,7 +1149,18 @@ export class AiConversationRuntime {
                 ? 'cancelled'
                 : 'failure';
             this.analyticsErrorCode ??= aiError.code;
-            await context.requestStartRecordPromise;
+            if (!requestStartRecorded) {
+                this.analyticsPersistence = 'failed';
+                if (this.options.taskId) {
+                    this.notifyTurnEvent({
+                        type: 'task_failed',
+                        taskId: this.options.taskId,
+                        turnId: null,
+                        error: aiError.message,
+                    });
+                }
+                throw aiError;
+            }
 
             if (!this.requestFinalized) {
                 if (aiError.is(AiErrorCode.REQUEST_CANCELLED)) {

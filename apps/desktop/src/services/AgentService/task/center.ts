@@ -1736,15 +1736,23 @@ export class SessionTaskCenter {
             return;
         }
 
-        if (event.type === 'user_messages_delivered') {
-            for (const message of event.messages) {
-                task.claimedPriorityMessageIds.delete(message.id);
-            }
-        }
-
-        if (event.type === 'user_messages_rejected') {
-            for (const messageId of event.messageIds) {
+        if (event.type === 'user_messages_delivered' || event.type === 'user_messages_rejected') {
+            const settledMessageIds = new Set(
+                event.type === 'user_messages_delivered'
+                    ? event.messages.map((message) => message.id)
+                    : event.messageIds
+            );
+            for (const messageId of settledMessageIds) {
                 task.claimedPriorityMessageIds.delete(messageId);
+            }
+            if (task.sessionId !== null) {
+                const sessionQueue = this.sessionPendingQueues.get(task.sessionId);
+                if (sessionQueue) {
+                    this.sessionPendingQueues.set(
+                        task.sessionId,
+                        sessionQueue.filter((message) => !settledMessageIds.has(message.id))
+                    );
+                }
             }
         }
 

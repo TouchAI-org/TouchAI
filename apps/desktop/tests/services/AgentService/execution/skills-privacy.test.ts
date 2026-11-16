@@ -8,11 +8,13 @@ import {
     openMigratedDatabase,
     routeQueriesTo,
 } from '@tests/database/sqliteHarness';
+import { deferred } from '@tests/utils/productAnalytics';
 import { installSkillCommands, skillFile, widgetSkillFile } from '@tests/utils/skills';
 import { getTauriInvokeCalls, mockTauriCommand } from '@tests/utils/tauri';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
+import { AiErrorCode } from '@/services/AgentService/contracts/errors';
 import type { AiStreamChunk } from '@/services/AgentService/contracts/protocol';
 import { AiRequestExecutor } from '@/services/AgentService/execution';
 import {
@@ -21,6 +23,7 @@ import {
     type RuntimeTurnEvent,
 } from '@/services/AgentService/execution/runtime';
 import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
+import { SessionTaskCenter } from '@/services/AgentService/task/center';
 import { PendingMessagePersistence } from '@/services/AgentService/task/pendingMessagePersistence';
 import { SessionTaskProjection } from '@/services/AgentService/task/projection/projection';
 import type { PendingUserMessage, SessionTaskSnapshot } from '@/services/AgentService/task/types';
@@ -29,6 +32,7 @@ const { httpFetch } = vi.hoisted(() => ({ httpFetch: vi.fn() }));
 vi.mock('@tauri-apps/plugin-http', () => ({ fetch: httpFetch }));
 
 const privateMarker = 'PRIVATE_SKILL_BODY_MUST_NOT_LEAVE_EXECUTION';
+const ownedTaskCenters: SessionTaskCenter[] = [];
 let database: ReturnType<typeof openMigratedDatabase>;
 
 function response(toolCall = false, callId = 'skill-call'): Response {
@@ -119,6 +123,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+    ownedTaskCenters.splice(0).forEach((center) => center.dispose());
     resetObservabilityForTests();
     closeTestDatabases();
 });
@@ -209,6 +214,156 @@ function durablePriorityRun(
     });
     return { runtime, persistence, state };
 }
+
+describe('given queued delivery overlaps a storage or cancellation boundary', () => {
+    it('user resumes a queued message after its start write fails without sending it before recovery', async () => {
+        database.exec(`INSERT INTO sessions (id, session_id, title, model, provider_id)
+            VALUES (1, 'queued-recovery', 'Queued recovery', 'test-model', 1)`);
+        const message: PendingUserMessage = {
+            ...priorityMessage('queued-start', 'Resume the queued input'),
+            delivery: 'queue',
+            createdAt: Date.parse('2026-11-16T12:00:00Z'),
+            modelId: 'test-model',
+            providerId: 1,
+            inputSnapshot: {
+                text: 'Resume the queued input',
+                attachments: [],
+                skills: [{ name: 'summary', path: skillFile().path }],
+                excludeFromHistory: true,
+                editorDoc: {
+                    type: 'doc',
+                    content: [
+                        {
+                            type: 'paragraph',
+                            content: [{ type: 'text', text: 'Resume the queued input' }],
+                        },
+                    ],
+                },
+            },
+        };
+        const persistence = new PendingMessagePersistence();
+        persistence.enqueue(1, message);
+        await persistence.flush(1);
+        database.exec(`CREATE TEMP TRIGGER queued_start_write_failure
+            BEFORE INSERT ON session_turn_attempts
+            BEGIN SELECT RAISE(ABORT, 'Turn start unavailable'); END`);
+        httpFetch.mockImplementation(async () => response());
+        const center = new SessionTaskCenter(persistence);
+        ownedTaskCenters.push(center);
+        const started = await center.startForegroundTask({
+            prompt: message.prompt,
+            sessionId: 1,
+            userMessageId: message.id,
+            pendingMessageId: message.id,
+            modelId: message.modelId,
+            providerId: message.providerId,
+            inputSnapshot: message.inputSnapshot,
+        });
+
+        await expect(started.completion).rejects.toMatchObject({ code: AiErrorCode.UNKNOWN });
+        expect(httpFetch.mock.calls).toEqual([]);
+        expect(center.getTaskSnapshot(started.taskId)?.status).toBe('failed');
+        expect(center.getSessionStatus(1)).toBeNull();
+        expect(database.prepare('SELECT id FROM messages').all()).toEqual([]);
+        await expect(new PendingMessagePersistence().load(1)).resolves.toEqual([message]);
+
+        database.exec('DROP TRIGGER queued_start_write_failure');
+        center.dispose();
+        const recovered = new SessionTaskCenter();
+        ownedTaskCenters.push(recovered);
+        await expect(recovered.restoreSessionQueue(1)).resolves.toEqual([message]);
+        recovered.resumeSessionQueue(1);
+        await vi.waitFor(() => {
+            expect(
+                database
+                    .prepare('SELECT content FROM message_parts WHERE content = ?')
+                    .all(message.prompt)
+            ).toHaveLength(1);
+            expect(recovered.getSessionStatus(1)).toBeNull();
+        });
+        expect(httpFetch.mock.calls).toHaveLength(1);
+        await expect(new PendingMessagePersistence().load(1)).resolves.toEqual([]);
+    });
+
+    it.each(['delivered', 'rejected'] as const)(
+        'user cancels during a steer that is then %s and only the other waiting messages run',
+        async (outcome) => {
+            const firstResponse = deferred<Response>();
+            const requests: string[] = [];
+            httpFetch.mockImplementation(async (_url, init) => {
+                const payload = JSON.parse(init.body) as {
+                    messages: Array<{ role: string; content: string }>;
+                };
+                const userMessages = payload.messages.filter((message) => message.role === 'user');
+                const prompt = userMessages[userMessages.length - 1]?.content;
+                requests.push(prompt ?? '');
+                return requests.length === 1 ? firstResponse.promise : response();
+            });
+            const persistence = new PendingMessagePersistence();
+            const center = new SessionTaskCenter(persistence);
+            ownedTaskCenters.push(center);
+            const started = await center.startForegroundTask({ prompt: 'Active answer' });
+            await vi.waitFor(() => expect(requests).toEqual(['Active answer']));
+            const sessionId = center.getTaskSnapshot(started.taskId)?.sessionId;
+            if (sessionId === undefined || sessionId === null) throw new Error('Missing session');
+            center.enqueueTaskUserMessage(started.taskId, { prompt: 'Waiting one' }, 'queue');
+            center.enqueueTaskUserMessage(started.taskId, { prompt: 'Waiting two' }, 'queue');
+            const steer = center.enqueueTaskUserMessage(
+                started.taskId,
+                {
+                    prompt: 'Steer during cancellation',
+                    ...(outcome === 'rejected'
+                        ? {
+                              inputSnapshot: {
+                                  text: 'Steer during cancellation',
+                                  attachments: [],
+                                  skills: [{ name: 'summary', path: skillFile().path }],
+                              },
+                          }
+                        : {}),
+                },
+                'queue'
+            );
+            if (!steer) throw new Error('Missing steer');
+            expect(center.promoteTaskUserMessage(started.taskId, steer.id)).toBe(true);
+            let cancelled = false;
+            if (outcome === 'delivered') {
+                routeQueriesTo(database, {
+                    beforeCommit: () => {
+                        const saved = database
+                            .prepare('SELECT id FROM message_parts WHERE content = ?')
+                            .get(steer.prompt);
+                        if (!cancelled && saved) {
+                            cancelled = center.cancelTask(started.taskId);
+                        }
+                    },
+                });
+            } else {
+                mockTauriCommand('agent_skills_read_enabled_user_file', () => {
+                    cancelled = center.cancelTask(started.taskId);
+                    throw new Error('Selected skill unavailable');
+                });
+            }
+            firstResponse.resolve(response());
+            await expect(started.completion).rejects.toMatchObject({
+                code: AiErrorCode.REQUEST_CANCELLED,
+            });
+            await vi.waitFor(() => {
+                expect(requests[requests.length - 1]).toBe('Waiting two');
+                expect(center.getSessionStatus(sessionId)).toBeNull();
+            });
+            await persistence.flush(sessionId);
+
+            expect(cancelled).toBe(true);
+            expect(requests).toEqual(['Active answer', 'Waiting one', 'Waiting two']);
+            expect(
+                database.prepare('SELECT id FROM message_parts WHERE content = ?').all(steer.prompt)
+            ).toHaveLength(outcome === 'delivered' ? 1 : 0);
+            await expect(new PendingMessagePersistence().load(sessionId)).resolves.toEqual([]);
+            expect(center.getTaskSnapshot(started.taskId)?.pendingUserMessages).toEqual([]);
+        }
+    );
+});
 
 describe('given priority messages have a durable queue entry', () => {
     beforeEach(() => {
