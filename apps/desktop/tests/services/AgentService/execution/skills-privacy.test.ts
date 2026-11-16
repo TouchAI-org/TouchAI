@@ -27,6 +27,8 @@ import { SessionTaskCenter } from '@/services/AgentService/task/center';
 import { PendingMessagePersistence } from '@/services/AgentService/task/pendingMessagePersistence';
 import { SessionTaskProjection } from '@/services/AgentService/task/projection/projection';
 import type { PendingUserMessage, SessionTaskSnapshot } from '@/services/AgentService/task/types';
+import { eventService } from '@/services/EventService';
+import { AppEvent } from '@/services/EventService/types';
 
 const { httpFetch } = vi.hoisted(() => ({ httpFetch: vi.fn() }));
 vi.mock('@tauri-apps/plugin-http', () => ({ fetch: httpFetch }));
@@ -283,6 +285,248 @@ describe('given queued delivery overlaps a storage or cancellation boundary', ()
         });
         expect(httpFetch.mock.calls).toHaveLength(1);
         await expect(new PendingMessagePersistence().load(1)).resolves.toEqual([]);
+    });
+
+    it.each(['no earlier edit', 'an earlier parked edit'] as const)(
+        'user keeps an automatic queued start visible in its prior slot and resumes it once with %s',
+        async (context) => {
+            database.exec(`INSERT INTO sessions (id, session_id, title, model, provider_id)
+                VALUES (1, 'live-queue-recovery', 'Live queue recovery', 'test-model', 1)`);
+            const parked: PendingUserMessage = {
+                ...priorityMessage('parked-input', 'Keep this input parked'),
+                delivery: 'queue',
+            };
+            const failedInput: PendingUserMessage = {
+                ...priorityMessage('queued-start', 'Resume the complete queued input'),
+                delivery: 'queue',
+                createdAt: Date.parse('2026-11-16T12:00:00Z'),
+                modelId: 'test-model',
+                providerId: 1,
+                inputSnapshot: {
+                    text: 'Resume the complete queued input',
+                    attachments: [],
+                    skills: [{ name: 'summary', path: skillFile().path }],
+                    excludeFromHistory: true,
+                    editorDoc: {
+                        type: 'doc',
+                        content: [
+                            {
+                                type: 'paragraph',
+                                content: [
+                                    { type: 'text', text: 'Resume the complete queued input' },
+                                ],
+                            },
+                        ],
+                    },
+                },
+            };
+            const waiting: PendingUserMessage = {
+                ...priorityMessage('waiting-input', 'Run after the recovered input'),
+                delivery: 'queue',
+            };
+            const hasParkedEdit = context === 'an earlier parked edit';
+            const persistence = new PendingMessagePersistence();
+            for (const message of hasParkedEdit
+                ? [parked, failedInput, waiting]
+                : [failedInput, waiting]) {
+                persistence.enqueue(1, message);
+            }
+            await persistence.flush(1);
+            const center = new SessionTaskCenter(persistence);
+            ownedTaskCenters.push(center);
+            const restored = await center.restoreSessionQueue(1);
+            if (hasParkedEdit) {
+                expect(center.setSessionUserMessageEditing(1, parked.id, true)).toBe(true);
+            }
+            const expectedQueue = restored.map((message) =>
+                hasParkedEdit && message.id === parked.id ? { ...message, editing: true } : message
+            );
+            const requests: string[] = [];
+            httpFetch.mockImplementation(async (_url, init) => {
+                const payload = JSON.parse(init.body) as {
+                    messages: Array<{ role: string; content: string }>;
+                };
+                const userMessages = payload.messages.filter((message) => message.role === 'user');
+                requests.push(userMessages[userMessages.length - 1]?.content ?? '');
+                return response();
+            });
+            database.exec(`CREATE TEMP TRIGGER queued_start_write_failure
+                BEFORE INSERT ON session_turn_attempts
+                BEGIN SELECT RAISE(ABORT, 'Turn start unavailable'); END`);
+            const failurePublished = deferred<SessionTaskSnapshot | null>();
+            const stopObserving = await eventService.on(
+                AppEvent.SESSION_TASK_STATUS_CHANGED,
+                (status) => {
+                    if (status.sessionId === 1 && status.status === 'failed') {
+                        failurePublished.resolve(center.getTaskSnapshot(status.taskId));
+                    }
+                }
+            );
+            try {
+                center.resumeSessionQueue(1);
+                const failed = await failurePublished.promise;
+                await persistence.flush(1);
+
+                expect(failed?.status).toBe('failed');
+                expect(failed?.pendingUserMessages).toEqual(expectedQueue);
+                expect(
+                    failed?.sessionHistory.filter((message) => message.id === failedInput.id)
+                ).toEqual([]);
+                await expect(center.restoreSessionQueue(1)).resolves.toEqual(expectedQueue);
+                await expect(new PendingMessagePersistence().load(1)).resolves.toEqual(restored);
+                expect(requests).toEqual([]);
+                expect(center.getSessionStatus(1)).toBeNull();
+                expect(database.prepare('SELECT id FROM messages').all()).toEqual([]);
+
+                database.exec('DROP TRIGGER queued_start_write_failure');
+                center.resumeSessionQueue(1);
+                await vi.waitFor(() => {
+                    expect(requests).toEqual([failedInput.prompt, waiting.prompt]);
+                    expect(center.getSessionStatus(1)).toBeNull();
+                });
+                await persistence.flush(1);
+                const remaining = restored.filter(
+                    (message) => hasParkedEdit && message.id === parked.id
+                );
+                await expect(new PendingMessagePersistence().load(1)).resolves.toEqual(remaining);
+                expect(
+                    database
+                        .prepare('SELECT id FROM message_parts WHERE content = ?')
+                        .all(failedInput.prompt)
+                ).toHaveLength(1);
+            } finally {
+                stopObserving();
+            }
+        }
+    );
+
+    it('user does not requeue a committed queued message when its model response fails', async () => {
+        database.exec(`INSERT INTO sessions (id, session_id, title, model, provider_id)
+            VALUES (1, 'committed-queue-failure', 'Committed queue failure', 'test-model', 1)`);
+        const sent: PendingUserMessage = {
+            ...priorityMessage('committed-input', 'Fail only after this input commits'),
+            delivery: 'queue',
+        };
+        const waiting: PendingUserMessage = {
+            ...priorityMessage('waiting-input', 'Keep this input waiting'),
+            delivery: 'queue',
+        };
+        const persistence = new PendingMessagePersistence();
+        persistence.enqueue(1, sent);
+        persistence.enqueue(1, waiting);
+        await persistence.flush(1);
+        const center = new SessionTaskCenter(persistence);
+        ownedTaskCenters.push(center);
+        const restored = await center.restoreSessionQueue(1);
+        httpFetch
+            .mockResolvedValueOnce(
+                new Response('{"error":{"message":"Unauthorized"}}', { status: 401 })
+            )
+            .mockImplementation(async () => response());
+        const failurePublished = deferred<SessionTaskSnapshot | null>();
+        const stopObserving = await eventService.on(
+            AppEvent.SESSION_TASK_STATUS_CHANGED,
+            (status) => {
+                if (status.sessionId === 1 && status.status === 'failed') {
+                    failurePublished.resolve(center.getTaskSnapshot(status.taskId));
+                }
+            }
+        );
+        try {
+            center.resumeSessionQueue(1);
+            const failed = await failurePublished.promise;
+            await persistence.flush(1);
+
+            expect(failed?.turnId).toEqual(expect.any(Number));
+            expect(failed?.sessionHistory.filter((message) => message.id === sent.id)).toHaveLength(
+                1
+            );
+            expect(failed?.pendingUserMessages).toEqual(
+                restored.filter((message) => message.id === waiting.id)
+            );
+            await expect(center.restoreSessionQueue(1)).resolves.toEqual(
+                failed?.pendingUserMessages
+            );
+            await expect(new PendingMessagePersistence().load(1)).resolves.toEqual(
+                failed?.pendingUserMessages
+            );
+            expect(
+                database.prepare('SELECT id FROM message_parts WHERE content = ?').all(sent.prompt)
+            ).toHaveLength(1);
+            expect(httpFetch.mock.calls).toHaveLength(1);
+
+            center.resumeSessionQueue(1);
+            await vi.waitFor(() => {
+                expect(
+                    database
+                        .prepare('SELECT id FROM message_parts WHERE content = ?')
+                        .all(waiting.prompt)
+                ).toHaveLength(1);
+                expect(center.getSessionStatus(1)).toBeNull();
+            });
+            await persistence.flush(1);
+            await expect(new PendingMessagePersistence().load(1)).resolves.toEqual([]);
+            expect(
+                database.prepare('SELECT id FROM message_parts WHERE content = ?').all(sent.prompt)
+            ).toHaveLength(1);
+        } finally {
+            stopObserving();
+        }
+    });
+
+    it('user clears all pending work after a late queued start failure without it returning', async () => {
+        database.exec(`INSERT INTO sessions (id, session_id, title, model, provider_id)
+            VALUES (1, 'cleared-queue-failure', 'Cleared queue failure', 'test-model', 1)`);
+        const persistence = new PendingMessagePersistence();
+        for (const message of [
+            priorityMessage('failed-input', 'Clear the failed input'),
+            priorityMessage('waiting-input', 'Clear the waiting input'),
+        ]) {
+            persistence.enqueue(1, { ...message, delivery: 'queue' });
+        }
+        await persistence.flush(1);
+        const center = new SessionTaskCenter(persistence);
+        ownedTaskCenters.push(center);
+        await center.restoreSessionQueue(1);
+        database.exec(`CREATE TEMP TRIGGER queued_start_write_failure
+            BEFORE INSERT ON session_turn_attempts
+            BEGIN SELECT RAISE(ABORT, 'Turn start unavailable'); END`);
+        httpFetch.mockImplementation(async () => response());
+        const failurePublished = deferred<string>();
+        let cleared = false;
+        const stopObserving = await eventService.on(
+            AppEvent.SESSION_TASK_STATUS_CHANGED,
+            (status) => {
+                if (status.sessionId === 1 && status.status === 'failed') {
+                    cleared = center.clearSessionUserMessages(1);
+                    failurePublished.resolve(status.taskId);
+                }
+            }
+        );
+        try {
+            center.resumeSessionQueue(1);
+            const taskId = await failurePublished.promise;
+            await persistence.flush(1);
+
+            expect(cleared).toBe(true);
+            expect(center.getTaskSnapshot(taskId)?.pendingUserMessages).toEqual([]);
+            expect(
+                center
+                    .getTaskSnapshot(taskId)
+                    ?.sessionHistory.filter((message) => message.id === 'failed-input')
+            ).toEqual([]);
+            await expect(center.restoreSessionQueue(1)).resolves.toEqual([]);
+            await expect(new PendingMessagePersistence().load(1)).resolves.toEqual([]);
+            database.exec('DROP TRIGGER queued_start_write_failure');
+            center.resumeSessionQueue(1);
+            const recovered = new SessionTaskCenter();
+            ownedTaskCenters.push(recovered);
+            await expect(recovered.restoreSessionQueue(1)).resolves.toEqual([]);
+            expect(center.getSessionStatus(1)).toBeNull();
+            expect(httpFetch.mock.calls).toEqual([]);
+        } finally {
+            stopObserving();
+        }
     });
 
     it.each(['delivered', 'rejected'] as const)(

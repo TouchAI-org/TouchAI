@@ -44,6 +44,12 @@ import type {
 import { cloneTaskValue } from './types';
 import { cloneTaskViewSnapshot } from './viewSnapshot';
 
+interface PendingTaskStart {
+    message: PendingUserMessage;
+    precedingMessageIds: readonly string[];
+    handoffVersion: number;
+}
+
 interface MutableSessionTask {
     taskId: string;
     sessionId: number | null;
@@ -54,6 +60,7 @@ interface MutableSessionTask {
     interactions: TaskInteractions;
     projection: SessionTaskProjection;
     completion: Promise<TaskResult> | null;
+    pendingStart: PendingTaskStart | null;
     releaseTimer: ReturnType<typeof setTimeout> | null;
     /** Priority messages claimed by one delivery attempt and not settled yet. */
     claimedPriorityMessageIds: Set<string>;
@@ -91,6 +98,20 @@ function mergePendingUserMessages(
         }
     }
     return merged;
+}
+
+function restorePendingTaskMessage(
+    messages: readonly PendingUserMessage[],
+    pendingStart: PendingTaskStart
+): PendingUserMessage[] {
+    const restored = mergePendingUserMessages(messages);
+    if (restored.some((message) => message.id === pendingStart.message.id)) {
+        return restored;
+    }
+    const precedingIds = new Set(pendingStart.precedingMessageIds);
+    const index = restored.findIndex((message) => !precedingIds.has(message.id));
+    restored.splice(index < 0 ? restored.length : index, 0, pendingStart.message);
+    return restored;
 }
 
 /**
@@ -381,7 +402,10 @@ export class SessionTaskCenter {
      * 注册并启动一个新的会话任务。
      * 加载历史记录、创建运行时并开始执行，返回任务 ID 和完成 Promise。
      */
-    async startTask(options: StartSessionTaskOptions): Promise<StartedSessionTask> {
+    async startTask(
+        options: StartSessionTaskOptions,
+        pendingStart?: PendingTaskStart
+    ): Promise<StartedSessionTask> {
         this.ensureSessionSlotAvailable(options.sessionId ?? null);
 
         // 只等待请求实际依赖的后台能力；启动阶段不 await 这些任务。
@@ -432,6 +456,7 @@ export class SessionTaskCenter {
             interactions,
             projection,
             completion: null,
+            pendingStart: pendingStart ?? null,
             releaseTimer: null,
             claimedPriorityMessageIds: new Set(),
             handoffInFlight: false,
@@ -528,6 +553,7 @@ export class SessionTaskCenter {
                 completion,
             };
         } catch (error) {
+            this.restorePendingTaskStart(task);
             // The task is visible before history loading finishes, so users can
             // queue more messages during startup. Restore the whole current
             // pending list, not only the batch inherited before the task existed.
@@ -1497,6 +1523,29 @@ export class SessionTaskCenter {
         this.sessionHandoffStarts.clear();
     }
 
+    private restorePendingTaskStart(task: MutableSessionTask): void {
+        const pendingStart = task.pendingStart;
+        task.pendingStart = null;
+        if (!pendingStart || task.sessionId === null) {
+            return;
+        }
+        task.snapshot.sessionHistory = task.snapshot.sessionHistory.filter(
+            (message) => message.id !== pendingStart.message.id
+        );
+        if (
+            pendingStart.handoffVersion !== (this.sessionHandoffVersions.get(task.sessionId) ?? 0)
+        ) {
+            return;
+        }
+        task.snapshot.pendingUserMessages = restorePendingTaskMessage(
+            mergePendingUserMessages(
+                this.sessionPendingQueues.get(task.sessionId) ?? [],
+                task.snapshot.pendingUserMessages
+            ),
+            pendingStart
+        );
+    }
+
     /** 执行任务运行时，处理完成/取消/失败的终态转换。 */
     private async runTask(taskId: string, runtime: AiConversationRuntime): Promise<TaskResult> {
         try {
@@ -1504,6 +1553,7 @@ export class SessionTaskCenter {
         } catch (error) {
             const task = this.tasks.get(taskId);
             if (task && !isTerminalStatus(task.snapshot.status)) {
+                this.restorePendingTaskStart(task);
                 const aiError = AiError.fromError(error);
                 const nextPendingMessages = preparePendingMessagesForNextTurn(
                     task.sessionId === null
@@ -1639,6 +1689,11 @@ export class SessionTaskCenter {
         const rest = queued.filter((_, index) => index !== nextIndex);
         const sourceTask = this.findLatestTaskForSession(sessionId);
         const handoffVersion = this.sessionHandoffVersions.get(sessionId) ?? 0;
+        const pendingStart: PendingTaskStart = {
+            message: next,
+            precedingMessageIds: queued.slice(0, nextIndex).map((message) => message.id),
+            handoffVersion,
+        };
         // 交接期间保留队列本身（哪怕为空）作为“下一轮正在启动”的标记，
         // 这样用户在启动窗口里的提交仍会落进同一条队列，而不是被当成新任务。
         this.sessionPendingQueues.set(sessionId, rest);
@@ -1648,17 +1703,20 @@ export class SessionTaskCenter {
         }
 
         try {
-            const started = await this.startTask({
-                prompt: next.prompt,
-                userMessageId: next.id,
-                pendingMessageId: next.id,
-                sessionId,
-                modelId: next.modelId ?? sourceTask?.snapshot.currentModel?.modelId,
-                providerId: next.providerId ?? sourceTask?.snapshot.currentModel?.providerId,
-                attachments: next.attachments,
-                inputSnapshot: next.inputSnapshot,
-                executionMode: sourceTask?.snapshot.executionMode ?? 'foreground',
-            });
+            const started = await this.startTask(
+                {
+                    prompt: next.prompt,
+                    userMessageId: next.id,
+                    pendingMessageId: next.id,
+                    sessionId,
+                    modelId: next.modelId ?? sourceTask?.snapshot.currentModel?.modelId,
+                    providerId: next.providerId ?? sourceTask?.snapshot.currentModel?.providerId,
+                    attachments: next.attachments,
+                    inputSnapshot: next.inputSnapshot,
+                    executionMode: sourceTask?.snapshot.executionMode ?? 'foreground',
+                },
+                pendingStart
+            );
             if (handoffVersion !== (this.sessionHandoffVersions.get(sessionId) ?? 0)) {
                 // The user cleared the queue while the hand-over was starting.
                 // Stop the task that already began before it can run a turn.
@@ -1679,11 +1737,15 @@ export class SessionTaskCenter {
             if (handoffVersion !== (this.sessionHandoffVersions.get(sessionId) ?? 0)) {
                 return;
             }
-            const restored = mergePendingUserMessages(
-                [next],
-                this.sessionPendingQueues.get(sessionId) ?? []
+            const restored = restorePendingTaskMessage(
+                this.sessionPendingQueues.get(sessionId) ?? [],
+                pendingStart
             );
             this.sessionPendingQueues.set(sessionId, restored);
+            this.pendingMessagePersistence.reorder(
+                sessionId,
+                restored.map((message) => message.id)
+            );
             if (sourceTask) {
                 sourceTask.snapshot.pendingUserMessages = cloneTaskValue(restored);
                 this.notifySubscribers(sourceTask.taskId);
@@ -1757,6 +1819,7 @@ export class SessionTaskCenter {
         }
 
         if (event.type === 'task_started') {
+            task.pendingStart = null;
             const previousSessionId = task.sessionId;
             this.bindTaskToSession(taskId, event.sessionId);
             if (previousSessionId === null && event.sessionId !== null) {
@@ -1798,6 +1861,7 @@ export class SessionTaskCenter {
             event.type === 'task_failed' ||
             event.type === 'task_cancelled'
         ) {
+            this.restorePendingTaskStart(task);
             task.claimedPriorityMessageIds.clear();
             task.projection.syncInteractionRelease(task.interactions.cancelAll(), tt('请求已取消'));
             // Every terminal path keeps the user's queue. A failure stops the
