@@ -500,6 +500,7 @@ SELECT
                    AND source_message.session_id = source_turns.session_id
                 INNER JOIN temp_message_map AS message_map
                     ON message_map.source_message_id = source_message.id
+                WHERE snapshot.type = 'object'
             ), '{}'))
         )
         ELSE source_turns.prompt_snapshot_json

@@ -261,6 +261,7 @@ describe('given context checkpoints in a conversation backup', () => {
                             'editorDoc', json('{"type":"doc","content":[]}'),
                             'excludeFromHistory', json('true')
                         ),
+                        '3', 'invalid',
                         '999', json_object('skills', json('[]'))
                     )
                 ),
@@ -316,6 +317,7 @@ describe('given context checkpoints in a conversation backup', () => {
             excludeFromHistory: true,
         });
         expect(snapshot.messageInputSnapshots['2']).toBeUndefined();
+        expect(snapshot.messageInputSnapshots['3']).toBeUndefined();
         expect(snapshot.messageInputSnapshots['999']).toBeUndefined();
         expect(target.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
     });
