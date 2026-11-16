@@ -479,7 +479,31 @@ SELECT
     model_map.target_model_id,
     source_turns.task_id,
     source_turns.execution_mode,
-    source_turns.prompt_snapshot_json,
+    -- Keys are persisted message ids; remap them through the same message map.
+    -- Unknown keys are dropped instead of risking a collision with another message.
+    CASE
+        WHEN json_type(source_turns.prompt_snapshot_json, '$.messageInputSnapshots') = 'object'
+        THEN json_set(
+            source_turns.prompt_snapshot_json,
+            '$.messageInputSnapshots',
+            json(coalesce((
+                SELECT json_group_object(
+                    CAST(message_map.target_message_id AS TEXT),
+                    json(snapshot.value)
+                )
+                FROM json_each(
+                    source_turns.prompt_snapshot_json,
+                    '$.messageInputSnapshots'
+                ) AS snapshot
+                INNER JOIN imported.messages AS source_message
+                    ON source_message.id = CAST(snapshot.key AS INTEGER)
+                   AND source_message.session_id = source_turns.session_id
+                INNER JOIN temp_message_map AS message_map
+                    ON message_map.source_message_id = source_message.id
+            ), '{}'))
+        )
+        ELSE source_turns.prompt_snapshot_json
+    END AS prompt_snapshot_json,
     prompt_message_map.target_message_id AS target_prompt_message_id,
     response_message_map.target_message_id AS target_response_message_id,
     source_turns.status,

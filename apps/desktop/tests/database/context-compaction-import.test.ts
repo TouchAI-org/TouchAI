@@ -227,4 +227,96 @@ describe('given context checkpoints in a conversation backup', () => {
         merge(target);
         expect(saved(target).invalidatedAt).toBe(500);
     });
+
+    it('user imports an inserted input snapshot onto its remapped message in a populated database', () => {
+        const source = openMigratedDatabase();
+        source.exec(`
+            INSERT INTO providers (id, name, driver, api_endpoint, logo)
+            VALUES (1, 'Snapshot provider', 'openai', 'http://source', '');
+            INSERT INTO models (id, provider_id, name, model_id)
+            VALUES (1, 1, 'Snapshot model', 'snapshot-model');
+            INSERT INTO sessions (id, session_id, title, model, provider_id)
+            VALUES (1, 'snapshot-import', 'Snapshot import', 'snapshot-model', 1);
+            INSERT INTO messages (id, session_id, role, created_at, updated_at) VALUES
+                (1, 1, 'user', '2026-02-01 00:00:00', '2026-02-01 00:00:00'),
+                (2, 1, 'user', '2026-02-01 00:00:01', '2026-02-01 00:00:01'),
+                (3, 1, 'assistant', '2026-02-01 00:00:02', '2026-02-01 00:00:02');
+            INSERT INTO session_turns (
+                id, session_id, model_id, task_id, prompt_snapshot_json,
+                prompt_message_id, response_message_id, status, created_at, updated_at
+            ) VALUES (
+                1, 1, 1, 'snapshot-task',
+                json_object(
+                    'id', 'snapshot-1',
+                    'createdAt', '2026-02-01T00:00:00.000Z',
+                    'systemPrompt', 'system',
+                    'inputSnapshot', json_object(
+                        'text', 'start',
+                        'attachments', json('[]'),
+                        'skills', json('[{"name":"start","path":"/skills/start"}]')
+                    ),
+                    'messageInputSnapshots', json_object(
+                        '2', json_object(
+                            'skills', json('[{"name":"inserted","path":"/skills/inserted"}]'),
+                            'editorDoc', json('{"type":"doc","content":[]}'),
+                            'excludeFromHistory', json('true')
+                        ),
+                        '999', json_object('skills', json('[]'))
+                    )
+                ),
+                1, 3, 'completed', '2026-02-01 00:00:03', '2026-02-01 00:00:03'
+            );
+        `);
+        const target = openMigratedDatabase();
+        target.exec(`
+            INSERT INTO providers (id, name, driver, api_endpoint, logo)
+            VALUES (1, 'Snapshot provider', 'openai', 'http://target', '');
+            INSERT INTO models (id, provider_id, name, model_id)
+            VALUES (1, 1, 'Snapshot model', 'snapshot-model');
+            INSERT INTO sessions (id, session_id, title, model, provider_id)
+            VALUES (10, 'snapshot-import', 'Existing', 'snapshot-model', 1);
+            INSERT INTO messages (id, session_id, role, created_at, updated_at)
+            VALUES (2, 10, 'assistant', '2025-01-01 00:00:00', '2025-01-01 00:00:00');
+        `);
+
+        attachSource(target, source);
+        merge(target);
+        merge(target);
+
+        const targetMessageId = Number(
+            target
+                .prepare(
+                    "SELECT id FROM messages WHERE session_id=10 AND role='user' AND created_at='2026-02-01 00:00:01'"
+                )
+                .get()?.id
+        );
+        const snapshot = JSON.parse(
+            String(
+                target
+                    .prepare(
+                        "SELECT prompt_snapshot_json FROM session_turns WHERE task_id='snapshot-task'"
+                    )
+                    .get()?.prompt_snapshot_json
+            )
+        ) as {
+            inputSnapshot: unknown;
+            messageInputSnapshots: Record<string, unknown>;
+        };
+
+        expect(targetMessageId).toBeGreaterThan(2);
+        expect(snapshot.inputSnapshot).toEqual({
+            text: 'start',
+            attachments: [],
+            skills: [{ name: 'start', path: '/skills/start' }],
+        });
+        expect(Object.keys(snapshot.messageInputSnapshots)).toEqual([String(targetMessageId)]);
+        expect(snapshot.messageInputSnapshots[String(targetMessageId)]).toEqual({
+            skills: [{ name: 'inserted', path: '/skills/inserted' }],
+            editorDoc: { type: 'doc', content: [] },
+            excludeFromHistory: true,
+        });
+        expect(snapshot.messageInputSnapshots['2']).toBeUndefined();
+        expect(snapshot.messageInputSnapshots['999']).toBeUndefined();
+        expect(target.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+    });
 });
