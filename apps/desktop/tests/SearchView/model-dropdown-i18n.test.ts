@@ -86,6 +86,38 @@ describe('user opens the model picker', () => {
         }
     });
 
+    it('user sees the English reasoning name beside the Chinese label', () => {
+        const wrapper = mount(ModelDropdownPopup, {
+            props: {
+                data: {
+                    toggleShortcut: 'Mod+M',
+                    activeModelId: 'gpt-4o',
+                    activeProviderId: 1,
+                    selectedModelId: 'gpt-4o',
+                    selectedProviderId: 1,
+                    searchQuery: '',
+                    models: [
+                        {
+                            id: 10,
+                            modelId: 'gpt-4o',
+                            name: 'GPT-4o',
+                            providerId: 1,
+                            providerName: 'OpenAI',
+                            reasoning: 1,
+                            reasoningLevels: ['low', 'high', 'max'],
+                            tool_call: 1,
+                            modalities: null,
+                            attachment: 1,
+                            open_weights: 0,
+                        },
+                    ],
+                },
+            },
+        });
+
+        expect(wrapper.get('[data-reasoning-level="high"]').text()).toBe('高 · High');
+    });
+
     it('user sees the empty setup prompt in natural English', () => {
         setLocale('en-US');
 

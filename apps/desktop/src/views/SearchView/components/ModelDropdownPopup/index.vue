@@ -17,7 +17,7 @@
 
     import { Button } from '@/components/ui/button';
     import { Input } from '@/components/ui/input';
-    import { type MessageKey, t } from '@/i18n';
+    import { getLocale, type MessageKey, t } from '@/i18n';
     import {
         clampReasoningLevel,
         DEFAULT_REASONING_LEVEL,
@@ -112,6 +112,12 @@
                 (isCurrent(model) ? props.data?.reasoningLevel : undefined) ??
                 DEFAULT_REASONING_LEVEL
         );
+    }
+
+    function reasoningLevelLabel(level: SelectableReasoningLevel) {
+        const localized = t(`popup.modelDropdown.level.${level}`);
+        if (getLocale() === 'en-US') return localized;
+        return `${localized} · ${t(`popup.modelDropdown.levelEnglish.${level}`)}`;
     }
 
     function shortcutFor(index: number) {
@@ -492,15 +498,9 @@
                 </div>
             </div>
             <div class="shrink-0 border-t border-border px-3 py-2.5">
-                <div class="mb-2 flex min-w-0 items-center justify-between gap-3 text-xs">
+                <div class="mb-2 flex min-w-0 items-center text-xs">
                     <span class="shrink-0 text-muted-foreground">
                         {{ t('popup.modelDropdown.reasoning') }}
-                    </span>
-                    <span
-                        v-if="highlightedModel"
-                        class="min-w-0 truncate font-medium text-foreground"
-                    >
-                        {{ highlightedModel.name }}
                     </span>
                 </div>
                 <div
@@ -522,8 +522,8 @@
                         class="min-w-16 flex-1 px-2 text-xs"
                         @click="highlightedModel && handleSelect(highlightedModel, level)"
                     >
-                        <span class="truncate">
-                            {{ t(`popup.modelDropdown.level.${level}`) }}
+                        <span class="whitespace-nowrap">
+                            {{ reasoningLevelLabel(level) }}
                         </span>
                     </Button>
                 </div>
