@@ -87,7 +87,6 @@
     import { useSearchPanelResizing } from './composables/useSearchPanelResizing';
     import { useSearchRequestFlow } from './composables/useSearchRequest';
     import { useSearchWindowResize } from './composables/useSearchWindowResize';
-    import { resolvePendingMessageModelOverride } from './pendingMessageDraft';
     import {
         createSearchSurfacePreparationController,
         settleSearchSurfaceViewport,
@@ -640,7 +639,10 @@
             excludeFromHistory: message.inputSnapshot?.excludeFromHistory,
         });
         applyInputHistorySnapshot(snapshot);
-        modelOverride.value = resolvePendingMessageModelOverride(message);
+        modelOverride.value = {
+            modelId: message.modelId ?? null,
+            providerId: message.providerId ?? null,
+        };
     }
 
     async function beginPendingMessageEdit(message: PendingUserMessage): Promise<void> {

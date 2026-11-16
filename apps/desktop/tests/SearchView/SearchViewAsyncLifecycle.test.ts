@@ -3,8 +3,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent, h, nextTick, type Ref, ref, watch } from 'vue';
 
 import type { AskUserQuestion } from '@/services/AgentService/contracts/tooling';
-import type { PendingUserQuestionView } from '@/services/AgentService/task/types';
-import type { PendingToolApproval, SessionMessage } from '@/types/session';
+import type {
+    PendingUserMessage,
+    PendingUserQuestionView,
+} from '@/services/AgentService/task/types';
+import {
+    createInputHistorySnapshot,
+    type InputHistorySnapshot,
+    type PendingToolApproval,
+    type SessionMessage,
+} from '@/types/session';
 import type { SkillPickerState } from '@/views/SearchView/components/SearchBar/composables/useSkillAutocomplete';
 import SearchView from '@/views/SearchView/index.vue';
 import type { SearchSurfacePreparationControllerOptions } from '@/views/SearchView/searchSurfacePreparation';
@@ -82,6 +90,7 @@ const {
             markHistorySelectionPending: ReturnType<typeof vi.fn>;
             abandonHistorySelection: ReturnType<typeof vi.fn>;
             sessionHistory: Ref<SessionMessage[]>;
+            pendingUserMessages: Ref<PendingUserMessage[]>;
             currentSessionId: Ref<number | null>;
             pendingToolApproval: Ref<PendingToolApproval | null>;
             pendingUserQuestion: Ref<PendingUserQuestionView | null>;
@@ -311,7 +320,7 @@ vi.mock('@/views/SearchView/composables/useSearchRequest', async () => {
         useSearchRequestFlow: () => {
             const result = {
                 pendingRequest: ref(null),
-                pendingUserMessages: ref([]),
+                pendingUserMessages: ref<PendingUserMessage[]>([]),
                 isLoading: ref(false),
                 error: ref(null),
                 currentSessionId: ref<number | null>(null),
@@ -345,6 +354,8 @@ vi.mock('@/views/SearchView/composables/useSearchRequest', async () => {
                 promotePendingUserMessage: vi.fn(() => false),
                 removePendingUserMessage: vi.fn(() => false),
                 updatePendingUserMessage: vi.fn(() => false),
+                beginPendingMessageEdit: vi.fn(() => true),
+                endPendingMessageEdit: vi.fn(() => true),
                 reorderPendingUserMessages: vi.fn(() => false),
                 handleRegenerateMessage: vi.fn().mockResolvedValue(undefined),
             };
@@ -565,14 +576,24 @@ describe('SearchView async overlay and listener lifecycle', () => {
                     SearchBar: defineComponent({
                         name: 'SearchBar',
                         inheritAttrs: false,
-                        props: { queryText: { type: String, default: '' } },
+                        props: {
+                            queryText: { type: String, default: '' },
+                            modelOverride: { type: Object, required: true },
+                        },
                         emits: [
                             'update:queryText',
                             'skillAutocompleteOpenChange',
                             'skillInputActiveChange',
+                            'modelOverrideChange',
                             'requestToggleModelDropdown',
                         ],
-                        setup(_, { slots, emit }) {
+                        setup(props, { slots, emit, expose }) {
+                            expose({
+                                captureInputHistorySnapshot: () =>
+                                    createInputHistorySnapshot({ text: props.queryText }),
+                                restoreInputHistorySnapshot: (snapshot: InputHistorySnapshot) =>
+                                    snapshot.text,
+                            });
                             watch(
                                 skillPicker,
                                 (picker) => emit('skillAutocompleteOpenChange', picker !== null),
@@ -592,7 +613,7 @@ describe('SearchView async overlay and listener lifecycle', () => {
                     SessionHistoryPopover: overlayContent,
                     ConversationPanel: defineComponent({
                         name: 'ConversationPanel',
-                        emits: ['contentResize'],
+                        emits: ['contentResize', 'pendingAction'],
                         setup(_, { expose }) {
                             expose({ getContentHeight: () => 340, focus: vi.fn() });
                             return () => h('div', 'Conversation');
@@ -637,6 +658,64 @@ describe('SearchView async overlay and listener lifecycle', () => {
             highlightedIndex: 0,
         };
     }
+
+    describe('given a queued message and a different composer model', () => {
+        it.each([
+            {
+                label: 'saved model',
+                selection: { modelId: 'queued-model', providerId: 2 },
+                expected: { modelId: 'queued-model', providerId: 2 },
+            },
+            {
+                label: 'default model',
+                selection: {},
+                expected: { modelId: null, providerId: null },
+            },
+        ])(
+            'user edits with the queued $label and recovers their composer selection on cancel',
+            async ({ selection, expected }) => {
+                const wrapper = mountSearchView();
+                await flushPromises();
+                const message: PendingUserMessage = {
+                    id: 'queued-message',
+                    prompt: 'Queued prompt',
+                    attachments: [],
+                    delivery: 'queue',
+                    createdAt: 1,
+                    ...selection,
+                };
+                requestFlowState.current!.pendingUserMessages.value = [message];
+                requestFlowState.current!.sessionHistory.value = [
+                    {
+                        id: 'prior',
+                        role: 'user',
+                        content: 'Previous prompt',
+                        parts: [],
+                        timestamp: 1,
+                    },
+                ];
+                await nextTick();
+                const editor = wrapper.findComponent({ name: 'SearchBar' });
+                const originalSelection = { modelId: 'composer-model', providerId: 8 };
+                editor.vm.$emit('modelOverrideChange', originalSelection);
+                editor.vm.$emit('update:queryText', 'Unsent composer draft');
+                await nextTick();
+
+                const conversation = wrapper.findComponent({ name: 'ConversationPanel' });
+                conversation.vm.$emit('pendingAction', 'edit', message.id);
+                await flushPromises();
+
+                expect(editor.props('queryText')).toBe('Queued prompt');
+                expect(editor.props('modelOverride')).toEqual(expected);
+
+                conversation.vm.$emit('pendingAction', 'cancelEdit', message.id);
+                await flushPromises();
+
+                expect(editor.props('queryText')).toBe('Unsent composer draft');
+                expect(editor.props('modelOverride')).toEqual(originalSelection);
+            }
+        );
+    });
 
     it('user given a conversation and skill draft when typing @ then searches the local filename in the existing file panel', async () => {
         const wrapper = mountSearchView();
