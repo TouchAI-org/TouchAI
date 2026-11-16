@@ -525,13 +525,15 @@
             measuredState?.clientHeight !== element.clientHeight;
         const positionChanged = measuredState?.scrollTop !== element.scrollTop;
         const scrolledDown = element.scrollTop > (measuredState?.scrollTop ?? element.scrollTop);
-        scheduleMeasure(
+        if (
             !programmaticScroll &&
-                positionChanged &&
-                !layoutChanged &&
-                (following.value || scrolledDown),
-            layoutChanged
-        );
+            positionChanged &&
+            !layoutChanged &&
+            (following.value || scrolledDown)
+        ) {
+            readState(true);
+        }
+        scheduleMeasure(false, layoutChanged);
     }
 
     function handleWheel(event: WheelEvent): void {

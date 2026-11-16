@@ -721,6 +721,23 @@ describe('user follows streamed output', () => {
         expect(scrollTo).not.toHaveBeenCalled();
     });
 
+    it('user drags the scrollbar upward and keeps that position when output grows before the next frame', async () => {
+        const wrapper = mountScroller({ followOutput: true });
+        const viewport = viewportOf(wrapper);
+        setScrollMetrics(viewport, { scrollTop: 600 });
+        stubScrollTo(viewport);
+        await settleLayout();
+
+        viewport.scrollTop = 100;
+        viewport.dispatchEvent(new Event('scroll'));
+        setScrollHeight(viewport, 1_200);
+        triggerResize();
+        await settleLayout();
+
+        expect(viewport.scrollTop).toBe(100);
+        expect(wrapper.emitted('followChange')).toContainEqual([false]);
+    });
+
     it('user stays in place when an upward scroll is followed by a resize', async () => {
         const wrapper = mountScroller({ followOutput: true });
         const viewport = viewportOf(wrapper);
