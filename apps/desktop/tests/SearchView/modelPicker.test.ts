@@ -162,7 +162,8 @@ describe('given models from two providers and different reasoning capabilities',
         ]);
         await wrapper.get('[data-reasoning-level="low"]').trigger('click');
         await flushPromises();
-        expect(onModelSelect).toHaveBeenCalledWith(20, 'low');
+        expect(onModelSelect).toHaveBeenCalledWith(20, 'low', false);
+        expect(wrapper.emitted('close')).toBeUndefined();
     });
 
     it('user sees the current depth on reopening and cannot choose a depth for a plain model', async () => {
@@ -200,6 +201,7 @@ describe('given models from two providers and different reasoning capabilities',
         await wrapper.get('[data-reasoning-level="high"]').trigger('keydown', { key: 'ArrowUp' });
         await wrapper.get('[data-reasoning-level="low"]').trigger('keydown', { key: 'Enter' });
         await flushPromises();
-        expect(onModelSelect).toHaveBeenCalledWith(20, 'low');
+        expect(onModelSelect).toHaveBeenCalledWith(20, 'low', false);
+        expect(wrapper.emitted('close')).toBeUndefined();
     });
 });

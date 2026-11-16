@@ -64,7 +64,7 @@
                  * floating surface and marks it with the interactive colour.
                  */
                 segment:
-                    'justify-center text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus aria-checked:bg-surface-floating aria-checked:text-primary',
+                    'justify-center text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus aria-checked:text-primary',
                 picker: 'w-full justify-start text-foreground hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-focus data-[highlighted=true]:bg-surface-active aria-checked:bg-surface-active',
             },
             size: {

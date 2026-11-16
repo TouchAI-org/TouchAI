@@ -2248,12 +2248,17 @@
         void hideAllOverlays();
     }
 
-    async function handleModelSelect(modelDbId: number, level?: SelectableReasoningLevel) {
+    async function handleModelSelect(
+        modelDbId: number,
+        level?: SelectableReasoningLevel,
+        close = true
+    ) {
         const intentEpoch = beginOverlayIntent();
         const selectedModel = await controller.selectModelFromDropdown(modelDbId);
         if (!isOverlayIntentCurrent(intentEpoch)) return;
         modelOverride.value = selectedModel;
         reasoningLevel.value = level;
+        if (!close) return;
         await closeModelDropdownForIntent(intentEpoch, true);
         if (!isOverlayIntentCurrent(intentEpoch)) return;
     }

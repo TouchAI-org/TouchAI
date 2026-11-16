@@ -115,7 +115,8 @@ describe('user opens the model picker', () => {
             },
         });
 
-        expect(wrapper.get('[data-reasoning-level="high"]').text()).toBe('高 · High');
+        expect(wrapper.get('[data-reasoning-level="high"]').text()).toContain('高');
+        expect(wrapper.get('[data-reasoning-level="high"]').text()).toContain('High');
     });
 
     it('user sees the empty setup prompt in natural English', () => {

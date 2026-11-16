@@ -44,7 +44,8 @@
         data: ModelDropdownData | null;
         onModelSelect?: (
             modelDbId: number,
-            reasoningLevel?: SelectableReasoningLevel
+            reasoningLevel?: SelectableReasoningLevel,
+            close?: boolean
         ) => void | Promise<void>;
         onSearchQueryChange?: (query: string) => void | Promise<void>;
     }>();
@@ -88,6 +89,9 @@
     const selectedLevel = computed(() =>
         highlightedModel.value ? levelForModel(highlightedModel.value) : undefined
     );
+    const selectedLevelIndex = computed(() =>
+        Math.max(0, reasoningLevels.value.indexOf(selectedLevel.value ?? 'off'))
+    );
     const hasFilter = computed(() => Boolean(localSearchQuery.value.trim()));
 
     function isCurrent(model: ModelDropdownItem) {
@@ -114,12 +118,6 @@
         );
     }
 
-    function reasoningLevelLabel(level: SelectableReasoningLevel) {
-        const localized = t(`popup.modelDropdown.level.${level}`);
-        if (getLocale() === 'en-US') return localized;
-        return `${localized} · ${t(`popup.modelDropdown.levelEnglish.${level}`)}`;
-    }
-
     function shortcutFor(index: number) {
         if (index > 8) return null;
         const shortcut = `Mod+${index + 1}`;
@@ -129,21 +127,35 @@
             : shortcut;
     }
 
-    async function handleSelect(model: ModelDropdownItem, level = levelForModel(model)) {
+    async function handleSelect(
+        model: ModelDropdownItem,
+        level = levelForModel(model),
+        close = true
+    ) {
         if (selecting.value) return;
         selectionError.value = false;
         selecting.value = true;
         try {
             if (!props.onModelSelect) throw new Error('Model selection callback is unavailable');
-            if (level === undefined) await props.onModelSelect(model.id);
-            else await props.onModelSelect(model.id, level);
-            emit('close');
+            if (!close) {
+                await props.onModelSelect(model.id, level, false);
+            } else if (level === undefined) {
+                await props.onModelSelect(model.id);
+            } else {
+                await props.onModelSelect(model.id, level);
+            }
+            if (close) emit('close');
         } catch (error) {
             selectionError.value = true;
             log.error('[SearchView] Failed to select model:', error);
         } finally {
             selecting.value = false;
         }
+    }
+
+    function handleReasoningLevel(level: SelectableReasoningLevel) {
+        if (!highlightedModel.value) return;
+        void handleSelect(highlightedModel.value, level, false);
     }
 
     async function openSettingsFromEmptyState() {
@@ -255,7 +267,8 @@
             searchInputRef.value?.focus();
         } else if (event.key === 'Enter' && highlightedModel.value) {
             event.preventDefault();
-            void handleSelect(highlightedModel.value, depth ?? selectedLevel.value);
+            if (depth) handleReasoningLevel(depth);
+            else void handleSelect(highlightedModel.value);
         }
     }
 
@@ -497,35 +510,53 @@
                     </div>
                 </div>
             </div>
-            <div class="shrink-0 border-t border-border px-3 py-2.5">
-                <div class="mb-2 flex min-w-0 items-center text-xs">
-                    <span class="shrink-0 text-muted-foreground">
-                        {{ t('popup.modelDropdown.reasoning') }}
-                    </span>
-                </div>
+            <div class="shrink-0 border-t border-border px-3 py-2">
                 <div
                     v-if="reasoningLevels.length"
-                    class="flex flex-wrap gap-1 rounded-lg bg-surface-sunken p-1"
+                    class="relative rounded-lg border border-border-subtle bg-surface-sunken p-1"
                     role="radiogroup"
                     :aria-label="t('popup.modelDropdown.reasoning')"
                 >
-                    <Button
-                        v-for="level in reasoningLevels"
-                        :key="level"
-                        variant="segment"
-                        size="sm"
-                        role="radio"
-                        :data-reasoning-level="level"
-                        :aria-checked="selectedLevel === level"
-                        :tabindex="selectedLevel === level ? 0 : -1"
-                        :disabled="selecting"
-                        class="min-w-16 flex-1 px-2 text-xs"
-                        @click="highlightedModel && handleSelect(highlightedModel, level)"
+                    <span
+                        aria-hidden="true"
+                        class="pointer-events-none absolute top-1 bottom-1 left-1 rounded-md bg-surface-floating shadow-sm transition-transform duration-(--duration-quick) ease-(--ease-smooth-out)"
+                        :style="{
+                            width: `calc((100% - 0.5rem) / ${reasoningLevels.length})`,
+                            transform: `translateX(${selectedLevelIndex * 100}%)`,
+                        }"
+                    />
+                    <div
+                        class="relative grid"
+                        :style="{
+                            gridTemplateColumns: `repeat(${reasoningLevels.length}, minmax(0, 1fr))`,
+                        }"
                     >
-                        <span class="whitespace-nowrap">
-                            {{ reasoningLevelLabel(level) }}
-                        </span>
-                    </Button>
+                        <Button
+                            v-for="level in reasoningLevels"
+                            :key="level"
+                            variant="segment"
+                            size="sm"
+                            role="radio"
+                            :data-reasoning-level="level"
+                            :aria-checked="selectedLevel === level"
+                            :tabindex="selectedLevel === level ? 0 : -1"
+                            :disabled="selecting"
+                            class="px-1.5 py-1 text-xs"
+                            @click="handleReasoningLevel(level)"
+                        >
+                            <span class="flex min-w-0 flex-col items-center leading-tight">
+                                <span class="whitespace-nowrap">
+                                    {{ t(`popup.modelDropdown.level.${level}`) }}
+                                </span>
+                                <span
+                                    v-if="getLocale() !== 'en-US'"
+                                    class="text-2xs tracking-wider uppercase opacity-60"
+                                >
+                                    {{ t(`popup.modelDropdown.levelEnglish.${level}`) }}
+                                </span>
+                            </span>
+                        </Button>
+                    </div>
                 </div>
                 <p v-else class="px-1 py-1 text-xs text-muted-foreground">
                     {{ t('popup.modelDropdown.reasoningUnavailable') }}

@@ -272,7 +272,6 @@ exports[`user sees a button > user sees every button variant unchanged > user va
 
 exports[`user sees a button > user sees every button variant unchanged > user variant=segment 1`] = `
 [
-  "aria-checked:bg-surface-floating",
   "aria-checked:text-primary",
   "disabled:opacity-50",
   "disabled:pointer-events-none",
