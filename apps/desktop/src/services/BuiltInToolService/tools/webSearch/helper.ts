@@ -1,4 +1,8 @@
-import type { SearchProviderId, SearchSource } from '@services/SettingsService/domain';
+import {
+    SEARCH_PROVIDER_IDS,
+    type SearchProviderId,
+    type SearchSource,
+} from '@services/SettingsService/domain';
 
 import { truncateText } from '@/utils/text';
 
@@ -51,6 +55,14 @@ export interface WebSearchResult {
 
 export function parseWebSearchRequest(args: Record<string, unknown>): WebSearchRequest {
     const parsed = parseToolArguments(WEB_SEARCH_TOOL_ID, webSearchArgsSchema, args);
+    const unknownOptionKeys = Object.keys(parsed.providerOptions ?? {}).filter(
+        (key) => !(SEARCH_PROVIDER_IDS as readonly string[]).includes(key)
+    );
+    if (unknownOptionKeys.length > 0) {
+        throw new Error(
+            `Unknown providerOptions key(s): ${unknownOptionKeys.join(', ')}. Use one of: ${SEARCH_PROVIDER_IDS.filter((id) => id !== 'auto').join(', ')}.`
+        );
+    }
     return {
         query: parsed.query,
         provider: parsed.provider ?? 'auto',

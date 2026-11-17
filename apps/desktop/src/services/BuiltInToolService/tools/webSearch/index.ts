@@ -379,7 +379,21 @@ export async function executeWebSearchTool(
 ): Promise<BuiltInToolExecutionResult> {
     void config;
     const searchSettings = await loadSearchSettings();
-    const request = applySearchSettingsDefaults(args, parseWebSearchRequest(args), searchSettings);
+    let request: WebSearchRequest;
+    try {
+        request = applySearchSettingsDefaults(args, parseWebSearchRequest(args), searchSettings);
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        return {
+            result: `Web search failed
+Query: ${String(args.query ?? '')}
+Reason: ${errorMessage}`,
+            isError: true,
+            status: 'error',
+            errorMessage,
+            conversationSemantic: buildSearchSemantic(args),
+        };
+    }
     const signal = context.signal ?? new AbortController().signal;
     let provider: SearchProviderId = 'auto';
 

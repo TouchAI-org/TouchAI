@@ -84,6 +84,54 @@ describe('user reads a page through a configured search engine', () => {
         expect(tauriFetchMock).toHaveBeenCalledTimes(1);
     });
 
+    it('user gets AnySearch extract when it is the only enabled engine', async () => {
+        readSettingsMock.mockResolvedValue(
+            settingsOf({
+                providers: { anysearch: { enabled: true, apiKey: '' } },
+                providerPriority: ['anysearch'],
+            })
+        );
+        tauriFetchMock
+            .mockResolvedValueOnce(new Response('busy', { status: 503 }))
+            .mockResolvedValueOnce(json({ data: { title: 'Any', content: 'anysearch body' } }));
+
+        const result = await executeWebFetchTool(
+            { url: 'https://example.com/d', mode: 'page_text', maxChars: 2000 },
+            {},
+            context()
+        );
+
+        expect(result.isError).toBe(false);
+        expect(result.result).toContain('anysearch body');
+        expect(tauriFetchMock.mock.calls[1]?.[0]).toContain('/v1/extract');
+    });
+
+    it('user gets Serper scrape content when it is the first configured engine', async () => {
+        readSettingsMock.mockResolvedValue(
+            settingsOf({
+                providers: { serper: { enabled: true, apiKey: 'serper-key' } },
+                providerPriority: ['serper'],
+            })
+        );
+        tauriFetchMock
+            .mockResolvedValueOnce(new Response('blocked', { status: 403 }))
+            .mockResolvedValueOnce(
+                json({ markdown: 'serper body', metadata: { title: 'Serper' } })
+            );
+
+        const result = await executeWebFetchTool(
+            { url: 'https://example.com/e', mode: 'page_text', maxChars: 2000 },
+            {},
+            context()
+        );
+
+        expect(result.isError).toBe(false);
+        expect(result.result).toContain('serper body');
+        expect(
+            (tauriFetchMock.mock.calls[1]?.[1]?.headers as Record<string, string>)['X-API-KEY']
+        ).toBe('serper-key');
+    });
+
     it('user gets only direct fetch when the direct strategy is selected', async () => {
         readSettingsMock.mockResolvedValue(settingsOf({ fetchStrategy: 'direct' }));
         tauriFetchMock.mockResolvedValueOnce(

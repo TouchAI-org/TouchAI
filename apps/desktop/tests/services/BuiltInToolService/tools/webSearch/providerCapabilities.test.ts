@@ -379,6 +379,17 @@ describe('user chooses failure recovery and fusion', () => {
         expect(explicit.result).not.toContain('AnySearch hit');
     });
 
+    it('user is told when providerOptions names an engine that does not exist', async () => {
+        const result = await executeWebSearchTool(
+            { query: 'q', providerOptions: { notAnEngine: { page: 2 } } },
+            {},
+            context()
+        );
+        expect(result.isError).toBe(true);
+        expect(result.result).toContain('Unknown providerOptions key');
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
     it('user cancellation stops the search before any fallback request starts', async () => {
         const controller = new AbortController();
         fetchMock.mockImplementation(async () => {

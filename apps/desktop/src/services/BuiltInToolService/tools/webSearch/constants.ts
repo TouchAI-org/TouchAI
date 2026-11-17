@@ -73,7 +73,7 @@ export const webSearchArgsSchema = z.object({
 
 export const WEB_SEARCH_TOOL_DESCRIPTION = [
     'Discover web sources, optionally with page content. Use web_fetch for specific URLs and browser for interactive pages.',
-    'Choose source for the kind of evidence needed, or provider to use one specific enabled engine. Explicit provider runs only that engine; auto follows the user strategy. Use providerOptions[provider] for documented native search parameters, including pagination, categories, content extraction and search tools. Options stay with their named engine during fallback or fusion.',
+    'Choose source for the kind of evidence needed, or provider to use one specific enabled engine. Explicit provider runs only that engine; auto follows the user strategy. Use providerOptions[provider] for documented native search parameters, including pagination, categories, content extraction and search tools. Options stay with their named engine during fallback or fusion. If a capability exists only in one engine (X search, pagination, a vertical category), set provider explicitly and pass providerOptions; otherwise those parameters will not be sent.',
 ].join(' ');
 
 function providerRecommendations(providers: readonly WebSearchProvider[]): string {
@@ -173,6 +173,11 @@ export function buildWebSearchToolInputSchema(
                 description:
                     'Native search parameters keyed by engine ID. Examples: anysearch:{tag,params}; exa:{type,category,contents}; tavily:{search_depth,topic,include_images}; keenable:{mode,query_time,acquired_after,snippet_max_length}; zhihu:{searchType:"global"|"zhihu",SearchDB,Filter}; yuanbao:{Mode,Industry,Site,Deeplinks}; grok:{model,tools:[{type:"web_search"},{type:"x_search",allowed_x_handles,from_date}],max_output_tokens}; github:{searchType:"repositories"|"issues"|"code"|"commits"|"users",page,sort}; brave:{searchType:"web"|"news"|"images"|"videos",offset}; openalex:{filter,sort,page}; semantic_scholar:{fields,offset,year}; searxng:{engines,categories,pageno}; wikipedia:{namespace}. Values override mapped defaults. HTTP credentials and response transport stay managed by the app. REST-only options require an Exa API key.',
                 additionalProperties: { type: 'object', additionalProperties: true },
+                examples: [
+                    { exa: { type: 'neural', category: 'company' } },
+                    { brave: { searchType: 'news', offset: 1 } },
+                    { yuanbao: { Industry: 'news', Freshness: 'd7' } },
+                ],
             },
             description: {
                 type: 'string',

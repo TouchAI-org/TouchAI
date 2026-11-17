@@ -13,6 +13,7 @@ const tauriFetch = createTauriFetch();
 
 /** 这些引擎的官方 API 都能直接返回一份可读正文，而不只是搜索结果摘要。 */
 export const FETCH_CAPABLE_PROVIDERS = [
+    'anysearch',
     'deepseek',
     'exa',
     'tavily',
@@ -20,6 +21,7 @@ export const FETCH_CAPABLE_PROVIDERS = [
     'keenable',
     'doubao',
     'tinyfish',
+    'serper',
 ] as const satisfies readonly SearchProviderId[];
 
 export type FetchCapableProvider = (typeof FETCH_CAPABLE_PROVIDERS)[number];
@@ -56,6 +58,37 @@ function recordOf(value: unknown): Record<string, unknown> {
     return value && typeof value === 'object' && !Array.isArray(value)
         ? (value as Record<string, unknown>)
         : {};
+}
+
+async function fetchAnySearch(
+    url: string,
+    config: SearchProviderConfig,
+    signal: AbortSignal
+): Promise<ProviderFetchPayload> {
+    const root = rootOf(config.endpoint, 'https://api.anysearch.com');
+    const apiKey = config.apiKey.trim();
+    const response = await tauriFetch(`${root}/v1/extract`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+        },
+        body: JSON.stringify({ url }),
+        signal,
+    });
+    requireOk(response, 'AnySearch');
+    const payload = await readJson(response);
+    const data = recordOf(payload.data);
+    return {
+        provider: 'anysearch',
+        title: normalizeOptionalString(data.title) ?? normalizeOptionalString(payload.title),
+        finalUrl: normalizeOptionalString(data.url),
+        content:
+            normalizeOptionalString(data.content) ??
+            normalizeOptionalString(data.markdown) ??
+            normalizeOptionalString(payload.content) ??
+            '',
+    };
 }
 
 async function fetchDeepSeek(
@@ -256,6 +289,33 @@ async function fetchTinyFish(
     };
 }
 
+async function fetchSerper(
+    url: string,
+    config: SearchProviderConfig,
+    signal: AbortSignal
+): Promise<ProviderFetchPayload> {
+    const root = rootOf(config.endpoint, 'https://scrape.serper.dev');
+    const response = await tauriFetch(root, {
+        method: 'POST',
+        headers: { 'X-API-KEY': config.apiKey.trim(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, includeMarkdown: true }),
+        signal,
+    });
+    requireOk(response, 'Serper');
+    const payload = await readJson(response);
+    const metadata = recordOf(payload.metadata);
+    return {
+        provider: 'serper',
+        title: normalizeOptionalString(metadata.title),
+        finalUrl: normalizeOptionalString(metadata.sourceURL),
+        publishedAt: normalizeOptionalString(metadata.date),
+        content:
+            normalizeOptionalString(payload.markdown) ??
+            normalizeOptionalString(payload.text) ??
+            '',
+    };
+}
+
 const FETCHERS: Record<
     FetchCapableProvider,
     (
@@ -264,6 +324,7 @@ const FETCHERS: Record<
         signal: AbortSignal
     ) => Promise<ProviderFetchPayload>
 > = {
+    anysearch: fetchAnySearch,
     deepseek: fetchDeepSeek,
     exa: fetchExa,
     tavily: fetchTavily,
@@ -271,6 +332,7 @@ const FETCHERS: Record<
     keenable: fetchKeenable,
     doubao: fetchDoubao,
     tinyfish: fetchTinyFish,
+    serper: fetchSerper,
 };
 
 /**
@@ -289,7 +351,13 @@ export async function tryProviderFetches(
     for (const provider of candidates) {
         const config = settings.providers[provider];
         if (!config.enabled) continue;
-        if (provider !== 'tavily' && provider !== 'keenable' && !config.apiKey.trim()) continue;
+        if (
+            provider !== 'tavily' &&
+            provider !== 'keenable' &&
+            provider !== 'anysearch' &&
+            !config.apiKey.trim()
+        )
+            continue;
         try {
             const payload = await FETCHERS[provider](url, config, signal);
             if (payload.content.trim()) {

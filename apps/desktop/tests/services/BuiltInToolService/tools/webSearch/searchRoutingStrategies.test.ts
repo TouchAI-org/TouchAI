@@ -74,6 +74,14 @@ describe('user lets the source capability pick a provider', () => {
         expect(plan[0]).toBe('anysearch');
     });
 
+    it('user gets the engine named by providerOptions even when provider is auto', () => {
+        const plan = resolveSearchProviders(
+            request({ providerOptions: { serper: { searchType: 'news' } } }),
+            settings()
+        );
+        expect(plan[0]).toBe('serper');
+    });
+
     it('user gets the priority order when that strategy is selected', () => {
         const config = settings({
             routingStrategy: 'priority',

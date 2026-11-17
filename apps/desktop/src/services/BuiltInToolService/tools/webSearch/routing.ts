@@ -74,6 +74,17 @@ export function resolveSearchProviders(
         }
     };
 
+    const optionProviders = Object.keys(request.providerOptions ?? {}).filter((key) =>
+        enabled.has(key as Exclude<SearchProviderId, 'auto'>)
+    );
+    const optionProvider: Exclude<SearchProviderId, 'auto'> | null =
+        request.provider === 'auto' && optionProviders.length === 1
+            ? (optionProviders[0] as Exclude<SearchProviderId, 'auto'>)
+            : null;
+    if (optionProvider) {
+        push(optionProvider);
+    }
+
     const requested = request.provider !== 'auto' ? request.provider : null;
     const hasRequested = requested ? enabled.has(requested) : false;
     if (hasRequested) {
