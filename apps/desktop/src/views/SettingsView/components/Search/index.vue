@@ -1,7 +1,6 @@
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
     import CustomSelect from '@components/CustomSelect.vue';
-    import PasswordInput from '@components/PasswordInput.vue';
     import SettingsRow from '@components/SettingsRow.vue';
     import { Button } from '@components/ui/button';
     import { Input } from '@components/ui/input';
@@ -66,9 +65,6 @@
     const saveState = ref<'idle' | 'saving' | 'saved' | 'error'>('idle');
     const invalidProviderIds = ref<Set<SearchProviderId>>(new Set());
     const editingProvider = ref<SearchProviderId | null>(null);
-    const editApiKey = ref('');
-    const editEndpoint = ref('');
-    const editInvalid = ref(false);
     let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
     let isSyncingFromStore = false;
     const providerLogos: Partial<Record<SearchProviderId, string>> = {
@@ -115,19 +111,6 @@
         'firecrawl',
         'searxng',
     ]);
-
-    const editingProviderInfo = computed(() => {
-        const providerId = editingProvider.value;
-        if (!providerId) return null;
-        return {
-            id: providerId,
-            label: t(providerMessages[providerId].label),
-            logo: providerLogos[providerId] ?? '',
-            endpointRequired: providerRequiresEndpoint(providerId),
-            supportsEndpoint: providersWithEndpoint.has(providerId),
-            keyPlaceholder: t(providerMessages[providerId].keyPlaceholder),
-        };
-    });
 
     const providerGroups: Array<{ label: MessageKey; ids: SearchProviderId[] }> = [
         {
@@ -526,40 +509,23 @@
 
     function beginProviderEdit(providerId: SearchProviderId) {
         editingProvider.value = providerId;
-        editApiKey.value = providerConfig(providerId).apiKey;
-        editEndpoint.value = providerConfig(providerId).endpoint;
-        editInvalid.value = false;
     }
 
     function cancelProviderEdit() {
         editingProvider.value = null;
-        editInvalid.value = false;
     }
 
-    function saveProviderEdit() {
-        const providerId = editingProvider.value;
-        if (!providerId) return;
-        const nextApiKey = providerRequiresEndpoint(providerId) ? '' : editApiKey.value.trim();
-        const nextEndpoint = providerRequiresEndpoint(providerId)
-            ? editEndpoint.value.trim()
-            : providersWithEndpoint.has(providerId)
-              ? editEndpoint.value.trim()
-              : '';
-        if (
-            (providerRequiresApiKey(providerId) && !nextApiKey) ||
-            (providerRequiresEndpoint(providerId) && !nextEndpoint)
-        ) {
-            editInvalid.value = true;
-            return;
-        }
+    function saveProviderCredentials(
+        providerId: SearchProviderId,
+        value: { apiKey: string; endpoint: string }
+    ) {
         draft.value.providers[providerId] = {
             ...draft.value.providers[providerId],
-            apiKey: nextApiKey,
-            endpoint: nextEndpoint,
+            apiKey: value.apiKey,
+            endpoint: value.endpoint,
         };
         invalidProviderIds.value = removeInvalidProviderId(providerId);
         editingProvider.value = null;
-        editInvalid.value = false;
     }
 
     function removeInvalidProviderId(providerId: SearchProviderId) {
@@ -771,131 +737,46 @@
                 </section>
 
                 <section class="mt-10 space-y-4" data-settings-search-target="search-providers">
-                    <Transition name="provider-slide" mode="out-in">
-                        <div
-                            v-if="editingProviderInfo"
-                            key="editor"
-                            data-testid="search-provider-editor"
-                            class="rounded-panel border border-border-subtle bg-surface-floating p-5"
-                        >
-                            <div class="flex items-center gap-2">
-                                <Button
-                                    variant="ghost"
-                                    size="icon-sm"
-                                    data-testid="search-provider-editor-back"
-                                    :aria-label="t('settings.search.editor.back')"
-                                    @click="cancelProviderEdit"
-                                >
-                                    <AppIcon name="arrow-left" class="size-4" />
-                                </Button>
-                                <img
-                                    v-if="editingProviderInfo.logo"
-                                    :src="editingProviderInfo.logo"
-                                    alt=""
-                                    class="size-7 object-contain"
-                                />
-                                <h2 class="settings-section-title">
-                                    {{ editingProviderInfo.label }}
-                                </h2>
-                            </div>
-                            <div class="mt-5 grid max-w-md gap-4">
-                                <label
-                                    v-if="editingProviderInfo.endpointRequired"
-                                    class="grid gap-1.5"
-                                >
-                                    <span class="text-caption text-text-secondary">
-                                        {{ t('settings.search.editor.instanceUrl') }}
-                                    </span>
-                                    <Input
-                                        v-model="editEndpoint"
-                                        variant="filled"
-                                        type="url"
-                                        :data-testid="`search-${editingProviderInfo.id}-api-key-input`"
-                                        :placeholder="editingProviderInfo.keyPlaceholder"
-                                        spellcheck="false"
-                                    />
-                                </label>
-                                <label v-else class="grid gap-1.5">
-                                    <span class="text-caption text-text-secondary">
-                                        {{ t('settings.search.editor.apiKey') }}
-                                    </span>
-                                    <PasswordInput
-                                        v-model="editApiKey"
-                                        :input-test-id="`search-${editingProviderInfo.id}-api-key-input`"
-                                        :placeholder="editingProviderInfo.keyPlaceholder"
-                                        class="!mt-0"
-                                    />
-                                </label>
-                                <label
-                                    v-if="
-                                        editingProviderInfo.supportsEndpoint &&
-                                        !editingProviderInfo.endpointRequired
-                                    "
-                                    class="grid gap-1.5"
-                                >
-                                    <span class="text-caption text-text-secondary">
-                                        {{ t('settings.search.editor.baseUrl') }}
-                                    </span>
-                                    <Input
-                                        v-model="editEndpoint"
-                                        variant="filled"
-                                        type="url"
-                                        :data-testid="`search-${editingProviderInfo.id}-base-url-input`"
-                                        :placeholder="
-                                            t('settings.search.provider.baseUrlPlaceholder')
-                                        "
-                                        spellcheck="false"
-                                    />
-                                </label>
-                                <p v-if="editInvalid" class="text-caption text-text-danger">
-                                    {{ t('settings.search.editor.required') }}
-                                </p>
-                                <div>
-                                    <Button
-                                        variant="strong"
-                                        data-testid="search-provider-editor-save"
-                                        @click="saveProviderEdit"
-                                    >
-                                        {{ t('settings.search.editor.save') }}
-                                    </Button>
-                                </div>
-                            </div>
+                    <div v-for="group in providerGroups" :key="group.label" class="space-y-3">
+                        <h3 class="text-compact font-medium text-text-secondary">
+                            {{ t(group.label) }}
+                        </h3>
+                        <div class="grid grid-cols-1 items-start gap-3 @2xl:grid-cols-2">
+                            <SearchProviderCard
+                                v-for="providerId in group.ids"
+                                :id="providerId"
+                                :key="providerId"
+                                :label="t(providerMessages[providerId].label)"
+                                :description="t(providerMessages[providerId].description)"
+                                :logo="providerLogos[providerId]!"
+                                :quota="
+                                    providerMessages[providerId].quotaLabel
+                                        ? t(providerMessages[providerId].quotaLabel!)
+                                        : null
+                                "
+                                :enabled="providerConfig(providerId).enabled"
+                                :disabled="!toolEnabled"
+                                :editable="
+                                    providerAcceptsApiKey(providerId) ||
+                                    providerRequiresEndpoint(providerId)
+                                "
+                                :editing="editingProvider === providerId"
+                                :credential="providerConfig(providerId).apiKey"
+                                :endpoint-value="providerConfig(providerId).endpoint"
+                                :endpoint-required="providerRequiresEndpoint(providerId)"
+                                :supports-endpoint="providersWithEndpoint.has(providerId)"
+                                :endpoint-placeholder="
+                                    t('settings.search.provider.baseUrlPlaceholder')
+                                "
+                                :key-placeholder="t(providerMessages[providerId].keyPlaceholder)"
+                                :api-key-required="providerRequiresApiKey(providerId)"
+                                @enabled="updateProviderEnabled(providerId, $event)"
+                                @edit="beginProviderEdit(providerId)"
+                                @cancel="cancelProviderEdit"
+                                @save="saveProviderCredentials(providerId, $event)"
+                            />
                         </div>
-                        <div v-else key="grid">
-                            <div
-                                v-for="group in providerGroups"
-                                :key="group.label"
-                                class="space-y-3"
-                            >
-                                <h3 class="text-compact font-medium text-text-secondary">
-                                    {{ t(group.label) }}
-                                </h3>
-                                <div class="grid grid-cols-1 gap-3 @2xl:grid-cols-2">
-                                    <SearchProviderCard
-                                        v-for="providerId in group.ids"
-                                        :id="providerId"
-                                        :key="providerId"
-                                        :label="t(providerMessages[providerId].label)"
-                                        :description="t(providerMessages[providerId].description)"
-                                        :logo="providerLogos[providerId]!"
-                                        :quota="
-                                            providerMessages[providerId].quotaLabel
-                                                ? t(providerMessages[providerId].quotaLabel!)
-                                                : null
-                                        "
-                                        :enabled="providerConfig(providerId).enabled"
-                                        :disabled="!toolEnabled"
-                                        :editable="
-                                            providerAcceptsApiKey(providerId) ||
-                                            providerRequiresEndpoint(providerId)
-                                        "
-                                        @enabled="updateProviderEnabled(providerId, $event)"
-                                        @edit="beginProviderEdit(providerId)"
-                                    />
-                                </div>
-                            </div>
-                        </div>
-                    </Transition>
+                    </div>
                 </section>
 
                 <section
@@ -1043,22 +924,3 @@
         </div>
     </div>
 </template>
-
-<style scoped>
-    .provider-slide-enter-active,
-    .provider-slide-leave-active {
-        transition:
-            transform 200ms var(--ease-smooth-out),
-            opacity 200ms var(--ease-smooth-out);
-    }
-
-    .provider-slide-enter-from {
-        transform: translateX(28px);
-        opacity: 0;
-    }
-
-    .provider-slide-leave-to {
-        transform: translateX(-28px);
-        opacity: 0;
-    }
-</style>

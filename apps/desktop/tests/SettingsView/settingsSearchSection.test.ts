@@ -150,7 +150,7 @@ describe('user edits the search settings', () => {
                 .map((row) => row.attributes('data-provider'));
         const before = ids();
         await wrapper.get('[data-testid="search-provider-edit-brave"]').trigger('click');
-        expect(wrapper.find('[data-testid="search-provider-row"]').exists()).toBe(false);
+        expect(wrapper.findAll('[data-testid="search-provider-row"]')).toHaveLength(19);
         expect(wrapper.find('[data-testid="search-provider-editor"]').exists()).toBe(true);
         const input = wrapper.get('[data-testid="search-brave-api-key-input"]');
         expect(input.attributes('type')).toBe('password');
