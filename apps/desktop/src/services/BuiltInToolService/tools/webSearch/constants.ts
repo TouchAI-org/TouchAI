@@ -45,7 +45,7 @@ export const WEB_SEARCH_PROVIDERS = [
 export type WebSearchIntent = SearchRouteIntent;
 export type WebSearchProvider = SearchProviderId;
 
-export const DEFAULT_WEB_SEARCH_MAX_RESULTS = 6;
+export const DEFAULT_WEB_SEARCH_MAX_RESULTS = 0;
 export const DEFAULT_WEB_SEARCH_TIMEOUT_MS = 15_000;
 
 export const WEB_SEARCH_PROVIDER_RECOMMENDATIONS = Object.fromEntries(
@@ -65,7 +65,7 @@ export const webSearchArgsSchema = z.object({
     domains: z.array(nonEmptyTrimmedStringSchema).optional(),
     excludeDomains: z.array(nonEmptyTrimmedStringSchema).optional(),
     recencyDays: optionalIntegerInRangeSchema(1, 3650),
-    maxResults: z.number().int().min(1).optional(),
+    maxResults: z.number().int().min(0).optional(),
     timeoutMs: optionalIntegerInRangeSchema(1_000, 300_000),
     description: optionalTrimmedStringSchema,
     includeContent: z.boolean().optional(),
@@ -153,9 +153,9 @@ export function buildWebSearchToolInputSchema(
             },
             maxResults: {
                 type: 'integer',
-                minimum: 1,
+                minimum: 0,
                 description:
-                    'Maximum returned results. Each API request follows its documented page limit; providerOptions can select pages. Defaults to the user setting.',
+                    'Maximum returned results. 0 or omitted means unlimited (each engine returns its documented page maximum). providerOptions can select pages.',
             },
             timeoutMs: {
                 type: 'integer',

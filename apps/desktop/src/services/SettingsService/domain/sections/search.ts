@@ -322,7 +322,7 @@ const searchSettingsSchema = z
         routingStrategy: strategySchema.optional(),
         fetchStrategy: fetchStrategySchema.optional(),
         defaultProvider: providerIdSchema.optional(),
-        maxResults: z.number().int().min(1).optional(),
+        maxResults: z.number().int().min(0).optional(),
         timeoutMs: z.number().int().min(1000).max(300000).optional(),
         parallelProviders: z.boolean().optional(),
         fallbackEnabled: z.boolean().optional(),
@@ -358,7 +358,7 @@ export const DEFAULT_SEARCH_SETTINGS: SearchSettingsConfig = {
     routingStrategy: 'capability',
     fetchStrategy: 'fallback',
     defaultProvider: 'anysearch',
-    maxResults: 6,
+    maxResults: 0,
     timeoutMs: 15000,
     parallelProviders: false,
     fallbackEnabled: true,
@@ -547,7 +547,7 @@ export function serializeSearchSettingsConfig(config: SearchSettingsConfig): str
         fetchStrategy: config.fetchStrategy,
         defaultProvider: normalizeProviderSelection(config.defaultProvider, providers),
         maxResults: Math.max(
-            1,
+            0,
             Math.trunc(
                 Number.isFinite(config.maxResults)
                     ? config.maxResults

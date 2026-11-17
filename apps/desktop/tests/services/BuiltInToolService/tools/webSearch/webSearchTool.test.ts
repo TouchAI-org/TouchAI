@@ -367,7 +367,7 @@ describe('user searches the web from the assistant', () => {
         );
         expect(JSON.parse(String(tauriFetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({
             query: 'agent search',
-            max_results: 6,
+            max_results: 50,
         });
         expect(JSON.parse(String(tauriFetchMock.mock.calls[0]?.[1]?.body))).not.toHaveProperty(
             'limit'

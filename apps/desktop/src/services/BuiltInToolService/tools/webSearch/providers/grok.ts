@@ -217,8 +217,10 @@ export const grokAdapter = createSearchProviderAdapter({
             output?: GrokOutputItem[];
         };
         if (parsed.error) throw new Error(parsed.error.message ?? 'Grok search failed.');
-        const results = toGrokResults(payload).slice(0, request.maxResults);
-        if (request.includeContent && results.length > 0) {
+        const results = toGrokResults(payload);
+        const limited =
+            request.maxResults > 0 ? results.slice(0, request.maxResults) : results;
+        if (request.includeContent && limited.length > 0) {
             const summary = (parsed.output ?? [])
                 .flatMap((item) =>
                     item.type === 'message' && Array.isArray(item.content)
@@ -226,16 +228,18 @@ export const grokAdapter = createSearchProviderAdapter({
                         : []
                 )
                 .filter(
-                    (content) => content.type === 'output_text' && typeof content.text === 'string'
+                    (content) =>
+                        content.type === 'output_text' && typeof content.text === 'string'
                 )
                 .map((content) => content.text)
                 .join('\n');
             if (summary)
-                results[0] = {
-                    ...results[0]!,
-                    content: `Grok cited synthesis (not page text):\n${summary}`,
+                limited[0] = {
+                    ...limited[0]!,
+                    content: `Grok cited synthesis (not page text):
+${summary}`,
                 };
         }
-        return results;
+        return limited;
     },
 });

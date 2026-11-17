@@ -362,7 +362,7 @@ describe('user gets search results from the DeepSeek provider', () => {
         expect(requestHeaders().Authorization).toBe('Bearer inline-key');
         expect(requestBody()).toMatchObject({
             query: 'DeepSeek V4 发布',
-            count: 6,
+            count: 50,
             need_content: false,
         });
         expect(result.result).toContain('Source: Example News');

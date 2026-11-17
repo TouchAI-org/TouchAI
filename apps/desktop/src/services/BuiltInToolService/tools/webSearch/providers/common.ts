@@ -13,7 +13,11 @@ export function providerEndpointUrl(
     return new URL(root.endsWith(path) ? root : `${root}${path}`);
 }
 
-export function resultLimit(request: WebSearchRequest, maximum = request.maxResults): number {
+export function resultLimit(
+    request: WebSearchRequest,
+    maximum = request.maxResults > 0 ? request.maxResults : 50
+): number {
+    if (request.maxResults <= 0) return maximum;
     return Math.max(1, Math.min(maximum, request.maxResults));
 }
 

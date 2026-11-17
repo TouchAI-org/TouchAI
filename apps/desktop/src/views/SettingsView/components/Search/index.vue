@@ -401,40 +401,7 @@
         }))
     );
 
-    const advancedRows = computed<
-        Array<{
-            key: 'fallbackEnabled' | 'preferOfficialSources';
-            label: string;
-            description: string;
-        }>
-    >(() => [
-        {
-            key: 'fallbackEnabled',
-            label: t('settings.search.fallbackEnabled'),
-            description: t('settings.search.fallbackEnabled.description'),
-        },
-        {
-            key: 'preferOfficialSources',
-            label: t('settings.search.preferOfficialSources'),
-            description: t('settings.search.preferOfficialSources.description'),
-        },
-    ]);
-
     const canSave = computed(() => saveState.value !== 'saving');
-
-    watch(
-        () => settings.value.searchSettings,
-        (config) => {
-            const incoming = cloneConfig(config);
-            isSyncingFromStore = true;
-            draft.value = mergeSettingsDraft(syncedConfig, draft.value, incoming);
-            syncedConfig = incoming;
-            queueMicrotask(() => {
-                isSyncingFromStore = false;
-            });
-        },
-        { deep: true }
-    );
 
     watch(draft, scheduleAutoSave, { deep: true });
 
@@ -694,13 +661,17 @@
                             :description="t('settings.search.maxResults.description')"
                         >
                             <Input
-                                v-model.number="draft.maxResults"
+                                :model-value="
+                                    draft.maxResults === 0 ? '' : String(draft.maxResults)
+                                "
                                 variant="filled"
                                 data-testid="search-max-results-input"
                                 type="number"
-                                min="1"
+                                min="0"
+                                placeholder="不限"
                                 class="w-full disabled:bg-neutral-50"
                                 :disabled="!toolEnabled"
+                                @update:model-value="draft.maxResults = $event ? Number($event) : 0"
                             />
                         </SettingsRow>
 
@@ -956,32 +927,6 @@
                             </Button>
                         </li>
                     </VueDraggable>
-                </section>
-
-                <section class="mt-10 space-y-4">
-                    <h2 class="settings-section-title">
-                        {{ t('settings.search.section.advanced') }}
-                    </h2>
-                    <div class="settings-row-group divide-y divide-neutral-200/70">
-                        <SettingsRow
-                            v-for="row in advancedRows"
-                            :key="row.key"
-                            :data-settings-search-target="`search-${row.key}`"
-                            control-width="auto"
-                            :label="row.label"
-                            :description="row.description"
-                        >
-                            <Switch
-                                size="lg"
-                                class="shrink-0"
-                                :data-testid="`search-advanced-toggle-${row.key}`"
-                                :aria-label="row.label"
-                                :model-value="draft[row.key]"
-                                :disabled="!toolEnabled"
-                                @update:model-value="draft[row.key] = !draft[row.key]"
-                            />
-                        </SettingsRow>
-                    </div>
                 </section>
             </fieldset>
             <p v-if="saveState === 'error'" role="alert" class="text-compact text-text-danger">

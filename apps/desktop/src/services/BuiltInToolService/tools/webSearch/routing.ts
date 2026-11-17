@@ -195,11 +195,9 @@ export function fuseSearchResults(
         });
     }
 
-    return [...merged.values()]
-        .sort((left, right) => {
-            if (right.score !== left.score) return right.score - left.score;
-            return right.providers.length - left.providers.length;
-        })
-        .slice(0, maxResults)
-        .map((entry) => entry.result);
+    const fused = [...merged.values()].sort((left, right) => {
+        if (right.score !== left.score) return right.score - left.score;
+        return right.providers.length - left.providers.length;
+    });
+    return (maxResults > 0 ? fused.slice(0, maxResults) : fused).map((entry) => entry.result);
 }

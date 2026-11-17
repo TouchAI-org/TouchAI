@@ -401,7 +401,8 @@ Reason: ${errorMessage}`,
         const planResult = await runSearchPlan(request, searchSettings, signal);
         provider = planResult.provider;
         const results = planResult.results;
-        const limitedResults = results.slice(0, request.maxResults);
+        const limitedResults =
+            request.maxResults > 0 ? results.slice(0, request.maxResults) : results;
         return {
             result: [
                 `Providers: ${planResult.providers.join(', ') || provider}`,
