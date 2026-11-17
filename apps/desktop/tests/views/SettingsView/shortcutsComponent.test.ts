@@ -8,14 +8,6 @@ import GeneralSection from '@/views/SettingsView/components/Shortcuts/index.vue'
 
 const originalPlatform = navigator.platform;
 
-interface CustomSelectStubState {
-    modelValue: string;
-    options: Array<{ value: string; label: string; description?: string }>;
-    disabled?: boolean;
-    localOpen: boolean;
-    $emit(event: 'update:modelValue' | 'update:open', value: string | boolean): void;
-}
-
 function setPlatform(platform: string) {
     Object.defineProperty(window.navigator, 'platform', {
         configurable: true,
@@ -121,56 +113,23 @@ vi.mock('@components/AppIcon.vue', () => ({
 vi.mock('@components/CustomSelect.vue', () => ({
     default: {
         name: 'CustomSelectStub',
-        props: [
-            'modelValue',
-            'options',
-            'open',
-            'contentTestId',
-            'optionTestIdPrefix',
-            'triggerTestId',
-            'disabled',
-        ],
+        props: ['modelValue', 'options', 'open', 'contentTestId', 'optionTestIdPrefix'],
         emits: ['update:modelValue', 'update:open'],
-        data: () => ({ localOpen: false }),
-        computed: {
-            currentLabel(this: CustomSelectStubState): string {
-                const option = this.options.find((entry) => entry.value === this.modelValue);
-                return option?.label ?? this.modelValue;
-            },
-        },
-        methods: {
-            toggleOpen(this: CustomSelectStubState): void {
-                if (this.disabled) return;
-                this.localOpen = !this.localOpen;
-                this.$emit('update:open', this.localOpen);
-            },
-            selectOption(this: CustomSelectStubState, value: string): void {
-                this.localOpen = false;
-                this.$emit('update:open', false);
-                this.$emit('update:modelValue', value);
-            },
-        },
         template: `
             <div data-testid="custom-select">
                 <slot name="trigger" />
-                <button
-                    v-if="!$slots.trigger"
-                    type="button"
-                    :data-testid="triggerTestId || 'custom-select-trigger'"
-                    :disabled="disabled"
-                    @click="toggleOpen"
-                >
-                    {{ currentLabel }}
-                </button>
-                <div v-if="localOpen || open" :data-testid="contentTestId">
+                <select v-if="!$slots.trigger" data-testid="custom-select-native">
+                    <option>{{ modelValue }}</option>
+                </select>
+                <div v-if="open" :data-testid="contentTestId">
                     <button
                         v-for="option in options"
                         :key="option.value"
                         type="button"
                         :data-testid="optionTestIdPrefix ? optionTestIdPrefix + option.value : undefined"
-                        @click="selectOption(option.value)"
+                        @click="$emit('update:modelValue', option.value)"
                     >
-                        {{ option.label }} {{ option.description }}
+                        {{ option.label }}
                     </button>
                 </div>
             </div>

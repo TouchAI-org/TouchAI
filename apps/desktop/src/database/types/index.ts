@@ -112,15 +112,6 @@ export interface SessionPendingMessageCreateData {
     updated_at?: string;
 }
 
-export interface SessionPendingMessageUpdateData {
-    prompt: string;
-    model_id?: string | null;
-    provider_id?: number | null;
-    payload_version?: number;
-    payload_json: string;
-    updated_at?: string;
-}
-
 // Infer the write contract from the schema so generated projections cannot be supplied.
 export type MessagePartEntity = DbMessagePart;
 export type MessagePartCreateData = DbNewMessagePart;

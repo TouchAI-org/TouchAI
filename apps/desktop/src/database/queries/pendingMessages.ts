@@ -2,11 +2,7 @@ import { asc, eq, sql } from 'drizzle-orm';
 
 import { type DatabaseExecutor, db } from '../index';
 import { sessionPendingMessages } from '../schema';
-import type {
-    SessionPendingMessageCreateData,
-    SessionPendingMessageEntity,
-    SessionPendingMessageUpdateData,
-} from '../types';
+import type { SessionPendingMessageCreateData, SessionPendingMessageEntity } from '../types';
 
 /** Return the queued messages for one session in their user-visible order. */
 export async function findPendingMessagesBySessionId(
@@ -19,39 +15,6 @@ export async function findPendingMessagesBySessionId(
         .where(eq(sessionPendingMessages.session_id, sessionId))
         .orderBy(asc(sessionPendingMessages.position), asc(sessionPendingMessages.id))
         .all();
-}
-
-/**
- * Append one pending message.
- *
- * The next position is read inside the transaction so delivery can leave gaps
- * without making the next insert collide with the unique session/position index.
- */
-export async function appendPendingMessage(
-    data: SessionPendingMessageCreateData,
-    database: DatabaseExecutor = db
-): Promise<void> {
-    if (database === db) {
-        await db.transaction((tx) => appendPendingMessage(data, tx));
-        return;
-    }
-
-    const maximum = await database
-        .select({
-            value: sql<number>`coalesce(max(${sessionPendingMessages.position}), -1)`,
-        })
-        .from(sessionPendingMessages)
-        .where(eq(sessionPendingMessages.session_id, data.session_id))
-        .get();
-
-    await database
-        .insert(sessionPendingMessages)
-        .values({
-            ...data,
-            position: (maximum?.value ?? -1) + 1,
-        })
-        .onConflictDoNothing()
-        .run();
 }
 
 export async function savePendingMessage(
@@ -80,21 +43,6 @@ export async function savePendingMessage(
                 updated_at: sql`datetime('now')`,
             },
         })
-        .run();
-}
-
-export async function updatePendingMessage(
-    messageId: string,
-    data: SessionPendingMessageUpdateData,
-    database: DatabaseExecutor = db
-): Promise<void> {
-    await database
-        .update(sessionPendingMessages)
-        .set({
-            ...data,
-            updated_at: data.updated_at ?? sql`datetime('now')`,
-        })
-        .where(eq(sessionPendingMessages.id, messageId))
         .run();
 }
 
