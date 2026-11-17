@@ -792,6 +792,29 @@ export class PersistenceProjector {
         );
     }
 
+    async persistAssistantMessage(
+        outputParts: PersistedOutputPart[]
+    ): Promise<ContextMessageSource> {
+        const result = await this.persistOutputTransaction(async (tx, pendingPartDrafts) => {
+            const messageId = await this.persistMessage({
+                role: 'assistant',
+                outputParts,
+                database: tx,
+                pendingPartDrafts,
+            });
+            const row = (
+                await findContextMessageRows(
+                    await this.ensureSessionId(tx),
+                    { ids: [messageId] },
+                    tx
+                )
+            )[0]!;
+            return { messageId, source: await contextMessageSource(row) };
+        });
+        this.pendingOutputMessageId = result.messageId;
+        return result.source;
+    }
+
     /**
      * 持久化工具调用消息。
      */

@@ -29,6 +29,7 @@ interface PendingAttachmentPayload {
     originPath: string;
     name: string;
     type: AttachmentIndex['type'];
+    draftInsertionOffset?: number;
 }
 
 interface PendingMessagePayloadV1 {
@@ -114,6 +115,7 @@ async function snapshotAttachments(
             originPath: attachment.originPath,
             name: attachment.name,
             type: attachment.type,
+            draftInsertionOffset: attachment.draftInsertionOffset,
         });
     }
 
@@ -165,12 +167,17 @@ async function decodeRow(row: SessionPendingMessageEntity): Promise<PendingUserM
     }
 
     const hydrated = await Promise.all(
-        payload.attachments.map((attachment) =>
-            hydratePersistedAttachmentByHash(attachment.hash, {
+        payload.attachments.map(async (attachment) => {
+            const restored = await hydratePersistedAttachmentByHash(attachment.hash, {
                 originPath: attachment.originPath,
                 name: attachment.name,
-            })
-        )
+            });
+            const offset = attachment.draftInsertionOffset;
+            if (restored && typeof offset === 'number' && Number.isFinite(offset)) {
+                restored.draftInsertionOffset = offset;
+            }
+            return restored;
+        })
     );
     const attachments = hydrated.filter(
         (attachment): attachment is AttachmentIndex => attachment !== null

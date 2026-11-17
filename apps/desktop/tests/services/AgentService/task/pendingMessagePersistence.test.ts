@@ -5,6 +5,7 @@ import { getTableConfig } from 'drizzle-orm/sqlite-core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { sessionPendingMessages } from '@/database/schema';
+import { buildPromptAttachmentSlots } from '@/services/AgentService/prompt/transport';
 import { PendingMessagePersistence } from '@/services/AgentService/task/pendingMessagePersistence';
 import type { PendingUserMessage } from '@/services/AgentService/task/types';
 
@@ -126,6 +127,49 @@ describe('when the app restarts with durable pending messages', () => {
             'second',
         ]);
     });
+
+    it.each([0, 6, 12])(
+        'user restarts with an image at text offset %s and sends it in the original position',
+        async (offset) => {
+            database
+                .prepare(
+                    `INSERT INTO attachments (id, hash, type, original_name, origin_path, mime_type)
+            VALUES (1, 'image-hash', 'image', 'photo.png', '/test/photo.png', 'image/png')`
+                )
+                .run();
+            mockTauriCommand('get_app_directory_path', '/test/cache');
+            mockTauriCommand('plugin:path|join', (payload: unknown) =>
+                (payload as { paths: string[] }).paths.join('/')
+            );
+            mockTauriCommand('plugin:fs|mkdir', undefined);
+            const message = queuedMessage('image-order', 'Before after', {
+                attachments: [
+                    {
+                        id: 'image',
+                        attachmentId: 1,
+                        hash: 'image-hash',
+                        type: 'image',
+                        name: 'photo.png',
+                        originPath: '/test/photo.png',
+                        path: '/test/cache/photo.png',
+                        draftInsertionOffset: offset,
+                    },
+                ],
+            });
+            const persistence = new PendingMessagePersistence();
+            persistence.enqueue(1, message);
+            await persistence.flush(1);
+
+            const restored = (await new PendingMessagePersistence().load(1))[0]!;
+            const slots = (input: PendingUserMessage) =>
+                buildPromptAttachmentSlots(input.prompt, input.attachments).map((slot) =>
+                    slot.type === 'text' ? slot.text : '<image>'
+                );
+
+            expect(slots(restored)).toEqual(slots(message));
+            expect(restored.inputSnapshot?.attachments[0]?.draftInsertionOffset).toBe(offset);
+        }
+    );
 
     it('user gets queue edits, removals, and model changes restored', async () => {
         const persistence = new PendingMessagePersistence();

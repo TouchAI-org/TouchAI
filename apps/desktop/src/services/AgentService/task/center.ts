@@ -614,16 +614,6 @@ export class SessionTaskCenter {
                 this.sessionPendingQueues.delete(task.sessionId);
                 this.pendingMessagePersistence.clear(task.sessionId);
             }
-        } else if (task.sessionId !== null && task.snapshot.pendingUserMessages.length > 0) {
-            this.sessionPendingQueues.set(
-                task.sessionId,
-                cloneTaskValue(
-                    mergePendingUserMessages(
-                        this.sessionPendingQueues.get(task.sessionId) ?? [],
-                        task.snapshot.pendingUserMessages
-                    )
-                )
-            );
         }
         task.projection.clearPendingApprovals(tt('请求已取消'));
         // Cancellation is decisive: clearing pending cards must reach subscribers now,
@@ -1239,7 +1229,7 @@ export class SessionTaskCenter {
         next[index] = { ...message, delivery: 'priority', immediate: true };
         this.sessionPendingQueues.set(sessionId, next);
         this.syncSessionQueueSnapshot(sessionId, next);
-
+        this.scheduleSessionQueueStart(sessionId);
         return true;
     }
 

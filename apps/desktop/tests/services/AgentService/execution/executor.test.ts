@@ -1027,6 +1027,7 @@ describe('user calls a tool the agent does not have', () => {
             persistOutputProgress: vi.fn().mockResolvedValue(undefined),
             getAttemptGeneration: () => 1,
             getSessionId: vi.fn(() => 1),
+            persistAssistantMessage: async () => ({ id: 1, fingerprint: 'a'.repeat(64) }),
             persistToolCallMessage: vi.fn().mockResolvedValue(1),
             persistToolResult: vi.fn().mockResolvedValue(undefined),
             getContextMessageSource: async () => undefined,
@@ -1341,6 +1342,7 @@ describe('user calls a tool the agent does not have', () => {
                 expect(tail[0]).toEqual({
                     role: 'assistant',
                     content: [{ type: 'text', text: 'Partial answer' }],
+                    contextSource: { id: 1, fingerprint: 'a'.repeat(64) },
                 });
                 expect(tail[1]).toEqual({ role: 'user', content: 'Steer this' });
                 yield { content: 'Done', done: true };

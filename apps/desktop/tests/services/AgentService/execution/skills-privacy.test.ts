@@ -1,3 +1,5 @@
+import { setImmediate } from 'node:timers/promises';
+
 import {
     flushObservability,
     initObservability,
@@ -105,6 +107,26 @@ function widgetResponse(name: string, args: Record<string, unknown>, callId = 'w
         {
             headers: { 'content-type': 'text/event-stream' },
         }
+    );
+}
+
+function reasoningThenTextResponse(text: string): Response {
+    const chunks = [
+        {
+            choices: [
+                {
+                    index: 0,
+                    delta: { reasoning_content: 'Thinking before the interruption.' },
+                    finish_reason: null,
+                },
+            ],
+        },
+        { choices: [{ index: 0, delta: { content: text }, finish_reason: null }] },
+        { choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] },
+    ];
+    return new Response(
+        chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join('') + 'data: [DONE]\n\n',
+        { headers: { 'content-type': 'text/event-stream' } }
     );
 }
 
@@ -222,6 +244,103 @@ function durablePriorityRun(
 }
 
 describe('given queued delivery overlaps a storage or cancellation boundary', () => {
+    it('user reloads after steering during a slow history write and retains the complete interrupted answer', async () => {
+        const blocked = deferred<void>();
+        const release = deferred<void>();
+        const seenText = deferred<void>();
+        let delayed = false;
+        routeQueriesTo(database, {
+            beforeCommit: async () => {
+                if (
+                    !delayed &&
+                    database.prepare("SELECT id FROM messages WHERE role = 'assistant'").get()
+                ) {
+                    delayed = true;
+                    blocked.resolve();
+                    await release.promise;
+                }
+            },
+        });
+        const interrupted = 'The interrupted answer contains this complete text.';
+        httpFetch
+            .mockResolvedValueOnce(reasoningThenTextResponse(interrupted))
+            .mockImplementation(async () => response());
+        let interrupt = false;
+        let pending = true;
+        const runtime = new AiConversationRuntime(new AiRequestExecutor(), {
+            prompt: 'Start',
+            taskId: 'interrupted-output',
+            hasImmediatePriorityUserMessages: () => interrupt && pending,
+            takePriorityUserMessages: () =>
+                pending ? [priorityMessage('steer', 'Change direction')] : [],
+            onChunk: (chunk) => {
+                if (chunk.content === interrupted) {
+                    interrupt = true;
+                    seenText.resolve();
+                }
+            },
+            onTurnEvent: (event) => {
+                if (event.type === 'user_messages_delivered') pending = false;
+            },
+        });
+        const run = runtime.run();
+        try {
+            await blocked.promise;
+            await seenText.promise;
+            await setImmediate();
+        } finally {
+            release.resolve();
+        }
+        const result = await run;
+        const history = await loadSessionHistory(result.turn!.sessionId!);
+
+        expect(
+            history.map((message) => ({ role: message.role, content: message.content }))
+        ).toEqual([
+            { role: 'user', content: 'Start' },
+            { role: 'assistant', content: interrupted },
+            { role: 'user', content: 'Change direction' },
+            { role: 'assistant', content: 'Three concise points.' },
+        ]);
+        expect(history[1]?.reasoning).toBe('Thinking before the interruption.');
+    });
+
+    it('user steers after a long answer and receives the next response after context compaction', async () => {
+        database.exec('UPDATE models SET context_limit = 32000, output_limit = 8192 WHERE id = 1');
+        const longText = 'Long output detail. '.repeat(1300);
+        httpFetch
+            .mockResolvedValueOnce(reasoningThenTextResponse(longText))
+            .mockImplementation(async () => response());
+        let interrupt = false;
+        let pending = true;
+        const runtime = new AiConversationRuntime(new AiRequestExecutor(), {
+            prompt: 'Background context. '.repeat(2100),
+            taskId: 'steer-compaction',
+            hasImmediatePriorityUserMessages: () => interrupt && pending,
+            takePriorityUserMessages: () =>
+                pending ? [priorityMessage('steer', 'Change direction')] : [],
+            onChunk: (chunk) => {
+                if (chunk.content === longText) interrupt = true;
+            },
+            onTurnEvent: (event) => {
+                if (event.type === 'user_messages_delivered') pending = false;
+            },
+        });
+
+        const result = await runtime.run();
+
+        expect(result.response).toBe(longText + 'Three concise points.');
+        expect(
+            database.prepare("SELECT id FROM message_parts WHERE type = 'context_compaction'").all()
+        ).toHaveLength(1);
+        const history = await loadSessionHistory(result.turn!.sessionId!);
+        expect(
+            history
+                .filter((message) => message.role === 'assistant')
+                .map((message) => message.content)
+        ).toEqual([longText, 'Three concise points.']);
+    });
+
     it('user resumes a queued message after its start write fails without sending it before recovery', async () => {
         database.exec(`INSERT INTO sessions (id, session_id, title, model, provider_id)
             VALUES (1, 'queued-recovery', 'Queued recovery', 'test-model', 1)`);

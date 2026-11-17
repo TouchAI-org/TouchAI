@@ -801,6 +801,78 @@ describe('user waits for a queued message to become the next turn', () => {
 });
 
 describe('user cancels a run with pending messages', () => {
+    it('user reorders messages while cancellation settles and the next turn follows the new order', async () => {
+        runtimeState.run.mockImplementation(staysRunningInSession(1));
+        const center = createCenter();
+        try {
+            const started = await center.startTask({ prompt: 'Active', sessionId: 1 });
+            const first = center.enqueueTaskUserMessage(
+                started.taskId,
+                { prompt: 'First' },
+                'queue'
+            )!;
+            const second = center.enqueueTaskUserMessage(
+                started.taskId,
+                { prompt: 'Second' },
+                'queue'
+            )!;
+
+            center.cancelTask(started.taskId);
+            expect(center.reorderTaskQueuedMessages(started.taskId, [second.id, first.id])).toBe(
+                true
+            );
+            expect(center.getTaskSnapshot(started.taskId)?.pendingUserMessages).toEqual([
+                second,
+                first,
+            ]);
+            latestOptions().onTurnEvent?.({
+                type: 'task_cancelled',
+                taskId: started.taskId,
+                turnId: 1,
+            });
+
+            await vi.waitFor(() => expect(latestOptions().prompt).toBe('Second'));
+            const next = center.getSessionStatus(1)!;
+            expect(center.getTaskSnapshot(next.taskId)?.pendingUserMessages).toEqual([first]);
+        } finally {
+            center.dispose();
+        }
+    });
+
+    it('user clicks send now after a failed run and the selected message starts ahead of the queue', async () => {
+        runtimeState.run.mockImplementation(staysRunningInSession(1));
+        const center = createCenter();
+        try {
+            const started = await center.startTask({ prompt: 'Active', sessionId: 1 });
+            const first = center.enqueueTaskUserMessage(
+                started.taskId,
+                { prompt: 'First' },
+                'queue'
+            )!;
+            const selected = center.enqueueTaskUserMessage(
+                started.taskId,
+                { prompt: 'Send now' },
+                'queue'
+            )!;
+            latestOptions().onTurnEvent?.({
+                type: 'task_failed',
+                taskId: started.taskId,
+                turnId: 1,
+                error: 'Connection failed',
+            });
+            expect(center.getSessionStatus(1)).toBeNull();
+
+            expect(center.promoteSessionUserMessage(1, selected.id)).toBe(true);
+
+            await vi.waitFor(() => expect(latestOptions().prompt).toBe('Send now'));
+            const next = center.getSessionStatus(1)!;
+            expect(next.status).toBe('running');
+            expect(center.getTaskSnapshot(next.taskId)?.pendingUserMessages).toEqual([first]);
+        } finally {
+            center.dispose();
+        }
+    });
+
     it('user keeps the queued messages when the run fails', async () => {
         let failCurrentTask!: () => void;
         runtimeState.run.mockImplementationOnce(

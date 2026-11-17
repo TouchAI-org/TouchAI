@@ -428,9 +428,9 @@ function redactLogText(text: string): string {
     return text.replace(/\bhttps?:\/\/[^\s"'<>]+/gi, (match) => redactLogUrl(match));
 }
 
-function buildAssistantToolCallHistoryMessage(
+function buildAssistantHistoryMessage(
     parts: PersistedOutputPart[],
-    toolCalls: AiToolCall[]
+    toolCalls?: AiToolCall[]
 ): AiMessage {
     return {
         role: 'assistant',
@@ -443,25 +443,10 @@ function buildAssistantToolCallHistoryMessage(
                   }
                 : { type: part.type, text: part.content }
         ),
-        tool_calls: toolCalls,
+        ...(toolCalls ? { tool_calls: toolCalls } : {}),
     };
 }
 
-/** Close the interrupted answer as assistant history before the steered user turn. */
-function buildAssistantHistoryMessage(parts: PersistedOutputPart[]): AiMessage {
-    return {
-        role: 'assistant',
-        content: parts.map((part) =>
-            part.type === 'reasoning'
-                ? {
-                      type: 'reasoning' as const,
-                      text: part.content,
-                      ...(part.providerOptions ? { providerOptions: part.providerOptions } : {}),
-                  }
-                : { type: part.type, text: part.content }
-        ),
-    };
-}
 async function buildToolResultMessageContent(
     result: string,
     attachments?: AttachmentIndex[]
@@ -1217,7 +1202,7 @@ export class AiRequestExecutor {
         });
 
         runtime.messages.push(
-            buildAssistantToolCallHistoryMessage(options.step.outputParts, options.step.toolCalls)
+            buildAssistantHistoryMessage(options.step.outputParts, options.step.toolCalls)
         );
 
         const toolCallMessageId = await options.persister.persistToolCallMessage(
@@ -1499,7 +1484,15 @@ export class AiRequestExecutor {
                 // A mid-answer steer ends the current assistant segment and continues
                 // the same turn with the injected message; no tool round runs.
                 if (step.type === 'steered') {
-                    runtime.messages.push(buildAssistantHistoryMessage(step.outputParts));
+                    if (step.outputParts.length > 0) {
+                        const source = await options.persister.persistAssistantMessage(
+                            step.outputParts
+                        );
+                        runtime.messages.push({
+                            ...buildAssistantHistoryMessage(step.outputParts),
+                            contextSource: source,
+                        });
+                    }
                     runtime.currentStepOutputParts = [];
                     runtime.currentStepReasoningStartedAt = null;
                     const injected = await options.onSteerBoundary?.({
