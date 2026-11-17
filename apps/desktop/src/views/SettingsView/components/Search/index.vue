@@ -96,6 +96,21 @@
         official: 'settings.search.source.official',
         realtime: 'settings.search.source.realtime',
     };
+    const providersWithEndpoint = new Set<SearchProviderId>([
+        'exa',
+        'tavily',
+        'serper',
+        'keenable',
+        'zhihu',
+        'yuanbao',
+        'grok',
+        'doubao',
+        'qianfan',
+        'tinyfish',
+        'firecrawl',
+        'searxng',
+    ]);
+
     const providerGroups: Array<{ label: MessageKey; ids: SearchProviderId[] }> = [
         {
             label: 'settings.search.group.general',
@@ -612,6 +627,16 @@
         draft.value.intentRoutes[intent] = providerId;
     }
 
+    function movePriorityBy(providerId: SearchProviderId, delta: number) {
+        const rows = [...priorityRows.value];
+        const index = rows.indexOf(providerId);
+        const target = index + delta;
+        if (index < 0 || target < 0 || target >= rows.length) return;
+        rows.splice(index, 1);
+        rows.splice(target, 0, providerId);
+        priorityRows.value = rows;
+    }
+
     function moveProviderToTop(providerId: SearchProviderId) {
         const priority = [...draft.value.providerPriority];
         const index = priority.indexOf(providerId);
@@ -780,9 +805,15 @@
                                     providerRequiresEndpoint(providerId)
                                 "
                                 :endpoint="providerRequiresEndpoint(providerId)"
+                                :supports-endpoint="providersWithEndpoint.has(providerId)"
+                                :endpoint-value="providerConfig(providerId).endpoint"
+                                :endpoint-placeholder="
+                                    t('settings.search.provider.baseUrlPlaceholder')
+                                "
                                 :invalid="shouldHighlightProviderApiKey(providerId)"
                                 @enabled="updateProviderEnabled(providerId, $event)"
                                 @credential="updateProviderCredential(providerId, $event)"
+                                @endpoint="providerConfig(providerId).endpoint = $event"
                             />
                         </div>
                     </div>
@@ -885,6 +916,8 @@
                                 "
                                 data-search-priority-handle
                                 style="touch-action: none"
+                                @keydown.up.prevent.stop="movePriorityBy(providerId, -1)"
+                                @keydown.down.prevent.stop="movePriorityBy(providerId, 1)"
                             >
                                 <span class="grid grid-cols-2 gap-0.5">
                                     <span

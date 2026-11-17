@@ -32,7 +32,9 @@ export const serperAdapter = createSearchProviderAdapter({
         }
         const config = settings.providers.serper;
         const root = config.endpoint.trim().replace(/\/+$/, '') || 'https://google.serper.dev';
-        const payload = (await fetchJson(new URL(`${root}/${String(searchType)}`), signal, {
+        const base = new URL(root);
+        const serperUrl = base.pathname === '/' ? new URL(`${root}/${String(searchType)}`) : base;
+        const payload = (await fetchJson(serperUrl, signal, {
             method: 'POST',
             headers: { 'X-API-KEY': config.apiKey.trim(), 'Content-Type': 'application/json' },
             body: JSON.stringify({

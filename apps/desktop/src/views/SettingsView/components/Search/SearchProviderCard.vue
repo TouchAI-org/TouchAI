@@ -1,6 +1,7 @@
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
     import PasswordInput from '@components/PasswordInput.vue';
+    import { Badge } from '@components/ui/badge';
     import { Button } from '@components/ui/button';
     import { Input } from '@components/ui/input';
     import { Switch } from '@components/ui/switch';
@@ -20,26 +21,47 @@
         placeholder: string;
         editable: boolean;
         endpoint: boolean;
+        supportsEndpoint?: boolean;
+        endpointValue?: string;
+        endpointPlaceholder?: string;
         invalid: boolean;
     }>();
     const emit = defineEmits<{
         enabled: [value: boolean];
         credential: [value: string];
+        endpoint: [value: string];
     }>();
     const root = ref<HTMLElement>();
     const editing = ref(false);
+    const field = ref<'key' | 'endpoint'>('key');
     const value = ref('');
 
     async function beginEditing() {
-        value.value = props.credential;
+        field.value = props.endpoint ? 'endpoint' : 'key';
+        value.value = field.value === 'endpoint' ? (props.endpointValue ?? '') : props.credential;
         editing.value = true;
         await nextTick();
         root.value?.querySelector('input')?.focus();
     }
 
+    function commitField() {
+        if (field.value === 'endpoint') {
+            emit('endpoint', value.value);
+        } else {
+            emit('credential', value.value);
+        }
+    }
+
+    function switchField(next: 'key' | 'endpoint') {
+        if (field.value === next) return;
+        commitField();
+        field.value = next;
+        value.value = next === 'endpoint' ? (props.endpointValue ?? '') : props.credential;
+    }
+
     function finishEditing(save: boolean) {
         if (!editing.value) return;
-        if (save) emit('credential', value.value);
+        if (save) commitField();
         editing.value = false;
     }
 
@@ -81,12 +103,42 @@
                     {{ label }}
                 </span>
                 <span
-                    v-if="quota"
+                    v-if="editing && supportsEndpoint && !endpoint"
+                    class="flex shrink-0 items-center gap-0.5"
+                >
+                    <button
+                        type="button"
+                        class="rounded px-1 py-0.5 text-2xs"
+                        :class="
+                            field === 'key'
+                                ? 'bg-surface-selected text-text-primary'
+                                : 'text-text-tertiary hover:bg-surface-hover'
+                        "
+                        @click="switchField('key')"
+                    >
+                        {{ t('settings.search.provider.keyField') }}
+                    </button>
+                    <button
+                        type="button"
+                        class="rounded px-1 py-0.5 text-2xs"
+                        :class="
+                            field === 'endpoint'
+                                ? 'bg-surface-selected text-text-primary'
+                                : 'text-text-tertiary hover:bg-surface-hover'
+                        "
+                        @click="switchField('endpoint')"
+                    >
+                        {{ t('settings.search.provider.urlField') }}
+                    </button>
+                </span>
+                <Badge
+                    v-else-if="quota"
+                    variant="source"
                     :data-testid="`search-provider-quota-${id}`"
-                    class="shrink-0 rounded-full bg-surface-sunken px-1.5 text-2xs leading-5 text-text-secondary"
+                    class="shrink-0"
                 >
                     {{ quota }}
-                </span>
+                </Badge>
             </div>
             <div class="relative h-10 min-w-0">
                 <p
@@ -103,14 +155,18 @@
                     @keydown.esc.prevent.stop="finishEditing(false)"
                 >
                     <Input
-                        v-if="endpoint"
+                        v-if="endpoint || field === 'endpoint'"
                         v-model="value"
                         variant="filled"
                         type="url"
                         :data-testid="`search-${id}-api-key-input`"
                         :aria-label="placeholder"
                         :aria-invalid="invalid"
-                        :placeholder="placeholder"
+                        :placeholder="
+                            field === 'endpoint'
+                                ? (endpointPlaceholder ?? placeholder)
+                                : placeholder
+                        "
                         :disabled="disabled"
                         class="h-10"
                         :class="invalid ? 'border-border-danger' : ''"
@@ -128,7 +184,7 @@
                 </div>
             </div>
         </div>
-        <div class="flex h-16 w-9 shrink-0 flex-col items-center gap-1">
+        <div class="flex shrink-0 items-center gap-1">
             <Switch
                 :data-testid="`search-provider-toggle-${id}`"
                 :aria-label="label"
@@ -136,7 +192,7 @@
                 :disabled="disabled"
                 @update:model-value="emit('enabled', $event)"
             />
-            <div class="flex h-10 items-center justify-center">
+            <div class="flex items-center justify-center">
                 <Button
                     v-if="editable"
                     variant="ghost"

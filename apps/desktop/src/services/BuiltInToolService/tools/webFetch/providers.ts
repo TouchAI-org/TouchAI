@@ -125,7 +125,7 @@ async function fetchExa(
             'Exa Fetch needs an API key. The keyless MCP endpoint only supports search.'
         );
     }
-    const root = rootOf(config.endpoint, 'https://api.exa.ai');
+    const root = rootOf(config.endpoint, 'https://api.exa.ai').replace(/\/search$/, '');
     const response = await tauriFetch(`${root}/contents`, {
         method: 'POST',
         headers: { 'x-api-key': config.apiKey.trim(), 'Content-Type': 'application/json' },
@@ -154,7 +154,8 @@ async function fetchTavily(
     signal: AbortSignal
 ): Promise<ProviderFetchPayload> {
     const apiKey = config.apiKey.trim();
-    const response = await tauriFetch('https://api.tavily.com/extract', {
+    const root = rootOf(config.endpoint, 'https://api.tavily.com').replace(/\/search$/, '');
+    const response = await tauriFetch(`${root}/extract`, {
         method: 'POST',
         headers: {
             ...(apiKey

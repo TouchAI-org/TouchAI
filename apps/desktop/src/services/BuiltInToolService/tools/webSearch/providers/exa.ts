@@ -2,6 +2,7 @@ import type { WebSearchRequest, WebSearchResult } from '../helper';
 import {
     nativeSearchOptions,
     preserveSearchExtras,
+    providerEndpointUrl,
     queryWithDomains,
     readResultItems,
     recencyStartDate,
@@ -12,7 +13,7 @@ import {
 import { createSearchProviderAdapter } from './define';
 import type { WebSearchFetchText } from './types';
 
-const EXA_SEARCH_URL = 'https://api.exa.ai/search';
+const EXA_API_ROOT = 'https://api.exa.ai';
 /** Exa 的公开 MCP 端点，支持匿名调用（无 key）。 */
 const EXA_MCP_URL = 'https://mcp.exa.ai/mcp';
 
@@ -184,14 +185,18 @@ export const exaAdapter = createSearchProviderAdapter({
         }
         Object.assign(body, nativeSearchOptions(request, 'exa'), { stream: false });
 
-        const payload = await fetchJson(new URL(EXA_SEARCH_URL), signal, {
-            method: 'POST',
-            headers: {
-                'x-api-key': apiKey,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(body),
-        });
+        const payload = await fetchJson(
+            providerEndpointUrl(settings.providers.exa.endpoint, EXA_API_ROOT, '/search'),
+            signal,
+            {
+                method: 'POST',
+                headers: {
+                    'x-api-key': apiKey,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(body),
+            }
+        );
         return preserveSearchExtras(
             readResultItems(payload)
                 .map((item) => resultFromGenericItem(item, 'Exa'))

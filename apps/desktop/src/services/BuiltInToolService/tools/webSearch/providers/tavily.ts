@@ -2,6 +2,7 @@ import type { WebSearchResult } from '../helper';
 import {
     nativeSearchOptions,
     preserveSearchExtras,
+    providerEndpointUrl,
     readResultItems,
     recencyStartDate,
     resultFromGenericItem,
@@ -40,16 +41,24 @@ export const tavilyAdapter = createSearchProviderAdapter({
         }
         Object.assign(body, nativeSearchOptions(request, 'tavily'));
 
-        const payload = await fetchJson(new URL('https://api.tavily.com/search'), signal, {
-            method: 'POST',
-            headers: {
-                ...(apiKey
-                    ? { Authorization: `Bearer ${apiKey}` }
-                    : { 'x-tavily-access-mode': 'keyless' }),
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(body),
-        });
+        const payload = await fetchJson(
+            providerEndpointUrl(
+                settings.providers.tavily.endpoint,
+                'https://api.tavily.com',
+                '/search'
+            ),
+            signal,
+            {
+                method: 'POST',
+                headers: {
+                    ...(apiKey
+                        ? { Authorization: `Bearer ${apiKey}` }
+                        : { 'x-tavily-access-mode': 'keyless' }),
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(body),
+            }
+        );
         return preserveSearchExtras(
             readResultItems(payload)
                 .map((item) => resultFromGenericItem(item, 'Tavily'))

@@ -4,6 +4,15 @@ import { normalizeOptionalString } from '@/utils/text';
 
 import type { WebSearchRequest, WebSearchResult } from '../helper';
 
+export function providerEndpointUrl(
+    endpoint: string | null | undefined,
+    fallback: string,
+    path: string
+): URL {
+    const root = (endpoint ?? '').trim().replace(/\/+$/, '') || fallback;
+    return new URL(root.endsWith(path) ? root : `${root}${path}`);
+}
+
 export function resultLimit(request: WebSearchRequest, maximum = request.maxResults): number {
     return Math.max(1, Math.min(maximum, request.maxResults));
 }
