@@ -80,8 +80,8 @@
     <article
         data-testid="search-provider-row"
         :data-provider="id"
-        class="min-w-0 rounded-card border border-border-subtle bg-surface-floating"
-        :class="editing ? 'p-4' : 'px-3.5 py-3'"
+        class="relative h-18 min-w-0 rounded-card border border-border-subtle bg-surface-floating"
+        :class="editing ? 'z-30' : ''"
     >
         <Transition name="provider-slide" mode="out-in">
             <div
@@ -155,7 +155,7 @@
                     </Button>
                 </div>
             </div>
-            <div v-else key="display" class="flex min-w-0 items-center gap-3">
+            <div v-else key="display" class="flex h-full min-w-0 items-center gap-3 px-3.5">
                 <span class="flex size-9 shrink-0 items-center justify-center overflow-hidden">
                     <img :src="logo" alt="" class="size-full object-contain" />
                 </span>
