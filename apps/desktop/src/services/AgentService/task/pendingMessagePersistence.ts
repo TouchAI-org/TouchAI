@@ -93,7 +93,6 @@ async function snapshotAttachments(
         attachments.map((attachment) => ensurePersistedAttachmentIndex(attachment))
     );
     const persisted: PendingAttachmentPayload[] = [];
-    const seen = new Set<string>();
 
     for (const [index, result] of results.entries()) {
         const attachment = attachments[index];
@@ -106,10 +105,6 @@ async function snapshotAttachments(
         if (!attachment.hash) {
             throw new Error('A queued attachment has no persisted content hash');
         }
-        if (seen.has(attachment.hash)) {
-            continue;
-        }
-        seen.add(attachment.hash);
         persisted.push({
             hash: attachment.hash,
             originPath: attachment.originPath,

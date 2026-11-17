@@ -198,6 +198,49 @@ describe('when the app restarts with durable pending messages', () => {
         ]);
     });
 
+    it('user restarts with the same image pasted twice and sends both references in their original positions', async () => {
+        database
+            .prepare(
+                `INSERT INTO attachments (id, hash, type, original_name, origin_path, mime_type)
+            VALUES (1, 'shared-image', 'image', 'photo.png', '/test/photo.png', 'image/png')`
+            )
+            .run();
+        mockTauriCommand('get_app_directory_path', '/test/cache');
+        mockTauriCommand('plugin:path|join', (payload: unknown) =>
+            (payload as { paths: string[] }).paths.join('/')
+        );
+        mockTauriCommand('plugin:fs|mkdir', undefined);
+        const persistence = new PendingMessagePersistence();
+        persistence.enqueue(
+            1,
+            queuedMessage('repeated-image', 'Before between after', {
+                attachments: [6, 14].map((offset) => ({
+                    id: `image-${offset}`,
+                    attachmentId: 1,
+                    hash: 'shared-image',
+                    type: 'image',
+                    name: 'photo.png',
+                    originPath: '/test/photo.png',
+                    path: '/test/cache/photo.png',
+                    draftInsertionOffset: offset,
+                })),
+            })
+        );
+        await persistence.flush(1);
+
+        const restored = (await new PendingMessagePersistence().load(1))[0]!;
+
+        expect(
+            buildPromptAttachmentSlots(restored.prompt, restored.attachments).map((slot) =>
+                slot.type === 'text' ? slot.text : `<${slot.attachment.hash}>`
+            )
+        ).toEqual(['Before', '<shared-image>', ' between', '<shared-image>', ' after']);
+        expect(restored.attachments[0]?.id).not.toBe(restored.attachments[1]?.id);
+        expect(
+            restored.inputSnapshot?.attachments.map((attachment) => attachment.draftInsertionOffset)
+        ).toEqual([6, 14]);
+    });
+
     it('user gets the whole queue removed when they clear it', async () => {
         const persistence = new PendingMessagePersistence();
         persistence.enqueue(1, queuedMessage('pending-1', 'first'));

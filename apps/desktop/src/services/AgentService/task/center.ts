@@ -1282,11 +1282,23 @@ export class SessionTaskCenter {
         providerId: number | null
     ): boolean {
         const task = this.tasks.get(taskId);
-        if (!task || task.snapshot.pendingUserMessages.length === 0) {
+        if (!task) {
             return false;
         }
+        if (isTerminalStatus(task.snapshot.status) && task.sessionId !== null) {
+            const activeTaskId = this.sessionActiveTaskIndex.get(task.sessionId);
+            if (activeTaskId && activeTaskId !== taskId) {
+                return this.updateTaskUserMessageModel(activeTaskId, modelId, providerId);
+            }
+        }
 
-        task.snapshot.pendingUserMessages = task.snapshot.pendingUserMessages.map((message) =>
+        const sessionQueue =
+            task.sessionId === null ? undefined : this.sessionPendingQueues.get(task.sessionId);
+        const pendingUserMessages = sessionQueue ?? task.snapshot.pendingUserMessages;
+        if (pendingUserMessages.length === 0) {
+            return false;
+        }
+        const next = pendingUserMessages.map((message) =>
             task.claimedPriorityMessageIds.has(message.id)
                 ? message
                 : {
@@ -1298,7 +1310,13 @@ export class SessionTaskCenter {
         if (task.sessionId !== null) {
             this.pendingMessagePersistence.updateModel(task.sessionId, modelId, providerId);
         }
-        this.notifySubscribers(taskId);
+        if (sessionQueue && task.sessionId !== null) {
+            this.sessionPendingQueues.set(task.sessionId, next);
+            this.syncSessionQueueSnapshot(task.sessionId, next);
+        } else {
+            task.snapshot.pendingUserMessages = next;
+            this.notifySubscribers(taskId);
+        }
         return true;
     }
 

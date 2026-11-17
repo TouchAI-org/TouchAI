@@ -898,6 +898,46 @@ describe('user cancels a run with pending messages', () => {
         expect(pendingMessageStore.reorder).toHaveBeenCalledWith(21, [queued!.id]);
     });
 
+    it('user changes models after a failed run and sends the retained queue with the new selection', async () => {
+        runtimeState.run.mockImplementation(staysRunningInSession(1));
+        const center = createCenter();
+        try {
+            const started = await center.startTask({ prompt: 'Active', sessionId: 1 });
+            const first = center.enqueueTaskUserMessage(
+                started.taskId,
+                { prompt: 'First', modelId: 'old-model', providerId: 1 },
+                'queue'
+            )!;
+            const second = center.enqueueTaskUserMessage(
+                started.taskId,
+                { prompt: 'Second', modelId: 'old-model', providerId: 1 },
+                'queue'
+            )!;
+            latestOptions().onTurnEvent?.({
+                type: 'task_failed',
+                taskId: started.taskId,
+                turnId: 1,
+                error: 'Connection failed',
+            });
+
+            expect(center.updateTaskUserMessageModel(started.taskId, 'new-model', 2)).toBe(true);
+            expect(center.promoteSessionUserMessage(1, first.id)).toBe(true);
+
+            await vi.waitFor(() => expect(latestOptions().prompt).toBe('First'));
+            expect(latestOptions()).toMatchObject({ modelId: 'new-model', providerId: 2 });
+            const next = center.getSessionStatus(1)!;
+            expect(center.getTaskSnapshot(next.taskId)?.pendingUserMessages).toEqual([
+                expect.objectContaining({
+                    id: second.id,
+                    modelId: 'new-model',
+                    providerId: 2,
+                }),
+            ]);
+        } finally {
+            center.dispose();
+        }
+    });
+
     it('user keeps the queued messages and the next one starts after cancellation', async () => {
         runtimeState.run
             .mockImplementationOnce(() => {
@@ -1065,6 +1105,48 @@ describe('user returns to a session with a durable queue', () => {
 });
 
 describe('user submits while a finished run hands over to its queue', () => {
+    it('user changes models during handover and the current owner updates the remaining queue', async () => {
+        runtimeState.run
+            .mockImplementationOnce(finishableRun(23))
+            .mockImplementationOnce(finishableRun(23))
+            .mockImplementation(staysRunningInSession(23));
+        const center = createCenter();
+        let releaseHistory!: (history: never[]) => void;
+        try {
+            const first = await center.startTask({ prompt: 'First', sessionId: 23 });
+            center.enqueueTaskUserMessage(first.taskId, { prompt: 'Second' }, 'queue');
+            const remaining = center.enqueueTaskUserMessage(
+                first.taskId,
+                { prompt: 'Third', modelId: 'old-model', providerId: 1 },
+                'queue'
+            )!;
+            historyState.loadSessionHistory.mockImplementationOnce(
+                () =>
+                    new Promise<never[]>((resolve) => {
+                        releaseHistory = resolve;
+                    })
+            );
+            finishCurrentTask!();
+            await first.completion;
+            await vi.waitFor(() => expect(releaseHistory).toBeTypeOf('function'));
+
+            expect(center.updateTaskUserMessageModel(first.taskId, 'new-model', 2)).toBe(true);
+
+            releaseHistory([]);
+            await vi.waitFor(() => expect(latestOptions().prompt).toBe('Second'));
+            finishCurrentTask!();
+            await vi.waitFor(() => expect(latestOptions().prompt).toBe('Third'));
+            expect(latestOptions()).toMatchObject({
+                pendingMessageId: remaining.id,
+                modelId: 'new-model',
+                providerId: 2,
+            });
+        } finally {
+            releaseHistory?.([]);
+            center.dispose();
+        }
+    });
+
     it('user saves an edit during history loading and the new owner sends the saved text', async () => {
         runtimeState.run
             .mockImplementationOnce(finishableRun(23))
