@@ -41,7 +41,7 @@
     import qianfanLogo from '@/assets/logos/providers/qianfan.svg';
     import searxngLogo from '@/assets/logos/providers/searxng.svg';
     import scholarLogo from '@/assets/logos/providers/semantic-scholar.png';
-    import serperLogo from '@/assets/logos/providers/serper.svg';
+    import serperLogo from '@/assets/logos/providers/serper.png';
     import tavilyLogo from '@/assets/logos/providers/tavily.svg';
     import tinyfishLogo from '@/assets/logos/providers/tinyfish.svg';
     import wikipediaLogo from '@/assets/logos/providers/wikipedia.png';
@@ -351,18 +351,6 @@
         }))
     );
 
-    const priorityExpanded = ref(false);
-
-    watch(
-        () => draft.value.routingStrategy,
-        (strategy) => {
-            if (strategy === 'priority' || strategy === 'parallel') {
-                priorityExpanded.value = true;
-            }
-        },
-        { immediate: true }
-    );
-
     const strategyDescription = computed(() =>
         t(strategyMessages[draft.value.routingStrategy].description)
     );
@@ -378,6 +366,18 @@
         t(fetchStrategyMessages[draft.value.fetchStrategy].description)
     );
 
+    const priorityRows = computed<SearchProviderId[]>({
+        get: () => draft.value.providerPriority.filter((id) => providerConfig(id).enabled),
+        set: (next) => {
+            const keep = draft.value.providerPriority.filter((id) => !next.includes(id));
+            draft.value.providerPriority = [...next, ...keep];
+        },
+    });
+
+    const disabledPriorityCount = computed(
+        () => draft.value.providerPriority.filter((id) => !providerConfig(id).enabled).length
+    );
+
     const routeRows = computed(() =>
         SEARCH_ROUTE_INTENTS.map((intent) => ({
             intent,
@@ -388,16 +388,11 @@
 
     const advancedRows = computed<
         Array<{
-            key: 'parallelProviders' | 'fallbackEnabled' | 'preferOfficialSources';
+            key: 'fallbackEnabled' | 'preferOfficialSources';
             label: string;
             description: string;
         }>
     >(() => [
-        {
-            key: 'parallelProviders',
-            label: t('settings.search.parallelProviders'),
-            description: t('settings.search.parallelProviders.description'),
-        },
         {
             key: 'fallbackEnabled',
             label: t('settings.search.fallbackEnabled'),
@@ -736,7 +731,7 @@
                             />
                         </SettingsRow>
                         <SettingsRow
-                            v-if="draft.routingStrategy === 'parallel' || draft.parallelProviders"
+                            v-if="draft.routingStrategy === 'parallel'"
                             control-width="320"
                             :label="t('settings.search.parallelProviderCount')"
                             :description="t('settings.search.parallelProviderCount.description')"
@@ -840,11 +835,7 @@
                 </section>
 
                 <section
-                    v-if="
-                        draft.fallbackEnabled ||
-                        draft.parallelProviders ||
-                        ['priority', 'parallel'].includes(draft.routingStrategy)
-                    "
+                    v-if="['priority', 'parallel'].includes(draft.routingStrategy)"
                     class="mt-10 space-y-4"
                     data-settings-search-target="search-priority"
                 >
@@ -857,24 +848,16 @@
                                 {{ t('settings.search.priority.hint') }}
                             </p>
                         </div>
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            :aria-expanded="priorityExpanded"
-                            @click="priorityExpanded = !priorityExpanded"
-                        >
-                            {{
-                                t(
-                                    priorityExpanded
-                                        ? 'settings.search.priority.collapse'
-                                        : 'settings.search.priority.expand'
-                                )
-                            }}
-                        </Button>
                     </div>
+                    <p v-if="disabledPriorityCount > 0" class="text-caption text-text-tertiary">
+                        {{
+                            t('settings.search.priority.disabledHint', {
+                                count: disabledPriorityCount,
+                            })
+                        }}
+                    </p>
                     <VueDraggable
-                        v-if="priorityExpanded"
-                        v-model="draft.providerPriority"
+                        v-model="priorityRows"
                         tag="ol"
                         data-testid="search-provider-priority"
                         class="max-h-96 overflow-x-hidden overflow-y-auto rounded-card border border-border-subtle bg-surface-floating"
@@ -885,7 +868,7 @@
                         ghost-class="opacity-40"
                     >
                         <li
-                            v-for="(providerId, index) in draft.providerPriority"
+                            v-for="(providerId, index) in priorityRows"
                             :key="providerId"
                             :data-provider="providerId"
                             class="flex items-center gap-3 border-b border-border-subtle px-3 py-2.5 last:border-b-0"
@@ -894,7 +877,7 @@
                             <button
                                 type="button"
                                 class="inline-flex size-6 shrink-0 cursor-grab items-center justify-center rounded-md text-text-tertiary transition-colors hover:bg-surface-hover hover:text-text-secondary active:cursor-grabbing disabled:cursor-default"
-                                :disabled="!toolEnabled || draft.providerPriority.length < 2"
+                                :disabled="!toolEnabled || priorityRows.length < 2"
                                 :aria-label="
                                     t('settings.search.priority.drag', {
                                         name: t(providerMessages[providerId].label),
@@ -918,16 +901,10 @@
                                 v-if="providerLogos[providerId]"
                                 :src="providerLogos[providerId]"
                                 alt=""
-                                class="size-6 shrink-0 object-contain"
+                                class="size-5 shrink-0 object-contain"
                             />
                             <span class="min-w-0 flex-1 truncate text-compact text-settings-text">
                                 {{ t(providerMessages[providerId].label) }}
-                            </span>
-                            <span
-                                v-if="!providerConfig(providerId).enabled"
-                                class="shrink-0 rounded-full bg-surface-sunken px-1.5 text-2xs leading-5 text-text-tertiary"
-                            >
-                                {{ t('settings.search.priority.disabled') }}
                             </span>
                             <Button
                                 variant="ghost"

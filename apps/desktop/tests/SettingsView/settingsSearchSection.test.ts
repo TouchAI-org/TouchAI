@@ -208,7 +208,7 @@ describe('user edits the search settings', () => {
         await strategy.setValue('priority');
         await nextTick();
         const priority = wrapper.get('[data-testid="search-provider-priority"]');
-        await wrapper.get('[data-testid="search-priority-top-keenable"]').trigger('click');
+        await wrapper.get('[data-testid="search-priority-top-tavily"]').trigger('click');
         await strategy.setValue('parallel');
         await wrapper.get('[data-testid="search-parallel-count-input"]').setValue('6');
         await vi.advanceTimersByTimeAsync(300);
@@ -220,7 +220,7 @@ describe('user edits the search settings', () => {
                 sourceRoutes: expect.objectContaining({ academic: 'exa' }),
             })
         );
-        expect(priority.findAll('li')[0]!.attributes('data-provider')).toBe('keenable');
+        expect(priority.findAll('li')[0]!.attributes('data-provider')).toBe('tavily');
         wrapper.unmount();
     });
 
