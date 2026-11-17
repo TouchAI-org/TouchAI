@@ -535,7 +535,7 @@
     },
     "src/views/SettingsView/components/Search/index.vue": {
         "vue/no-restricted-class": {
-            "count": 14
+            "count": 6
         }
     },
     "src/views/SettingsView/components/SectionTabs.vue": {

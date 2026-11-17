@@ -31,16 +31,13 @@ import {
     type WebSearchRequest,
     type WebSearchResult,
 } from './helper';
-import {
-    getAvailableSearchProviders,
-    getSearchProviderAdapter,
-    isConfiguredSearchProvider,
-} from './providers/adapters';
+import { getAvailableSearchProviders, getSearchProviderAdapter } from './providers/adapters';
 import {
     type WebSearchFetchJson,
     type WebSearchFetchText,
     WebSearchHttpError,
 } from './providers/types';
+import { fuseSearchResults, resolveSearchProviders } from './routing';
 import { webSearchHostname, type WebSearchSourcesPayload } from './sources';
 
 const tauriFetch = createTauriFetch();
@@ -133,7 +130,7 @@ function buildSearchStructuredPayload(
             title: result.title,
             url: result.url,
             snippet: result.snippet,
-            siteName: resolveSourceSiteName(result, provider),
+            siteName: resolveSourceSiteName(result, result.provider ?? provider),
             favicon: result.favicon,
             publishedAt: result.publishedAt,
             score: result.score,
@@ -221,48 +218,109 @@ async function loadSearchSettings(): Promise<SearchSettingsConfig> {
     return parseSearchSettingsConfig(typeof value === 'string' ? value : null);
 }
 
-function routeProviderForSettings(
+function isRetryableProviderError(error: unknown): boolean {
+    if (error instanceof DOMException && error.name === 'TimeoutError') return true;
+    if (error instanceof WebSearchHttpError) {
+        return error.status === 408 || error.status === 429 || error.status >= 500;
+    }
+    return error instanceof TypeError;
+}
+
+interface SearchPlanResult {
+    provider: SearchProviderId;
+    providers: SearchProviderId[];
+    attempted: SearchProviderId[];
+    results: WebSearchResult[];
+}
+
+async function runSearchPlan(
     request: WebSearchRequest,
-    settings: SearchSettingsConfig
-): SearchProviderId {
-    if (request.intent && settings.intentRoutes[request.intent]) {
-        const routedProvider = settings.intentRoutes[request.intent];
-        if (routedProvider !== 'auto') {
-            return routedProvider;
+    settings: SearchSettingsConfig,
+    signal: AbortSignal
+): Promise<SearchPlanResult> {
+    const plan = resolveSearchProviders(request, settings);
+    if (plan.length === 0) {
+        throw new Error('No enabled search provider is configured.');
+    }
+
+    signal.throwIfAborted();
+    const attempted: SearchProviderId[] = [];
+    if (
+        request.provider === 'auto' &&
+        (settings.routingStrategy === 'parallel' ||
+            (settings.parallelProviders && request.mode === 'deep')) &&
+        plan.length > 1
+    ) {
+        const providers = plan.slice(0, settings.parallelProviderCount);
+        attempted.push(...providers);
+        const settled = await Promise.allSettled(
+            providers.map(async (provider) => ({
+                provider,
+                results: await runSearchProvider(request, settings, signal, provider),
+            }))
+        );
+        signal.throwIfAborted();
+        const usable = settled
+            .filter(
+                (
+                    entry
+                ): entry is PromiseFulfilledResult<{
+                    provider: SearchProviderId;
+                    results: WebSearchResult[];
+                }> => entry.status === 'fulfilled' && entry.value.results.length > 0
+            )
+            .map((entry) => entry.value);
+        if (usable.length > 0) {
+            return {
+                provider: usable[0]!.provider,
+                providers: usable.map((entry) => entry.provider),
+                attempted,
+                results: fuseSearchResults(usable, request.maxResults),
+            };
+        }
+        if (!settings.fallbackEnabled || providers.length === plan.length) {
+            const failure = settled.find((entry) => entry.status === 'rejected');
+            if (failure && failure.status === 'rejected') {
+                throw failure.reason;
+            }
+            return { provider: providers[0]!, providers: [], attempted, results: [] };
         }
     }
 
-    return settings.defaultProvider;
-}
-
-function resolveExecutableSearchProvider(
-    request: WebSearchRequest,
-    settings: SearchSettingsConfig
-): SearchProviderId {
-    const availableProviders = getAvailableSearchProviders(settings).filter(
-        (provider) => provider !== 'auto'
-    );
-    const provider =
-        request.provider !== 'auto'
-            ? request.provider
-            : routeProviderForSettings(request, settings);
-    if (getSearchProviderAdapter(provider) && isConfiguredSearchProvider(provider, settings)) {
-        return provider;
+    const candidates =
+        settings.fallbackEnabled && request.provider === 'auto' ? plan : plan.slice(0, 1);
+    let lastError: unknown;
+    let hadEmptyResult = false;
+    let attemptedProvider = candidates[0]!;
+    for (const provider of candidates) {
+        if (attempted.includes(provider)) continue;
+        signal.throwIfAborted();
+        attempted.push(provider);
+        attemptedProvider = provider;
+        try {
+            // Empty results advance only when the user enabled automatic fallback.
+            const results = await runSearchProvider(request, settings, signal, provider);
+            if (results.length > 0 || !settings.fallbackEnabled || request.provider !== 'auto') {
+                return { provider, providers: [provider], attempted, results };
+            }
+            hadEmptyResult = true;
+        } catch (error) {
+            lastError = error;
+            if (signal.aborted) throw signal.reason;
+            if (!isRetryableProviderError(error)) {
+                break;
+            }
+        }
     }
-
-    if (availableProviders.includes('anysearch')) {
-        return 'anysearch';
+    if (lastError && !hadEmptyResult) {
+        const failure =
+            lastError instanceof Error || lastError instanceof DOMException
+                ? lastError
+                : new Error(String(lastError));
+        Object.assign(failure, { failedProvider: attemptedProvider });
+        throw failure;
     }
-
-    if (request.intent === 'academic' && availableProviders.includes('openalex')) {
-        return 'openalex';
-    }
-
-    if (request.intent === 'technical' && availableProviders.includes('github')) {
-        return 'github';
-    }
-
-    return availableProviders[0] ?? 'auto';
+    return { provider: candidates[0]!, providers: [], attempted, results: [] };
 }
 
 async function runSearchProvider(
@@ -276,7 +334,24 @@ async function runSearchProvider(
         throw new Error('No enabled search provider is configured.');
     }
 
-    return adapter.search({ request, settings, signal, fetchJson, fetchText });
+    const attempt = createSearchSignal(signal, request.timeoutMs);
+    try {
+        attempt.signal.throwIfAborted();
+        const results = await adapter.search({
+            request,
+            settings,
+            signal: attempt.signal,
+            fetchJson,
+            fetchText,
+        });
+        attempt.signal.throwIfAborted();
+        return results.map((result) => ({ ...result, provider }));
+    } catch (error) {
+        if (attempt.signal.aborted) throw attempt.signal.reason;
+        throw error;
+    } finally {
+        attempt.cleanup();
+    }
 }
 
 function applySearchSettingsDefaults(
@@ -305,14 +380,24 @@ export async function executeWebSearchTool(
     void config;
     const searchSettings = await loadSearchSettings();
     const request = applySearchSettingsDefaults(args, parseWebSearchRequest(args), searchSettings);
-    const provider = resolveExecutableSearchProvider(request, searchSettings);
-    const { signal, cleanup } = createSearchSignal(context.signal, request.timeoutMs);
+    const signal = context.signal ?? new AbortController().signal;
+    let provider: SearchProviderId = 'auto';
 
     try {
-        const results = await runSearchProvider(request, searchSettings, signal, provider);
+        const planResult = await runSearchPlan(request, searchSettings, signal);
+        provider = planResult.provider;
+        const results = planResult.results;
         const limitedResults = results.slice(0, request.maxResults);
         return {
-            result: formatWebSearchResults(request, limitedResults),
+            result: [
+                `Providers: ${planResult.providers.join(', ') || provider}`,
+                `Strategy: ${searchSettings.routingStrategy}`,
+                ...(planResult.attempted.length > planResult.providers.length &&
+                planResult.attempted.length > 1
+                    ? [`Fallback attempts: ${planResult.attempted.join(' → ')}`]
+                    : []),
+                formatWebSearchResults(request, limitedResults),
+            ].join('\n'),
             isError: false,
             status: 'success',
             conversationSemantic: buildSearchSemanticForResults(args, provider),
@@ -322,6 +407,8 @@ export async function executeWebSearchTool(
             },
         };
     } catch (error) {
+        const failedProvider =
+            (error as { failedProvider?: SearchProviderId }).failedProvider ?? provider;
         const errorMessage = error instanceof Error ? error.message : String(error);
         return {
             result: `Web search failed\nQuery: ${request.query}\nReason: ${errorMessage}`,
@@ -331,10 +418,8 @@ export async function executeWebSearchTool(
                     ? 'timeout'
                     : 'error',
             errorMessage,
-            conversationSemantic: buildSearchSemanticForResults(args, provider),
+            conversationSemantic: buildSearchSemanticForResults(args, failedProvider),
         };
-    } finally {
-        cleanup();
     }
 }
 
@@ -350,7 +435,7 @@ class WebSearchTool extends BuiltInTool<Record<string, never>> {
         const providers = getAvailableSearchProviders(settings);
         return {
             name: namespacedName,
-            description: buildWebSearchToolDescription(providers),
+            description: buildWebSearchToolDescription(providers, settings.routingStrategy),
             input_schema: buildWebSearchToolInputSchema(providers),
         };
     }

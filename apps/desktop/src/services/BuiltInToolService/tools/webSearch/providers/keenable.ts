@@ -1,7 +1,7 @@
 import { normalizeOptionalString } from '@/utils/text';
 
 import type { WebSearchRequest, WebSearchResult } from '../helper';
-import { resultLimit } from './common';
+import { nativeSearchOptions, preserveSearchExtras, resultDetails, resultLimit } from './common';
 import { createSearchProviderAdapter } from './define';
 import { WebSearchHttpError } from './types';
 
@@ -10,9 +10,6 @@ const KEENABLE_API_ROOT = 'https://api.keenable.ai';
 /** 无 Key 调用必须声明调用方名称，否则接口返回 400 `Missing app identifier`。 */
 export const KEENABLE_APP_TITLE = 'TouchAI';
 
-/** 多个站点只能写进 query（`site:a OR site:b`）；`site` 参数只接受一个主机。 */
-const KEENABLE_MAX_SITE_OPERATORS = 5;
-
 export function buildKeenableSearchUrl(endpoint: string | null | undefined, keyed: boolean): URL {
     const trimmed = (endpoint ?? '').trim().replace(/\/+$/, '');
     const root = trimmed || KEENABLE_API_ROOT;
@@ -20,10 +17,7 @@ export function buildKeenableSearchUrl(endpoint: string | null | undefined, keye
 }
 
 export function buildKeenableQuery(request: WebSearchRequest): string {
-    const domains = request.domains
-        .map((domain) => domain.trim())
-        .filter(Boolean)
-        .slice(0, KEENABLE_MAX_SITE_OPERATORS);
+    const domains = request.domains.map((domain) => domain.trim()).filter(Boolean);
     if (domains.length < 2) {
         return request.query;
     }
@@ -50,6 +44,7 @@ export function toKeenableResult(item: unknown): WebSearchResult | null {
             normalizeOptionalString(record.snippet) ?? normalizeOptionalString(record.description),
         source: 'Keenable',
         publishedAt: normalizeOptionalString(record.published_at),
+        details: resultDetails(record, ['acquired_at']),
     };
 }
 
@@ -65,10 +60,13 @@ export function describeKeenableFailure(error: unknown): Error {
     if (error instanceof WebSearchHttpError) {
         const hint = KEENABLE_FAILURE_HINTS[error.status];
         if (hint) {
-            return new Error(`${hint} (${error.message})`);
+            error.message = `${hint} (${error.message})`;
+            return error;
         }
     }
-    return error instanceof Error ? error : new Error(String(error));
+    return error instanceof Error || error instanceof DOMException
+        ? error
+        : new Error(String(error));
 }
 
 /**
@@ -84,17 +82,20 @@ export const keenableAdapter = createSearchProviderAdapter({
         const singleDomain = request.domains.length === 1 ? request.domains[0]?.trim() : '';
         const body: Record<string, unknown> = {
             query: buildKeenableQuery(request),
-            max_results: resultLimit(request),
-            snippet_max_length: 400,
-            mode: request.intent === 'news' ? 'realtime' : 'pro',
+            max_results: resultLimit(request, 50),
+            mode: request.mode === 'fast' ? 'realtime' : 'pro',
         };
         if (singleDomain) {
             body.site = singleDomain;
+        }
+        if (request.excludeDomains.length > 0) {
+            body.exclude_domains = request.excludeDomains;
         }
         if (request.recencyDays !== undefined) {
             // Keenable 接受 `7d` 这样的相对时间，本身避免时区换算出错。
             body.published_after = `${request.recencyDays}d`;
         }
+        Object.assign(body, nativeSearchOptions(request, 'keenable'));
 
         const payload = await fetchJson(url, signal, {
             method: 'POST',
@@ -113,8 +114,11 @@ export const keenableAdapter = createSearchProviderAdapter({
             Array.isArray((payload as { results?: unknown }).results)
                 ? (payload as { results: unknown[] }).results
                 : [];
-        return results
-            .map(toKeenableResult)
-            .filter((result): result is WebSearchResult => Boolean(result));
+        return preserveSearchExtras(
+            results
+                .map(toKeenableResult)
+                .filter((result): result is WebSearchResult => Boolean(result)),
+            payload
+        );
     },
 });

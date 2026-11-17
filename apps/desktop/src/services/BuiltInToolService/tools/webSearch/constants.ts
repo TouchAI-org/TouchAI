@@ -1,14 +1,15 @@
 import {
     SEARCH_PROVIDER_METADATA,
     SEARCH_ROUTE_INTENTS,
+    SEARCH_SOURCES,
     type SearchProviderId,
     type SearchRouteIntent,
+    type SearchRoutingStrategy,
 } from '@services/SettingsService/domain';
 
 import type { AiToolDefinition } from '@/services/AgentService/contracts/tooling';
 
 import {
-    integerInRangeSchema,
     nonEmptyTrimmedStringSchema,
     optionalIntegerInRangeSchema,
     optionalTrimmedStringSchema,
@@ -34,6 +35,10 @@ export const WEB_SEARCH_PROVIDERS = [
     'zhihu',
     'yuanbao',
     'grok',
+    'doubao',
+    'qianfan',
+    'tinyfish',
+    'serper',
 ] as const satisfies readonly SearchProviderId[];
 
 export type WebSearchIntent = SearchRouteIntent;
@@ -53,18 +58,22 @@ export const webSearchArgsSchema = z.object({
     query: nonEmptyTrimmedStringSchema,
     provider: z.enum(WEB_SEARCH_PROVIDERS).optional(),
     intent: z.enum(WEB_SEARCH_INTENTS).optional(),
+    source: z.enum(SEARCH_SOURCES).optional(),
+    language: z.enum(['any', 'zh', 'en']).optional(),
+    mode: z.enum(['fast', 'balanced', 'deep']).optional(),
     domains: z.array(nonEmptyTrimmedStringSchema).optional(),
+    excludeDomains: z.array(nonEmptyTrimmedStringSchema).optional(),
     recencyDays: optionalIntegerInRangeSchema(1, 3650),
-    maxResults: integerInRangeSchema(1, 10).optional(),
-    timeoutMs: optionalIntegerInRangeSchema(1_000, 60_000),
+    maxResults: z.number().int().min(1).optional(),
+    timeoutMs: optionalIntegerInRangeSchema(1_000, 300_000),
     description: optionalTrimmedStringSchema,
     includeContent: z.boolean().optional(),
+    providerOptions: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
 });
 
 export const WEB_SEARCH_TOOL_DESCRIPTION = [
-    'Search for candidate web sources through one consolidated research entry point.',
-    'Use this for discovery only; use web_fetch to read specific URLs and browser for rendered or interactive pages.',
-    'For general research, use anysearch by default; auto follows user settings and normally resolves to anysearch. Choose a specialized provider only when one source type is clearly best: github for repositories/releases/issues, openalex or semantic_scholar for papers, wikipedia for encyclopedic background, searxng for a configured metasearch instance, deepseek for Chinese or long-tail web content, keenable for an independent index with clean page text, zhihu for first-hand Chinese discussion and experience, yuanbao for Tencent ecosystem and Chinese news, and grok for real-time web and X discussion.',
+    'Discover web sources, optionally with page content. Use web_fetch for specific URLs and browser for interactive pages.',
+    'Choose source for the kind of evidence needed, or provider to use one specific enabled engine. Explicit provider runs only that engine; auto follows the user strategy. Use providerOptions[provider] for documented native search parameters, including pagination, categories, content extraction and search tools. Options stay with their named engine during fallback or fusion.',
 ].join(' ');
 
 function providerRecommendations(providers: readonly WebSearchProvider[]): string {
@@ -74,10 +83,12 @@ function providerRecommendations(providers: readonly WebSearchProvider[]): strin
 }
 
 export function buildWebSearchToolDescription(
-    providers: readonly WebSearchProvider[] = WEB_SEARCH_PROVIDERS
+    providers: readonly WebSearchProvider[] = WEB_SEARCH_PROVIDERS,
+    strategy: SearchRoutingStrategy = 'capability'
 ): string {
     return [
         WEB_SEARCH_TOOL_DESCRIPTION,
+        `User selection strategy: ${strategy}. ${strategy === 'model' ? 'Select a concrete provider based on its strengths; auto uses the configured default.' : 'Prefer provider=auto and source to respect this strategy; set a concrete provider only when a particular engine is needed.'}`,
         `Currently available providers: ${providers.join(', ')}.`,
         `Provider guidance: ${providerRecommendations(providers)}`,
     ].join(' ');
@@ -98,16 +109,38 @@ export function buildWebSearchToolInputSchema(
                 enum: [...providers],
                 description: `Optional search provider. Choose deliberately from the currently available list. ${providerRecommendations(providers)}`,
             },
+            source: {
+                type: 'string',
+                enum: [...SEARCH_SOURCES],
+                description:
+                    'The kind of source you need. Prefer this over provider when you know the source type but not the engine.',
+            },
+            language: {
+                type: 'string',
+                enum: ['any', 'zh', 'en'],
+                description: 'Source language preference. zh favors Chinese-native engines.',
+            },
+            mode: {
+                type: 'string',
+                enum: ['fast', 'balanced', 'deep'],
+                description:
+                    'Native speed/depth preset where supported. deep also combines providers if the user enabled deep-search fusion.',
+            },
             intent: {
                 type: 'string',
                 enum: [...WEB_SEARCH_INTENTS],
-                description:
-                    'Optional search intent used as a secondary hint. Choose provider first when the best source is clear.',
+                description: 'Legacy task hint. Prefer source when the source type is clear.',
             },
             domains: {
                 type: 'array',
                 description:
                     'Optional preferred public domains when supported by the selected provider.',
+                items: { type: 'string' },
+            },
+            excludeDomains: {
+                type: 'array',
+                description:
+                    'Optional public domains to exclude when supported by the selected provider.',
                 items: { type: 'string' },
             },
             recencyDays: {
@@ -120,19 +153,26 @@ export function buildWebSearchToolInputSchema(
             maxResults: {
                 type: 'integer',
                 minimum: 1,
-                maximum: 10,
-                description: 'Maximum number of candidate results. Defaults to 6.',
+                description:
+                    'Maximum returned results. Each API request follows its documented page limit; providerOptions can select pages. Defaults to the user setting.',
             },
             timeoutMs: {
                 type: 'integer',
                 minimum: 1000,
-                maximum: 60000,
-                description: 'Optional timeout in milliseconds. Defaults to 15000.',
+                maximum: 300000,
+                description:
+                    'Per-engine timeout in milliseconds; defaults to the user setting (15000 initially). Increase for deep or Grok searches.',
             },
             includeContent: {
                 type: 'boolean',
                 description:
-                    'Ask providers that support it (deepseek) to return page content inline. Saves a separate web_fetch round trip but significantly increases context size.',
+                    'Request inline page content from Exa, Tavily, Firecrawl, DeepSeek or Doubao Custom; Grok returns a cited synthesis. Zhihu, Yuanbao and Qianfan supply search excerpts, not full page text. Content and metadata use an 8000-character/item and 30000-character/response budget with visible truncation. Use web_fetch for page reading.',
+            },
+            providerOptions: {
+                type: 'object',
+                description:
+                    'Native search parameters keyed by engine ID. Examples: anysearch:{tag,params}; exa:{type,category,contents}; tavily:{search_depth,topic,include_images}; keenable:{mode,query_time,acquired_after,snippet_max_length}; zhihu:{searchType:"global"|"zhihu",SearchDB,Filter}; yuanbao:{Mode,Industry,Site,Deeplinks}; grok:{model,tools:[{type:"web_search"},{type:"x_search",allowed_x_handles,from_date}],max_output_tokens}; github:{searchType:"repositories"|"issues"|"code"|"commits"|"users",page,sort}; brave:{searchType:"web"|"news"|"images"|"videos",offset}; openalex:{filter,sort,page}; semantic_scholar:{fields,offset,year}; searxng:{engines,categories,pageno}; wikipedia:{namespace}. Values override mapped defaults. HTTP credentials and response transport stay managed by the app. REST-only options require an Exa API key.',
+                additionalProperties: { type: 'object', additionalProperties: true },
             },
             description: {
                 type: 'string',

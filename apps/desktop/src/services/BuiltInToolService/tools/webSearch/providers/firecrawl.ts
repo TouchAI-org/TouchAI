@@ -1,5 +1,11 @@
 import type { WebSearchResult } from '../helper';
-import { resultFromGenericItem, resultLimit } from './common';
+import {
+    nativeSearchOptions,
+    queryWithDomains,
+    resultFromGenericItem,
+    resultLimit,
+    searchSource,
+} from './common';
 import { createSearchProviderAdapter } from './define';
 
 function readFirecrawlResults(payload: unknown): unknown[] {
@@ -30,13 +36,16 @@ export const firecrawlAdapter = createSearchProviderAdapter({
     async search({ request, settings, signal, fetchJson }) {
         const apiKey = settings.providers.firecrawl.apiKey.trim();
         const body: Record<string, unknown> = {
-            query: request.query,
-            limit: resultLimit(request),
-            sources: request.intent === 'news' ? ['web', 'news'] : ['web'],
+            query: queryWithDomains(request),
+            limit: resultLimit(request, 100),
+            sources: searchSource(request) === 'news' ? ['web', 'news'] : ['web'],
+            ...(request.includeContent ? { scrapeOptions: { formats: ['markdown'] } } : {}),
+            ...(request.language !== 'any' ? { lang: request.language } : {}),
         };
         if (request.recencyDays) {
             body.tbs = `qdr:${request.recencyDays <= 1 ? 'd' : request.recencyDays <= 7 ? 'w' : request.recencyDays <= 31 ? 'm' : 'y'}`;
         }
+        Object.assign(body, nativeSearchOptions(request, 'firecrawl'));
 
         const payload = await fetchJson(new URL('https://api.firecrawl.dev/v2/search'), signal, {
             method: 'POST',

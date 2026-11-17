@@ -81,8 +81,10 @@ const settingDefinitions: Partial<Record<NavigationSection, SearchItemDefinition
         { labelKey: 'settings.search.defaultProvider', targetId: 'search-default-provider' },
         { labelKey: 'settings.search.maxResults', targetId: 'search-max-results' },
         { labelKey: 'settings.search.timeout', targetId: 'search-timeout' },
+        { labelKey: 'settings.search.section.strategy', targetId: 'search-strategy' },
         { labelKey: 'settings.search.section.provider', targetId: 'search-providers' },
         { labelKey: 'settings.search.section.routing', targetId: 'search-routing' },
+        { labelKey: 'settings.search.priority', targetId: 'search-priority' },
         { labelKey: 'settings.search.parallelProviders', targetId: 'search-parallelProviders' },
         { labelKey: 'settings.search.fallbackEnabled', targetId: 'search-fallbackEnabled' },
         {

@@ -1,7 +1,8 @@
 <script setup lang="ts">
+    import AppIcon from '@components/AppIcon.vue';
     import CustomSelect from '@components/CustomSelect.vue';
-    import PasswordInput from '@components/PasswordInput.vue';
     import SettingsRow from '@components/SettingsRow.vue';
+    import { Button } from '@components/ui/button';
     import { Input } from '@components/ui/input';
     import { Switch } from '@components/ui/switch';
     import { findBuiltInToolByToolId, updateBuiltInTool } from '@database/queries';
@@ -12,18 +13,44 @@
         SEARCH_PROVIDER_ENDPOINT_REQUIREMENTS,
         SEARCH_PROVIDER_IDS,
         SEARCH_ROUTE_INTENTS,
+        SEARCH_ROUTING_STRATEGIES,
+        SEARCH_SOURCES,
         type SearchProviderId,
         type SearchRouteIntent,
+        type SearchRoutingStrategy,
         type SearchSettingsConfig,
+        type SearchSource,
         serializeSearchSettingsConfig,
+        WEB_FETCH_STRATEGIES,
+        type WebFetchStrategy,
     } from '@services/SettingsService/domain';
     import { storeToRefs } from 'pinia';
     import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
+    import doubaoLogo from '@/assets/logos/models/doubao.png';
+    import anysearchLogo from '@/assets/logos/providers/anysearch.png';
+    import braveLogo from '@/assets/logos/providers/brave.svg';
+    import deepseekLogo from '@/assets/logos/providers/deepseek.png';
+    import exaLogo from '@/assets/logos/providers/exa.svg';
+    import firecrawlLogo from '@/assets/logos/providers/firecrawl.svg';
+    import githubLogo from '@/assets/logos/providers/github.svg';
+    import grokLogo from '@/assets/logos/providers/grok-search.png';
+    import keenableLogo from '@/assets/logos/providers/keenable.png';
+    import openalexLogo from '@/assets/logos/providers/openalex.png';
+    import qianfanLogo from '@/assets/logos/providers/qianfan.svg';
+    import searxngLogo from '@/assets/logos/providers/searxng.svg';
+    import scholarLogo from '@/assets/logos/providers/semantic-scholar.png';
+    import serperLogo from '@/assets/logos/providers/serper.svg';
+    import tavilyLogo from '@/assets/logos/providers/tavily.svg';
+    import tinyfishLogo from '@/assets/logos/providers/tinyfish.svg';
+    import wikipediaLogo from '@/assets/logos/providers/wikipedia.png';
+    import yuanbaoLogo from '@/assets/logos/providers/yuanbao.svg';
+    import zhihuLogo from '@/assets/logos/providers/zhihu.svg';
     import { type MessageKey, t } from '@/i18n';
     import { useSettingsStore } from '@/stores/settings';
 
     import { hasSettingsDraftChanges, mergeSettingsDraft } from '../../settingsDraftSync';
+    import SearchProviderCard from './SearchProviderCard.vue';
 
     defineOptions({ name: 'SettingsSearchSection' });
 
@@ -38,6 +65,61 @@
     const invalidProviderIds = ref<Set<SearchProviderId>>(new Set());
     let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
     let isSyncingFromStore = false;
+    const providerLogos: Partial<Record<SearchProviderId, string>> = {
+        anysearch: anysearchLogo,
+        brave: braveLogo,
+        deepseek: deepseekLogo,
+        exa: exaLogo,
+        firecrawl: firecrawlLogo,
+        github: githubLogo,
+        grok: grokLogo,
+        keenable: keenableLogo,
+        openalex: openalexLogo,
+        searxng: searxngLogo,
+        semantic_scholar: scholarLogo,
+        tavily: tavilyLogo,
+        wikipedia: wikipediaLogo,
+        yuanbao: yuanbaoLogo,
+        zhihu: zhihuLogo,
+        doubao: doubaoLogo,
+        qianfan: qianfanLogo,
+        tinyfish: tinyfishLogo,
+        serper: serperLogo,
+    };
+    const sourceMessages: Record<SearchSource, MessageKey> = {
+        general: 'settings.search.source.general',
+        news: 'settings.search.source.news',
+        community: 'settings.search.source.community',
+        academic: 'settings.search.source.academic',
+        code: 'settings.search.source.code',
+        official: 'settings.search.source.official',
+        realtime: 'settings.search.source.realtime',
+    };
+    const providerGroups: Array<{ label: MessageKey; ids: SearchProviderId[] }> = [
+        {
+            label: 'settings.search.group.general',
+            ids: [
+                'anysearch',
+                'keenable',
+                'tavily',
+                'exa',
+                'brave',
+                'firecrawl',
+                'serper',
+                'grok',
+                'tinyfish',
+            ],
+        },
+        {
+            label: 'settings.search.group.chinese',
+            ids: ['zhihu', 'yuanbao', 'doubao', 'qianfan', 'deepseek'],
+        },
+        {
+            label: 'settings.search.group.specialist',
+            ids: ['wikipedia', 'openalex', 'semantic_scholar', 'github'],
+        },
+        { label: 'settings.search.group.selfHosted', ids: ['searxng'] },
+    ];
 
     const providerMessages: Record<
         SearchProviderId,
@@ -143,6 +225,78 @@
             keyPlaceholder: 'settings.search.provider.grok.keyPlaceholder',
             quotaLabel: 'settings.search.provider.grok.quota',
         },
+        doubao: {
+            label: 'settings.search.provider.doubao',
+            description: 'settings.search.provider.doubao.description',
+            keyPlaceholder: 'settings.search.provider.doubao.keyPlaceholder',
+            quotaLabel: 'settings.search.provider.doubao.quota',
+        },
+        qianfan: {
+            label: 'settings.search.provider.qianfan',
+            description: 'settings.search.provider.qianfan.description',
+            keyPlaceholder: 'settings.search.provider.qianfan.keyPlaceholder',
+            quotaLabel: 'settings.search.provider.qianfan.quota',
+        },
+        tinyfish: {
+            label: 'settings.search.provider.tinyfish',
+            description: 'settings.search.provider.tinyfish.description',
+            keyPlaceholder: 'settings.search.provider.tinyfish.keyPlaceholder',
+            quotaLabel: 'settings.search.provider.tinyfish.quota',
+        },
+        serper: {
+            label: 'settings.search.provider.serper',
+            description: 'settings.search.provider.serper.description',
+            keyPlaceholder: 'settings.search.provider.serper.keyPlaceholder',
+            quotaLabel: 'settings.search.provider.serper.quota',
+        },
+    };
+
+    const strategyMessages: Record<
+        SearchRoutingStrategy,
+        { label: MessageKey; description: MessageKey }
+    > = {
+        model: {
+            label: 'settings.search.strategy.model',
+            description: 'settings.search.strategy.model.description',
+        },
+        intent: {
+            label: 'settings.search.strategy.intent',
+            description: 'settings.search.strategy.intent.description',
+        },
+        capability: {
+            label: 'settings.search.strategy.capability',
+            description: 'settings.search.strategy.capability.description',
+        },
+        manual: {
+            label: 'settings.search.strategy.manual',
+            description: 'settings.search.strategy.manual.description',
+        },
+        priority: {
+            label: 'settings.search.strategy.priority',
+            description: 'settings.search.strategy.priority.description',
+        },
+        parallel: {
+            label: 'settings.search.strategy.parallel',
+            description: 'settings.search.strategy.parallel.description',
+        },
+    };
+
+    const fetchStrategyMessages: Record<
+        WebFetchStrategy,
+        { label: MessageKey; description: MessageKey }
+    > = {
+        direct: {
+            label: 'settings.search.fetchStrategy.direct',
+            description: 'settings.search.fetchStrategy.direct.description',
+        },
+        fallback: {
+            label: 'settings.search.fetchStrategy.fallback',
+            description: 'settings.search.fetchStrategy.fallback.description',
+        },
+        prefer: {
+            label: 'settings.search.fetchStrategy.prefer',
+            description: 'settings.search.fetchStrategy.prefer.description',
+        },
     };
 
     const intentMessages: Record<
@@ -189,35 +343,34 @@
         }))
     );
 
+    const strategyOptions = computed(() =>
+        SEARCH_ROUTING_STRATEGIES.map((strategy) => ({
+            value: strategy,
+            label: t(strategyMessages[strategy].label),
+        }))
+    );
+
+    const strategyDescription = computed(() =>
+        t(strategyMessages[draft.value.routingStrategy].description)
+    );
+
+    const fetchStrategyOptions = computed(() =>
+        WEB_FETCH_STRATEGIES.map((strategy) => ({
+            value: strategy,
+            label: t(fetchStrategyMessages[strategy].label),
+        }))
+    );
+
+    const fetchStrategyDescription = computed(() =>
+        t(fetchStrategyMessages[draft.value.fetchStrategy].description)
+    );
+
     const routeRows = computed(() =>
         SEARCH_ROUTE_INTENTS.map((intent) => ({
             intent,
             label: t(intentMessages[intent].label),
             description: t(intentMessages[intent].description),
         }))
-    );
-
-    const providerRows = computed(() =>
-        SEARCH_PROVIDER_IDS.filter((providerId) => providerId !== 'auto')
-            .map((providerId, index) => ({
-                id: providerId,
-                order: index,
-                enabled: draft.value.providers[providerId].enabled,
-                apiKeyRequired: providerRequiresApiKey(providerId),
-                endpointRequired: providerRequiresEndpoint(providerId),
-                label: t(providerMessages[providerId].label),
-                description: t(providerMessages[providerId].description),
-                keyPlaceholder: t(providerMessages[providerId].keyPlaceholder),
-                quotaLabel: providerMessages[providerId].quotaLabel
-                    ? t(providerMessages[providerId].quotaLabel)
-                    : null,
-            }))
-            .sort((left, right) => {
-                if (left.enabled !== right.enabled) {
-                    return left.enabled ? -1 : 1;
-                }
-                return left.order - right.order;
-            })
     );
 
     const advancedRows = computed<
@@ -389,6 +542,10 @@
     }
 
     function resetProviderSelections(providerId: SearchProviderId) {
+        for (const source of SEARCH_SOURCES) {
+            if (draft.value.sourceRoutes[source] === providerId)
+                draft.value.sourceRoutes[source] = 'auto';
+        }
         for (const intent of SEARCH_ROUTE_INTENTS) {
             if (draft.value.intentRoutes[intent] === providerId) {
                 draft.value.intentRoutes[intent] = 'auto';
@@ -433,14 +590,6 @@
         );
     }
 
-    function canEditProviderApiKey(providerId: SearchProviderId) {
-        return (
-            toolEnabled.value &&
-            (providerConfig(providerId).enabled || invalidProviderIds.value.has(providerId)) &&
-            (providerAcceptsApiKey(providerId) || providerRequiresEndpoint(providerId))
-        );
-    }
-
     function providerCredentialValue(providerId: SearchProviderId) {
         return providerRequiresEndpoint(providerId)
             ? providerConfig(providerId).endpoint
@@ -454,10 +603,19 @@
     function updateRoute(intent: SearchRouteIntent, providerId: SearchProviderId) {
         draft.value.intentRoutes[intent] = providerId;
     }
+
+    function moveProvider(providerId: SearchProviderId, direction: number) {
+        const priority = [...draft.value.providerPriority];
+        const index = priority.indexOf(providerId);
+        const target = index + direction;
+        if (index < 0 || target < 0 || target >= priority.length) return;
+        [priority[index], priority[target]] = [priority[target]!, priority[index]!];
+        draft.value.providerPriority = priority;
+    }
 </script>
 
 <template>
-    <div class="settings-page" data-testid="settings-search-section">
+    <div class="settings-page @container" data-testid="settings-search-section">
         <div class="settings-section-stack">
             <header class="settings-page-header flex items-start gap-4">
                 <div class="max-w-2xl min-w-0">
@@ -508,7 +666,6 @@
                                 data-testid="search-max-results-input"
                                 type="number"
                                 min="1"
-                                max="10"
                                 class="w-full disabled:bg-neutral-50"
                                 :disabled="!toolEnabled"
                             />
@@ -525,9 +682,60 @@
                                 variant="filled"
                                 type="number"
                                 min="1000"
-                                max="60000"
+                                max="300000"
                                 step="1000"
                                 class="w-full disabled:bg-neutral-50"
+                                :disabled="!toolEnabled"
+                            />
+                        </SettingsRow>
+                    </div>
+                </section>
+
+                <section class="mt-10 space-y-4" data-settings-search-target="search-strategy">
+                    <h2 class="settings-section-title">
+                        {{ t('settings.search.section.strategy') }}
+                    </h2>
+                    <div class="settings-row-group divide-y divide-neutral-200/70">
+                        <SettingsRow
+                            data-settings-search-target="search-strategy"
+                            control-width="320"
+                            :label="t('settings.search.strategy')"
+                            :description="strategyDescription"
+                        >
+                            <CustomSelect
+                                v-model="draft.routingStrategy"
+                                data-testid="search-strategy-select"
+                                :options="strategyOptions"
+                                :disabled="!toolEnabled"
+                            />
+                        </SettingsRow>
+                        <SettingsRow
+                            data-settings-search-target="search-fetch-strategy"
+                            control-width="320"
+                            :label="t('settings.search.fetchStrategy')"
+                            :description="fetchStrategyDescription"
+                        >
+                            <CustomSelect
+                                v-model="draft.fetchStrategy"
+                                data-testid="search-fetch-strategy-select"
+                                :options="fetchStrategyOptions"
+                                :disabled="!toolEnabled"
+                            />
+                        </SettingsRow>
+                        <SettingsRow
+                            v-if="draft.routingStrategy === 'parallel' || draft.parallelProviders"
+                            control-width="320"
+                            :label="t('settings.search.parallelProviderCount')"
+                            :description="t('settings.search.parallelProviderCount.description')"
+                        >
+                            <Input
+                                v-model.number="draft.parallelProviderCount"
+                                variant="filled"
+                                data-testid="search-parallel-count-input"
+                                type="number"
+                                min="2"
+                                :max="SEARCH_PROVIDER_IDS.length - 1"
+                                class="w-full"
                                 :disabled="!toolEnabled"
                             />
                         </SettingsRow>
@@ -538,93 +746,69 @@
                     <h2 class="settings-section-title">
                         {{ t('settings.search.section.provider') }}
                     </h2>
-                    <div class="settings-row-group divide-y divide-neutral-200/70">
-                        <SettingsRow
-                            v-for="provider in providerRows"
-                            :key="provider.id"
-                            data-testid="search-provider-row"
-                            control-width="320"
-                            :description="provider.description"
-                            label-class="flex flex-wrap items-center gap-2"
-                        >
-                            <template #label>
-                                <span class="min-w-0 truncate">{{ provider.label }}</span>
-                                <span
-                                    v-if="provider.quotaLabel"
-                                    :data-testid="`search-provider-quota-${provider.id}`"
-                                    class="shrink-0 rounded border border-neutral-300 bg-white px-1 py-0.5 text-3xs leading-none whitespace-nowrap text-neutral-600 shadow-sm"
-                                >
-                                    {{ provider.quotaLabel }}
-                                </span>
-                            </template>
-                            <div class="flex items-center gap-2">
-                                <Switch
-                                    size="lg"
-                                    class="shrink-0"
-                                    :data-testid="`search-provider-toggle-${provider.id}`"
-                                    :aria-label="provider.label"
-                                    :model-value="providerConfig(provider.id).enabled"
-                                    :disabled="!toolEnabled"
-                                    @update:model-value="
-                                        updateProviderEnabled(
-                                            provider.id,
-                                            !providerConfig(provider.id).enabled
-                                        )
-                                    "
-                                />
-                                <input
-                                    v-if="providerRequiresEndpoint(provider.id)"
-                                    :value="providerCredentialValue(provider.id)"
-                                    :data-testid="`search-${provider.id}-api-key-input`"
-                                    class="min-w-0 flex-1 rounded-control border border-transparent bg-surface-sunken px-3 py-2 font-serif text-compact text-neutral-900 shadow-none transition-colors placeholder:text-neutral-400 hover:bg-surface-active focus:border-primary-300 focus:bg-white disabled:cursor-not-allowed disabled:bg-neutral-50 disabled:text-gray-400"
-                                    :class="
-                                        shouldHighlightProviderApiKey(provider.id)
-                                            ? 'border-red-300 bg-red-50 text-red-600'
-                                            : ''
-                                    "
-                                    :placeholder="provider.keyPlaceholder"
-                                    :disabled="!canEditProviderApiKey(provider.id)"
-                                    type="url"
-                                    spellcheck="false"
-                                    @input="
-                                        updateProviderCredential(
-                                            provider.id,
-                                            ($event.target as HTMLInputElement).value
-                                        )
-                                    "
-                                />
-                                <div v-else class="min-w-0 flex-1">
-                                    <PasswordInput
-                                        :model-value="providerCredentialValue(provider.id)"
-                                        :placeholder="provider.keyPlaceholder"
-                                        :disabled="!canEditProviderApiKey(provider.id)"
-                                        class="!mt-0"
-                                        :input-test-id="`search-${provider.id}-api-key-input`"
-                                        :input-class="
-                                            [
-                                                'h-auto rounded-control border-transparent bg-surface-sunken px-3 py-2 pr-10 text-compact text-neutral-900 shadow-none hover:bg-surface-active focus:border-primary-300 focus:bg-white disabled:bg-neutral-50 disabled:text-gray-400',
-                                                shouldHighlightProviderApiKey(provider.id)
-                                                    ? 'border-red-300 bg-red-50 text-red-600'
-                                                    : '',
-                                            ].join(' ')
-                                        "
-                                        @update:model-value="
-                                            updateProviderCredential(provider.id, $event)
-                                        "
-                                    />
-                                </div>
-                            </div>
-                        </SettingsRow>
+                    <div v-for="group in providerGroups" :key="group.label" class="space-y-3">
+                        <h3 class="text-compact font-medium text-text-secondary">
+                            {{ t(group.label) }}
+                        </h3>
+                        <div class="grid grid-cols-1 gap-3 @2xl:grid-cols-2">
+                            <SearchProviderCard
+                                v-for="providerId in group.ids"
+                                :id="providerId"
+                                :key="providerId"
+                                :label="t(providerMessages[providerId].label)"
+                                :description="t(providerMessages[providerId].description)"
+                                :logo="providerLogos[providerId]!"
+                                :quota="
+                                    providerMessages[providerId].quotaLabel
+                                        ? t(providerMessages[providerId].quotaLabel!)
+                                        : null
+                                "
+                                :enabled="providerConfig(providerId).enabled"
+                                :disabled="!toolEnabled"
+                                :credential="providerCredentialValue(providerId)"
+                                :placeholder="t(providerMessages[providerId].keyPlaceholder)"
+                                :editable="
+                                    providerAcceptsApiKey(providerId) ||
+                                    providerRequiresEndpoint(providerId)
+                                "
+                                :endpoint="providerRequiresEndpoint(providerId)"
+                                :invalid="shouldHighlightProviderApiKey(providerId)"
+                                @enabled="updateProviderEnabled(providerId, $event)"
+                                @credential="updateProviderCredential(providerId, $event)"
+                            />
+                        </div>
                     </div>
                 </section>
 
-                <section class="mt-10 space-y-4" data-settings-search-target="search-routing">
+                <section
+                    v-if="
+                        draft.routingStrategy === 'intent' || draft.routingStrategy === 'capability'
+                    "
+                    class="mt-10 space-y-4"
+                    data-settings-search-target="search-routing"
+                >
                     <h2 class="settings-section-title">
                         {{ t('settings.search.section.routing') }}
                     </h2>
                     <div class="settings-row-group divide-y divide-neutral-200/70">
                         <SettingsRow
-                            v-for="row in routeRows"
+                            v-for="source in draft.routingStrategy === 'capability'
+                                ? SEARCH_SOURCES
+                                : []"
+                            :key="source"
+                            :label="t(sourceMessages[source])"
+                            control-width="320"
+                        >
+                            <CustomSelect
+                                v-model="draft.sourceRoutes[source]"
+                                :data-testid="`search-source-route-${source}`"
+                                :options="enabledProviderOptions"
+                                :disabled="!toolEnabled"
+                            />
+                        </SettingsRow>
+
+                        <SettingsRow
+                            v-for="row in draft.routingStrategy === 'intent' ? routeRows : []"
                             :key="row.intent"
                             control-width="320"
                             :label="row.label"
@@ -640,6 +824,59 @@
                             />
                         </SettingsRow>
                     </div>
+                </section>
+
+                <section
+                    v-if="
+                        draft.fallbackEnabled ||
+                        draft.parallelProviders ||
+                        ['priority', 'parallel'].includes(draft.routingStrategy)
+                    "
+                    class="mt-10 space-y-4"
+                    data-settings-search-target="search-priority"
+                >
+                    <h2 class="settings-section-title">{{ t('settings.search.priority') }}</h2>
+                    <ol class="flex flex-wrap gap-2" data-testid="search-provider-priority">
+                        <li
+                            v-for="(providerId, index) in draft.providerPriority"
+                            :key="providerId"
+                            :data-provider="providerId"
+                            class="flex items-center gap-1 rounded-control border border-border-subtle bg-surface-floating px-2 py-1"
+                            :class="providerConfig(providerId).enabled ? '' : 'opacity-50'"
+                        >
+                            <span class="text-caption text-text-secondary">
+                                {{ index + 1 }}. {{ t(providerMessages[providerId].label) }}
+                            </span>
+                            <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                :disabled="!toolEnabled || index === 0"
+                                :aria-label="
+                                    t('settings.search.moveEarlier', {
+                                        name: t(providerMessages[providerId].label),
+                                    })
+                                "
+                                @click="moveProvider(providerId, -1)"
+                            >
+                                <AppIcon name="arrow-down" class="size-3 rotate-180" />
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                :disabled="
+                                    !toolEnabled || index === draft.providerPriority.length - 1
+                                "
+                                :aria-label="
+                                    t('settings.search.moveLater', {
+                                        name: t(providerMessages[providerId].label),
+                                    })
+                                "
+                                @click="moveProvider(providerId, 1)"
+                            >
+                                <AppIcon name="arrow-down" class="size-3" />
+                            </Button>
+                        </li>
+                    </ol>
                 </section>
 
                 <section class="mt-10 space-y-4">
@@ -668,6 +905,9 @@
                     </div>
                 </section>
             </fieldset>
+            <p v-if="saveState === 'error'" role="alert" class="text-compact text-text-danger">
+                {{ t('settings.search.saveError') }}
+            </p>
         </div>
     </div>
 </template>

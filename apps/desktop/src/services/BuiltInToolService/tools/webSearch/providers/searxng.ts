@@ -1,5 +1,13 @@
 import type { WebSearchResult } from '../helper';
-import { readResultItems, resultFromGenericItem, resultLimit } from './common';
+import {
+    nativeSearchOptions,
+    queryWithDomains,
+    readResultItems,
+    resultFromGenericItem,
+    resultLimit,
+    searchSource,
+    setSearchParams,
+} from './common';
 import { createSearchProviderAdapter } from './define';
 
 function searxngSearchUrl(endpoint: string): URL {
@@ -20,10 +28,18 @@ export const searxngAdapter = createSearchProviderAdapter({
         } catch {
             return [];
         }
-        url.searchParams.set('q', request.query);
+        url.searchParams.set('q', queryWithDomains(request));
         url.searchParams.set('format', 'json');
-        url.searchParams.set('language', 'auto');
+        url.searchParams.set('language', request.language === 'any' ? 'auto' : request.language);
         url.searchParams.set('safesearch', '0');
+        if (searchSource(request) === 'news') url.searchParams.set('categories', 'news');
+        if (request.recencyDays)
+            url.searchParams.set(
+                'time_range',
+                request.recencyDays <= 1 ? 'day' : request.recencyDays <= 31 ? 'month' : 'year'
+            );
+        setSearchParams(url, nativeSearchOptions(request, 'searxng'));
+        url.searchParams.set('format', 'json');
 
         const payload = await fetchJson(url, signal);
         return readResultItems(payload)

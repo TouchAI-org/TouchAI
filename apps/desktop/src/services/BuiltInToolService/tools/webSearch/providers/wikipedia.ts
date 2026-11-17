@@ -1,17 +1,24 @@
 import type { WebSearchResult } from '../helper';
-import { resultLimit } from './common';
+import { nativeSearchOptions, resultLimit, setSearchParams } from './common';
 import { createSearchProviderAdapter } from './define';
 
 export const wikipediaAdapter = createSearchProviderAdapter({
     id: 'wikipedia',
     async search({ request, signal, fetchJson }) {
-        const url = new URL('https://en.wikipedia.org/w/api.php');
+        const url = new URL(
+            request.language === 'zh'
+                ? 'https://zh.wikipedia.org/w/api.php'
+                : 'https://en.wikipedia.org/w/api.php'
+        );
         url.searchParams.set('action', 'opensearch');
         url.searchParams.set('search', request.query);
-        url.searchParams.set('limit', String(resultLimit(request)));
+        url.searchParams.set('limit', String(resultLimit(request, 500)));
         url.searchParams.set('namespace', '0');
         url.searchParams.set('format', 'json');
         url.searchParams.set('origin', '*');
+        setSearchParams(url, nativeSearchOptions(request, 'wikipedia'));
+        url.searchParams.set('action', 'opensearch');
+        url.searchParams.set('format', 'json');
 
         const payload = await fetchJson(url, signal);
         if (!Array.isArray(payload)) {

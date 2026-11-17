@@ -61,6 +61,10 @@ describe('user searches the web from the assistant', () => {
                 'zhihu',
                 'yuanbao',
                 'grok',
+                'doubao',
+                'qianfan',
+                'tinyfish',
+                'serper',
             ],
         });
     });
@@ -404,7 +408,7 @@ describe('user searches the web from the assistant', () => {
         expect(result.isError).toBe(false);
         expect(result.result).toContain('Source: Brave');
         expect(tauriFetchMock).toHaveBeenCalledWith(
-            expect.stringContaining('https://api.search.brave.com/res/v1/web/search?'),
+            expect.stringContaining('https://api.search.brave.com/res/v1/news/search?'),
             expect.objectContaining({
                 headers: expect.objectContaining({
                     'X-Subscription-Token': 'brave-key',

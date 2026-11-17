@@ -75,7 +75,7 @@ describe('user changes a persisted setting', () => {
         };
 
         expect(JSON.parse(serializeJsonSettingsValue(searchSection, value))).toMatchObject({
-            maxResults: 10,
+            maxResults: 99,
         });
     });
 

@@ -50,7 +50,10 @@ function baseRequest(overrides: Partial<WebSearchRequest> = {}): WebSearchReques
         query: 'DeepSeek V4 发布',
         provider: 'deepseek',
         intent: 'general',
+        language: 'any',
+        mode: 'balanced',
         domains: [],
+        excludeDomains: [],
         maxResults: 6,
         timeoutMs: 15_000,
         ...overrides,
@@ -86,28 +89,32 @@ describe('user searches the web with DeepSeek', () => {
         expect(query.startsWith('DeepSeek V4 发布')).toBe(true);
     });
 
-    it('user sees operators dropped instead of a truncated query when the budget runs out', () => {
+    it('user gets an actionable error instead of silently losing filters beyond the API query limit', () => {
         const longQuery = 'a'.repeat(DEEPSEEK_QUERY_MAX_CHARS - 8);
-        const query = buildDeepSeekQuery(
-            baseRequest({ query: longQuery, domains: ['github.com'] })
-        );
-
-        expect(query).toBe(longQuery);
+        expect(() =>
+            buildDeepSeekQuery(baseRequest({ query: longQuery, domains: ['github.com'] }))
+        ).toThrow(/128.*shorten|128.*Shorten/);
     });
 
     it('user sees the query untouched when no operator applies', () => {
         expect(buildDeepSeekQuery(baseRequest())).toBe('DeepSeek V4 发布');
     });
 
-    it('user sees the number of site: operators capped', () => {
+    it('user keeps more than eight site filters when they fit the API query limit', () => {
         const query = buildDeepSeekQuery(
             baseRequest({
                 query: 'q',
-                domains: Array.from({ length: 12 }, (_, index) => `s${index}.com`),
+                domains: Array.from({ length: 9 }, (_, index) => `${index}.co`),
             })
         );
 
-        expect(query.match(/site:/g)).toHaveLength(8);
+        expect(query.match(/site:/g)).toHaveLength(9);
+    });
+
+    it('user keeps excluded sites in the DeepSeek query', () => {
+        expect(buildDeepSeekQuery(baseRequest({ excludeDomains: ['example.com'] }))).toContain(
+            '-site:example.com'
+        );
     });
 });
 
@@ -167,8 +174,8 @@ describe('user sees search results ranked', () => {
     const high = { title: 'a', url: 'https://a.example', source: 'a', score: 2, authority: 3 };
     const low = { title: 'b', url: 'https://b.example', source: 'b', score: 0.4, authority: 1 };
 
-    it('user sees clearly irrelevant results dropped', () => {
-        expect(rankDeepSeekResults([high, low], false)).toEqual([high]);
+    it('user keeps every valid result when authority ranking is disabled', () => {
+        expect(rankDeepSeekResults([high, low], false)).toEqual([high, low]);
     });
 
     it('user sees authoritative sources converge only when enough of them survive', () => {

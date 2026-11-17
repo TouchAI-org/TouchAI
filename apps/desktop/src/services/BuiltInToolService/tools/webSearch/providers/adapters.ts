@@ -8,15 +8,19 @@ import {
 import { anySearchAdapter } from './anysearch';
 import { braveAdapter } from './brave';
 import { deepSeekSearchAdapter } from './deepseek';
+import { doubaoAdapter } from './doubao';
 import { exaAdapter } from './exa';
 import { firecrawlAdapter } from './firecrawl';
 import { githubAdapter } from './github';
 import { grokAdapter } from './grok';
 import { keenableAdapter } from './keenable';
 import { openAlexAdapter } from './openalex';
+import { qianfanAdapter } from './qianfan';
 import { searxngAdapter } from './searxng';
 import { semanticScholarAdapter } from './semanticScholar';
+import { serperAdapter } from './serper';
 import { tavilyAdapter } from './tavily';
+import { tinyfishAdapter } from './tinyfish';
 import type { WebSearchProviderAdapter } from './types';
 import { wikipediaAdapter } from './wikipedia';
 import { yuanbaoAdapter } from './yuanbao';
@@ -72,6 +76,10 @@ export const WEB_SEARCH_PROVIDER_ADAPTERS = [
     zhihuAdapter,
     yuanbaoAdapter,
     grokAdapter,
+    doubaoAdapter,
+    qianfanAdapter,
+    tinyfishAdapter,
+    serperAdapter,
 ] as const satisfies readonly WebSearchProviderAdapter[];
 
 export const WEB_SEARCH_PROVIDER_ADAPTER_BY_ID = Object.fromEntries(

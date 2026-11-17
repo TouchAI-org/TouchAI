@@ -1,7 +1,14 @@
 import { normalizeOptionalString } from '@/utils/text';
 
 import type { WebSearchRequest, WebSearchResult } from '../helper';
-import { recencyStartDate, resultLimit } from './common';
+import {
+    nativeSearchOptions,
+    recencyStartDate,
+    resultDetails,
+    resultLimit,
+    searchSource,
+    setSearchParams,
+} from './common';
 import { createSearchProviderAdapter } from './define';
 
 const ZHIHU_API_ROOT = 'https://developer.zhihu.com';
@@ -19,25 +26,33 @@ export function buildZhihuSearchUrl(
     const trimmed = (endpoint ?? '').trim().replace(/\/+$/, '');
     const root = trimmed || ZHIHU_API_ROOT;
     const domains = request.domains.map((domain) => domain.trim().toLowerCase());
-    const siteOnly = domains.length === 1 && /(^|\.)zhihu\.com$/.test(domains[0] ?? '');
+    const { searchType, ...options } = nativeSearchOptions(request, 'zhihu');
+    if (searchType !== undefined && !['global', 'zhihu'].includes(String(searchType)))
+        throw new Error('Zhihu searchType must be global or zhihu.');
+    const siteOnly =
+        searchType === 'zhihu' ||
+        (searchType !== 'global' &&
+            (searchSource(request) === 'community' ||
+                (domains.length === 1 && /(^|\.)zhihu\.com$/.test(domains[0] ?? ''))));
     const url = new URL(`${root}${siteOnly ? ZHIHU_SITE_SEARCH_PATH : ZHIHU_GLOBAL_SEARCH_PATH}`);
     url.searchParams.set('Query', request.query);
     url.searchParams.set(
         'Count',
         String(
             Math.min(
-                resultLimit(request),
+                resultLimit(request, siteOnly ? ZHIHU_SITE_SEARCH_MAX : ZHIHU_GLOBAL_SEARCH_MAX),
                 siteOnly ? ZHIHU_SITE_SEARCH_MAX : ZHIHU_GLOBAL_SEARCH_MAX
             )
         )
     );
     if (!siteOnly) {
-        url.searchParams.set('SearchDB', request.intent === 'news' ? 'realtime' : 'all');
+        url.searchParams.set('SearchDB', searchSource(request) === 'news' ? 'realtime' : 'all');
         const filter = buildZhihuFilter(request);
         if (filter) {
             url.searchParams.set('Filter', filter);
         }
     }
+    setSearchParams(url, options);
     return { url, siteOnly };
 }
 
@@ -46,8 +61,14 @@ export function buildZhihuFilter(request: WebSearchRequest): string | undefined 
     const clauses: string[] = [];
     const domains = request.domains.map((domain) => domain.trim()).filter(Boolean);
     if (domains.length > 0) {
-        clauses.push(domains.map((domain) => `host=="${domain}"`).join(' OR '));
+        const hosts = domains.map((domain) => `host==${JSON.stringify(domain)}`).join(' OR ');
+        clauses.push(
+            domains.length > 1 && (request.recencyDays || request.excludeDomains.length)
+                ? `(${hosts})`
+                : hosts
+        );
     }
+    request.excludeDomains.forEach((domain) => clauses.push(`host!=${JSON.stringify(domain)}`));
 
     const after = recencyStartDate(request.recencyDays);
     if (after) {
@@ -93,6 +114,14 @@ export function toZhihuResult(item: unknown): WebSearchResult | null {
         publishedAt: editTime ? new Date(editTime * 1000).toISOString() : undefined,
         score: typeof record.RankingScore === 'number' ? record.RankingScore : undefined,
         authority: Number.isFinite(authority) ? authority : undefined,
+        details: resultDetails(record, [
+            'ContentType',
+            'AuthorName',
+            'AuthorBadgeText',
+            'VoteUpCount',
+            'CommentCount',
+            'CommentInfoList',
+        ]),
     };
 }
 

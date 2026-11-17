@@ -67,14 +67,18 @@ describe('user searches the web and the provider rejects the request', () => {
     });
 
     it('user gets the provider error and the unread error body is released', async () => {
-        const source = controlledStream();
-        pluginFetch.mockResolvedValueOnce(
-            new Response(source.stream, {
-                status: 500,
-                statusText: 'Internal Server Error',
-                headers: { 'content-type': 'application/json' },
-            })
-        );
+        const sources: ControlledStream[] = [];
+        pluginFetch.mockImplementation(() => {
+            const source = controlledStream();
+            sources.push(source);
+            return Promise.resolve(
+                new Response(source.stream, {
+                    status: 500,
+                    statusText: 'Internal Server Error',
+                    headers: { 'content-type': 'application/json' },
+                })
+            );
+        });
 
         const result = await executeWebSearchTool(
             { query: 'agentic web research', intent: 'academic', maxResults: 3 },
@@ -84,6 +88,7 @@ describe('user searches the web and the provider rejects the request', () => {
 
         expect(result.isError).toBe(true);
         expect(result.errorMessage).toBe('HTTP 500 Internal Server Error');
-        expect(source.cancelReasons).toEqual([DISCARD_REASON]);
+        expect(sources.length).toBeGreaterThan(0);
+        expect(sources[0]!.cancelReasons).toEqual([DISCARD_REASON]);
     });
 });

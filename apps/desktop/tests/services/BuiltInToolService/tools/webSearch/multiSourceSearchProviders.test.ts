@@ -49,7 +49,10 @@ function baseRequest(overrides: Partial<WebSearchRequest> = {}): WebSearchReques
         query: 'agent search',
         provider: 'auto',
         intent: 'general',
+        language: 'any',
+        mode: 'balanced',
         domains: [],
+        excludeDomains: [],
         maxResults: 6,
         timeoutMs: 15_000,
         ...overrides,
@@ -305,6 +308,32 @@ describe('user searches with Grok', () => {
         expect(results[0]).toMatchObject({ title: 'A title' });
     });
 
+    it('user sees the source domain when Grok returns a numbered citation label', () => {
+        const results = toGrokResults({
+            output: [
+                {
+                    type: 'message',
+                    content: [
+                        {
+                            type: 'output_text',
+                            annotations: [
+                                { type: 'url_citation', url: 'https://docs.x.ai/a', title: '1' },
+                                { type: 'url_citation', url: 'https://x.com/b', title: ' 2 ' },
+                                {
+                                    type: 'url_citation',
+                                    url: 'https://example.com/c',
+                                    title: 'Page title',
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        });
+
+        expect(results.map((result) => result.title)).toEqual(['docs.x.ai', 'x.com', 'Page title']);
+    });
+
     it('user sees the xAI key used and only url citations returned as sources', async () => {
         readEffectiveSettingValueMock.mockResolvedValue(
             settingsOf({
@@ -339,6 +368,12 @@ describe('user searches with Grok', () => {
         const [url, init] = tauriFetchMock.mock.calls[0] as [string, RequestInit];
         expect(url).toContain('/v1/responses');
         expect((init.headers as Record<string, string>).Authorization).toBe('Bearer xai-key');
+        expect(JSON.parse(String(init.body))).toMatchObject({
+            tool_choice: 'required',
+            tools: [{ type: 'web_search' }],
+            stream: false,
+            store: false,
+        });
         expect(result.structuredPayload).toMatchObject({ provider: 'grok' });
     });
 });

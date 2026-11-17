@@ -123,236 +123,72 @@ describe('user edits the search settings', () => {
         vi.useRealTimers();
     });
 
-    it('user sees dedicated search controls using browser-settings style and auto-saves edits', async () => {
+    it('user sees grouped providers and saves the result count without a submit button', async () => {
         const wrapper = mount(SearchSettingsView);
-        await Promise.resolve();
-
-        expect(wrapper.get('[data-testid="search-settings-title"]').text()).toContain('搜索');
-        expect(wrapper.get('[data-testid="search-enabled-toggle"]')).toBeTruthy();
-        expect(wrapper.text()).toContain('管理 TouchAI 搜索资料来源和路由策略');
-        expect(wrapper.text()).toContain('基础');
-        expect(wrapper.text()).toContain('服务商');
-        expect(wrapper.text()).toContain('路由策略');
-        expect(wrapper.text()).toContain('高级');
-        expect(wrapper.findAll('input[type="checkbox"]')).toHaveLength(0);
-        expect(wrapper.findAll('[data-testid^="search-advanced-toggle-"]')).toHaveLength(3);
-        expect(wrapper.get('[data-testid="search-max-results-input"]').element).toMatchObject({
-            value: '8',
-        });
-        expect(wrapper.get('[data-testid="search-brave-api-key-input"]').element).toMatchObject({
-            value: 'brave-key',
-        });
-        expect(wrapper.get('[data-testid="search-brave-api-key-input"]').attributes('type')).toBe(
-            'password'
-        );
-        expect(
-            wrapper.findAll('[data-testid="search-provider-row"]').map((row) => row.text())
-        ).toEqual([
-            expect.stringContaining('AnySearch'),
-            expect.stringContaining('Wikipedia'),
-            expect.stringContaining('OpenAlex'),
-            expect.stringContaining('Semantic Scholar'),
-            expect.stringContaining('GitHub'),
-            expect.stringContaining('Brave Search'),
-            expect.stringContaining('Tavily'),
-            expect.stringContaining('Exa'),
-            expect.stringContaining('Firecrawl'),
-            expect.stringContaining('Keenable'),
-            expect.stringContaining('SearXNG'),
-            expect.stringContaining('DeepSeek'),
-            expect.stringContaining('知乎'),
-            expect.stringContaining('元宝搜索'),
-            expect.stringContaining('Grok'),
-        ]);
-        expect(wrapper.get('[data-testid="search-provider-quota-brave"]').classes()).toContain(
-            'rounded'
-        );
-        expect(wrapper.get('[data-testid="search-provider-quota-brave"]').text()).toContain('2k');
-        expect(wrapper.get('[data-testid="search-provider-quota-tavily"]').text()).toContain(
-            '免费额度'
-        );
-        expect(wrapper.get('[data-testid="search-provider-quota-anysearch"]').text()).not.toBe(
-            '免费'
-        );
-        expect(
-            wrapper.get('[data-testid="search-provider-quota-semantic_scholar"]').text()
-        ).toContain('1 RPS');
-        expect(wrapper.find('[data-testid="search-save-button"]').exists()).toBe(false);
-
-        await wrapper.get('[data-testid="search-max-results-input"]').setValue('5');
-        await vi.advanceTimersByTimeAsync(300);
-
-        expect(updateSearchSettingsMock).toHaveBeenCalledWith(
-            expect.objectContaining({ maxResults: 5 })
-        );
-    });
-
-    it('user toggles the web_search built-in tool from the search tab', async () => {
-        const wrapper = mount(SearchSettingsView);
-        await Promise.resolve();
-
-        await wrapper.get('[data-testid="search-enabled-toggle"]').trigger('click');
-
-        expect(updateBuiltInToolMock).toHaveBeenCalledWith(7, { enabled: 0 });
-    });
-
-    it('user keeps a pending edit without reverting another window search change', async () => {
-        const wrapper = mount(SearchSettingsView);
-        await Promise.resolve();
-
-        await wrapper.get('[data-testid="search-max-results-input"]').setValue('5');
-        updateStoredSearchSettings({ maxResults: 9, defaultProvider: 'wikipedia' });
         await nextTick();
-
+        expect(wrapper.findAll('[data-testid="search-provider-row"]')).toHaveLength(19);
+        expect(wrapper.text()).toContain('通用检索');
+        expect(wrapper.text()).toContain('中文内容');
+        expect(wrapper.text()).toContain('知识与专业');
+        expect(wrapper.text()).toContain('自建服务');
+        expect(wrapper.findAll('[data-testid="search-provider-row"] img')).toHaveLength(19);
+        expect(wrapper.find('[data-testid="search-brave-api-key-input"]').exists()).toBe(false);
+        await wrapper.get('[data-testid="search-max-results-input"]').setValue('100');
         await vi.advanceTimersByTimeAsync(300);
-
         expect(updateSearchSettingsMock).toHaveBeenCalledWith(
-            expect.objectContaining({ maxResults: 5, defaultProvider: 'wikipedia' })
+            expect.objectContaining({ maxResults: 100 })
         );
+        wrapper.unmount();
     });
 
-    it('user uses compact switch controls for advanced boolean settings', async () => {
+    it('user edits a key in place and cancels without saving the changed value', async () => {
         const wrapper = mount(SearchSettingsView);
-        await Promise.resolve();
-
-        const parallelToggle = wrapper.get(
-            '[data-testid="search-advanced-toggle-parallelProviders"]'
-        );
-        // ui/Switch 使用 role="switch" + aria-checked（正确的 switch 语义），
-        // 不再是原先手写 <button> 的 aria-pressed。
-        expect(parallelToggle.attributes('aria-checked')).toBe('false');
-        expect(parallelToggle.attributes('role')).toBe('switch');
-        expect(parallelToggle.classes()).toContain('data-[state=unchecked]:bg-neutral-200');
-
-        await parallelToggle.trigger('click');
+        await nextTick();
+        const ids = () =>
+            wrapper
+                .findAll('[data-testid="search-provider-row"]')
+                .map((row) => row.attributes('data-provider'));
+        const before = ids();
+        await wrapper.get('[data-testid="search-provider-edit-brave"]').trigger('click');
+        const input = wrapper.get('[data-testid="search-brave-api-key-input"]');
+        expect(input.attributes('type')).toBe('password');
+        await input.setValue('changed-key');
+        await input.trigger('keydown', { key: 'Escape' });
         await vi.advanceTimersByTimeAsync(300);
-
-        expect(updateSearchSettingsMock).toHaveBeenCalledWith(
-            expect.objectContaining({ parallelProviders: true })
-        );
-    });
-
-    it('user only shows enabled providers in routing and resets routes when a provider is disabled', async () => {
-        const wrapper = mount(SearchSettingsView);
-        await Promise.resolve();
-
-        const routeSelect = wrapper.findAll('[data-testid="custom-select"]')[1];
-        expect(routeSelect).toBeDefined();
-        expect(routeSelect!.text()).toContain('自动');
-        expect(routeSelect!.text()).toContain('AnySearch');
-        expect(routeSelect!.text()).toContain('Wikipedia');
-        expect(routeSelect!.text()).toContain('OpenAlex');
-        expect(routeSelect!.text()).toContain('Semantic Scholar');
-        expect(routeSelect!.text()).toContain('GitHub');
-        expect(routeSelect!.text()).toContain('Brave Search');
-        // Tavily / Exa / Firecrawl 有免费额度，默认开启，因此也出现在路由选项里。
-        expect(routeSelect!.text()).toContain('Tavily');
-        expect(routeSelect!.text()).toContain('Exa');
-        expect(routeSelect!.text()).toContain('Firecrawl');
-        expect(routeSelect!.text()).not.toContain('SearXNG');
-
-        await routeSelect!.setValue('brave');
-        await wrapper.get('[data-testid="search-provider-toggle-brave"]').trigger('click');
+        expect(updateSearchSettingsMock).not.toHaveBeenCalled();
+        expect(ids()).toEqual(before);
+        await wrapper.get('[data-testid="search-provider-edit-brave"]').trigger('click');
+        await wrapper.get('[data-testid="search-brave-api-key-input"]').setValue('saved-key');
+        await wrapper
+            .get('[data-testid="search-brave-api-key-input"]')
+            .trigger('keydown', { key: 'Enter' });
         await vi.advanceTimersByTimeAsync(300);
-
         expect(updateSearchSettingsMock).toHaveBeenCalledWith(
             expect.objectContaining({
                 providers: expect.objectContaining({
-                    brave: expect.objectContaining({ enabled: false }),
-                }),
-                intentRoutes: expect.objectContaining({
-                    general: 'auto',
+                    brave: expect.objectContaining({ apiKey: 'saved-key' }),
                 }),
             })
         );
+        wrapper.unmount();
     });
 
-    it('user enables optional-key providers without an API key', async () => {
+    it('user can configure a disabled engine and sees a key field when enabling one without credentials', async () => {
         const wrapper = mount(SearchSettingsView);
-        await Promise.resolve();
-        updateSearchSettingsMock.mockClear();
-
-        // Tavily / Exa / Firecrawl 有免费额度，默认开启，且无需先填 key。
-        for (const provider of ['tavily', 'exa', 'firecrawl']) {
-            expect(
-                wrapper
-                    .get(`[data-testid="search-provider-toggle-${provider}"]`)
-                    .attributes('aria-checked')
-            ).toBe('true');
-            expect(
-                wrapper.get(`[data-testid="search-${provider}-api-key-input"]`).classes()
-            ).not.toContain('border-red-300');
-        }
-
-        // 关掉再打开，仍然不需要 key 就能重新启用。
-        await wrapper.get('[data-testid="search-provider-toggle-tavily"]').trigger('click');
-        await vi.advanceTimersByTimeAsync(300);
-        expect(
-            wrapper.get('[data-testid="search-provider-toggle-tavily"]').attributes('aria-checked')
-        ).toBe('false');
-
-        updateSearchSettingsMock.mockClear();
-        await wrapper.get('[data-testid="search-provider-toggle-tavily"]').trigger('click');
-        await vi.advanceTimersByTimeAsync(300);
-
-        expect(
-            wrapper.get('[data-testid="search-provider-toggle-tavily"]').attributes('aria-checked')
-        ).toBe('true');
-        expect(wrapper.get('[data-testid="search-tavily-api-key-input"]').classes()).not.toContain(
-            'border-red-300'
-        );
-        expect(updateSearchSettingsMock).toHaveBeenCalledWith(
-            expect.objectContaining({
-                providers: expect.objectContaining({
-                    tavily: expect.objectContaining({ enabled: true, apiKey: '' }),
-                }),
-            })
-        );
-    });
-
-    it('user requires an API key before the DeepSeek provider can be enabled', async () => {
-        const wrapper = mount(SearchSettingsView);
-        await Promise.resolve();
-
-        expect(
-            (
-                wrapper.get('[data-testid="search-deepseek-api-key-input"]')
-                    .element as HTMLInputElement
-            ).disabled
-        ).toBe(true);
-
+        await nextTick();
         await wrapper.get('[data-testid="search-provider-toggle-deepseek"]').trigger('click');
-        await vi.advanceTimersByTimeAsync(300);
-
+        await nextTick();
         expect(
             wrapper
                 .get('[data-testid="search-provider-toggle-deepseek"]')
                 .attributes('aria-checked')
         ).toBe('false');
-        expect(wrapper.get('[data-testid="search-deepseek-api-key-input"]').classes()).toContain(
-            'border-red-300'
-        );
-        expect(
-            (
-                wrapper.get('[data-testid="search-deepseek-api-key-input"]')
-                    .element as HTMLInputElement
-            ).disabled
-        ).toBe(false);
-        expect(updateSearchSettingsMock).not.toHaveBeenCalledWith(
-            expect.objectContaining({
-                providers: expect.objectContaining({
-                    deepseek: expect.objectContaining({ enabled: true }),
-                }),
-            })
-        );
-
-        await wrapper.get('[data-testid="search-deepseek-api-key-input"]').setValue('ds-key');
-        await vi.advanceTimersByTimeAsync(300);
-        updateSearchSettingsMock.mockClear();
-
+        const input = wrapper.get('[data-testid="search-deepseek-api-key-input"]');
+        expect((input.element as HTMLInputElement).disabled).toBe(false);
+        await input.setValue('ds-key');
+        await input.trigger('keydown', { key: 'Enter' });
         await wrapper.get('[data-testid="search-provider-toggle-deepseek"]').trigger('click');
         await vi.advanceTimersByTimeAsync(300);
-
         expect(updateSearchSettingsMock).toHaveBeenCalledWith(
             expect.objectContaining({
                 providers: expect.objectContaining({
@@ -360,58 +196,95 @@ describe('user edits the search settings', () => {
                 }),
             })
         );
-        expect(
-            wrapper.find('[data-testid="search-deepseek-shared-credential-hint"]').exists()
-        ).toBe(false);
+        wrapper.unmount();
     });
 
-    it('user keeps no-key provider inputs disabled even when the providers are enabled', async () => {
+    it('user can choose all six strategies and configure source routes and priority', async () => {
         const wrapper = mount(SearchSettingsView);
-        await Promise.resolve();
+        await nextTick();
+        const strategy = wrapper.get('[data-testid="search-strategy-select"]');
+        expect(strategy.findAll('option')).toHaveLength(6);
+        await wrapper.get('[data-testid="search-source-route-academic"]').setValue('exa');
+        const priority = wrapper.get('[data-testid="search-provider-priority"]');
+        await priority.findAll('li')[0]!.findAll('button')[1]!.trigger('click');
+        await strategy.setValue('parallel');
+        await wrapper.get('[data-testid="search-parallel-count-input"]').setValue('6');
+        await vi.advanceTimersByTimeAsync(300);
+        expect(updateSearchSettingsMock).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+                routingStrategy: 'parallel',
+                parallelProviderCount: 6,
+                providerPriority: expect.arrayContaining(['keenable', 'anysearch']),
+                sourceRoutes: expect.objectContaining({ academic: 'exa' }),
+            })
+        );
+        expect(priority.findAll('li')[0]!.attributes('data-provider')).toBe('keenable');
+        wrapper.unmount();
+    });
 
+    it('user clears source routes when disabling an engine without moving its card', async () => {
+        const wrapper = mount(SearchSettingsView);
+        await nextTick();
+        const ids = () =>
+            wrapper
+                .findAll('[data-testid="search-provider-row"]')
+                .map((row) => row.attributes('data-provider'));
+        const before = ids();
+        await wrapper.get('[data-testid="search-source-route-news"]').setValue('brave');
+        await wrapper.get('[data-testid="search-provider-toggle-brave"]').trigger('click');
+        await vi.advanceTimersByTimeAsync(300);
+        expect(updateSearchSettingsMock).toHaveBeenLastCalledWith(
+            expect.objectContaining({ sourceRoutes: expect.objectContaining({ news: 'auto' }) })
+        );
+        expect(ids()).toEqual(before);
+        wrapper.unmount();
+    });
+
+    it('user keeps a pending edit without reverting another window search change', async () => {
+        const wrapper = mount(SearchSettingsView);
+        await nextTick();
+        await wrapper.get('[data-testid="search-max-results-input"]').setValue('5');
+        updateStoredSearchSettings({ maxResults: 9, defaultProvider: 'wikipedia' });
+        await nextTick();
+        await vi.advanceTimersByTimeAsync(300);
+        expect(updateSearchSettingsMock).toHaveBeenCalledWith(
+            expect.objectContaining({ maxResults: 5, defaultProvider: 'wikipedia' })
+        );
+        wrapper.unmount();
+    });
+
+    it('user toggles the search tool and disables editing controls', async () => {
+        const wrapper = mount(SearchSettingsView);
+        await nextTick();
+        await wrapper.get('[data-testid="search-enabled-toggle"]').trigger('click');
+        expect(updateBuiltInToolMock).toHaveBeenCalledWith(7, { enabled: 0 });
+        await nextTick();
         expect(
-            (
-                wrapper.get('[data-testid="search-wikipedia-api-key-input"]')
-                    .element as HTMLInputElement
-            ).disabled
-        ).toBe(true);
-        expect(
-            (
-                wrapper.get('[data-testid="search-openalex-api-key-input"]')
-                    .element as HTMLInputElement
-            ).disabled
-        ).toBe(true);
-        expect(
-            (wrapper.get('[data-testid="search-github-api-key-input"]').element as HTMLInputElement)
+            (wrapper.get('[data-testid="search-provider-edit-brave"]').element as HTMLButtonElement)
                 .disabled
         ).toBe(true);
-        expect(
-            (wrapper.get('[data-testid="search-brave-api-key-input"]').element as HTMLInputElement)
-                .disabled
-        ).toBe(false);
-        expect(
-            (
-                wrapper.get('[data-testid="search-semantic_scholar-api-key-input"]')
-                    .element as HTMLInputElement
-            ).disabled
-        ).toBe(false);
-        expect(
-            (
-                wrapper.get('[data-testid="search-anysearch-api-key-input"]')
-                    .element as HTMLInputElement
-            ).disabled
-        ).toBe(false);
-        expect(
-            (
-                wrapper.get('[data-testid="search-searxng-api-key-input"]')
-                    .element as HTMLInputElement
-            ).disabled
-        ).toBe(true);
-        expect(wrapper.get('[data-testid="search-searxng-api-key-input"]').classes()).toContain(
-            'font-serif'
-        );
-        expect(wrapper.get('[data-testid="search-searxng-api-key-input"]').classes()).toContain(
-            'bg-surface-sunken'
-        );
+        wrapper.unmount();
+    });
+
+    it('user enables anonymous engines without a key and configures optional tokens for academic and code search', async () => {
+        const wrapper = mount(SearchSettingsView);
+        await nextTick();
+        for (const provider of ['tavily', 'exa', 'firecrawl']) {
+            await wrapper
+                .get('[data-testid="search-provider-toggle-' + provider + '"]')
+                .trigger('click');
+            await wrapper
+                .get('[data-testid="search-provider-toggle-' + provider + '"]')
+                .trigger('click');
+            expect(
+                wrapper
+                    .get('[data-testid="search-provider-toggle-' + provider + '"]')
+                    .attributes('aria-checked')
+            ).toBe('true');
+        }
+        expect(wrapper.find('[data-testid="search-provider-edit-wikipedia"]').exists()).toBe(false);
+        expect(wrapper.find('[data-testid="search-provider-edit-openalex"]').exists()).toBe(true);
+        expect(wrapper.find('[data-testid="search-provider-edit-github"]').exists()).toBe(true);
+        wrapper.unmount();
     });
 });

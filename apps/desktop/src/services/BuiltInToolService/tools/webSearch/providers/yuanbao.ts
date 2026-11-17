@@ -1,14 +1,24 @@
 import { normalizeOptionalString } from '@/utils/text';
 
-import type { WebSearchRequest, WebSearchResult } from '../helper';
-import { resultLimit } from './common';
+import type { WebSearchResult } from '../helper';
+import {
+    nativeSearchOptions,
+    queryWithDomains,
+    resultDetails,
+    resultLimit,
+    searchSource,
+} from './common';
 import { createSearchProviderAdapter } from './define';
 
 const YUANBAO_API_ROOT = 'https://api.wsa.cloud.tencent.com';
 export const YUANBAO_SEARCH_PATH = '/SearchPro';
 
 /** `Cnt` 只接受 10/20/30/40/50，取 10 后再按用户上限截断。 */
-const YUANBAO_RESULT_COUNT = 10;
+const YUANBAO_RESULT_COUNTS = [10, 20, 30, 40, 50] as const;
+
+function yuanbaoResultCount(requested: number): number {
+    return YUANBAO_RESULT_COUNTS.find((count) => count >= requested) ?? 50;
+}
 
 export function buildYuanbaoSearchUrl(endpoint: string | null | undefined): URL {
     const trimmed = (endpoint ?? '').trim().replace(/\/+$/, '');
@@ -30,13 +40,14 @@ export function buildYuanbaoFreshness(recencyDays: number | undefined): string |
     return `y${Math.max(1, Math.min(5, Math.ceil(recencyDays / 365)))}`;
 }
 
-export function buildYuanbaoIndustry(intent: WebSearchRequest['intent']): string | undefined {
+export function buildYuanbaoIndustry(intent: string): string | undefined {
     if (intent === 'news') {
         return 'news';
     }
     if (intent === 'academic') {
         return 'acad';
     }
+    if (intent === 'official') return 'gov';
     return undefined;
 }
 
@@ -50,6 +61,8 @@ interface YuanbaoPage {
     score?: unknown;
     authority_level?: unknown;
     favicon?: unknown;
+    pics?: unknown;
+    deeplinks?: unknown;
 }
 
 function parseYuanbaoPage(raw: unknown): YuanbaoPage | null {
@@ -100,6 +113,10 @@ export function toYuanbaoResult(page: YuanbaoPage): WebSearchResult | null {
         score: typeof page.score === 'number' ? page.score : undefined,
         authority: Number.isFinite(authority) ? authority : undefined,
         favicon: normalizeOptionalString(page.favicon) ?? undefined,
+        details: resultDetails({ pics: page.pics, deeplinks: page.deeplinks }, [
+            'pics',
+            'deeplinks',
+        ]),
     };
 }
 
@@ -145,22 +162,35 @@ export const yuanbaoAdapter = createSearchProviderAdapter({
 
         const url = buildYuanbaoSearchUrl(settings.providers.yuanbao.endpoint);
         const singleDomain = request.domains.length === 1 ? request.domains[0]?.trim() : '';
+        if (request.excludeDomains.length > 5) {
+            throw new Error(
+                'Yuanbao Site accepts at most 5 excluded domains. Split the search into several calls or use a provider with a larger domain filter.'
+            );
+        }
+        if (singleDomain && request.excludeDomains.length > 0) {
+            throw new Error(
+                'Yuanbao Site cannot combine an allowed site with excluded sites. Use one filter mode or separate searches.'
+            );
+        }
         const body: Record<string, unknown> = {
-            Query: request.query,
-            Cnt: YUANBAO_RESULT_COUNT,
+            Query: request.domains.length > 1 ? queryWithDomains(request) : request.query,
+            Cnt: yuanbaoResultCount(request.maxResults),
             Mode: 2,
         };
         if (singleDomain) {
             body.Site = singleDomain;
+        } else if (request.excludeDomains.length > 0) {
+            body.Site = `exclude:${request.excludeDomains.join('|')}`;
         }
         const freshness = buildYuanbaoFreshness(request.recencyDays);
         if (freshness) {
             body.Freshness = freshness;
         }
-        const industry = buildYuanbaoIndustry(request.intent);
+        const industry = buildYuanbaoIndustry(searchSource(request));
         if (industry) {
             body.Industry = industry;
         }
+        Object.assign(body, nativeSearchOptions(request, 'yuanbao'));
 
         const payload = await fetchJson(url, signal, {
             method: 'POST',
