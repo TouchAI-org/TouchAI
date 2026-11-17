@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { executeWebSearchTool } from '@/services/BuiltInToolService/tools/webSearch';
+import { executeWebSearchTool, webSearchTool } from '@/services/BuiltInToolService/tools/webSearch';
 
 const { readSettings, fetchMock } = vi.hoisted(() => ({
     readSettings: vi.fn(),
@@ -377,6 +377,21 @@ describe('user chooses failure recovery and fusion', () => {
             context()
         );
         expect(explicit.result).not.toContain('AnySearch hit');
+    });
+
+    it('user sees supported options for every enabled engine in the tool schema', async () => {
+        const definition = await webSearchTool.buildToolDefinition('builtin__web_search');
+        const providerOptions = definition.input_schema.properties.providerOptions as {
+            properties: Record<string, { properties: Record<string, unknown> }>;
+            additionalProperties: boolean;
+        };
+        expect(providerOptions.additionalProperties).toBe(false);
+        expect(Object.keys(providerOptions.properties)).toEqual(
+            expect.arrayContaining(['anysearch', 'exa', 'tavily', 'brave', 'grok'])
+        );
+        expect(providerOptions.properties.exa?.properties).toHaveProperty('category');
+        expect(providerOptions.properties.brave?.properties).toHaveProperty('searchType');
+        expect(definition.description).toContain('enumerated in providerOptions.properties');
     });
 
     it('user is told when providerOptions names an engine that does not exist', async () => {
