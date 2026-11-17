@@ -38,7 +38,7 @@
     import grokLogo from '@/assets/logos/providers/grok-search.png';
     import keenableLogo from '@/assets/logos/providers/keenable.png';
     import openalexLogo from '@/assets/logos/providers/openalex.png';
-    import qianfanLogo from '@/assets/logos/providers/qianfan.svg';
+    import qianfanLogo from '@/assets/logos/providers/qianfan.png';
     import searxngLogo from '@/assets/logos/providers/searxng.svg';
     import scholarLogo from '@/assets/logos/providers/semantic-scholar.png';
     import serperLogo from '@/assets/logos/providers/serper.png';
