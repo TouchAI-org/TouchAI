@@ -69,10 +69,8 @@
         class="flex min-w-0 items-center gap-3 rounded-panel border border-border-subtle bg-surface-floating p-4"
         @focusout="leaveCard"
     >
-        <div
-            class="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-card border border-border-subtle bg-surface-raised p-2"
-        >
-            <img :src="logo" alt="" class="size-full rounded-sm object-contain" />
+        <div class="flex size-16 shrink-0 items-center justify-center overflow-hidden">
+            <img :src="logo" alt="" class="size-full object-contain" />
         </div>
         <div class="flex h-16 min-w-0 flex-1 flex-col gap-1">
             <div class="flex h-5 min-w-0 shrink-0 items-center gap-1.5">

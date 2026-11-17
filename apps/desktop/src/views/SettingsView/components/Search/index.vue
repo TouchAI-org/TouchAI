@@ -26,6 +26,7 @@
     } from '@services/SettingsService/domain';
     import { storeToRefs } from 'pinia';
     import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+    import { VueDraggable } from 'vue-draggable-plus';
 
     import doubaoLogo from '@/assets/logos/models/doubao.png';
     import anysearchLogo from '@/assets/logos/providers/anysearch.png';
@@ -350,6 +351,18 @@
         }))
     );
 
+    const priorityExpanded = ref(false);
+
+    watch(
+        () => draft.value.routingStrategy,
+        (strategy) => {
+            if (strategy === 'priority' || strategy === 'parallel') {
+                priorityExpanded.value = true;
+            }
+        },
+        { immediate: true }
+    );
+
     const strategyDescription = computed(() =>
         t(strategyMessages[draft.value.routingStrategy].description)
     );
@@ -604,12 +617,12 @@
         draft.value.intentRoutes[intent] = providerId;
     }
 
-    function moveProvider(providerId: SearchProviderId, direction: number) {
+    function moveProviderToTop(providerId: SearchProviderId) {
         const priority = [...draft.value.providerPriority];
         const index = priority.indexOf(providerId);
-        const target = index + direction;
-        if (index < 0 || target < 0 || target >= priority.length) return;
-        [priority[index], priority[target]] = [priority[target]!, priority[index]!];
+        if (index <= 0) return;
+        priority.splice(index, 1);
+        priority.unshift(providerId);
         draft.value.providerPriority = priority;
     }
 </script>
@@ -835,48 +848,104 @@
                     class="mt-10 space-y-4"
                     data-settings-search-target="search-priority"
                 >
-                    <h2 class="settings-section-title">{{ t('settings.search.priority') }}</h2>
-                    <ol class="flex flex-wrap gap-2" data-testid="search-provider-priority">
+                    <div class="flex items-start justify-between gap-4">
+                        <div>
+                            <h2 class="settings-section-title">
+                                {{ t('settings.search.priority') }}
+                            </h2>
+                            <p class="settings-section-description">
+                                {{ t('settings.search.priority.hint') }}
+                            </p>
+                        </div>
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            :aria-expanded="priorityExpanded"
+                            @click="priorityExpanded = !priorityExpanded"
+                        >
+                            {{
+                                t(
+                                    priorityExpanded
+                                        ? 'settings.search.priority.collapse'
+                                        : 'settings.search.priority.expand'
+                                )
+                            }}
+                        </Button>
+                    </div>
+                    <VueDraggable
+                        v-if="priorityExpanded"
+                        v-model="draft.providerPriority"
+                        tag="ol"
+                        data-testid="search-provider-priority"
+                        class="max-h-96 overflow-x-hidden overflow-y-auto rounded-card border border-border-subtle bg-surface-floating"
+                        handle="[data-search-priority-handle]"
+                        :animation="160"
+                        :force-fallback="true"
+                        :disabled="!toolEnabled"
+                        ghost-class="opacity-40"
+                    >
                         <li
                             v-for="(providerId, index) in draft.providerPriority"
                             :key="providerId"
                             :data-provider="providerId"
-                            class="flex items-center gap-1 rounded-control border border-border-subtle bg-surface-floating px-2 py-1"
+                            class="flex items-center gap-3 border-b border-border-subtle px-3 py-2.5 last:border-b-0"
                             :class="providerConfig(providerId).enabled ? '' : 'opacity-50'"
                         >
-                            <span class="text-caption text-text-secondary">
-                                {{ index + 1 }}. {{ t(providerMessages[providerId].label) }}
+                            <button
+                                type="button"
+                                class="inline-flex size-6 shrink-0 cursor-grab items-center justify-center rounded-md text-text-tertiary transition-colors hover:bg-surface-hover hover:text-text-secondary active:cursor-grabbing disabled:cursor-default"
+                                :disabled="!toolEnabled || draft.providerPriority.length < 2"
+                                :aria-label="
+                                    t('settings.search.priority.drag', {
+                                        name: t(providerMessages[providerId].label),
+                                    })
+                                "
+                                data-search-priority-handle
+                                style="touch-action: none"
+                            >
+                                <span class="grid grid-cols-2 gap-0.5">
+                                    <span
+                                        v-for="dot in 6"
+                                        :key="dot"
+                                        class="size-1 rounded-full bg-current"
+                                    />
+                                </span>
+                            </button>
+                            <span class="w-5 shrink-0 text-caption text-text-tertiary tabular-nums">
+                                {{ index + 1 }}
+                            </span>
+                            <img
+                                v-if="providerLogos[providerId]"
+                                :src="providerLogos[providerId]"
+                                alt=""
+                                class="size-6 shrink-0 object-contain"
+                            />
+                            <span class="min-w-0 flex-1 truncate text-compact text-settings-text">
+                                {{ t(providerMessages[providerId].label) }}
+                            </span>
+                            <span
+                                v-if="!providerConfig(providerId).enabled"
+                                class="shrink-0 rounded-full bg-surface-sunken px-1.5 text-2xs leading-5 text-text-tertiary"
+                            >
+                                {{ t('settings.search.priority.disabled') }}
                             </span>
                             <Button
                                 variant="ghost"
                                 size="icon-sm"
+                                class="shrink-0"
+                                :data-testid="`search-priority-top-${providerId}`"
                                 :disabled="!toolEnabled || index === 0"
                                 :aria-label="
-                                    t('settings.search.moveEarlier', {
+                                    t('settings.search.priority.moveToTop', {
                                         name: t(providerMessages[providerId].label),
                                     })
                                 "
-                                @click="moveProvider(providerId, -1)"
+                                @click="moveProviderToTop(providerId)"
                             >
-                                <AppIcon name="arrow-down" class="size-3 rotate-180" />
-                            </Button>
-                            <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                :disabled="
-                                    !toolEnabled || index === draft.providerPriority.length - 1
-                                "
-                                :aria-label="
-                                    t('settings.search.moveLater', {
-                                        name: t(providerMessages[providerId].label),
-                                    })
-                                "
-                                @click="moveProvider(providerId, 1)"
-                            >
-                                <AppIcon name="arrow-down" class="size-3" />
+                                <AppIcon name="chevron-up" class="size-3.5" />
                             </Button>
                         </li>
-                    </ol>
+                    </VueDraggable>
                 </section>
 
                 <section class="mt-10 space-y-4">

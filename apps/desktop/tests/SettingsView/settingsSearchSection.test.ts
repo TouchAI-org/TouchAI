@@ -205,8 +205,10 @@ describe('user edits the search settings', () => {
         const strategy = wrapper.get('[data-testid="search-strategy-select"]');
         expect(strategy.findAll('option')).toHaveLength(6);
         await wrapper.get('[data-testid="search-source-route-academic"]').setValue('exa');
+        await strategy.setValue('priority');
+        await nextTick();
         const priority = wrapper.get('[data-testid="search-provider-priority"]');
-        await priority.findAll('li')[0]!.findAll('button')[1]!.trigger('click');
+        await wrapper.get('[data-testid="search-priority-top-keenable"]').trigger('click');
         await strategy.setValue('parallel');
         await wrapper.get('[data-testid="search-parallel-count-input"]').setValue('6');
         await vi.advanceTimersByTimeAsync(300);

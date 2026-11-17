@@ -356,6 +356,13 @@ const zhCNMessages = {
     'settings.search.editProvider': '编辑 {name}',
     'settings.search.finishEdit': '完成编辑 {name}',
     'settings.search.priority': '引擎优先顺序',
+    'settings.search.priority.hint': '拖拽调整顺序，第一位优先；停用的引擎会自动跳过。',
+    'settings.search.priority.expand': '调整顺序',
+    'settings.search.priority.collapse': '收起',
+    'settings.search.priority.drag': '拖动 {name} 调整顺序',
+    'settings.search.priority.moveToTop': '将 {name} 移到最前',
+    'settings.search.priority.disabled': '已停用',
+
     'settings.search.moveEarlier': '将 {name} 提前',
     'settings.search.moveLater': '将 {name} 延后',
     'settings.search.saveError': '搜索设置保存失败，请重试。',
@@ -1673,6 +1680,14 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.search.editProvider': 'Edit {name}',
     'settings.search.finishEdit': 'Finish editing {name}',
     'settings.search.priority': 'Provider priority',
+    'settings.search.priority.hint':
+        'Drag to reorder; the first enabled engine wins. Disabled engines are skipped.',
+    'settings.search.priority.expand': 'Reorder',
+    'settings.search.priority.collapse': 'Collapse',
+    'settings.search.priority.drag': 'Drag {name} to reorder',
+    'settings.search.priority.moveToTop': 'Move {name} to the top',
+    'settings.search.priority.disabled': 'Disabled',
+
     'settings.search.moveEarlier': 'Move {name} earlier',
     'settings.search.moveLater': 'Move {name} later',
     'settings.search.saveError': 'Search settings could not be saved. Please retry.',
