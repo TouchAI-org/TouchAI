@@ -141,7 +141,7 @@ describe('user edits the search settings', () => {
         wrapper.unmount();
     });
 
-    it('user edits a key in place and cancels without saving the changed value', async () => {
+    it('user edits a key in the slide editor and can go back without saving', async () => {
         const wrapper = mount(SearchSettingsView);
         await nextTick();
         const ids = () =>
@@ -150,18 +150,18 @@ describe('user edits the search settings', () => {
                 .map((row) => row.attributes('data-provider'));
         const before = ids();
         await wrapper.get('[data-testid="search-provider-edit-brave"]').trigger('click');
+        expect(wrapper.find('[data-testid="search-provider-row"]').exists()).toBe(false);
+        expect(wrapper.find('[data-testid="search-provider-editor"]').exists()).toBe(true);
         const input = wrapper.get('[data-testid="search-brave-api-key-input"]');
         expect(input.attributes('type')).toBe('password');
         await input.setValue('changed-key');
-        await input.trigger('keydown', { key: 'Escape' });
+        await wrapper.get('[data-testid="search-provider-editor-back"]').trigger('click');
         await vi.advanceTimersByTimeAsync(300);
         expect(updateSearchSettingsMock).not.toHaveBeenCalled();
         expect(ids()).toEqual(before);
         await wrapper.get('[data-testid="search-provider-edit-brave"]').trigger('click');
         await wrapper.get('[data-testid="search-brave-api-key-input"]').setValue('saved-key');
-        await wrapper
-            .get('[data-testid="search-brave-api-key-input"]')
-            .trigger('keydown', { key: 'Enter' });
+        await wrapper.get('[data-testid="search-provider-editor-save"]').trigger('click');
         await vi.advanceTimersByTimeAsync(300);
         expect(updateSearchSettingsMock).toHaveBeenCalledWith(
             expect.objectContaining({
@@ -170,23 +170,17 @@ describe('user edits the search settings', () => {
                 }),
             })
         );
+        expect(wrapper.find('[data-testid="search-provider-editor"]').exists()).toBe(false);
         wrapper.unmount();
     });
 
-    it('user can configure a disabled engine and sees a key field when enabling one without credentials', async () => {
+    it('user can configure a disabled engine in the editor and enable it afterwards', async () => {
         const wrapper = mount(SearchSettingsView);
         await nextTick();
-        await wrapper.get('[data-testid="search-provider-toggle-deepseek"]').trigger('click');
-        await nextTick();
-        expect(
-            wrapper
-                .get('[data-testid="search-provider-toggle-deepseek"]')
-                .attributes('aria-checked')
-        ).toBe('false');
+        await wrapper.get('[data-testid="search-provider-edit-deepseek"]').trigger('click');
         const input = wrapper.get('[data-testid="search-deepseek-api-key-input"]');
-        expect((input.element as HTMLInputElement).disabled).toBe(false);
         await input.setValue('ds-key');
-        await input.trigger('keydown', { key: 'Enter' });
+        await wrapper.get('[data-testid="search-provider-editor-save"]').trigger('click');
         await wrapper.get('[data-testid="search-provider-toggle-deepseek"]').trigger('click');
         await vi.advanceTimersByTimeAsync(300);
         expect(updateSearchSettingsMock).toHaveBeenCalledWith(
