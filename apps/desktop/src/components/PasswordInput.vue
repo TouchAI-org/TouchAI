@@ -15,6 +15,7 @@
         disabled?: boolean;
         inputClass?: string;
         inputTestId?: string;
+        variant?: 'default' | 'filled';
     }
 
     interface Emits {
@@ -27,6 +28,7 @@
         disabled: false,
         inputClass: '',
         inputTestId: undefined,
+        variant: 'default',
     });
 
     const emit = defineEmits<Emits>();
@@ -53,6 +55,7 @@
             :placeholder="placeholder"
             :disabled="disabled"
             :data-testid="inputTestId"
+            :variant="variant"
             :class="['h-auto py-2 pr-10 tracking-normal', inputClass]"
             @input="handleInput"
         />

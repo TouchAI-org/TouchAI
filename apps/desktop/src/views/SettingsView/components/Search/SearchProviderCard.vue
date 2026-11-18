@@ -8,6 +8,8 @@
     import { Input } from '@components/ui/input';
     import { SegmentedControl } from '@components/ui/segmented-control';
     import { Switch } from '@components/ui/switch';
+    import { useMotion } from '@composables/useMotion';
+    import { motion } from 'motion-v';
     import { computed, ref, watch } from 'vue';
 
     import { t } from '@/i18n';
@@ -26,12 +28,14 @@
         endpointValue: string;
         endpointRequired: boolean;
         supportsEndpoint: boolean;
+        logoHasBackground: boolean;
         endpointPlaceholder: string;
         keyPlaceholder: string;
         apiKeyRequired: boolean;
     }
 
     const props = defineProps<Props>();
+    const { transitions } = useMotion();
 
     const emit = defineEmits<{
         enabled: [value: boolean];
@@ -78,98 +82,62 @@
     <article
         data-testid="search-provider-row"
         :data-provider="id"
-        class="relative h-26 min-w-0 rounded-card border border-border-subtle bg-surface-floating"
-        :class="editing ? 'z-30' : ''"
+        class="h-26 min-w-0 rounded-card border border-border-subtle bg-surface-floating"
     >
-        <Transition name="provider-slide">
+        <div
+            class="flex h-full min-w-0"
+            :class="editing ? 'flex-col p-3.5' : ''"
+            :data-testid="editing ? 'search-provider-editor' : undefined"
+        >
             <div
-                v-if="editing"
-                key="editor"
-                data-testid="search-provider-editor"
-                class="absolute inset-0 z-20 flex flex-col rounded-card border border-border-subtle bg-surface-floating p-3.5"
+                class="flex min-w-0 items-center"
+                :class="editing ? 'w-full gap-2' : 'h-full flex-1 gap-3 px-3.5'"
             >
-                <div class="flex min-w-0 items-center gap-2">
-                    <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        data-testid="search-provider-editor-back"
-                        :aria-label="t('settings.search.editor.back')"
-                        @click="emit('cancel')"
-                    >
-                        <AppIcon name="arrow-left" class="size-4" />
-                    </Button>
-                    <span
-                        v-if="logo"
-                        class="flex size-7 shrink-0 items-center justify-center rounded-lg bg-surface-sunken p-0.5"
-                    >
-                        <span
-                            class="flex size-full items-center justify-center overflow-hidden rounded-md bg-surface-floating p-0.5"
-                        >
-                            <img :src="logo" alt="" class="size-full rounded object-contain" />
-                        </span>
-                    </span>
-                    <h3 class="min-w-0 flex-1 truncate text-compact font-medium text-settings-text">
-                        {{ label }}
-                    </h3>
-                    <SegmentedControl
-                        v-if="supportsEndpoint && !endpointRequired"
-                        v-model="field"
-                        data-testid="search-provider-credential-tabs"
-                        :options="fieldOptions"
-                        :aria-label="t('settings.search.provider.credentialType')"
-                    />
-                </div>
-                <div class="mt-2 flex min-w-0 items-center gap-2">
-                    <div class="min-w-0 flex-1">
-                        <Input
-                            v-if="field === 'endpoint'"
-                            v-model="endpointDraft"
-                            class="h-auto py-2 text-compact"
-                            type="url"
-                            :data-testid="`search-${id}-base-url-input`"
-                            :placeholder="endpointPlaceholder"
-                            spellcheck="false"
-                        />
-                        <PasswordInput
-                            v-else
-                            v-model="keyDraft"
-                            :input-test-id="`search-${id}-api-key-input`"
-                            :placeholder="keyPlaceholder"
-                            class="!mt-0"
-                            input-class="text-compact"
-                        />
-                    </div>
-                    <Button
-                        variant="strong"
-                        class="h-9 shrink-0"
-                        data-testid="search-provider-editor-save"
-                        :disabled="!canSave"
-                        @click="save"
-                    >
-                        {{ t('settings.search.editor.save') }}
-                    </Button>
-                </div>
-            </div>
-            <div v-else key="display" class="flex h-full min-w-0 items-center gap-3 px-3.5">
-                <span
-                    class="flex size-18 shrink-0 items-center justify-center rounded-2xl bg-surface-sunken p-2"
+                <Button
+                    v-if="editing"
+                    variant="ghost"
+                    size="icon-sm"
+                    data-testid="search-provider-editor-back"
+                    :aria-label="t('settings.search.editor.back')"
+                    @click="emit('cancel')"
+                >
+                    <AppIcon name="arrow-left" class="size-4" />
+                </Button>
+
+                <motion.span
+                    v-if="logo"
+                    layout
+                    :transition="transitions.fast"
+                    class="flex shrink-0 items-center justify-center bg-surface-sunken"
+                    :class="editing ? 'size-7 rounded-lg p-0.5' : 'size-18 rounded-2xl p-2'"
                 >
                     <span
+                        v-if="logoHasBackground"
+                        class="flex size-full items-center justify-center overflow-hidden rounded-xl"
+                    >
+                        <img :src="logo" alt="" class="size-full rounded-xl object-cover" />
+                    </span>
+                    <span
+                        v-else
                         class="flex size-full items-center justify-center overflow-hidden rounded-xl bg-surface-floating p-0.5"
                     >
                         <img :src="logo" alt="" class="size-full rounded-lg object-contain" />
                     </span>
-                </span>
-                <div class="min-w-0 flex-1">
+                </motion.span>
+
+                <div class="min-w-0 flex-1" :class="editing ? 'flex items-center' : ''">
                     <div class="flex min-w-0 items-center gap-1.5">
-                        <span
+                        <motion.h3
+                            :initial="false"
+                            :animate="editing ? { x: [12, 0] } : { x: [-12, 0] }"
+                            :transition="transitions.fast"
                             class="min-w-0 truncate text-compact leading-5 font-medium text-settings-text"
                             :title="label"
                         >
                             {{ label }}
-                        </span>
+                        </motion.h3>
                         <Badge
-                            v-if="quota"
+                            v-if="!editing && quota"
                             variant="source"
                             :data-testid="`search-provider-quota-${id}`"
                             class="shrink-0"
@@ -178,13 +146,23 @@
                         </Badge>
                     </div>
                     <p
-                        class="m-0 mt-1 line-clamp-2 text-caption leading-4 text-text-secondary"
+                        v-if="!editing"
+                        class="m-0 mt-1 line-clamp-2 text-caption whitespace-pre-line text-text-secondary"
                         :title="description"
                     >
                         {{ description }}
                     </p>
                 </div>
-                <div class="flex shrink-0 items-center gap-1">
+
+                <SegmentedControl
+                    v-if="editing && supportsEndpoint && !endpointRequired"
+                    v-model="field"
+                    data-testid="search-provider-credential-tabs"
+                    :options="fieldOptions"
+                    :aria-label="t('settings.search.provider.credentialType')"
+                />
+
+                <div v-else-if="!editing" class="flex shrink-0 items-center gap-1">
                     <Switch
                         :data-testid="`search-provider-toggle-${id}`"
                         :aria-label="label"
@@ -206,25 +184,45 @@
                     <span v-else class="size-7 shrink-0" aria-hidden="true" />
                 </div>
             </div>
-        </Transition>
+
+            <motion.div
+                v-if="editing"
+                :initial="{ opacity: 0, y: -4 }"
+                :animate="{ opacity: 1, y: 0 }"
+                :transition="transitions.quick"
+                class="mt-2 flex min-w-0 items-center gap-2"
+            >
+                <div class="min-w-0 flex-1">
+                    <Input
+                        v-if="field === 'endpoint'"
+                        v-model="endpointDraft"
+                        variant="filled"
+                        class="h-9 text-xs"
+                        type="url"
+                        :data-testid="`search-${id}-base-url-input`"
+                        :placeholder="endpointPlaceholder"
+                        spellcheck="false"
+                    />
+                    <PasswordInput
+                        v-else
+                        v-model="keyDraft"
+                        variant="filled"
+                        :input-test-id="`search-${id}-api-key-input`"
+                        :placeholder="keyPlaceholder"
+                        class="!mt-0"
+                        input-class="h-9 py-0 pr-10 text-xs"
+                    />
+                </div>
+                <Button
+                    variant="strong"
+                    class="h-9 shrink-0"
+                    data-testid="search-provider-editor-save"
+                    :disabled="!canSave"
+                    @click="save"
+                >
+                    {{ t('settings.search.editor.save') }}
+                </Button>
+            </motion.div>
+        </div>
     </article>
 </template>
-
-<style scoped>
-    .provider-slide-enter-active,
-    .provider-slide-leave-active {
-        transition:
-            transform 180ms var(--ease-smooth-out),
-            opacity 180ms var(--ease-smooth-out);
-    }
-
-    .provider-slide-enter-from {
-        transform: translateX(24px);
-        opacity: 0;
-    }
-
-    .provider-slide-leave-to {
-        transform: translateX(-24px);
-        opacity: 0;
-    }
-</style>

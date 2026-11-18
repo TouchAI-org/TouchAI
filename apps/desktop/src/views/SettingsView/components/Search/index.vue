@@ -67,6 +67,14 @@
     const pendingEnableProvider = ref<SearchProviderId | null>(null);
     let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
     let isSyncingFromStore = false;
+    const providerLogoHasBackground = new Set<SearchProviderId>([
+        'anysearch',
+        'deepseek',
+        'zhihu',
+        'tavily',
+        'tinyfish',
+        'grok',
+    ]);
     const providerLogos: Partial<Record<SearchProviderId, string>> = {
         anysearch: anysearchLogo,
         brave: braveLogo,
@@ -738,6 +746,7 @@
                                 :endpoint-value="providerConfig(providerId).endpoint"
                                 :endpoint-required="providerRequiresEndpoint(providerId)"
                                 :supports-endpoint="providersWithEndpoint.has(providerId)"
+                                :logo-has-background="providerLogoHasBackground.has(providerId)"
                                 :endpoint-placeholder="
                                     t('settings.search.provider.baseUrlPlaceholder')
                                 "
