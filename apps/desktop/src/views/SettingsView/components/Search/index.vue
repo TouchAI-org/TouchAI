@@ -659,12 +659,13 @@
                         </SettingsRow>
                         <SettingsRow
                             data-settings-search-target="search-parallelProviders"
-                            control-width="320"
+                            control-width="auto"
                             :label="t('settings.search.parallelProviders')"
                             :description="t('settings.search.parallelProviders.description')"
                         >
                             <Switch
                                 data-testid="search-parallel-toggle"
+                                size="lg"
                                 :aria-label="t('settings.search.parallelProviders')"
                                 :model-value="draft.parallelProviders"
                                 :disabled="!toolEnabled || draft.routingStrategy === 'manual'"
