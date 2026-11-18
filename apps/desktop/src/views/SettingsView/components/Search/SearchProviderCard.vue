@@ -169,7 +169,7 @@
                         </Badge>
                     </div>
                     <p
-                        class="m-0 mt-1 line-clamp-2 text-caption leading-4 text-balance text-text-secondary"
+                        class="m-0 mt-1 line-clamp-2 text-caption leading-4 text-text-secondary"
                         :title="description"
                     >
                         {{ description }}
