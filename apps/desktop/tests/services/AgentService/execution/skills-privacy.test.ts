@@ -933,6 +933,20 @@ describe('given priority messages have a durable queue entry', () => {
         );
         const prompts = messages.map((message) => message.prompt);
         expect(history.all(...prompts)).toEqual([]);
+        const started = state.events.find((event) => event.type === 'task_started')!;
+        const turn = database
+            .prepare(
+                'SELECT prompt_message_id, prompt_snapshot_json FROM session_turns WHERE id = ? AND session_id = ?'
+            )
+            .get(started.turnId, state.sessionId!)!;
+        expect(
+            database
+                .prepare("SELECT id FROM messages WHERE session_id = ? AND role = 'user'")
+                .all(state.sessionId!)
+        ).toEqual([{ id: turn.prompt_message_id }]);
+        expect(JSON.parse(String(turn.prompt_snapshot_json))).not.toHaveProperty(
+            'messageInputSnapshots'
+        );
 
         database.exec('DROP TRIGGER injected_write_failure');
         httpFetch.mockReset();
