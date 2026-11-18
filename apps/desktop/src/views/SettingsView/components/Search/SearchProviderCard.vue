@@ -98,7 +98,12 @@
                     >
                         <AppIcon name="arrow-left" class="size-4" />
                     </Button>
-                    <img v-if="logo" :src="logo" alt="" class="size-6 shrink-0 object-contain" />
+                    <span
+                        v-if="logo"
+                        class="flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border-subtle bg-surface-sunken p-0.5"
+                    >
+                        <img :src="logo" alt="" class="size-full rounded-lg object-contain" />
+                    </span>
                     <h3 class="min-w-0 flex-1 truncate text-compact font-medium text-settings-text">
                         {{ label }}
                     </h3>
@@ -141,8 +146,10 @@
                 </div>
             </div>
             <div v-else key="display" class="flex h-full min-w-0 items-center gap-3 px-3.5">
-                <span class="flex size-9 shrink-0 items-center justify-center overflow-hidden">
-                    <img :src="logo" alt="" class="size-full object-contain" />
+                <span
+                    class="flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-border-subtle bg-surface-sunken p-1"
+                >
+                    <img :src="logo" alt="" class="size-full rounded-xl object-contain" />
                 </span>
                 <div class="min-w-0 flex-1">
                     <div class="flex min-w-0 items-center gap-1.5">
