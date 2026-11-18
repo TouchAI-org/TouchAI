@@ -100,7 +100,7 @@
                     </Button>
                     <span
                         v-if="logo"
-                        class="flex size-7 shrink-0 items-center justify-center rounded-lg border border-border-subtle p-0.5"
+                        class="flex size-7 shrink-0 items-center justify-center rounded-lg bg-surface-sunken p-0.5"
                     >
                         <span
                             class="flex size-full items-center justify-center overflow-hidden rounded-md bg-surface-floating p-0.5"
@@ -136,6 +136,7 @@
                             :input-test-id="`search-${id}-api-key-input`"
                             :placeholder="keyPlaceholder"
                             class="!mt-0"
+                            input-class="text-compact"
                         />
                     </div>
                     <Button
@@ -151,7 +152,7 @@
             </div>
             <div v-else key="display" class="flex h-full min-w-0 items-center gap-3 px-3.5">
                 <span
-                    class="flex size-16 shrink-0 items-center justify-center rounded-2xl border-2 border-border-subtle p-1"
+                    class="flex size-18 shrink-0 items-center justify-center rounded-2xl bg-surface-sunken p-2"
                 >
                     <span
                         class="flex size-full items-center justify-center overflow-hidden rounded-xl bg-surface-floating p-0.5"
