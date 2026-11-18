@@ -100,9 +100,13 @@
                     </Button>
                     <span
                         v-if="logo"
-                        class="flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border-subtle bg-surface-floating p-0.5"
+                        class="flex size-7 shrink-0 items-center justify-center rounded-lg border border-border-subtle p-0.5"
                     >
-                        <img :src="logo" alt="" class="size-full rounded-lg object-contain" />
+                        <span
+                            class="flex size-full items-center justify-center overflow-hidden rounded-md border border-border-subtle bg-surface-floating p-0.5"
+                        >
+                            <img :src="logo" alt="" class="size-full rounded object-contain" />
+                        </span>
                     </span>
                     <h3 class="min-w-0 flex-1 truncate text-compact font-medium text-settings-text">
                         {{ label }}
@@ -147,9 +151,13 @@
             </div>
             <div v-else key="display" class="flex h-full min-w-0 items-center gap-3 px-3.5">
                 <span
-                    class="flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-border-subtle bg-surface-floating p-1"
+                    class="flex size-16 shrink-0 items-center justify-center rounded-2xl border-2 border-border-subtle p-1"
                 >
-                    <img :src="logo" alt="" class="size-full rounded-xl object-contain" />
+                    <span
+                        class="flex size-full items-center justify-center overflow-hidden rounded-xl border border-border-subtle bg-surface-floating p-0.5"
+                    >
+                        <img :src="logo" alt="" class="size-full rounded-lg object-contain" />
+                    </span>
                 </span>
                 <div class="min-w-0 flex-1">
                     <div class="flex min-w-0 items-center gap-1.5">
