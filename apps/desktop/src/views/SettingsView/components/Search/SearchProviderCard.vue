@@ -86,7 +86,7 @@
                 v-if="editing"
                 key="editor"
                 data-testid="search-provider-editor"
-                class="absolute inset-0 z-20 flex flex-col rounded-card border border-border-subtle bg-surface-floating p-3.5 shadow-lg"
+                class="absolute inset-0 z-20 flex flex-col rounded-card border border-border-subtle bg-surface-floating p-3.5"
             >
                 <div class="flex min-w-0 items-center gap-2">
                     <Button
@@ -124,7 +124,7 @@
                         <Input
                             v-if="field === 'endpoint'"
                             v-model="endpointDraft"
-                            variant="filled"
+                            class="h-auto py-2 text-compact"
                             type="url"
                             :data-testid="`search-${id}-base-url-input`"
                             :placeholder="endpointPlaceholder"

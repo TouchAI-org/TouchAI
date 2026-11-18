@@ -63,8 +63,8 @@
     const toolEnabled = ref(true);
     const savingToolEnabled = ref(false);
     const saveState = ref<'idle' | 'saving' | 'saved' | 'error'>('idle');
-    const invalidProviderIds = ref<Set<SearchProviderId>>(new Set());
     const editingProvider = ref<SearchProviderId | null>(null);
+    const pendingEnableProvider = ref<SearchProviderId | null>(null);
     let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
     let isSyncingFromStore = false;
     const providerLogos: Partial<Record<SearchProviderId, string>> = {
@@ -452,19 +452,16 @@
 
     function updateProviderEnabled(providerId: SearchProviderId, enabled: boolean) {
         if (enabled && isProviderMissingRequiredCredential(providerId)) {
-            invalidProviderIds.value = new Set([...invalidProviderIds.value, providerId]);
-            draft.value.providers[providerId] = {
-                ...draft.value.providers[providerId],
-                enabled: false,
-            };
+            pendingEnableProvider.value = providerId;
+            editingProvider.value = providerId;
             return;
         }
         draft.value.providers[providerId] = {
             ...draft.value.providers[providerId],
             enabled,
         };
-        invalidProviderIds.value = removeInvalidProviderId(providerId);
         if (!enabled) {
+            if (pendingEnableProvider.value === providerId) pendingEnableProvider.value = null;
             resetProviderSelections(providerId);
         }
     }
@@ -475,6 +472,7 @@
 
     function cancelProviderEdit() {
         editingProvider.value = null;
+        pendingEnableProvider.value = null;
     }
 
     function saveProviderCredentials(
@@ -486,14 +484,17 @@
             apiKey: value.apiKey,
             endpoint: value.endpoint,
         };
-        invalidProviderIds.value = removeInvalidProviderId(providerId);
+        if (
+            pendingEnableProvider.value === providerId &&
+            !isProviderMissingRequiredCredential(providerId)
+        ) {
+            draft.value.providers[providerId] = {
+                ...draft.value.providers[providerId],
+                enabled: true,
+            };
+        }
+        pendingEnableProvider.value = null;
         editingProvider.value = null;
-    }
-
-    function removeInvalidProviderId(providerId: SearchProviderId) {
-        const next = new Set(invalidProviderIds.value);
-        next.delete(providerId);
-        return next;
     }
 
     function resetProviderSelections(providerId: SearchProviderId) {

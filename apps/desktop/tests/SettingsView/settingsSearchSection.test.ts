@@ -217,6 +217,36 @@ describe('user edits the search settings', () => {
         wrapper.unmount();
     });
 
+    it('user is sent to the editor when enabling an engine without its key', async () => {
+        const wrapper = mount(SearchSettingsView);
+        await nextTick();
+        const toggle = () => wrapper.get('[data-testid="search-provider-toggle-deepseek"]');
+        await toggle().trigger('click');
+        expect(wrapper.find('[data-testid="search-provider-editor"]').exists()).toBe(true);
+        expect(wrapper.find('[data-testid="search-provider-toggle-deepseek"]').exists()).toBe(
+            false
+        );
+        await wrapper.get('[data-testid="search-provider-editor-back"]').trigger('click');
+        await nextTick();
+        expect(wrapper.find('[data-testid="search-provider-editor"]').exists()).toBe(false);
+        expect(toggle().attributes('aria-checked')).toBe('false');
+
+        await toggle().trigger('click');
+        await wrapper.get('[data-testid="search-deepseek-api-key-input"]').setValue('ds-key');
+        await wrapper.get('[data-testid="search-provider-editor-save"]').trigger('click');
+        await nextTick();
+        expect(toggle().attributes('aria-checked')).toBe('true');
+        await vi.advanceTimersByTimeAsync(300);
+        expect(updateSearchSettingsMock).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+                providers: expect.objectContaining({
+                    deepseek: expect.objectContaining({ enabled: true, apiKey: 'ds-key' }),
+                }),
+            })
+        );
+        wrapper.unmount();
+    });
+
     it('user can choose one of three strategies, enable fusion and configure routing', async () => {
         const wrapper = mount(SearchSettingsView);
         await nextTick();
