@@ -174,6 +174,30 @@ describe('user edits the search settings', () => {
         wrapper.unmount();
     });
 
+    it('user switches between key and base URL in the credential tabs', async () => {
+        const wrapper = mount(SearchSettingsView);
+        await nextTick();
+        await wrapper.get('[data-testid="search-provider-edit-qianfan"]').trigger('click');
+        await wrapper.get('[data-testid="search-qianfan-api-key-input"]').setValue('q-key');
+        const tabs = wrapper.get('[data-testid="search-provider-credential-tabs"]');
+        await tabs.findAll('button')[1]!.trigger('click');
+        const endpoint = wrapper.get('[data-testid="search-qianfan-base-url-input"]');
+        await endpoint.setValue('https://qianfan.example.com/v1');
+        await wrapper.get('[data-testid="search-provider-editor-save"]').trigger('click');
+        await vi.advanceTimersByTimeAsync(300);
+        expect(updateSearchSettingsMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                providers: expect.objectContaining({
+                    qianfan: expect.objectContaining({
+                        apiKey: 'q-key',
+                        endpoint: 'https://qianfan.example.com/v1',
+                    }),
+                }),
+            })
+        );
+        wrapper.unmount();
+    });
+
     it('user can configure a disabled engine in the editor and enable it afterwards', async () => {
         const wrapper = mount(SearchSettingsView);
         await nextTick();

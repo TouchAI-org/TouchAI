@@ -5,7 +5,9 @@
     import PasswordInput from '@components/PasswordInput.vue';
     import { Badge } from '@components/ui/badge';
     import { Button } from '@components/ui/button';
+    import { ConfirmButton } from '@components/ui/confirm-button';
     import { Input } from '@components/ui/input';
+    import { SegmentedControl } from '@components/ui/segmented-control';
     import { Switch } from '@components/ui/switch';
     import { computed, ref, watch } from 'vue';
 
@@ -39,6 +41,10 @@
         save: [value: { apiKey: string; endpoint: string }];
     }>();
 
+    const fieldOptions = [
+        { value: 'key', label: t('settings.search.provider.keyField') },
+        { value: 'endpoint', label: t('settings.search.provider.urlField') },
+    ];
     const keyDraft = ref('');
     const endpointDraft = ref('');
     const field = ref<'key' | 'endpoint'>('key');
@@ -97,35 +103,13 @@
                     <h3 class="min-w-0 flex-1 truncate text-compact font-medium text-settings-text">
                         {{ label }}
                     </h3>
-                    <div
+                    <SegmentedControl
                         v-if="supportsEndpoint && !endpointRequired"
-                        class="flex shrink-0 items-center rounded-md border border-border-subtle bg-surface-sunken p-0.5"
-                    >
-                        <button
-                            type="button"
-                            class="rounded px-1.5 py-0.5 text-2xs"
-                            :class="
-                                field === 'key'
-                                    ? 'bg-white text-text-primary shadow-sm'
-                                    : 'text-text-tertiary'
-                            "
-                            @click="field = 'key'"
-                        >
-                            {{ t('settings.search.provider.keyField') }}
-                        </button>
-                        <button
-                            type="button"
-                            class="rounded px-1.5 py-0.5 text-2xs"
-                            :class="
-                                field === 'endpoint'
-                                    ? 'bg-white text-text-primary shadow-sm'
-                                    : 'text-text-tertiary'
-                            "
-                            @click="field = 'endpoint'"
-                        >
-                            {{ t('settings.search.provider.urlField') }}
-                        </button>
-                    </div>
+                        v-model="field"
+                        data-testid="search-provider-credential-tabs"
+                        :options="fieldOptions"
+                        :aria-label="t('settings.search.provider.credentialType')"
+                    />
                 </div>
                 <div class="mt-2 flex min-w-0 items-center gap-2">
                     <div class="min-w-0 flex-1">
@@ -146,16 +130,12 @@
                             class="!mt-0"
                         />
                     </div>
-                    <Button
-                        variant="strong"
-                        size="icon"
+                    <ConfirmButton
                         data-testid="search-provider-editor-save"
+                        :label="t('settings.search.editor.save')"
                         :disabled="!canSave"
-                        :aria-label="t('settings.search.editor.save')"
                         @click="save"
-                    >
-                        <AppIcon name="check-circle" class="size-4" />
-                    </Button>
+                    />
                 </div>
             </div>
             <div v-else key="display" class="flex h-full min-w-0 items-center gap-3 px-3.5">
