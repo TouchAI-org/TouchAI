@@ -1,6 +1,7 @@
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
     import CustomSelect from '@components/CustomSelect.vue';
+    import PasswordInput from '@components/PasswordInput.vue';
     import SettingsRow from '@components/SettingsRow.vue';
     import { Button } from '@components/ui/button';
     import { Input } from '@components/ui/input';
@@ -65,6 +66,10 @@
     const saveState = ref<'idle' | 'saving' | 'saved' | 'error'>('idle');
     const invalidProviderIds = ref<Set<SearchProviderId>>(new Set());
     const editingProvider = ref<SearchProviderId | null>(null);
+    const editKey = ref('');
+    const editEndpoint = ref('');
+    const editField = ref<'key' | 'endpoint'>('key');
+    const editInvalid = ref(false);
     let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
     let isSyncingFromStore = false;
     const providerLogos: Partial<Record<SearchProviderId, string>> = {
@@ -509,24 +514,50 @@
 
     function beginProviderEdit(providerId: SearchProviderId) {
         editingProvider.value = providerId;
+        editKey.value = providerConfig(providerId).apiKey;
+        editEndpoint.value = providerConfig(providerId).endpoint;
+        editField.value = providerRequiresEndpoint(providerId) ? 'endpoint' : 'key';
+        editInvalid.value = false;
     }
 
     function cancelProviderEdit() {
         editingProvider.value = null;
+        editInvalid.value = false;
     }
 
-    function saveProviderCredentials(
-        providerId: SearchProviderId,
-        value: { apiKey: string; endpoint: string }
-    ) {
+    function saveProviderEdit() {
+        const providerId = editingProvider.value;
+        if (!providerId) return;
+        const apiKey = providerRequiresEndpoint(providerId) ? '' : editKey.value.trim();
+        const endpoint = providersWithEndpoint.has(providerId) ? editEndpoint.value.trim() : '';
+        if (
+            (providerRequiresApiKey(providerId) && !apiKey) ||
+            (providerRequiresEndpoint(providerId) && !endpoint)
+        ) {
+            editInvalid.value = true;
+            return;
+        }
         draft.value.providers[providerId] = {
             ...draft.value.providers[providerId],
-            apiKey: value.apiKey,
-            endpoint: value.endpoint,
+            apiKey,
+            endpoint,
         };
         invalidProviderIds.value = removeInvalidProviderId(providerId);
         editingProvider.value = null;
+        editInvalid.value = false;
     }
+
+    const editingProviderInfo = computed(() => {
+        const providerId = editingProvider.value;
+        if (!providerId) return null;
+        return {
+            id: providerId,
+            label: t(providerMessages[providerId].label),
+            logo: providerLogos[providerId] ?? '',
+            endpointRequired: providerRequiresEndpoint(providerId),
+            supportsEndpoint: providersWithEndpoint.has(providerId),
+        };
+    });
 
     function removeInvalidProviderId(providerId: SearchProviderId) {
         const next = new Set(invalidProviderIds.value);
@@ -760,20 +791,8 @@
                                     providerAcceptsApiKey(providerId) ||
                                     providerRequiresEndpoint(providerId)
                                 "
-                                :editing="editingProvider === providerId"
-                                :credential="providerConfig(providerId).apiKey"
-                                :endpoint-value="providerConfig(providerId).endpoint"
-                                :endpoint-required="providerRequiresEndpoint(providerId)"
-                                :supports-endpoint="providersWithEndpoint.has(providerId)"
-                                :endpoint-placeholder="
-                                    t('settings.search.provider.baseUrlPlaceholder')
-                                "
-                                :key-placeholder="t(providerMessages[providerId].keyPlaceholder)"
-                                :api-key-required="providerRequiresApiKey(providerId)"
                                 @enabled="updateProviderEnabled(providerId, $event)"
                                 @edit="beginProviderEdit(providerId)"
-                                @cancel="cancelProviderEdit"
-                                @save="saveProviderCredentials(providerId, $event)"
                             />
                         </div>
                     </div>
@@ -918,9 +937,135 @@
                     </VueDraggable>
                 </section>
             </fieldset>
+            <Transition name="provider-drawer">
+                <div
+                    v-if="editingProviderInfo"
+                    class="fixed inset-0 z-40 flex items-center justify-center p-6"
+                    data-testid="search-provider-editor"
+                >
+                    <div class="absolute inset-0 bg-neutral-950/10" @click="cancelProviderEdit" />
+                    <aside
+                        class="relative z-10 flex w-full max-w-sm flex-col rounded-xl border border-border-subtle bg-surface-floating p-5 shadow-2xl"
+                    >
+                        <div class="flex min-w-0 items-center gap-2">
+                            <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                data-testid="search-provider-editor-back"
+                                :aria-label="t('settings.search.editor.back')"
+                                @click="cancelProviderEdit"
+                            >
+                                <AppIcon name="arrow-left" class="size-4" />
+                            </Button>
+                            <img
+                                v-if="editingProviderInfo.logo"
+                                :src="editingProviderInfo.logo"
+                                alt=""
+                                class="size-7 shrink-0 object-contain"
+                            />
+                            <h3
+                                class="min-w-0 flex-1 truncate text-compact font-medium text-settings-text"
+                            >
+                                {{ editingProviderInfo.label }}
+                            </h3>
+                            <div
+                                v-if="
+                                    editingProviderInfo.supportsEndpoint &&
+                                    !editingProviderInfo.endpointRequired
+                                "
+                                class="flex shrink-0 items-center rounded-md border border-border-subtle bg-surface-sunken p-0.5"
+                            >
+                                <button
+                                    type="button"
+                                    class="rounded px-1.5 py-0.5 text-2xs"
+                                    :class="
+                                        editField === 'key'
+                                            ? 'bg-white text-text-primary shadow-sm'
+                                            : 'text-text-tertiary'
+                                    "
+                                    @click="editField = 'key'"
+                                >
+                                    {{ t('settings.search.provider.keyField') }}
+                                </button>
+                                <button
+                                    type="button"
+                                    class="rounded px-1.5 py-0.5 text-2xs"
+                                    :class="
+                                        editField === 'endpoint'
+                                            ? 'bg-white text-text-primary shadow-sm'
+                                            : 'text-text-tertiary'
+                                    "
+                                    @click="editField = 'endpoint'"
+                                >
+                                    {{ t('settings.search.provider.urlField') }}
+                                </button>
+                            </div>
+                        </div>
+                        <label class="mt-5 grid gap-1.5">
+                            <span class="text-caption text-text-secondary">
+                                {{
+                                    editField === 'endpoint'
+                                        ? t('settings.search.editor.baseUrl')
+                                        : t('settings.search.editor.apiKey')
+                                }}
+                            </span>
+                            <Input
+                                v-if="editField === 'endpoint'"
+                                v-model="editEndpoint"
+                                variant="filled"
+                                type="url"
+                                :data-testid="`search-${editingProviderInfo.id}-base-url-input`"
+                                :placeholder="t('settings.search.editor.baseUrlPlaceholder')"
+                                spellcheck="false"
+                            />
+                            <PasswordInput
+                                v-else
+                                v-model="editKey"
+                                :input-test-id="`search-${editingProviderInfo.id}-api-key-input`"
+                                :placeholder="t('settings.search.editor.keyPlaceholder')"
+                                class="!mt-0"
+                            />
+                        </label>
+                        <p v-if="editInvalid" class="mt-2 text-caption text-text-danger">
+                            {{ t('settings.search.editor.required') }}
+                        </p>
+                        <div class="mt-6 flex justify-end">
+                            <Button
+                                variant="strong"
+                                data-testid="search-provider-editor-save"
+                                @click="saveProviderEdit"
+                            >
+                                {{ t('settings.search.editor.save') }}
+                            </Button>
+                        </div>
+                    </aside>
+                </div>
+            </Transition>
             <p v-if="saveState === 'error'" role="alert" class="text-compact text-text-danger">
                 {{ t('settings.search.saveError') }}
             </p>
         </div>
     </div>
 </template>
+
+<style scoped>
+    .provider-drawer-enter-active,
+    .provider-drawer-leave-active {
+        transition: opacity 180ms var(--ease-smooth-out);
+    }
+
+    .provider-drawer-enter-active aside,
+    .provider-drawer-leave-active aside {
+        transition: transform 220ms var(--ease-smooth-out);
+    }
+
+    .provider-drawer-enter-from,
+    .provider-drawer-leave-to {
+        opacity: 0;
+    }
+
+    .provider-drawer-enter-from aside,
+    .provider-drawer-leave-to aside {
+        transform: translateX(100%);
+    }
+</style>
