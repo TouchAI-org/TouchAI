@@ -100,7 +100,7 @@
                     </Button>
                     <span
                         v-if="logo"
-                        class="flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border-subtle bg-surface-sunken p-0.5"
+                        class="flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-surface-sunken p-0.5"
                     >
                         <img :src="logo" alt="" class="size-full rounded-lg object-contain" />
                     </span>
@@ -147,7 +147,7 @@
             </div>
             <div v-else key="display" class="flex h-full min-w-0 items-center gap-3 px-3.5">
                 <span
-                    class="flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-border-subtle bg-surface-sunken p-1"
+                    class="flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-surface-sunken p-1"
                 >
                     <img :src="logo" alt="" class="size-full rounded-xl object-contain" />
                 </span>
@@ -169,7 +169,7 @@
                         </Badge>
                     </div>
                     <p
-                        class="m-0 mt-1 line-clamp-2 text-caption leading-4 whitespace-pre-line text-text-secondary"
+                        class="m-0 mt-1 line-clamp-2 text-caption leading-4 text-balance text-text-secondary"
                         :title="description"
                     >
                         {{ description }}
