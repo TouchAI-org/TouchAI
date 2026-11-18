@@ -7,7 +7,7 @@
     import { Button } from '@components/ui/button';
     import { Input } from '@components/ui/input';
     import { Switch } from '@components/ui/switch';
-    import { nextTick, ref, watch } from 'vue';
+    import { ref, watch } from 'vue';
 
     import { t } from '@/i18n';
 
@@ -41,21 +41,17 @@
 
     const keyDraft = ref('');
     const endpointDraft = ref('');
+    const field = ref<'key' | 'endpoint'>('key');
     const invalid = ref(false);
-
-    function resetDrafts() {
-        keyDraft.value = props.credential;
-        endpointDraft.value = props.endpointValue;
-        invalid.value = false;
-    }
 
     watch(
         () => props.editing,
-        async (editing) => {
-            if (editing) {
-                resetDrafts();
-                await nextTick();
-            }
+        (editing) => {
+            if (!editing) return;
+            keyDraft.value = props.credential;
+            endpointDraft.value = props.endpointValue;
+            field.value = props.endpointRequired ? 'endpoint' : 'key';
+            invalid.value = false;
         },
         { immediate: true }
     );
@@ -83,12 +79,12 @@
         class="relative h-18 min-w-0 rounded-card border border-border-subtle bg-surface-floating"
         :class="editing ? 'z-30' : ''"
     >
-        <Transition name="provider-slide" mode="out-in">
+        <Transition name="provider-slide">
             <div
                 v-if="editing"
                 key="editor"
                 data-testid="search-provider-editor"
-                class="grid gap-3"
+                class="absolute inset-x-0 top-0 z-20 grid gap-3 rounded-card border border-border-subtle bg-surface-floating p-4 shadow-lg"
             >
                 <div class="flex min-w-0 items-center gap-2">
                     <Button
@@ -101,63 +97,76 @@
                         <AppIcon name="arrow-left" class="size-4" />
                     </Button>
                     <img v-if="logo" :src="logo" alt="" class="size-7 shrink-0 object-contain" />
-                    <h3 class="min-w-0 truncate text-compact font-medium text-settings-text">
+                    <h3 class="min-w-0 flex-1 truncate text-compact font-medium text-settings-text">
                         {{ label }}
                     </h3>
-                </div>
-                <div class="flex items-end gap-2">
-                    <label v-if="endpointRequired" class="grid min-w-0 flex-1 gap-1">
-                        <span class="text-caption text-text-secondary">
-                            {{ t('settings.search.editor.instanceUrl') }}
-                        </span>
-                        <Input
-                            v-model="endpointDraft"
-                            variant="filled"
-                            type="url"
-                            :data-testid="`search-${id}-api-key-input`"
-                            :placeholder="t('settings.search.editor.keyPlaceholder')"
-                            spellcheck="false"
-                        />
-                    </label>
-                    <label v-else class="grid min-w-0 flex-1 gap-1">
-                        <span class="text-caption text-text-secondary">
-                            {{ t('settings.search.editor.apiKey') }}
-                        </span>
-                        <PasswordInput
-                            v-model="keyDraft"
-                            :input-test-id="`search-${id}-api-key-input`"
-                            :placeholder="t('settings.search.editor.keyPlaceholder')"
-                            class="!mt-0"
-                        />
-                    </label>
-                    <label
+                    <div
                         v-if="supportsEndpoint && !endpointRequired"
-                        class="grid min-w-0 flex-1 gap-1"
+                        class="flex shrink-0 items-center rounded-md border border-border-subtle bg-surface-sunken p-0.5"
                     >
-                        <span class="text-caption text-text-secondary">
-                            {{ t('settings.search.editor.baseUrl') }}
-                        </span>
-                        <Input
-                            v-model="endpointDraft"
-                            variant="filled"
-                            type="url"
-                            :data-testid="`search-${id}-base-url-input`"
-                            :placeholder="t('settings.search.editor.baseUrlPlaceholder')"
-                            spellcheck="false"
-                        />
-                    </label>
+                        <button
+                            type="button"
+                            class="rounded px-1.5 py-0.5 text-2xs"
+                            :class="
+                                field === 'key'
+                                    ? 'bg-white text-text-primary shadow-sm'
+                                    : 'text-text-tertiary'
+                            "
+                            @click="field = 'key'"
+                        >
+                            {{ t('settings.search.provider.keyField') }}
+                        </button>
+                        <button
+                            type="button"
+                            class="rounded px-1.5 py-0.5 text-2xs"
+                            :class="
+                                field === 'endpoint'
+                                    ? 'bg-white text-text-primary shadow-sm'
+                                    : 'text-text-tertiary'
+                            "
+                            @click="field = 'endpoint'"
+                        >
+                            {{ t('settings.search.provider.urlField') }}
+                        </button>
+                    </div>
+                </div>
+                <label class="grid gap-1.5">
+                    <span class="text-caption text-text-secondary">
+                        {{
+                            field === 'endpoint'
+                                ? t('settings.search.editor.baseUrl')
+                                : t('settings.search.editor.apiKey')
+                        }}
+                    </span>
+                    <Input
+                        v-if="field === 'endpoint'"
+                        v-model="endpointDraft"
+                        variant="filled"
+                        type="url"
+                        :data-testid="`search-${id}-base-url-input`"
+                        :placeholder="endpointPlaceholder"
+                        spellcheck="false"
+                    />
+                    <PasswordInput
+                        v-else
+                        v-model="keyDraft"
+                        :input-test-id="`search-${id}-api-key-input`"
+                        :placeholder="keyPlaceholder"
+                        class="!mt-0"
+                    />
+                </label>
+                <p v-if="invalid" class="text-caption text-text-danger">
+                    {{ t('settings.search.editor.required') }}
+                </p>
+                <div class="flex justify-end">
                     <Button
                         variant="strong"
-                        class="mb-0.5 shrink-0"
                         data-testid="search-provider-editor-save"
                         @click="save"
                     >
                         {{ t('settings.search.editor.save') }}
                     </Button>
                 </div>
-                <p v-if="invalid" class="text-caption text-text-danger">
-                    {{ t('settings.search.editor.required') }}
-                </p>
             </div>
             <div v-else key="display" class="flex h-full min-w-0 items-center gap-3 px-3.5">
                 <span class="flex size-9 shrink-0 items-center justify-center overflow-hidden">
