@@ -187,6 +187,7 @@
                     >
                         <AppIcon name="edit" class="size-4" />
                     </Button>
+                    <span v-else class="size-7 shrink-0" aria-hidden="true" />
                 </div>
             </div>
         </Transition>
