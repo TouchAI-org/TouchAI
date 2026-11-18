@@ -35,7 +35,12 @@
     }
 
     const props = defineProps<Props>();
-    const { transitions } = useMotion();
+    const { transitions, reducedMotion } = useMotion();
+    const headerTransition = computed(() =>
+        reducedMotion.value
+            ? { duration: 0 }
+            : { type: 'tween' as const, duration: 0.5, ease: [0.4, 0, 0.2, 1] }
+    );
 
     const emit = defineEmits<{
         enabled: [value: boolean];
@@ -107,7 +112,7 @@
                 <motion.span
                     v-if="logo"
                     layout
-                    :transition="transitions.fast"
+                    :transition="headerTransition"
                     class="flex shrink-0 items-center justify-center bg-surface-sunken"
                     :class="editing ? 'size-7 rounded-lg p-0.5' : 'size-18 rounded-2xl p-2'"
                 >
@@ -130,7 +135,7 @@
                         <motion.h3
                             :initial="false"
                             :animate="editing ? { x: [12, 0] } : { x: [-12, 0] }"
-                            :transition="transitions.fast"
+                            :transition="headerTransition"
                             class="min-w-0 truncate text-compact leading-5 font-medium text-settings-text"
                             :title="label"
                         >
