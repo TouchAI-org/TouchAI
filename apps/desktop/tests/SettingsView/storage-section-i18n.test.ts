@@ -63,8 +63,8 @@ afterEach(async () => {
 
 describe('given storage settings are available in either supported interface language', () => {
     it.each([
-        ['en-US', 'Storage', 'Unused files', 'Free up space', 'Default managed recordings'],
-        ['zh-CN', '存储空间', '未使用的文件', '释放空间', '默认托管录制文件'],
+        ['en-US', 'Storage', 'Clean up unused files', 'Free up space', 'Delete recordings'],
+        ['zh-CN', '存储空间', '清理未使用的文件', '释放空间', '删除录制文件'],
     ] as const)(
         'user opens storage in %s and reads localized categories and actions',
         async (locale, title, safeCleanup, compact, recordings) => {
@@ -75,7 +75,9 @@ describe('given storage settings are available in either supported interface lan
             expect(wrapper.text()).toContain(title);
             expect(wrapper.text()).toContain(safeCleanup);
             expect(wrapper.text()).toContain(compact);
-            expect(wrapper.text()).toContain(recordings);
+            expect(
+                wrapper.get('[data-testid="settings-storage-recordings"]').attributes('aria-label')
+            ).toBe(recordings);
             expect(wrapper.text()).not.toContain('settings.storage.');
             for (const category of categories) {
                 expect(
@@ -176,10 +178,9 @@ describe('given storage actions are registered for settings navigation', () => {
         await flushPromises();
 
         for (const item of STORAGE_SETTINGS_SEARCH_ITEMS) {
-            expect(
-                wrapper.find(`[data-settings-search-target="${item.targetId}"]`).exists(),
-                item.targetId
-            ).toBe(true);
+            const target = wrapper.get(`[data-settings-search-target="${item.targetId}"]`);
+            expect(target.isVisible(), item.targetId).toBe(true);
+            expect(target.element.closest('details:not([open])'), item.targetId).toBeNull();
         }
     });
 

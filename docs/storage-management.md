@@ -6,7 +6,8 @@ The maintainer authorized the complete storage design without a separate issue o
 
 ## Acceptance scenarios
 
-- Given a storage scan, when the user opens the overview, then a composition ring shows the total physical size and category shares, and the full breakdown includes file counts even for zero-byte categories.
+- Given a storage scan, when the user opens the overview, then the ring and one visible list show physical usage, each category's share and file count, including small and zero-byte categories.
+- Given a category supports maintenance, when the user selects its name, then the ring shows its usage. A separate action on that row opens the confirmation. The unused-file cleanup beside the ring shows its own reclaimable estimate.
 - Given a backup containing settings and conversation data, when the user selects either or both during export or restore, then the selected settings, conversations, usage and managed attachments travel with their respective scope. Restoring just settings preserves local history and its files; restoring just data preserves local configuration.
 - Given two conversations share an attachment, when one conversation is removed, then the other conversation's attachment and original image remain readable.
 - Given a user changes an external source file after sending it, when the conversation is reopened, then the saved attachment still contains the bytes captured at send time.
@@ -42,9 +43,9 @@ Cleanup is conservative: it processes recognized files under managed roots only,
 
 Full backups use an independent compressed archive, a versioned manifest and SHA-256 verification. Import validates paths, entry types, sizes and hashes before publication. Restored files are independent copies, not hard links to archive blobs or to another restored path. Old database imports remain available. Cache format or backup manifest changes do not change database structure.
 
-The storage overview uses the same interactive composition ring as Usage. Its centre shows physical bytes and the legend shows each share. Category details include file counts and zero-byte categories. Recoverable bytes are shown on the cleanup action.
+The ring shows total physical usage. Its legend lists every category once, largest first, with its file count, occupied bytes and share. Hovering or selecting an occupied category shows its usage in the ring. Empty categories stay in the list, including files that occupy zero bytes.
 
-When the overview opens, unused files have a cleanup action with an estimated saving. When the user opens category details, the database row offers manual space recovery if the scan found reusable space.
+The unused-file cleanup under the ring shows the estimated reclaimable bytes. Recordings and logs each have a delete action on their own row with a separate confirmation. The database row offers space recovery when the scan finds reusable space.
 
 ![Storage overview with a 2 GiB sample dataset](images/storage-overview-zh.png)
 

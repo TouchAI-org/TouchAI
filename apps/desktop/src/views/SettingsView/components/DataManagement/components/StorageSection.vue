@@ -1,5 +1,4 @@
 <script setup lang="ts">
-    import SettingsRow from '@components/SettingsRow.vue';
     import { Button } from '@components/ui/button';
     import DonutChart from '@components/ui/donut-chart/DonutChart.vue';
     import { useAlert } from '@composables/useAlert';
@@ -88,15 +87,18 @@
     const numberFormatter = computed(
         () => new Intl.NumberFormat(getLocale(), { maximumFractionDigits: 1 })
     );
-    const categorySlices = computed(() =>
+    const categories = computed(() =>
         (summary.value?.categories ?? [])
-            .filter((category) => category.bytes > 0)
             .map((category) => ({
                 key: category.id,
                 label: t(CATEGORY_LABELS[category.id]),
                 value: category.bytes,
+                fileCount: category.fileCount,
             }))
             .sort((first, second) => second.value - first.value)
+    );
+    const occupiedSlices = computed(() =>
+        categories.value.filter((category) => category.value > 0)
     );
     const safeBytes = computed(() =>
         (summary.value?.categories ?? []).reduce(
@@ -148,16 +150,6 @@
             value: numberFormatter.value.format(value / 1024 ** unitIndex),
             unit: t(SIZE_UNITS[unitIndex] ?? 'settings.storage.units.bytes'),
         });
-    }
-
-    function categoryBytes(category: StorageCategory): number {
-        return summary.value?.categories.find((usage) => usage.id === category)?.bytes ?? 0;
-    }
-
-    function categoryHasFiles(category: StorageCategory): boolean {
-        return (
-            (summary.value?.categories.find((usage) => usage.id === category)?.fileCount ?? 0) > 0
-        );
     }
 
     function nativeErrorCode(error: unknown): string | undefined {
@@ -215,8 +207,9 @@
     }
 
     async function cleanup(kind: CleanupKind) {
-        const estimate = kind === 'safe' ? safeBytes.value : categoryBytes(kind);
-        const hasFiles = kind === 'safe' ? estimate > 0 : categoryHasFiles(kind);
+        const category = categories.value.find((item) => item.key === kind);
+        const estimate = kind === 'safe' ? safeBytes.value : (category?.value ?? 0);
+        const hasFiles = kind === 'safe' ? estimate > 0 : (category?.fileCount ?? 0) > 0;
         if (disposed || actionsDisabled.value || !hasFiles) return;
         const options = CLEANUP_CONFIRMATIONS[kind];
         operation.value = kind;
@@ -305,7 +298,7 @@
 
 <template>
     <section
-        class="space-y-4"
+        class="@container space-y-4"
         data-testid="settings-storage-section"
         data-settings-search-target="storage"
         :aria-busy="operation !== null && !confirming"
@@ -313,7 +306,8 @@
         <div class="flex items-center justify-between gap-4">
             <h2 class="settings-section-title">{{ t('settings.storage.title') }}</h2>
             <Button
-                variant="outline-neutral"
+                variant="ghost"
+                size="sm"
                 data-testid="settings-storage-refresh"
                 :disabled="props.disabled || operation !== null"
                 @click="refresh"
@@ -355,57 +349,115 @@
             </p>
         </div>
 
-        <div v-if="summary" class="settings-row-group divide-y divide-border-subtle">
-            <DonutChart
-                class="p-5"
-                data-testid="settings-storage-total"
-                :data="categorySlices"
-                :legend="categorySlices.length > 0"
-                :total-value="summary.totalBytes"
-                :total-label="t('settings.storage.total')"
-                :format-value="formatBytes"
-                :size="176"
-                :thickness="22"
-            />
-            <details>
-                <summary class="cursor-pointer px-5 py-3 text-compact text-text-secondary">
-                    {{ t('settings.storage.breakdown') }}
-                </summary>
-                <SettingsRow
-                    v-for="category in summary.categories"
-                    :key="category.id"
-                    :data-testid="`settings-storage-category-${category.id}`"
-                    :data-settings-search-target="`storage-category-${category.id}`"
-                    control-width="auto"
-                    :label="t(CATEGORY_LABELS[category.id])"
+        <DonutChart
+            v-if="summary"
+            data-testid="settings-storage-total"
+            :data="occupiedSlices"
+            :group-below="0"
+            :max-segments="categories.length"
+            :total-value="summary.totalBytes"
+            :total-label="t('settings.storage.total')"
+            :format-value="formatBytes"
+            :size="176"
+            :thickness="22"
+        >
+            <template #caption>
+                <div
+                    class="grid justify-items-center gap-1.5"
+                    data-settings-search-target="storage-cleanup"
                 >
-                    <template
-                        v-if="category.id === 'database' && summary.databaseFreeBytes > 0"
-                        #description
+                    <Button
+                        variant="strong"
+                        data-testid="settings-storage-cleanup"
+                        :disabled="actionsDisabled || safeBytes === 0"
+                        @click="cleanup('safe')"
                     >
-                        <span class="text-xs text-text-secondary">
-                            {{
-                                t('settings.storage.databaseFree', {
-                                    size: formatBytes(summary.databaseFreeBytes),
-                                })
-                            }}
-                        </span>
-                    </template>
-                    <div
-                        class="flex flex-wrap items-center justify-end gap-3"
-                        :data-settings-search-target="
-                            category.id === 'database' ? 'storage-compaction' : undefined
-                        "
+                        {{
+                            operation === 'safe' && !confirming
+                                ? t('settings.storage.cleaning')
+                                : t('settings.storage.cleanupConfirmTitle')
+                        }}
+                    </Button>
+                    <span class="text-xs text-text-secondary tabular-nums">
+                        {{
+                            safeBytes > 0
+                                ? t('settings.storage.reclaimable', {
+                                      size: formatBytes(safeBytes),
+                                  })
+                                : t('settings.storage.noReclaimable')
+                        }}
+                    </span>
+                </div>
+            </template>
+            <template #legend="{ colorOf, shareOf, bindItem, activeKey }">
+                <ul class="settings-storage-legend m-0 grid min-w-0 flex-1 list-none gap-x-2 p-0">
+                    <li
+                        v-for="category in categories"
+                        :key="category.key"
+                        :data-testid="`settings-storage-category-${category.key}`"
+                        :data-settings-search-target="`storage-category-${category.key}`"
+                        class="col-span-full grid grid-cols-subgrid items-center"
                     >
-                        <span class="text-xs text-text-tertiary">
-                            {{ tp('settings.storage.files', category.fileCount) }}
-                        </span>
-                        <span class="text-compact text-text-primary tabular-nums">
-                            {{ formatBytes(category.bytes) }}
-                        </span>
+                        <button
+                            type="button"
+                            class="col-span-3 grid min-w-0 grid-cols-subgrid items-center rounded-action px-1 py-1.5 text-left enabled:hover:bg-surface-hover"
+                            :class="{ 'bg-surface-hover': activeKey === category.key }"
+                            :disabled="category.value === 0"
+                            :data-settings-search-target="
+                                category.key === 'database' ? 'storage-compaction' : undefined
+                            "
+                            v-bind="category.value > 0 ? bindItem(category.key) : {}"
+                        >
+                            <span class="flex min-w-0 items-center gap-2.5">
+                                <span
+                                    class="size-2 shrink-0 rounded-full bg-border"
+                                    :style="
+                                        category.value > 0
+                                            ? { backgroundColor: colorOf(category) }
+                                            : undefined
+                                    "
+                                    aria-hidden="true"
+                                />
+                                <span
+                                    class="grid min-w-0 @2xl:flex @2xl:flex-wrap @2xl:items-baseline @2xl:gap-x-2"
+                                >
+                                    <span
+                                        class="text-compact leading-5 font-medium text-settings-text"
+                                    >
+                                        {{ category.label }}
+                                    </span>
+                                    <span class="text-xs text-text-secondary">
+                                        {{ tp('settings.storage.files', category.fileCount) }}
+                                    </span>
+                                    <span
+                                        v-if="
+                                            category.key === 'database' &&
+                                            summary.databaseFreeBytes > 0
+                                        "
+                                        class="text-xs text-text-secondary @2xl:basis-full"
+                                    >
+                                        {{
+                                            t('settings.storage.databaseFree', {
+                                                size: formatBytes(summary.databaseFreeBytes),
+                                            })
+                                        }}
+                                    </span>
+                                </span>
+                            </span>
+                            <span
+                                class="text-right text-compact whitespace-nowrap text-settings-text tabular-nums"
+                            >
+                                {{ formatBytes(category.value) }}
+                            </span>
+                            <span class="text-right text-xs text-text-secondary tabular-nums">
+                                {{ shareOf(category.value) }}
+                            </span>
+                        </button>
                         <Button
-                            v-if="category.id === 'database' && summary.databaseFreeBytes > 0"
-                            variant="outline-neutral"
+                            v-if="category.key === 'database' && summary.databaseFreeBytes > 0"
+                            class="col-span-3 justify-self-end @xs:col-span-1 @xs:justify-self-stretch"
+                            variant="link"
+                            size="sm"
                             data-testid="settings-storage-compact"
                             :disabled="actionsDisabled"
                             @click="compactDatabase"
@@ -416,103 +468,29 @@
                                     : t('settings.storage.compact')
                             }}
                         </Button>
-                    </div>
-                </SettingsRow>
-            </details>
-        </div>
-        <div class="settings-row-group">
-            <SettingsRow
-                control-width="auto"
-                :label="t('settings.storage.safeCleanup')"
-                data-settings-search-target="storage-cleanup"
-            >
-                <div class="flex flex-wrap items-center justify-end gap-3">
-                    <span v-if="summary" class="text-xs text-text-secondary tabular-nums">
-                        {{
-                            safeBytes > 0
-                                ? t('settings.storage.reclaimable', {
-                                      size: formatBytes(safeBytes),
-                                  })
-                                : t('settings.storage.noReclaimable')
-                        }}
-                    </span>
-                    <Button
-                        variant="strong"
-                        data-testid="settings-storage-cleanup"
-                        :disabled="actionsDisabled || safeBytes === 0"
-                        @click="cleanup('safe')"
-                    >
-                        {{
-                            operation === 'safe' && !confirming
-                                ? t('settings.storage.cleaning')
-                                : t('settings.storage.cleanup')
-                        }}
-                    </Button>
-                </div>
-            </SettingsRow>
-        </div>
-
-        <div class="space-y-4">
-            <h3 class="settings-section-title">{{ t('settings.storage.destructiveTitle') }}</h3>
-            <div class="settings-row-group divide-y divide-border-subtle">
-                <SettingsRow
-                    control-width="auto"
-                    :label="t('settings.storage.managedRecordings')"
-                    data-settings-search-target="storage-recordings"
-                >
-                    <div class="flex flex-wrap items-center justify-end gap-3">
-                        <span v-if="summary" class="text-xs text-text-secondary tabular-nums">
-                            {{
-                                t('settings.storage.toDelete', {
-                                    size: formatBytes(categoryBytes('recordings')),
-                                })
-                            }}
-                        </span>
                         <Button
-                            variant="danger"
-                            data-testid="settings-storage-recordings"
-                            :disabled="actionsDisabled || !categoryHasFiles('recordings')"
-                            @click="cleanup('recordings')"
+                            v-if="category.key === 'recordings' || category.key === 'logs'"
+                            class="col-span-3 justify-self-end @xs:col-span-1 @xs:justify-self-stretch"
+                            variant="link"
+                            size="sm"
+                            :aria-label="t(CLEANUP_CONFIRMATIONS[category.key].action)"
+                            :data-testid="`settings-storage-${category.key}`"
+                            :data-settings-search-target="`storage-${category.key}`"
+                            :disabled="actionsDisabled || category.fileCount === 0"
+                            @click="cleanup(category.key)"
                         >
                             {{
-                                operation === 'recordings' && !confirming
+                                operation === category.key && !confirming
                                     ? t('settings.storage.cleaning')
-                                    : t('settings.storage.deleteRecordings')
+                                    : t('common.delete')
                             }}
                         </Button>
-                    </div>
-                </SettingsRow>
-                <SettingsRow
-                    control-width="auto"
-                    :label="t('settings.storage.managedLogs')"
-                    data-settings-search-target="storage-logs"
-                >
-                    <div class="flex flex-wrap items-center justify-end gap-3">
-                        <span v-if="summary" class="text-xs text-text-secondary tabular-nums">
-                            {{
-                                t('settings.storage.toDelete', {
-                                    size: formatBytes(categoryBytes('logs')),
-                                })
-                            }}
-                        </span>
-                        <Button
-                            variant="danger"
-                            data-testid="settings-storage-logs"
-                            :disabled="actionsDisabled || !categoryHasFiles('logs')"
-                            @click="cleanup('logs')"
-                        >
-                            {{
-                                operation === 'logs' && !confirming
-                                    ? t('settings.storage.cleaning')
-                                    : t('settings.storage.deleteLogs')
-                            }}
-                        </Button>
-                    </div>
-                </SettingsRow>
-            </div>
-        </div>
+                    </li>
+                </ul>
+            </template>
+        </DonutChart>
 
-        <div v-if="resultMessage" class="settings-row-group space-y-3 px-5 py-4">
+        <div v-if="resultMessage" class="space-y-3">
             <p
                 data-testid="settings-storage-result"
                 class="text-compact text-text-secondary"
@@ -550,3 +528,9 @@
         </div>
     </section>
 </template>
+
+<style scoped>
+    .settings-storage-legend {
+        grid-template-columns: minmax(0, 1fr) repeat(3, max-content);
+    }
+</style>

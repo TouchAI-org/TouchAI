@@ -657,7 +657,6 @@ const zhCNMessages = {
     'settings.dataManagement.updateModelDatabaseFailed': '更新大模型数据库失败',
     'settings.storage.title': '存储空间',
     'settings.storage.total': '已用空间',
-    'settings.storage.breakdown': '查看分类明细',
     'settings.backup.scope.settings': '设置',
     'settings.backup.scope.data': '数据',
     'settings.backup.scope.configuration': '应用偏好、模型、服务商凭据和工具配置',
@@ -700,12 +699,10 @@ const zhCNMessages = {
     'settings.storage.databaseFree': '预计可释放 {size}',
     'settings.storage.compactConfirm':
         '整理数据库最多可释放 {size}。对话和设置会保留。整理时需要临时磁盘空间。是否继续？',
-    'settings.storage.destructiveTitle': '录制文件与日志',
     'settings.storage.managedRecordings': '默认托管录制文件',
     'settings.storage.managedLogs': '默认托管日志',
     'settings.storage.deleteRecordings': '删除录制文件',
     'settings.storage.deleteLogs': '删除日志',
-    'settings.storage.toDelete': '将删除 {size}',
     'settings.storage.recordingsConfirm':
         '将删除 TouchAI 默认托管目录中最多 {size} 的录制文件。自定义目录和其他类别不会受影响，此操作无法撤销。是否继续？',
     'settings.storage.logsConfirm':
@@ -2009,7 +2006,6 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.dataManagement.updateModelDatabaseFailed': 'Failed to update model database',
     'settings.storage.title': 'Storage',
     'settings.storage.total': 'Used space',
-    'settings.storage.breakdown': 'Category details',
     'settings.backup.scope.settings': 'Settings',
     'settings.backup.scope.data': 'Data',
     'settings.backup.scope.configuration':
@@ -2056,12 +2052,10 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.storage.databaseFree': 'Up to {size} can be freed',
     'settings.storage.compactConfirm':
         'Free up to {size} in the database? Conversations and settings are kept. This needs temporary disk space.',
-    'settings.storage.destructiveTitle': 'Recordings and logs',
     'settings.storage.managedRecordings': 'Default managed recordings',
     'settings.storage.managedLogs': 'Default managed logs',
     'settings.storage.deleteRecordings': 'Delete recordings',
     'settings.storage.deleteLogs': 'Delete logs',
-    'settings.storage.toDelete': '{size} to delete',
     'settings.storage.recordingsConfirm':
         'Delete up to {size} of saved recordings from TouchAI’s default managed folder? Custom folders and other categories are not touched. This cannot be undone.',
     'settings.storage.logsConfirm':
