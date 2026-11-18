@@ -38,14 +38,10 @@ export const SEARCH_SOURCES = [
 
 export const WEB_FETCH_STRATEGIES = ['direct', 'fallback', 'prefer'] as const;
 
-export const SEARCH_ROUTING_STRATEGIES = [
-    'model',
-    'intent',
-    'capability',
-    'manual',
-    'priority',
-    'parallel',
-] as const;
+export const SEARCH_ROUTING_STRATEGIES = ['capability', 'manual', 'priority'] as const;
+
+const LEGACY_ROUTING_STRATEGIES = ['model', 'intent', 'parallel'] as const;
+export const SEARCH_PARALLEL_MAX = 5;
 
 export const SEARCH_ROUTE_INTENTS = [
     'general',
@@ -308,7 +304,7 @@ export interface SearchSettingsConfig {
 }
 
 const providerIdSchema = z.enum(SEARCH_PROVIDER_IDS);
-const strategySchema = z.enum(SEARCH_ROUTING_STRATEGIES);
+const strategySchema = z.enum([...SEARCH_ROUTING_STRATEGIES, ...LEGACY_ROUTING_STRATEGIES]);
 const fetchStrategySchema = z.enum(WEB_FETCH_STRATEGIES);
 const providerConfigSchema = z.object({
     enabled: z.boolean().optional(),
@@ -339,6 +335,22 @@ const searchSettingsSchema = z
             .optional(),
     })
     .passthrough();
+
+function migrateRoutingStrategy(raw: string | undefined): {
+    strategy: SearchRoutingStrategy;
+    parallelOverride: boolean | null;
+} {
+    if (raw === 'parallel') {
+        return { strategy: 'priority', parallelOverride: true };
+    }
+    if (raw === 'model' || raw === 'intent') {
+        return { strategy: 'capability', parallelOverride: null };
+    }
+    return {
+        strategy: raw === 'manual' || raw === 'priority' ? raw : 'capability',
+        parallelOverride: null,
+    };
+}
 
 function createDefaultProviders(): Record<SearchProviderId, SearchProviderConfig> {
     return Object.fromEntries(
@@ -518,12 +530,15 @@ export function parseSearchSettingsConfig(configJson: string | null): SearchSett
         const providers = normalizeProviders(data.providers);
         return {
             version: SEARCH_SETTINGS_VERSION,
-            routingStrategy: data.routingStrategy ?? DEFAULT_SEARCH_SETTINGS.routingStrategy,
+            routingStrategy: migrateRoutingStrategy(data.routingStrategy).strategy,
             fetchStrategy: data.fetchStrategy ?? DEFAULT_SEARCH_SETTINGS.fetchStrategy,
             defaultProvider: normalizeProviderSelection(data.defaultProvider, providers),
             maxResults: data.maxResults ?? DEFAULT_SEARCH_SETTINGS.maxResults,
             timeoutMs: data.timeoutMs ?? DEFAULT_SEARCH_SETTINGS.timeoutMs,
-            parallelProviders: data.parallelProviders ?? DEFAULT_SEARCH_SETTINGS.parallelProviders,
+            parallelProviders:
+                migrateRoutingStrategy(data.routingStrategy).parallelOverride ??
+                data.parallelProviders ??
+                DEFAULT_SEARCH_SETTINGS.parallelProviders,
             fallbackEnabled: data.fallbackEnabled ?? DEFAULT_SEARCH_SETTINGS.fallbackEnabled,
             preferOfficialSources:
                 data.preferOfficialSources ?? DEFAULT_SEARCH_SETTINGS.preferOfficialSources,
@@ -531,8 +546,10 @@ export function parseSearchSettingsConfig(configJson: string | null): SearchSett
             providerPriority: normalizeProviderPriority(data.providerPriority),
             sourceRoutes: normalizeSourceRoutes(data.sourceRoutes, providers),
             intentRoutes: normalizeIntentRoutes(data.intentRoutes, providers),
-            parallelProviderCount:
-                data.parallelProviderCount ?? DEFAULT_SEARCH_SETTINGS.parallelProviderCount,
+            parallelProviderCount: Math.min(
+                SEARCH_PARALLEL_MAX,
+                data.parallelProviderCount ?? DEFAULT_SEARCH_SETTINGS.parallelProviderCount
+            ),
         };
     } catch {
         return cloneDefaultSearchSettings();
@@ -543,7 +560,7 @@ export function serializeSearchSettingsConfig(config: SearchSettingsConfig): str
     const providers = normalizeProviders(config.providers);
     const normalized: SearchSettingsConfig = {
         version: SEARCH_SETTINGS_VERSION,
-        routingStrategy: config.routingStrategy,
+        routingStrategy: migrateRoutingStrategy(config.routingStrategy).strategy,
         fetchStrategy: config.fetchStrategy,
         defaultProvider: normalizeProviderSelection(config.defaultProvider, providers),
         maxResults: Math.max(
@@ -555,7 +572,9 @@ export function serializeSearchSettingsConfig(config: SearchSettingsConfig): str
             )
         ),
         timeoutMs: Math.max(1000, Math.min(300000, Math.trunc(config.timeoutMs))),
-        parallelProviders: Boolean(config.parallelProviders),
+        parallelProviders:
+            migrateRoutingStrategy(config.routingStrategy).parallelOverride ??
+            Boolean(config.parallelProviders),
         fallbackEnabled: Boolean(config.fallbackEnabled),
         preferOfficialSources: Boolean(config.preferOfficialSources),
         providers,
@@ -564,7 +583,7 @@ export function serializeSearchSettingsConfig(config: SearchSettingsConfig): str
         intentRoutes: normalizeIntentRoutes(config.intentRoutes, providers),
         parallelProviderCount: Math.max(
             2,
-            Math.min(SEARCH_PROVIDER_IDS.length - 1, Math.trunc(config.parallelProviderCount))
+            Math.min(SEARCH_PARALLEL_MAX, Math.trunc(config.parallelProviderCount))
         ),
     };
     return JSON.stringify(normalized);

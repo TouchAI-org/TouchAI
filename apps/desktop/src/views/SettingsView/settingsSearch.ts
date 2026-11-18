@@ -86,11 +86,6 @@ const settingDefinitions: Partial<Record<NavigationSection, SearchItemDefinition
         { labelKey: 'settings.search.section.routing', targetId: 'search-routing' },
         { labelKey: 'settings.search.priority', targetId: 'search-priority' },
         { labelKey: 'settings.search.parallelProviders', targetId: 'search-parallelProviders' },
-        { labelKey: 'settings.search.fallbackEnabled', targetId: 'search-fallbackEnabled' },
-        {
-            labelKey: 'settings.search.preferOfficialSources',
-            targetId: 'search-preferOfficialSources',
-        },
     ],
     browser: [
         { labelKey: 'settings.browser.browserDataPath', targetId: 'browser-data-path' },

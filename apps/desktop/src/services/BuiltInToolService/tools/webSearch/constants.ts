@@ -89,7 +89,7 @@ export function buildWebSearchToolDescription(
 ): string {
     return [
         WEB_SEARCH_TOOL_DESCRIPTION,
-        `User selection strategy: ${strategy}. ${strategy === 'model' ? 'Select a concrete provider based on its strengths; auto uses the configured default.' : 'Prefer provider=auto and source to respect this strategy; set a concrete provider only when a particular engine is needed.'}`,
+        `User selection strategy: ${strategy}. Prefer provider=auto and source to respect this strategy; set a concrete provider only when a particular engine is needed.`,
         `Currently available providers: ${providers.join(', ')}.`,
         `Provider guidance: ${providerRecommendations(providers)}`,
     ].join(' ');

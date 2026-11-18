@@ -98,6 +98,20 @@ describe('user lets the source capability pick a provider', () => {
         expect(resolveSearchProviders(request({ source: 'community' }), config)[0]).toBe('yuanbao');
     });
 
+    it('user gets source-routed engines in order when fusion is enabled', () => {
+        const config = settings({
+            routingStrategy: 'capability',
+            parallelProviders: true,
+            sourceRoutes: { ...DEFAULT_SEARCH_SETTINGS.sourceRoutes, community: 'yuanbao' },
+        });
+        const plan = resolveSearchProviders(
+            request({ source: 'community', language: 'zh' }),
+            config
+        );
+        expect(plan[0]).toBe('yuanbao');
+        expect(plan[1]).toBe('zhihu');
+    });
+
     it('user gets their default broad engine when general capability is requested', () => {
         expect(
             resolveSearchProviders(

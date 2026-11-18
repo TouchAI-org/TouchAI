@@ -9,6 +9,7 @@
     import { log } from '@services/ObservabilityService';
     import {
         parseSearchSettingsConfig,
+        SEARCH_PARALLEL_MAX,
         SEARCH_PROVIDER_API_KEY_REQUIREMENTS,
         SEARCH_PROVIDER_ENDPOINT_REQUIREMENTS,
         SEARCH_PROVIDER_IDS,
@@ -16,7 +17,6 @@
         SEARCH_ROUTING_STRATEGIES,
         SEARCH_SOURCES,
         type SearchProviderId,
-        type SearchRouteIntent,
         type SearchRoutingStrategy,
         type SearchSettingsConfig,
         type SearchSource,
@@ -272,14 +272,6 @@
         SearchRoutingStrategy,
         { label: MessageKey; description: MessageKey }
     > = {
-        model: {
-            label: 'settings.search.strategy.model',
-            description: 'settings.search.strategy.model.description',
-        },
-        intent: {
-            label: 'settings.search.strategy.intent',
-            description: 'settings.search.strategy.intent.description',
-        },
         capability: {
             label: 'settings.search.strategy.capability',
             description: 'settings.search.strategy.capability.description',
@@ -291,10 +283,6 @@
         priority: {
             label: 'settings.search.strategy.priority',
             description: 'settings.search.strategy.priority.description',
-        },
-        parallel: {
-            label: 'settings.search.strategy.parallel',
-            description: 'settings.search.strategy.parallel.description',
         },
     };
 
@@ -313,32 +301,6 @@
         prefer: {
             label: 'settings.search.fetchStrategy.prefer',
             description: 'settings.search.fetchStrategy.prefer.description',
-        },
-    };
-
-    const intentMessages: Record<
-        SearchRouteIntent,
-        { label: MessageKey; description: MessageKey }
-    > = {
-        general: {
-            label: 'settings.search.intent.general',
-            description: 'settings.search.intent.general.description',
-        },
-        academic: {
-            label: 'settings.search.intent.academic',
-            description: 'settings.search.intent.academic.description',
-        },
-        technical: {
-            label: 'settings.search.intent.technical',
-            description: 'settings.search.intent.technical.description',
-        },
-        official: {
-            label: 'settings.search.intent.official',
-            description: 'settings.search.intent.official.description',
-        },
-        news: {
-            label: 'settings.search.intent.news',
-            description: 'settings.search.intent.news.description',
         },
     };
 
@@ -394,17 +356,17 @@
         () => draft.value.providerPriority.filter((id) => !providerConfig(id).enabled).length
     );
 
-    const routeRows = computed(() =>
-        SEARCH_ROUTE_INTENTS.map((intent) => ({
-            intent,
-            label: t(intentMessages[intent].label),
-            description: t(intentMessages[intent].description),
-        }))
-    );
-
     const canSave = computed(() => saveState.value !== 'saving');
 
     watch(draft, scheduleAutoSave, { deep: true });
+
+    watch(
+        () => draft.value.routingStrategy,
+        (strategy) => {
+            if (strategy === 'manual') draft.value.parallelProviders = false;
+        },
+        { immediate: true }
+    );
 
     onMounted(() => {
         void loadToolState();
@@ -576,14 +538,6 @@
         );
     }
 
-    function routeValue(intent: SearchRouteIntent): SearchProviderId {
-        return draft.value.intentRoutes[intent];
-    }
-
-    function updateRoute(intent: SearchRouteIntent, providerId: SearchProviderId) {
-        draft.value.intentRoutes[intent] = providerId;
-    }
-
     function movePriorityBy(providerId: SearchProviderId, delta: number) {
         const rows = [...priorityRows.value];
         const index = rows.indexOf(providerId);
@@ -704,6 +658,37 @@
                             />
                         </SettingsRow>
                         <SettingsRow
+                            data-settings-search-target="search-parallelProviders"
+                            control-width="320"
+                            :label="t('settings.search.parallelProviders')"
+                            :description="t('settings.search.parallelProviders.description')"
+                        >
+                            <Switch
+                                data-testid="search-parallel-toggle"
+                                :aria-label="t('settings.search.parallelProviders')"
+                                :model-value="draft.parallelProviders"
+                                :disabled="!toolEnabled || draft.routingStrategy === 'manual'"
+                                @update:model-value="draft.parallelProviders = $event"
+                            />
+                        </SettingsRow>
+                        <SettingsRow
+                            v-if="draft.parallelProviders && draft.routingStrategy !== 'manual'"
+                            control-width="320"
+                            :label="t('settings.search.parallelProviderCount')"
+                            :description="t('settings.search.parallelProviderCount.description')"
+                        >
+                            <Input
+                                v-model.number="draft.parallelProviderCount"
+                                variant="filled"
+                                data-testid="search-parallel-count-input"
+                                type="number"
+                                min="2"
+                                :max="SEARCH_PARALLEL_MAX"
+                                class="w-full"
+                                :disabled="!toolEnabled"
+                            />
+                        </SettingsRow>
+                        <SettingsRow
                             data-settings-search-target="search-fetch-strategy"
                             control-width="320"
                             :label="t('settings.search.fetchStrategy')"
@@ -716,27 +701,13 @@
                                 :disabled="!toolEnabled"
                             />
                         </SettingsRow>
-                        <SettingsRow
-                            v-if="draft.routingStrategy === 'parallel'"
-                            control-width="320"
-                            :label="t('settings.search.parallelProviderCount')"
-                            :description="t('settings.search.parallelProviderCount.description')"
-                        >
-                            <Input
-                                v-model.number="draft.parallelProviderCount"
-                                variant="filled"
-                                data-testid="search-parallel-count-input"
-                                type="number"
-                                min="2"
-                                :max="SEARCH_PROVIDER_IDS.length - 1"
-                                class="w-full"
-                                :disabled="!toolEnabled"
-                            />
-                        </SettingsRow>
                     </div>
                 </section>
 
                 <section class="mt-10 space-y-4" data-settings-search-target="search-providers">
+                    <h2 class="settings-section-title">
+                        {{ t('settings.search.section.engines') }}
+                    </h2>
                     <div v-for="group in providerGroups" :key="group.label" class="space-y-3">
                         <h3 class="text-compact font-medium text-text-secondary">
                             {{ t(group.label) }}
@@ -780,9 +751,7 @@
                 </section>
 
                 <section
-                    v-if="
-                        draft.routingStrategy === 'intent' || draft.routingStrategy === 'capability'
-                    "
+                    v-if="draft.routingStrategy === 'capability'"
                     class="mt-10 space-y-4"
                     data-settings-search-target="search-routing"
                 >
@@ -805,28 +774,11 @@
                                 :disabled="!toolEnabled"
                             />
                         </SettingsRow>
-
-                        <SettingsRow
-                            v-for="row in draft.routingStrategy === 'intent' ? routeRows : []"
-                            :key="row.intent"
-                            control-width="320"
-                            :label="row.label"
-                            :description="row.description"
-                        >
-                            <CustomSelect
-                                :model-value="routeValue(row.intent)"
-                                :options="enabledProviderOptions"
-                                :disabled="!toolEnabled"
-                                @update:model-value="
-                                    updateRoute(row.intent, $event as SearchProviderId)
-                                "
-                            />
-                        </SettingsRow>
                     </div>
                 </section>
 
                 <section
-                    v-if="['priority', 'parallel'].includes(draft.routingStrategy)"
+                    v-if="draft.routingStrategy === 'priority'"
                     class="mt-10 space-y-4"
                     data-settings-search-target="search-priority"
                 >

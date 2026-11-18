@@ -247,8 +247,8 @@ async function runSearchPlan(
     const attempted: SearchProviderId[] = [];
     if (
         request.provider === 'auto' &&
-        (settings.routingStrategy === 'parallel' ||
-            (settings.parallelProviders && request.mode === 'deep')) &&
+        settings.parallelProviders &&
+        settings.routingStrategy !== 'manual' &&
         plan.length > 1
     ) {
         const providers = plan.slice(0, settings.parallelProviderCount);

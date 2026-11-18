@@ -217,28 +217,44 @@ describe('user edits the search settings', () => {
         wrapper.unmount();
     });
 
-    it('user can choose all six strategies and configure source routes and priority', async () => {
+    it('user can choose one of three strategies, enable fusion and configure routing', async () => {
         const wrapper = mount(SearchSettingsView);
         await nextTick();
         const strategy = wrapper.get('[data-testid="search-strategy-select"]');
-        expect(strategy.findAll('option')).toHaveLength(6);
+        expect(strategy.findAll('option')).toHaveLength(3);
         await wrapper.get('[data-testid="search-source-route-academic"]').setValue('exa');
         await strategy.setValue('priority');
         await nextTick();
         const priority = wrapper.get('[data-testid="search-provider-priority"]');
         await wrapper.get('[data-testid="search-priority-top-tavily"]').trigger('click');
-        await strategy.setValue('parallel');
-        await wrapper.get('[data-testid="search-parallel-count-input"]').setValue('6');
+        await wrapper.get('[data-testid="search-parallel-toggle"]').trigger('click');
+        await wrapper.get('[data-testid="search-parallel-count-input"]').setValue('5');
         await vi.advanceTimersByTimeAsync(300);
         expect(updateSearchSettingsMock).toHaveBeenLastCalledWith(
             expect.objectContaining({
-                routingStrategy: 'parallel',
-                parallelProviderCount: 6,
+                routingStrategy: 'priority',
+                parallelProviders: true,
+                parallelProviderCount: 5,
                 providerPriority: expect.arrayContaining(['keenable', 'anysearch']),
                 sourceRoutes: expect.objectContaining({ academic: 'exa' }),
             })
         );
         expect(priority.findAll('li')[0]!.attributes('data-provider')).toBe('tavily');
+        wrapper.unmount();
+    });
+
+    it('user cannot enable fusion with a fixed default engine', async () => {
+        const wrapper = mount(SearchSettingsView);
+        await nextTick();
+        const strategy = wrapper.get('[data-testid="search-strategy-select"]');
+        await wrapper.get('[data-testid="search-parallel-toggle"]').trigger('click');
+        expect(wrapper.find('[data-testid="search-parallel-count-input"]').exists()).toBe(true);
+        await strategy.setValue('manual');
+        await nextTick();
+        expect(
+            wrapper.get('[data-testid="search-parallel-toggle"]').attributes('aria-checked')
+        ).toBe('false');
+        expect(wrapper.find('[data-testid="search-parallel-count-input"]').exists()).toBe(false);
         wrapper.unmount();
     });
 

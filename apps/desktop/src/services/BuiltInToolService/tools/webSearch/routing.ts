@@ -90,18 +90,9 @@ export function resolveSearchProviders(
     if (hasRequested) {
         push(requested ?? undefined);
     }
-    if (
-        !hasRequested &&
-        (settings.routingStrategy === 'priority' || settings.routingStrategy === 'parallel')
-    ) {
+    if (!hasRequested && settings.routingStrategy === 'priority') {
         settings.providerPriority.forEach(push);
-    } else if (
-        !hasRequested &&
-        (settings.routingStrategy === 'manual' || settings.routingStrategy === 'model')
-    ) {
-        push(settings.defaultProvider);
-    } else if (!hasRequested && settings.routingStrategy === 'intent') {
-        push(settings.intentRoutes[request.intent]);
+    } else if (!hasRequested && settings.routingStrategy === 'manual') {
         push(settings.defaultProvider);
     } else if (!hasRequested) {
         // capability：先尊重用户为意图/来源指定的一级路由，再回落到能力表。
@@ -132,8 +123,7 @@ export function resolveSearchProviders(
     if (
         request.provider === 'auto' &&
         (settings.fallbackEnabled ||
-            settings.routingStrategy === 'parallel' ||
-            (settings.parallelProviders && request.mode === 'deep'))
+            (settings.parallelProviders && settings.routingStrategy !== 'manual'))
     ) {
         settings.providerPriority.forEach(push);
         available.forEach(push);

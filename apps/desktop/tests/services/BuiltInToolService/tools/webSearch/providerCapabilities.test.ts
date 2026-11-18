@@ -347,11 +347,44 @@ describe('user chooses failure recovery and fusion', () => {
         expect(body()).not.toHaveProperty('acquired_after');
     });
 
-    it('user gets both engines when deep fusion is enabled and keeps an explicit provider single', async () => {
+    it('user gets both engines when parallel fusion is enabled and keeps an explicit provider single', async () => {
         readSettings.mockResolvedValue(
             JSON.stringify({
                 parallelProviders: true,
                 parallelProviderCount: 2,
+                providerPriority: ['anysearch', 'tavily'],
+                routingStrategy: 'priority',
+            })
+        );
+        fetchMock.mockImplementation(async (url: string) =>
+            response({
+                results: [
+                    {
+                        title: url.includes('tavily') ? 'Tavily hit' : 'AnySearch hit',
+                        url: url.includes('tavily')
+                            ? 'https://example.com/t'
+                            : 'https://example.com/a',
+                    },
+                ],
+            })
+        );
+        const result = await executeWebSearchTool({ query: 'q', mode: 'balanced' }, {}, context());
+        expect(result.result).toContain('Tavily hit');
+        expect(result.result).toContain('AnySearch hit');
+        const explicit = await executeWebSearchTool(
+            { query: 'q', mode: 'deep', provider: 'tavily' },
+            {},
+            context()
+        );
+        expect(explicit.result).not.toContain('AnySearch hit');
+    });
+
+    it('user keeps the fixed default single even when fusion is left on', async () => {
+        readSettings.mockResolvedValue(
+            JSON.stringify({
+                parallelProviders: true,
+                parallelProviderCount: 2,
+                defaultProvider: 'anysearch',
                 providerPriority: ['anysearch', 'tavily'],
                 routingStrategy: 'manual',
             })
@@ -368,15 +401,9 @@ describe('user chooses failure recovery and fusion', () => {
                 ],
             })
         );
-        const result = await executeWebSearchTool({ query: 'q', mode: 'deep' }, {}, context());
-        expect(result.result).toContain('Tavily hit');
+        const result = await executeWebSearchTool({ query: 'q', mode: 'balanced' }, {}, context());
         expect(result.result).toContain('AnySearch hit');
-        const explicit = await executeWebSearchTool(
-            { query: 'q', mode: 'deep', provider: 'tavily' },
-            {},
-            context()
-        );
-        expect(explicit.result).not.toContain('AnySearch hit');
+        expect(result.result).not.toContain('Tavily hit');
     });
 
     it('user sees supported options for every enabled engine in the tool schema', async () => {

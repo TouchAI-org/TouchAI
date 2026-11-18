@@ -77,6 +77,23 @@ describe('user edits the search settings', () => {
         });
     });
 
+    it('user migrates legacy routing strategies to the new model', async () => {
+        const { parseSearchSettingsConfig } = await import('@services/SettingsService/domain');
+
+        const parallel = parseSearchSettingsConfig(
+            JSON.stringify({ routingStrategy: 'parallel', parallelProviderCount: 9 })
+        );
+        expect(parallel.routingStrategy).toBe('priority');
+        expect(parallel.parallelProviders).toBe(true);
+        expect(parallel.parallelProviderCount).toBe(5);
+        expect(
+            parseSearchSettingsConfig(JSON.stringify({ routingStrategy: 'model' })).routingStrategy
+        ).toBe('capability');
+        expect(
+            parseSearchSettingsConfig(JSON.stringify({ routingStrategy: 'intent' })).routingStrategy
+        ).toBe('capability');
+    });
+
     it('user trims provider keys and preserves intent routing', async () => {
         const { parseSearchSettingsConfig } = await import('@services/SettingsService/domain');
 
