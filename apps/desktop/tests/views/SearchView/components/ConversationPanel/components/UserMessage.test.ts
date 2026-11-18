@@ -386,7 +386,7 @@ describe('UserMessage pending delivery', () => {
         expect(actions.classes()).toContain('text-message-muted');
         expect(actions.classes()).not.toContain('text-message-foreground');
         const editStatus = wrapper.get('[data-testid="pending-message-edit-status"]');
-        expect(editStatus.text()).toBe('正在编辑');
+        expect(editStatus.text()).toBe('编辑中');
         expect(editStatus.classes()).not.toContain('text-primary-600');
         expect(wrapper.get('[data-testid="pending-message-cancel-edit"]').text()).toBe('取消');
 

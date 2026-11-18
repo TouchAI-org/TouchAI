@@ -350,7 +350,7 @@ describe('when the user sends a second prompt while a request is running', () =>
         expect(clearDraft).not.toHaveBeenCalled();
         expect(notifyMock).toHaveBeenCalledWith({
             title: 'TouchAI',
-            body: 'The message could not be queued. Try again.',
+            body: 'Message not queued. Try again.',
         });
 
         unmount();

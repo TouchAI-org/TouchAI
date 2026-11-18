@@ -246,12 +246,12 @@ describe('user configures keyboard shortcuts', () => {
             wrapper
                 .get('[data-testid="settings-search-shortcut-input-search.submit.queue"]')
                 .attributes('title')
-        ).toBe('请在“通用”中修改发送快捷键');
+        ).toBe('在“通用”中修改');
         expect(
             wrapper
                 .get('[data-testid="settings-search-shortcut-input-search.submit.priority"]')
                 .attributes('title')
-        ).toBe('请在“通用”中修改发送快捷键');
+        ).toBe('在“通用”中修改');
         expect(wrapper.find('[data-testid="settings-submit-intent-trigger"]').exists()).toBe(false);
         expect(
             wrapper
@@ -762,8 +762,8 @@ describe('user configures keyboard shortcuts', () => {
         const priorityInput = wrapper.get(
             '[data-testid="settings-search-shortcut-input-search.submit.priority"]'
         );
-        expect(queueInput.attributes('title')).toBe('请在“通用”中修改发送快捷键');
-        expect(priorityInput.attributes('title')).toBe('请在“通用”中修改发送快捷键');
+        expect(queueInput.attributes('title')).toBe('在“通用”中修改');
+        expect(priorityInput.attributes('title')).toBe('在“通用”中修改');
         expect(queueInput.attributes('tabindex')).toBe('-1');
         expect(priorityInput.attributes('tabindex')).toBe('-1');
         expect(

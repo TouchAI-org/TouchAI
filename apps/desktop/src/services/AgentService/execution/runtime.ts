@@ -530,7 +530,7 @@ export class AiConversationRuntime {
                     await persister.discardPendingUserMessage(pendingMessage.id);
                     await this.reportPersistenceIssue({
                         phase: 'user_message_delivery',
-                        title: t('agent.priorityMessage.unsupportedAttachmentsTitle'),
+                        title: t('agent.priorityMessage.removedTitle'),
                         body: t('agent.priorityMessage.unsupportedAttachmentsBody', {
                             types: unsupportedAttachmentTypes
                                 .map((type) =>
@@ -594,7 +594,7 @@ export class AiConversationRuntime {
                     await persister.discardPendingUserMessage(pendingMessage.id);
                     await this.reportPersistenceIssue({
                         phase: 'user_message_delivery',
-                        title: t('agent.priorityMessage.skillLoadFailedTitle'),
+                        title: t('agent.priorityMessage.removedTitle'),
                         body: t('agent.priorityMessage.skillLoadFailedBody'),
                         error,
                     });

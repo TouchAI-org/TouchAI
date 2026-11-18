@@ -206,7 +206,7 @@ describe('user changes general settings', () => {
         expect(wrapper.text()).toContain('窗口尺寸');
         expect(wrapper.text()).toContain('对话体验');
         expect(wrapper.text()).toContain('发送快捷键');
-        expect(wrapper.text()).toContain('运行中按哪个键排队，另一个键就用来插队');
+        expect(wrapper.text()).toContain('Enter 排队 · Ctrl+Enter 插队');
         expect(wrapper.text()).toContain('输出时滚动策略');
         expect(wrapper.text()).toContain('界面语言');
         expect(wrapper.text()).toContain('版本更新通道');
@@ -282,6 +282,8 @@ describe('user changes general settings', () => {
     });
 
     it('user sees the selected send shortcut when priority already owns Enter', async () => {
+        setPlatform('MacIntel');
+        setLocale('en-US');
         settingsStoreMock.settings.value.searchKeybindings = {
             ...settingsStoreMock.createGeneralSettingsMock().searchKeybindings,
             'search.submit.queue': 'Mod+Enter',
@@ -291,9 +293,9 @@ describe('user changes general settings', () => {
 
         await flushPromises();
 
-        const sendShortcut = wrapper
-            .get('[data-settings-search-target="send-shortcut"]')
-            .findComponent({ name: 'CustomSelectStub' });
+        const row = wrapper.get('[data-settings-search-target="send-shortcut"]');
+        expect(row.text()).toContain('Queue: Cmd+Enter · Prioritize: Enter');
+        const sendShortcut = row.findComponent({ name: 'CustomSelectStub' });
         expect(sendShortcut.props('modelValue')).toBe('Mod+Enter');
     });
 

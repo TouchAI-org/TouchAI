@@ -63,6 +63,16 @@
             ? 'Mod+Enter'
             : 'Enter'
     );
+    const sendShortcutBindings = computed(() =>
+        t('settings.general.sendShortcutBindings', {
+            queue: formatShortcutForDisplay(
+                settings.value.searchKeybindings['search.submit.queue']
+            ),
+            priority: formatShortcutForDisplay(
+                settings.value.searchKeybindings['search.submit.priority']
+            ),
+        })
+    );
     const isSavingSendShortcut = ref(false);
 
     const searchWindowSizeOptions = computed(
@@ -277,14 +287,9 @@
             </section>
 
             <section class="space-y-4">
-                <div>
-                    <h2 class="settings-section-title">
-                        {{ t('settings.general.conversationExperience') }}
-                    </h2>
-                    <p class="settings-section-description">
-                        {{ t('settings.general.conversationExperienceDescription') }}
-                    </p>
-                </div>
+                <h2 class="settings-section-title">
+                    {{ t('settings.general.conversationExperience') }}
+                </h2>
 
                 <div
                     data-testid="settings-general-card-conversation"
@@ -296,7 +301,7 @@
                         label-as="label"
                         label-class="block"
                         :label="t('settings.general.sendShortcut')"
-                        :description="t('settings.general.sendShortcutDescription')"
+                        :description="sendShortcutBindings"
                         :label-attrs="{ 'data-testid': 'settings-general-row-label' }"
                         control-class="ml-auto w-[180px]"
                         :control-attrs="{ 'data-testid': 'settings-general-control' }"

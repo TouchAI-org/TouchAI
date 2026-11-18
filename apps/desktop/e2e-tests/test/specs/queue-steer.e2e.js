@@ -112,7 +112,7 @@ function assertQueuedMessage(message) {
         `The queued message lost one of its actions: ${JSON.stringify(message)}.`
     );
     assertVisible(
-        message.pendingActionText === '' && message.sendNowLabel === 'Steer now',
+        message.pendingActionText === '' && message.sendNowLabel === 'Prioritize',
         `The queued message actions were not icon-only with an accessible steer name: ${JSON.stringify(
             message
         )}.`
@@ -992,7 +992,7 @@ describe('user sends queued and priority messages during a running answer', () =
                 message?.pendingDelivery === 'priority' &&
                 message.backgroundColor !== 'rgba(0, 0, 0, 0)'
             );
-        }, 'Clicking Steer now did not turn the queued bubble into a solid steer.');
+        }, 'Clicking Prioritize did not turn the queued bubble into a solid steer.');
         assertSolidSteer(messageByText(promoted, queuedOne));
         assertQueuedMessage(messageByText(promoted, queuedTwo));
         const loadingBeforeDelivery = loadingMessage(promoted);
@@ -1068,7 +1068,7 @@ describe('user sends queued and priority messages during a running answer', () =
         assertPendingOrder(state, [steered, queuedToEdit]);
         const editingMessage = messageByText(state, queuedToEdit);
         assertVisible(
-            editingMessage.editingStatus === 'Editing in the composer' &&
+            editingMessage.editingStatus === 'Editing' &&
                 editingMessage.hasCancelEdit &&
                 !editingMessage.hasSendNow &&
                 !editingMessage.hasEdit &&
