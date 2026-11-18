@@ -103,7 +103,7 @@
                         class="flex size-7 shrink-0 items-center justify-center rounded-lg border border-border-subtle p-0.5"
                     >
                         <span
-                            class="flex size-full items-center justify-center overflow-hidden rounded-md border border-border-subtle bg-surface-floating p-0.5"
+                            class="flex size-full items-center justify-center overflow-hidden rounded-md bg-surface-floating p-0.5"
                         >
                             <img :src="logo" alt="" class="size-full rounded object-contain" />
                         </span>
@@ -154,7 +154,7 @@
                     class="flex size-16 shrink-0 items-center justify-center rounded-2xl border-2 border-border-subtle p-1"
                 >
                     <span
-                        class="flex size-full items-center justify-center overflow-hidden rounded-xl border border-border-subtle bg-surface-floating p-0.5"
+                        class="flex size-full items-center justify-center overflow-hidden rounded-xl bg-surface-floating p-0.5"
                     >
                         <img :src="logo" alt="" class="size-full rounded-lg object-contain" />
                     </span>
