@@ -7,7 +7,7 @@ import { toast } from 'vue-sonner';
 import { MetaKey, StatisticKey } from '@/database/schema';
 import { setLocale } from '@/i18n';
 import BadgedLogo from '@/views/SettingsView/components/AiServices/components/BadgedLogo.vue';
-import ImportModeDialog from '@/views/SettingsView/components/DataManagement/components/ImportModeDialog.vue';
+import BackupScopeDialog from '@/views/SettingsView/components/DataManagement/components/BackupScopeDialog.vue';
 import ProgressDialog from '@/views/SettingsView/components/DataManagement/components/ProgressDialog.vue';
 import DataManagement from '@/views/SettingsView/components/DataManagement/index.vue';
 
@@ -139,24 +139,26 @@ describe('given local data settings and dialogs are displayed in English', () =>
         expect(badge.classes()).not.toContain('max-w-[4.5rem]');
     });
 
-    it('user opens import choices and sees localized options that can wrap', async () => {
+    it('user opens a full backup and can select either localized content group', async () => {
         setLocale('en-US');
-        const wrapper = mount(ImportModeDialog, { attachTo: host, props: { isLoading: false } });
+        const wrapper = mount(BackupScopeDialog, {
+            attachTo: host,
+            props: { isLoading: false, action: 'import', available: 'full', open: true },
+        });
         wrappers.push(wrapper);
         await flushPromises();
         const choices = dialog();
 
-        expect(choices.textContent).toContain('Choose import mode');
-        expect(choices.textContent).toContain('Import conversation data only');
-        expect(choices.textContent).toContain('Overwrite settings and import conversations');
-        expect(choices.textContent).not.toContain('选择导入模式');
-        const modeButtons = [...choices.querySelectorAll('button')].filter(
-            (button) =>
-                button.textContent?.includes('import conversation') ||
-                button.textContent?.includes('Import conversation')
-        );
-        expect(modeButtons).toHaveLength(2);
-        for (const button of modeButtons) expect(button.classList).toContain('whitespace-normal');
+        expect(choices.textContent).toContain('Import backup');
+        expect(
+            choices
+                .querySelector('[role=switch][aria-label="Settings"]')
+                ?.getAttribute('aria-checked')
+        ).toBe('true');
+        expect(
+            choices.querySelector('[role=switch][aria-label="Data"]')?.getAttribute('aria-checked')
+        ).toBe('true');
+        expect(choices.textContent).toContain('provider credentials');
     });
 
     it('user reads a long backup path and the progress message can wrap without losing the progress value', async () => {
@@ -185,6 +187,7 @@ describe('given local data settings and dialogs are displayed in English', () =>
     it('user imports settings and the persisted startup notice retains a source payload for the next language', async () => {
         setLocale('en-US');
         mockTauriCommand('plugin:dialog|open', () => 'fixture-backup.zip');
+        mockTauriCommand('database_backup_scope', 'full');
         mockTauriCommand('database_import_backup', () => undefined);
         const wrapper = mount(DataManagement, {
             attachTo: host,
@@ -197,7 +200,7 @@ describe('given local data settings and dialogs are displayed in English', () =>
             .trigger('click');
         await flushPromises();
         const fullImport = [...dialog().querySelectorAll<HTMLButtonElement>('button')].find(
-            (button) => button.textContent?.includes('Overwrite settings and import conversations')
+            (button) => button.textContent?.trim() === 'Import'
         );
         expect(fullImport).toBeDefined();
         fullImport!.click();

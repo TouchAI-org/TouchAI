@@ -25,6 +25,7 @@
         data: Array<{ key: string; label: string; value: number; color?: string }>;
         /** Centre caption; replaced by the slice name when one is active. */
         totalLabel?: string;
+        totalValue?: number;
         /** Ring diameter in px. */
         size?: number;
         /** Ring thickness. */
@@ -44,6 +45,7 @@
 
     const props = withDefaults(defineProps<Props>(), {
         totalLabel: undefined,
+        totalValue: undefined,
         size: 160,
         thickness: 20,
         groupBelow: 0.04,
@@ -113,7 +115,9 @@
         return SERIES[index % SERIES.length]!;
     }
 
-    const total = computed(() => slices.value.reduce((sum, item) => sum + item.value, 0));
+    const total = computed(
+        () => props.totalValue ?? slices.value.reduce((sum, item) => sum + item.value, 0)
+    );
 
     // ===== Interaction state =====
 

@@ -7,7 +7,7 @@ use tauri::{AppHandle, Manager, Runtime, State, WebviewWindow};
 use crate::core::analytics::AnalyticsRuntime;
 use crate::core::database::{
     types::{
-        DatabaseImportRequest, DatabaseQueryRequest, DatabaseQueryResponse,
+        DatabaseImportMode, DatabaseImportRequest, DatabaseQueryRequest, DatabaseQueryResponse,
         DatabaseTransactionBehavior,
     },
     DatabaseRuntime,
@@ -87,7 +87,9 @@ pub async fn database_export_backup<R: Runtime>(
     app: AppHandle<R>,
     runtime: State<'_, DatabaseRuntime>,
     target_path: String,
+    mode: Option<DatabaseImportMode>,
 ) -> Result<(), String> {
+    let mode = mode.unwrap_or_default();
     let storage = app
         .try_state::<crate::core::storage::StorageRuntime>()
         .map(|state| state.inner().clone());
@@ -102,10 +104,13 @@ pub async fn database_export_backup<R: Runtime>(
             Some(extension) if extension.eq_ignore_ascii_case("zip") => {
                 let storage = storage.ok_or("storage_io_failed")?;
                 runtime
-                    .export_full_backup(target, storage.cache_root())
+                    .export_scoped_backup(target, storage.cache_root(), mode)
                     .await
             }
             Some(extension) if extension.eq_ignore_ascii_case("db") => {
+                if mode != DatabaseImportMode::Full {
+                    return Err("database_backup_scope_requires_zip".into());
+                }
                 if let Some(storage) = &storage {
                     let cache = storage.cache_root().to_path_buf();
                     let destination = target.to_path_buf();
@@ -128,6 +133,11 @@ pub async fn database_export_backup<R: Runtime>(
     })
     .await
     .map_err(|_| "storage_io_failed".to_string())?
+}
+
+#[tauri::command]
+pub async fn database_backup_scope(source_path: String) -> Result<DatabaseImportMode, String> {
+    DatabaseRuntime::backup_scope(source_path.into()).await
 }
 
 /// 导入数据库备份。

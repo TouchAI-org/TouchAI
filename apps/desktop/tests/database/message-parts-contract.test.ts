@@ -45,6 +45,53 @@ function attachImportDatabase(database: SqliteDatabase) {
         database.exec(String(table.sql).replace('CREATE TABLE ', 'CREATE TABLE imported.'));
     }
 }
+
+describe('given settings and saved conversations share a database', () => {
+    it.each(['settings', 'data'])(
+        'user exports only %s and the archive database contains just that content',
+        (scope) => {
+            const database = openDatabase();
+            attachImportDatabase(database);
+            database.exec(`
+            INSERT INTO imported.providers (id,name,driver,api_endpoint,logo,api_key) VALUES (7,'Example','openai','https://fixture.invalid','','example-key');
+            INSERT INTO imported.models (id,provider_id,model_id,name) VALUES (11,7,'example','Example model');
+            INSERT INTO imported.settings (key,value) VALUES ('example-preference','private setting');
+            INSERT INTO imported.sessions (id,session_id,title,model,provider_id) VALUES (21,'saved','Saved history','example',7);
+            INSERT INTO imported.messages (id,session_id,role) VALUES (31,21,'user');
+            INSERT INTO imported.message_parts (message_id,type,content,sort_order) VALUES (31,'text','saved message',0);
+            INSERT INTO imported.session_turns (session_id,model_id,task_id,prompt_snapshot_json,input_tokens) VALUES (21,11,'saved-task','{}',321);
+            INSERT INTO imported.quick_search_click_stats (query_norm,path_norm,click_count) VALUES ('file','private path',1);
+            INSERT INTO imported.mcp_servers (name,transport_type,env) VALUES ('Unused','stdio','private environment');
+            BEGIN;
+            PRAGMA defer_foreign_keys=ON;
+        `);
+            database.exec(
+                readFileSync(`${databaseRoot}/artifacts/storage/export_${scope}.sql`, 'utf8')
+            );
+            database.exec('COMMIT');
+            const settings = scope === 'settings';
+            expect(
+                database.prepare('SELECT api_key FROM providers WHERE id=7').get()?.api_key
+            ).toBe(settings ? 'example-key' : null);
+            expect(database.prepare('SELECT value FROM settings').all()).toEqual(
+                settings ? [{ value: 'private setting' }] : []
+            );
+            expect(database.prepare('SELECT env FROM mcp_servers').all()).toEqual(
+                settings ? [{ env: 'private environment' }] : []
+            );
+            expect(database.prepare('SELECT content FROM message_parts').all()).toEqual(
+                settings ? [] : [{ content: 'saved message' }]
+            );
+            expect(database.prepare('SELECT input_tokens FROM session_turns').all()).toEqual(
+                settings ? [] : [{ input_tokens: 321 }]
+            );
+            expect(
+                database.prepare('SELECT path_norm FROM quick_search_click_stats').all()
+            ).toEqual(settings ? [] : [{ path_norm: 'private path' }]);
+            expect(database.prepare('PRAGMA main.foreign_key_check').all()).toEqual([]);
+        }
+    );
+});
 function routeQueriesTo(database: SqliteDatabase) {
     interceptTauriInvoke((call) => {
         if (call.cmd === 'database_tx_begin') {
@@ -404,9 +451,12 @@ describe('when conversations are stored as ordered message parts', () => {
             INSERT INTO models (id, provider_id, name, model_id) VALUES (1, 1, 'Local', 'local-model');
             INSERT INTO mcp_servers (id, name, transport_type) VALUES (1, 'Local MCP', 'stdio');
             INSERT INTO imported.providers (id, name, driver, api_endpoint, logo, api_key, config_json) VALUES
-                (1, 'Source', 'openai', 'http://source', '', 'secret', '{"token":"secret"}');
+                (1, 'Source', 'openai', 'http://source', '', 'secret', '{"token":"secret"}'),
+                (2, 'Unused', 'openai', 'http://unused', '', 'unused-key', NULL);
             INSERT INTO imported.models (id, provider_id, name, model_id, is_default) VALUES (1, 1, 'Source', 'source-model', 1);
+            INSERT INTO imported.models (provider_id, name, model_id) VALUES (1, 'Other', 'unused-model');
             INSERT INTO imported.mcp_servers (id, name, transport_type, command, env) VALUES (1, 'Source MCP', 'stdio', 'command', '{"TOKEN":"secret"}');
+            INSERT INTO imported.mcp_servers (name, transport_type, command) VALUES ('Unused MCP', 'stdio', 'other');
             INSERT INTO imported.sessions (id, session_id, title, model, provider_id) VALUES (1, 'identity', 'Test', 'source-model', 1);
             INSERT INTO imported.messages (id, session_id, role) VALUES (1, 1, 'tool_call');
             INSERT INTO imported.message_parts (message_id, type, content, data, sort_order) VALUES
@@ -420,10 +470,17 @@ describe('when conversations are stored as ordered message parts', () => {
         expect(
             database
                 .prepare(
-                    "SELECT id, api_key, config_json, enabled FROM providers WHERE name='Source'"
+                    "SELECT id, api_endpoint, api_key, config_json, enabled FROM providers WHERE name='Source'"
                 )
                 .get()
-        ).toEqual({ id: 2, api_key: null, config_json: null, enabled: 0 });
+        ).toEqual({ id: 2, api_endpoint: '', api_key: null, config_json: null, enabled: 0 });
+        expect(database.prepare("SELECT id FROM providers WHERE name='Unused'").all()).toEqual([]);
+        expect(
+            database.prepare("SELECT id FROM models WHERE model_id='unused-model'").all()
+        ).toEqual([]);
+        expect(
+            database.prepare("SELECT id FROM mcp_servers WHERE name='Unused MCP'").all()
+        ).toEqual([]);
         expect(
             database
                 .prepare("SELECT provider_id, is_default FROM models WHERE model_id='source-model'")

@@ -1,15 +1,21 @@
 -- Chat-only imports still need local identity rows for turns and tool parts.
 -- Copy metadata only: credentials and executable MCP configuration never cross the
 -- chat-only boundary. Full imports replace these placeholders in full_prelude.sql.
-INSERT INTO main.providers (
-    name, driver, api_endpoint, api_key, config_json, logo,
-    enabled, is_builtin, created_at, updated_at
-)
-SELECT
-    source.name, source.driver, source.api_endpoint, NULL, NULL, source.logo,
-    0, source.is_builtin, source.created_at, source.updated_at
+CREATE TEMP TABLE temp_history_models AS
+SELECT id, provider_id, name, model_id FROM imported.models WHERE id IN (
+    SELECT model_id FROM imported.session_turns
+    UNION SELECT json_extract(checkpoint_json, '$.activeModelId') FROM imported.session_turn_attempts
+    UNION SELECT json_extract(data, '$.modelId') FROM imported.message_parts WHERE type = 'context_compaction'
+);
+
+INSERT INTO main.providers (name, driver, api_endpoint, logo, enabled)
+SELECT source.name, source.driver, '', '', 0
 FROM imported.providers AS source
-WHERE NOT EXISTS (
+WHERE source.id IN (
+    SELECT provider_id FROM temp_history_models
+    UNION SELECT provider_id FROM imported.sessions
+    UNION SELECT json_extract(data, '$.providerId') FROM imported.message_parts WHERE type = 'context_compaction'
+) AND NOT EXISTS (
     SELECT 1
     FROM main.providers AS target
     WHERE target.name = source.name
@@ -30,19 +36,9 @@ INNER JOIN main.providers AS target
 
 -- Models are non-sensitive metadata, so create missing identities without changing
 -- the target's default model selection during a chat-only import.
-INSERT INTO main.models (
-    provider_id, name, model_id, is_default, last_used_at,
-    attachment, modalities, open_weights, reasoning, reasoning_options, release_date,
-    temperature, tool_call, knowledge, context_limit, output_limit,
-    is_custom_metadata, upstream_metadata, created_at, updated_at
-)
-SELECT
-    provider_map.target_provider_id, source.name, source.model_id, 0, source.last_used_at,
-    source.attachment, source.modalities, source.open_weights, source.reasoning, source.reasoning_options,
-    source.release_date, source.temperature, source.tool_call, source.knowledge,
-    source.context_limit, source.output_limit, source.is_custom_metadata, source.upstream_metadata,
-    source.created_at, source.updated_at
-FROM imported.models AS source
+INSERT INTO main.models (provider_id, name, model_id)
+SELECT provider_map.target_provider_id, source.name, source.model_id
+FROM temp_history_models AS source
 INNER JOIN temp_provider_map AS provider_map
     ON provider_map.source_provider_id = source.provider_id
 WHERE NOT EXISTS (
@@ -68,14 +64,10 @@ INNER JOIN main.models AS target
 
 -- Tool parts retain their server identity in data. Create disabled metadata-only
 -- placeholders so a missing source server can never resolve to an unrelated local id.
-INSERT INTO main.mcp_servers (
-    name, transport_type, enabled, tool_timeout, created_at, updated_at
-)
-SELECT
-    source.name, source.transport_type, 0, source.tool_timeout,
-    source.created_at, source.updated_at
+INSERT INTO main.mcp_servers (name, transport_type, enabled)
+SELECT source.name, source.transport_type, 0
 FROM imported.mcp_servers AS source
-WHERE NOT EXISTS (
+WHERE source.id IN (SELECT server_id FROM imported.message_parts WHERE tool_kind = 'mcp') AND NOT EXISTS (
     SELECT 1
     FROM main.mcp_servers AS target
     WHERE target.name = source.name
@@ -654,3 +646,4 @@ DROP TABLE temp.temp_session_map;
 DROP TABLE temp.temp_mcp_server_map;
 DROP TABLE temp.temp_model_map;
 DROP TABLE temp.temp_provider_map;
+DROP TABLE temp.temp_history_models;

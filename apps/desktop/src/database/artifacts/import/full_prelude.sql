@@ -4,7 +4,6 @@ SET is_default = 0;
 -- Analytics consent stays native-local and is adopted separately from the
 -- scrubbed backup. Never let a full import overwrite this machine's decision.
 DELETE FROM main.settings WHERE key <> 'analytics.state.v1';
-DELETE FROM main.statistics;
 DELETE FROM main.llm_metadata_aliases;
 DELETE FROM main.llm_metadata;
 
@@ -114,10 +113,6 @@ INSERT INTO main.settings (key, value, created_at, updated_at)
 SELECT key, value, created_at, updated_at
 FROM imported.settings
 WHERE key <> 'analytics.state.v1';
-
-INSERT INTO main.statistics (key, value, created_at, updated_at)
-SELECT key, value, created_at, updated_at
-FROM imported.statistics;
 
 INSERT INTO main.llm_metadata (
     model_id, name, attachment, modalities, open_weights, reasoning, reasoning_options,
@@ -246,14 +241,4 @@ ON CONFLICT(tool_id) DO UPDATE SET
     risk_level = excluded.risk_level,
     config_json = excluded.config_json,
     last_used_at = excluded.last_used_at,
-    updated_at = excluded.updated_at;
-
-INSERT INTO main.quick_search_click_stats (
-    query_norm, path_norm, click_count, created_at, updated_at
-)
-SELECT query_norm, path_norm, click_count, created_at, updated_at
-FROM imported.quick_search_click_stats
-WHERE true
-ON CONFLICT(query_norm, path_norm) DO UPDATE SET
-    click_count = excluded.click_count,
     updated_at = excluded.updated_at;

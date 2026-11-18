@@ -30,6 +30,7 @@ describe('given a user selects a data backup destination', () => {
         });
         expect(getLastTauriInvokeCall('database_export_backup')?.payload).toEqual({
             targetPath: 'D:/backups/full.zip',
+            mode: 'full',
         });
     });
 
@@ -40,8 +41,23 @@ describe('given a user selects a data backup destination', () => {
 
         expect(getLastTauriInvokeCall('database_export_backup')?.payload).toEqual({
             targetPath: 'D:/backups/legacy.db',
+            mode: 'full',
         });
     });
+
+    it.each(['settings_only', 'chat_only'] as const)(
+        'user exports only the selected %s content into an archive',
+        async (mode) => {
+            await databaseBackup.exportDatabase(undefined, mode);
+            expect(getLastTauriInvokeCall('database_export_backup')?.payload).toEqual({
+                targetPath: 'D:/backups/full.zip',
+                mode,
+            });
+            expect(getLastTauriInvokeCall('plugin:dialog|save')?.payload).toMatchObject({
+                options: { filters: [{ extensions: ['zip'] }] },
+            });
+        }
+    );
 
     it('user exports nothing when dismissing the destination dialog', async () => {
         mockTauriCommand('plugin:dialog|save', null);
@@ -86,8 +102,10 @@ describe('given a user selects a saved data backup', () => {
     it.each([
         ['D:/backups/full.zip', 'full'],
         ['D:/backups/full.zip', 'chat_only'],
+        ['D:/backups/full.zip', 'settings_only'],
         ['D:/backups/legacy.db', 'full'],
         ['D:/backups/legacy.db', 'chat_only'],
+        ['D:/backups/legacy.db', 'settings_only'],
     ] as const)(
         'user restores %s with the selected %s mode when opening a supported backup',
         async (sourcePath, mode) => {
@@ -132,6 +150,18 @@ describe('given a user selects a saved data backup', () => {
         await expect(databaseBackup.importDatabase('full')).rejects.toThrow(
             t('database.backup.usageConflict')
         );
+    });
+
+    it('user selects settings and sees which backup choice failed when the file no longer contains settings', async () => {
+        mockTauriCommand('database_import_backup', () => {
+            throw 'database_backup_scope_unavailable';
+        });
+        await expect(
+            databaseBackup.importDatabase('settings_only', undefined, 'fixture.zip')
+        ).rejects.toMatchObject({
+            message: t('database.backup.scopeUnavailable'),
+            cause: 'database_backup_scope_unavailable',
+        });
     });
 
     it('user is told when data committed despite a cleanup failure instead of treating it as a rolled-back import', async () => {

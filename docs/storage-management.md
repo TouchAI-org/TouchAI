@@ -6,6 +6,8 @@ The maintainer authorized the complete storage design without a separate issue o
 
 ## Acceptance scenarios
 
+- Given a storage scan, when the user opens the overview, then a composition ring shows the total physical size and category shares, and the full breakdown includes file counts even for zero-byte categories.
+- Given a backup containing settings and conversation data, when the user selects either or both during export or restore, then the selected settings, conversations, usage and managed attachments travel with their respective scope. Restoring just settings preserves local history and its files; restoring just data preserves local configuration.
 - Given two conversations share an attachment, when one conversation is removed, then the other conversation's attachment and original image remain readable.
 - Given a user changes an external source file after sending it, when the conversation is reopened, then the saved attachment still contains the bytes captured at send time.
 - Given identical immutable app-owned bytes exist under two necessary paths, when storage is optimized, then the paths share a physical file where supported; unsupported filesystems still provide independent readable copies.
@@ -21,7 +23,7 @@ The maintainer authorized the complete storage design without a separate issue o
 - Given an older browser screenshot is referenced by history or input recovery, when another screenshot is captured or the browser stops, then the original remains readable; only reference-aware storage maintenance can reclaim it.
 - Given a screenshot directory is replaced by a symlink or junction, when capture or cleanup is attempted, then no external file is written, modified or deleted.
 - Given an unsent draft is temporarily replaced while browsing input history, when cleanup is requested, then its recoverable attachments stay protected until the draft is discarded or the owning view closes.
-- Given non-zero turn and attempt usage in a backup, when either import mode restores it, then token, cost, latency and daily aggregates are preserved and repeated imports do not double-count live turns.
+- Given non-zero turn and attempt usage in a backup, when the restore includes Data, then token, cost, latency and daily aggregates are preserved and repeated imports count each live turn once.
 - Given the clipboard changes before maintenance starts, when cleanup obtains exclusive access, then protection is read from that current snapshot rather than a pre-lock snapshot.
 - Given a platform data directory has redirected ancestors but no redirects inside the managed cache, when publishing, scanning, compacting or backing up, then existing logical paths keep working without relaxing the managed subtree boundary.
 - Given committed database changes remain in WAL or database files are compressed, when compaction completes, then before/after usage includes physical allocation for the database and sidecars, not just the main file's logical length.
@@ -39,6 +41,14 @@ Hard links are not snapshots and are never used to adopt external user files. Pu
 Cleanup is conservative: it processes recognized files under managed roots only, rejects reparse points and unknown filesystem identities, protects all attachment rows plus referenced app-owned originals, and rechecks references under the database maintenance gate. The default cleanup excludes recordings, logs, browser profiles and installed assets. Those categories are measured separately. Explicit recording/log cleanup is a destructive action with its own confirmation.
 
 Full backups use an independent compressed archive, a versioned manifest and SHA-256 verification. Import validates paths, entry types, sizes and hashes before publication. Restored files are independent copies, not hard links to archive blobs or to another restored path. Old database imports remain available. Cache format or backup manifest changes do not change database structure.
+
+The storage overview uses the same interactive composition ring as Usage. Its centre shows physical bytes and the legend shows each share. Category details include file counts and zero-byte categories. Recoverable bytes are shown on the cleanup action.
+
+When the overview opens, unused files have a cleanup action with an estimated saving. When the user opens category details, the database row offers manual space recovery if the scan found reusable space.
+
+![Storage overview with a 2 GiB sample dataset](images/storage-overview-zh.png)
+
+Export and restore each offer two selections, Settings and Data. Settings includes preferences and provider, model and tool configuration, including credentials. Data includes conversations, usage, search history and managed attachments. A partial ZIP carries its content scope in a version 2 manifest and contains a newly projected database with just the selected content. The file picker reads the manifest before displaying restore choices. A full ZIP keeps the version 1 format, and legacy database-only `.db` backups remain available for both scopes together on export and selective restore on import.
 
 ## Historical reference correction
 

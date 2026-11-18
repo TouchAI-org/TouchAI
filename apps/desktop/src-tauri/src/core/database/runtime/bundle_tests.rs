@@ -15,6 +15,92 @@ use crate::core::{
 
 const SAVED_BYTES: &[u8] = b"small immutable image fixture";
 
+#[tokio::test]
+async fn user_given_settings_and_history_when_exporting_one_scope_then_only_selected_content_travels(
+) {
+    let source = Installation::new().await;
+    seed_history(&source).await;
+    seed_usage(&source).await;
+    sqlx::query(
+        "UPDATE providers SET api_key='fixture-private-key' WHERE name='Backup fixture provider'",
+    )
+    .execute(source.runtime.pool())
+    .await
+    .unwrap();
+    for mode in [
+        DatabaseImportMode::SettingsOnly,
+        DatabaseImportMode::ChatOnly,
+    ] {
+        let settings_only = mode == DatabaseImportMode::SettingsOnly;
+        let destination = Installation::new().await;
+        let path = destination.root.path().join("selection.zip");
+        source
+            .runtime
+            .export_scoped_backup(&path, &source.cache, mode)
+            .await
+            .unwrap();
+        assert_eq!(
+            DatabaseRuntime::backup_scope(path.clone()).await.unwrap(),
+            mode
+        );
+        let manifest = archive_manifest(&path);
+        assert_eq!(
+            manifest["files"].as_array().unwrap().is_empty(),
+            settings_only
+        );
+        let entry_name = format!("blobs/{}", manifest["database"].as_str().unwrap());
+        let snapshot = archive_entries(&path)
+            .into_iter()
+            .find(|entry| entry.name == entry_name)
+            .unwrap();
+        let bytes = String::from_utf8_lossy(&snapshot.bytes);
+        assert_eq!(bytes.contains("fixture-private-key"), settings_only);
+        assert_eq!(bytes.contains("backup-fixture-task"), !settings_only);
+        sqlx::raw_sql("INSERT INTO settings (key,value) VALUES ('keep','local'); INSERT INTO sessions (session_id,title,model) VALUES ('local-chat','Local','local');")
+            .execute(destination.runtime.pool()).await.unwrap();
+        let request = |mode| DatabaseImportRequest {
+            source_path: path.to_str().unwrap().into(),
+            mode,
+        };
+        let wrong = if settings_only {
+            DatabaseImportMode::ChatOnly
+        } else {
+            DatabaseImportMode::SettingsOnly
+        };
+        assert!(destination
+            .runtime
+            .import_full_backup(request(wrong), &destination.cache)
+            .await
+            .is_err());
+        destination
+            .runtime
+            .import_full_backup(request(mode), &destination.cache)
+            .await
+            .unwrap();
+        let setting: String = sqlx::query_scalar("SELECT value FROM settings WHERE key='keep'")
+            .fetch_one(destination.runtime.pool())
+            .await
+            .unwrap();
+        assert_eq!(setting, if settings_only { "backup" } else { "local" });
+        let turns: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM session_turns WHERE task_id='backup-fixture-task'",
+        )
+        .fetch_one(destination.runtime.pool())
+        .await
+        .unwrap();
+        assert_eq!(turns, i64::from(!settings_only));
+        assert_eq!(attachment_path(&destination.cache).exists(), !settings_only);
+        let local: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM sessions WHERE session_id='local-chat'")
+                .fetch_one(destination.runtime.pool())
+                .await
+                .unwrap();
+        assert_eq!(local, 1);
+        destination.close().await;
+    }
+    source.close().await;
+}
+
 fn private_directory() -> tempfile::TempDir {
     #[cfg(unix)]
     let parent = fs::canonicalize(std::env::temp_dir()).expect("physical temporary root");
@@ -417,6 +503,29 @@ async fn user_given_overlapping_archived_usage_when_restoring_then_keeps_existin
     assert_eq!(usage_json(&target, DAILY_USAGE).await, before);
     assert_eq!(cache_contents(&target.cache), files);
     assert_eq!(usage_json(&target, TURN_USAGE).await["input"], 120);
+    sqlx::query("UPDATE settings SET value='local' WHERE key='keep'")
+        .execute(target.runtime.pool())
+        .await
+        .unwrap();
+    assert_eq!(
+        DatabaseRuntime::backup_scope(backup.clone()).await.unwrap(),
+        DatabaseImportMode::Full
+    );
+    target
+        .runtime
+        .import_full_backup(
+            DatabaseImportRequest {
+                source_path: backup.to_string_lossy().into_owned(),
+                mode: DatabaseImportMode::SettingsOnly,
+            },
+            &target.cache,
+        )
+        .await
+        .expect("settings restore independently of usage");
+    assert_eq!(setting(&target).await, "backup");
+    assert_eq!(usage_json(&target, DAILY_USAGE).await, before);
+    assert_eq!(usage_json(&target, TURN_USAGE).await["input"], 120);
+    assert_eq!(cache_contents(&target.cache), files);
     target.close().await;
     source.close().await;
 }

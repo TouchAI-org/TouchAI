@@ -210,7 +210,46 @@ describe('given history controls are shown alongside storage maintenance', () =>
 });
 
 describe('user opens and closes data-management dialogs', () => {
+    it.each(['settings_only', 'chat_only'] as const)(
+        'user opens a %s archive and can restore only its available content',
+        async (mode) => {
+            mockTauriCommand('plugin:dialog|open', 'fixture.zip');
+            mockTauriCommand('database_backup_scope', mode);
+            mockTauriCommand('database_import_backup', () => {
+                throw 'storage_busy';
+            });
+            const view = await openDataManagement();
+            clickButton(view.element, 'Import');
+            await flushPromises();
+            const dialog = document.querySelector('[role=dialog]')!;
+            const switches = [...dialog.querySelectorAll<HTMLButtonElement>('[role=switch]')];
+            expect(switches.map((control) => control.disabled)).toEqual([
+                mode === 'chat_only',
+                mode === 'settings_only',
+            ]);
+            const enabled = switches.find((control) => !control.disabled)!;
+            enabled.click();
+            await flushPromises();
+            const confirm = [...dialog.querySelectorAll<HTMLButtonElement>('button')].find(
+                (button) => button.textContent?.trim() === 'Import'
+            )!;
+            expect(confirm.disabled).toBe(true);
+            enabled.click();
+            await flushPromises();
+            confirm.click();
+            await flushPromises();
+            expect(
+                getTauriInvokeCalls('database_import_backup').map((call) => call.payload)
+            ).toEqual([
+                {
+                    request: { sourcePath: 'fixture.zip', mode },
+                },
+            ]);
+        }
+    );
+
     it('user reopens import choices before an old exit and the new choices remain available', async () => {
+        mockTauriCommand('plugin:dialog|open', 'fixture.db');
         const view = await openDataManagement();
         clickButton(view.element, 'Import');
         await flushPromises();
@@ -236,6 +275,9 @@ describe('user opens and closes data-management dialogs', () => {
         clickButton(view.element, 'Export');
         await flushPromises();
 
+        clickButton(document.querySelector('[role=dialog]')!, 'Export');
+        await flushPromises();
+
         expect(document.querySelector('[data-testid=progress-message]')).toBeNull();
         expect(getTauriInvokeCalls('database_export_backup')).toEqual([]);
     });
@@ -244,6 +286,7 @@ describe('user opens and closes data-management dialogs', () => {
         vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
         try {
             mockTauriCommand('plugin:dialog|open', 'D:/backups/full.zip');
+            mockTauriCommand('database_backup_scope', 'full');
             mockTauriCommand('database_import_backup', () => {
                 throw 'database_import_committed:temporary cleanup failed';
             });
@@ -252,15 +295,7 @@ describe('user opens and closes data-management dialogs', () => {
             const warning = vi.spyOn(toast, 'warning');
             clickButton(view.element, 'Import');
             await flushPromises();
-            const choice = [
-                ...document
-                    .querySelector('[role=dialog]')!
-                    .querySelectorAll<HTMLButtonElement>('button'),
-            ].find((button) =>
-                button.textContent?.includes('Overwrite settings and import conversations')
-            );
-            expect(choice).toBeDefined();
-            choice!.click();
+            clickButton(document.querySelector('[role=dialog]')!, 'Import');
             await flushPromises();
             expect(warning).toHaveBeenCalledWith(
                 expect.stringContaining(
@@ -289,13 +324,19 @@ describe('user opens and closes data-management dialogs', () => {
         const view = await openDataManagement();
         clickButton(view.element, 'Export');
         await flushPromises();
+        clickButton(document.querySelector('[role=dialog]')!, 'Export');
+        await flushPromises();
         expect(document.querySelector('[data-testid=progress-message]')).not.toBeNull();
         completions.shift()!();
         await flushPromises();
 
         clickButton(view.element, 'Export');
         await flushPromises();
-        emitOldExit(document.querySelector('[role=dialog]')!);
+        clickButton(document.querySelector('[role=dialog]')!, 'Export');
+        await flushPromises();
+        emitOldExit(
+            document.querySelector('[data-testid=progress-message]')!.closest('[role=dialog]')!
+        );
         await flushPromises();
 
         expect(document.querySelector('[data-testid=progress-message]')).not.toBeNull();

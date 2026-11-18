@@ -73,6 +73,7 @@ pub fn invoke_handler<R: tauri::Runtime>(
         database::database_tx_commit,
         database::database_tx_rollback,
         database::database_export_backup,
+        database::database_backup_scope,
         database::database_import_backup,
         storage::storage_scan,
         storage::storage_cleanup,

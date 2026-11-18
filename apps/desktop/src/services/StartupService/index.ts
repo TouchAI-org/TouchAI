@@ -36,7 +36,11 @@ function parseImportSuccessStartupPayload(value: string): ImportSuccessStartupPa
             return null;
         }
 
-        if (payload.importMode !== 'chat_only' && payload.importMode !== 'full') {
+        if (
+            payload.importMode !== 'settings_only' &&
+            payload.importMode !== 'chat_only' &&
+            payload.importMode !== 'full'
+        ) {
             return null;
         }
 
@@ -51,6 +55,7 @@ function parseImportSuccessStartupPayload(value: string): ImportSuccessStartupPa
 }
 
 function getImportModeNotificationText(importMode: ImportMode): string {
+    if (importMode === 'settings_only') return t('startup.import.mode.settingsOnly');
     return importMode === 'chat_only'
         ? t('startup.import.mode.chatOnly')
         : t('startup.import.mode.full');

@@ -63,8 +63,8 @@ afterEach(async () => {
 
 describe('given storage settings are available in either supported interface language', () => {
     it.each([
-        ['en-US', 'Storage', 'Safe cleanup', 'Compact database', 'Default managed recordings'],
-        ['zh-CN', '存储空间', '安全清理', '压缩数据库', '默认托管录制文件'],
+        ['en-US', 'Storage', 'Unused files', 'Free up space', 'Default managed recordings'],
+        ['zh-CN', '存储空间', '未使用的文件', '释放空间', '默认托管录制文件'],
     ] as const)(
         'user opens storage in %s and reads localized categories and actions',
         async (locale, title, safeCleanup, compact, recordings) => {
@@ -109,8 +109,9 @@ describe('given storage settings are available in either supported interface lan
         expect(wrapper.get('[data-testid="settings-storage-result"]').text()).toContain(
             '已删除 1 个文件，检测到释放 1 KiB，预计待释放 512 B，失败 1 个文件。'
         );
-        expect(wrapper.get('details').text()).toContain('部分存储文件无法读取或删除。');
-        expect(wrapper.get('details').text()).not.toContain('Some storage files');
+        const failures = wrapper.get('[data-testid="settings-storage-failures"]');
+        expect(failures.text()).toContain('部分存储文件无法读取或删除。');
+        expect(failures.text()).not.toContain('Some storage files');
     });
 
     it.each(['en-US', 'zh-CN'] as const)(

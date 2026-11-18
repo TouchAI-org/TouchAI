@@ -35,8 +35,8 @@
     });
 
     import AnalyticsSection from './components/AnalyticsSection.vue';
+    import BackupScopeDialog from './components/BackupScopeDialog.vue';
     import DiagnosticsSection from './components/DiagnosticsSection.vue';
-    import ImportModeDialog from './components/ImportModeDialog.vue';
     import ProgressDialog from './components/ProgressDialog.vue';
     import StorageSection from './components/StorageSection.vue';
 
@@ -60,6 +60,8 @@
         disposed: {},
     } as const;
     const importDialog = useStateMachine('closed', DIALOG_LIFECYCLE);
+    const backupAction = ref<'export' | 'import'>('export');
+    const selectedImport = ref<Awaited<ReturnType<typeof databaseBackup.selectImport>>>(null);
     const showImportModeDialog = computed({
         get: () => importDialog.state.value === 'open',
         set: (open: boolean) => importDialog.dispatch(open ? 'open' : 'close'),
@@ -287,7 +289,7 @@
         progressValue.value = progress;
     };
 
-    const handleExportSettings = async () => {
+    const handleExportSettings = async (mode: ImportMode) => {
         if (disposed || dataActionsDisabled.value) return;
         try {
             isLoading.value = true;
@@ -306,7 +308,7 @@
                     showProgressDialog.value = true;
                 }
                 updateProgress(msg, prog);
-            });
+            }, mode);
 
             if (disposed) return;
             showProgressDialog.value = false;
@@ -326,9 +328,32 @@
         }
     };
 
-    const openImportModeDialog = () => {
+    const chooseBackupScope = async (action: 'export' | 'import') => {
         if (disposed || dataActionsDisabled.value) return;
+        backupAction.value = action;
+        selectedImport.value = null;
+        if (action === 'import') {
+            isLoading.value = true;
+            try {
+                const selection = await databaseBackup.selectImport();
+                if (disposed || !selection) return;
+                selectedImport.value = selection;
+            } catch (error) {
+                log.error('Failed to read backup contents', error);
+                if (!disposed) alert.error(t('settings.backup.scope.readFailed'));
+                return;
+            } finally {
+                if (!disposed) isLoading.value = false;
+            }
+        }
         showImportModeDialog.value = true;
+    };
+
+    const confirmBackupScope = (mode: ImportMode) => {
+        if (disposed || dataActionsDisabled.value) return;
+        showImportModeDialog.value = false;
+        if (backupAction.value === 'export') return handleExportSettings(mode);
+        if (selectedImport.value) return handleImportSettings(mode, selectedImport.value.path);
     };
 
     const handleImportModeDialogClosed = () => {
@@ -390,9 +415,8 @@
         }
     };
 
-    const handleImportSettings = async (mode: ImportMode) => {
+    const handleImportSettings = async (mode: ImportMode, path: string) => {
         if (disposed || dataActionsDisabled.value) return;
-        showImportModeDialog.value = false;
 
         try {
             isLoading.value = true;
@@ -400,19 +424,23 @@
             progressStatus.value = 'loading';
             restartCountdown.value = null;
 
-            const result = await databaseBackup.importDatabase(mode, (msg, prog) => {
-                if (disposed) {
-                    if (prog < 100)
-                        throw new DatabaseBackupCancelledError(
-                            t('database.backup.importCancelled')
-                        );
-                    return;
-                }
-                if (!showProgressDialog.value) {
-                    showProgressDialog.value = true;
-                }
-                updateProgress(msg, prog);
-            });
+            const result = await databaseBackup.importDatabase(
+                mode,
+                (msg, prog) => {
+                    if (disposed) {
+                        if (prog < 100)
+                            throw new DatabaseBackupCancelledError(
+                                t('database.backup.importCancelled')
+                            );
+                        return;
+                    }
+                    if (!showProgressDialog.value) {
+                        showProgressDialog.value = true;
+                    }
+                    updateProgress(msg, prog);
+                },
+                path
+            );
 
             if (!result) {
                 showProgressDialog.value = false;
@@ -669,7 +697,7 @@
                         <Button
                             variant="strong"
                             :disabled="dataActionsDisabled"
-                            @click="handleExportSettings"
+                            @click="chooseBackupScope('export')"
                         >
                             {{ t('common.export') }}
                         </Button>
@@ -691,7 +719,7 @@
                         <Button
                             variant="strong"
                             :disabled="dataActionsDisabled"
-                            @click="openImportModeDialog"
+                            @click="chooseBackupScope('import')"
                         >
                             {{ t('common.import') }}
                         </Button>
@@ -703,12 +731,14 @@
 
             <AnalyticsSection />
 
-            <ImportModeDialog
+            <BackupScopeDialog
                 v-if="isImportModeDialogMounted"
+                :action="backupAction"
+                :available="selectedImport?.scope ?? 'full'"
                 :open="showImportModeDialog"
                 :is-loading="dataActionsDisabled"
                 @close="showImportModeDialog = false"
-                @select="handleImportSettings"
+                @select="confirmBackupScope"
                 @closed="handleImportModeDialogClosed"
             />
 

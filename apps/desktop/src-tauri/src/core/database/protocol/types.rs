@@ -55,11 +55,23 @@ impl DatabaseTransactionBehavior {
 }
 
 /// 备份导入模式。
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum DatabaseImportMode {
     ChatOnly,
+    SettingsOnly,
+    #[default]
     Full,
+}
+
+impl DatabaseImportMode {
+    pub fn includes_settings(self) -> bool {
+        self != Self::ChatOnly
+    }
+
+    pub fn includes_data(self) -> bool {
+        self != Self::SettingsOnly
+    }
 }
 
 /// 备份导入请求。

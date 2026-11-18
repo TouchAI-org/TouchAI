@@ -22,11 +22,12 @@ use zip::{write::SimpleFileOptions, CompressionMethod, ZipArchive, ZipWriter};
 use super::{analytics_snapshot, import::run_import_backup, DatabaseRuntime};
 use crate::core::database::{
     contract::{migrate_database, DatabaseContractSource},
-    protocol::types::DatabaseImportRequest,
+    protocol::types::{DatabaseImportMode, DatabaseImportRequest},
 };
 
 const FORMAT: &str = "touchai-full-backup";
 const VERSION: u32 = 1;
+const SCOPED_VERSION: u32 = 2;
 const MANIFEST_ENTRY: &str = "manifest.json";
 const SNAPSHOT_FILE: &str = "touchai.db";
 const MAX_FILES: usize = 50_000;
@@ -47,6 +48,8 @@ const MAX_RELATIVE_PATH_BYTES: usize = 4096;
 struct Manifest {
     format: String,
     version: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    scope: Option<DatabaseImportMode>,
     // This is a label for exact path remapping, never an import filesystem destination.
     cache_root: String,
     windows_paths: bool,
@@ -85,7 +88,27 @@ struct References {
 }
 
 impl DatabaseRuntime {
+    pub async fn backup_scope(source: PathBuf) -> Result<DatabaseImportMode, String> {
+        blocking(move || {
+            require_zip_path(&source)?;
+            let source = resolve_backup_platform_path(&source)?;
+            check_file(&source)?;
+            Ok(read_bundle(&source, None)?.scope.unwrap_or_default())
+        })
+        .await
+    }
+    #[cfg(test)]
     pub async fn export_full_backup(&self, target: &Path, cache_root: &Path) -> Result<(), String> {
+        self.export_scoped_backup(target, cache_root, DatabaseImportMode::Full)
+            .await
+    }
+
+    pub async fn export_scoped_backup(
+        &self,
+        target: &Path,
+        cache_root: &Path,
+        mode: DatabaseImportMode,
+    ) -> Result<(), String> {
         let _maintenance = self.maintenance().await?;
         let database_path = self.database_path().to_path_buf();
         let target = target.to_path_buf();
@@ -119,24 +142,95 @@ impl DatabaseRuntime {
         let snapshot = workspace.path().join(SNAPSHOT_FILE);
         let result = async {
             // VACUUM INTO includes committed WAL data without checkpoint-and-copy races.
-            sqlx::query("VACUUM INTO ?")
-                .bind(path_text(&snapshot)?)
-                .execute(self.pool())
-                .await
-                .map_err(|error| format!("Failed to snapshot database for full backup: {error}"))?;
-            let prune = self.storage_artifact("backup_refs.sql")?;
-            prune_snapshot_metadata(&snapshot, prune).await?;
+            if mode == DatabaseImportMode::Full {
+                sqlx::query("VACUUM INTO ?")
+                    .bind(path_text(&snapshot)?)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|error| {
+                        format!("Failed to snapshot database for full backup: {error}")
+                    })?;
+            } else {
+                self.project_backup(&snapshot, mode).await?;
+            }
+            if mode.includes_data() {
+                prune_snapshot_metadata(&snapshot, self.storage_artifact("backup_refs.sql")?)
+                    .await?;
+            }
             let _ = analytics_snapshot::sanitize_analytics_snapshot(&snapshot).await?;
-            normalize_snapshot_cache_paths(&snapshot, &platform_cache, &cache_root).await?;
-            let references = read_references(&snapshot, path_text(&cache_root)?).await?;
+            let references = if mode.includes_data() {
+                normalize_snapshot_cache_paths(&snapshot, &platform_cache, &cache_root).await?;
+                read_references(&snapshot, path_text(&cache_root)?).await?
+            } else {
+                References::default()
+            };
             let workspace_path = workspace.path().to_path_buf();
             blocking(move || {
-                write_bundle(&workspace_path, &snapshot, &target, &cache_root, references)
+                write_bundle(
+                    &workspace_path,
+                    &snapshot,
+                    &target,
+                    &cache_root,
+                    references,
+                    mode,
+                )
             })
             .await
         }
         .await;
         finish_workspace(workspace, result).await
+    }
+
+    async fn project_backup(
+        &self,
+        snapshot: &Path,
+        mode: DatabaseImportMode,
+    ) -> Result<(), String> {
+        let contract = &self.inner.database_contract;
+        let mut connection = SqliteConnection::connect_with(
+            &SqliteConnectOptions::new()
+                .filename(snapshot)
+                .create_if_missing(true),
+        )
+        .await
+        .map_err(|error| error.to_string())?;
+        let result = async {
+            migrate_database(&mut connection, contract).await?;
+            sqlx::query("ATTACH DATABASE ? AS imported")
+                .bind(path_text(self.database_path())?)
+                .execute(&mut connection)
+                .await
+                .map_err(|error| error.to_string())?;
+            let mut transaction = connection
+                .begin()
+                .await
+                .map_err(|error| error.to_string())?;
+            sqlx::query("PRAGMA defer_foreign_keys=ON")
+                .execute(&mut *transaction)
+                .await
+                .map_err(|error| error.to_string())?;
+            sqlx::query("INSERT INTO touchai_meta (key,value) VALUES ('app_id','touchai')")
+                .execute(&mut *transaction)
+                .await
+                .map_err(|error| error.to_string())?;
+            let artifact = if mode.includes_settings() {
+                "export_settings.sql"
+            } else {
+                "export_data.sql"
+            };
+            let sql = self.storage_artifact(artifact)?;
+            sqlx::raw_sql(sqlx::AssertSqlSafe(sql))
+                .execute(&mut *transaction)
+                .await
+                .map_err(|error| error.to_string())?;
+            transaction
+                .commit()
+                .await
+                .map_err(|error| error.to_string())
+        }
+        .await;
+        let close = connection.close().await.map_err(|error| error.to_string());
+        after_cleanup(result, close)
     }
 
     pub async fn import_full_backup(
@@ -159,7 +253,7 @@ impl DatabaseRuntime {
                 check_cache_root(&cache_root)?;
                 check_file(&source)?;
                 let workspace = create_workspace(&database_parent)?;
-                match unpack_bundle(&source, workspace.path()) {
+                match read_bundle(&source, Some((workspace.path(), request.mode))) {
                     Ok(manifest) => Ok((workspace, manifest, cache_root)),
                     Err(error) => after_cleanup(Err(error), close_workspace(workspace)),
                 }
@@ -174,18 +268,25 @@ impl DatabaseRuntime {
                 &self.inner.database_contract,
                 &manifest,
                 &cache_root,
+                request.mode,
             )
             .await?;
             let import_request = DatabaseImportRequest {
                 source_path: path_text(&snapshot)?.to_string(),
                 mode: request.mode,
             };
-            let publication = blocking({
-                let cache_root = cache_root.clone();
-                let workspace_path = workspace.path().to_path_buf();
-                move || publish_files(&workspace_path, &manifest, &cache_root)
-            })
-            .await?;
+            let publication = if request.mode.includes_data() {
+                Some(
+                    blocking({
+                        let cache_root = cache_root.clone();
+                        let workspace_path = workspace.path().to_path_buf();
+                        move || publish_files(&workspace_path, &manifest, &cache_root)
+                    })
+                    .await?,
+                )
+            } else {
+                None
+            };
             // Do not call the gated import_backup from inside maintenance.
             let merge = run_import_backup(
                 self.pool().clone(),
@@ -206,7 +307,10 @@ impl DatabaseRuntime {
                     Err(error)
                 }
                 Err(error) => {
-                    let rollback = blocking(move || publication.rollback()).await;
+                    let rollback = match publication {
+                        Some(publication) => blocking(move || publication.rollback()).await,
+                        None => Ok(()),
+                    };
                     after_cleanup(Err(error), rollback)
                 }
             }
@@ -828,6 +932,7 @@ fn write_bundle(
     target: &Path,
     cache_root: &Path,
     references: References,
+    mode: DatabaseImportMode,
 ) -> Result<(), String> {
     fs::create_dir(workspace.join("blobs"))
         .map_err(|error| format!("Failed to create full backup blob workspace: {error}"))?;
@@ -862,7 +967,12 @@ fn write_bundle(
     }
     let manifest = Manifest {
         format: FORMAT.to_string(),
-        version: VERSION,
+        version: if mode == DatabaseImportMode::Full {
+            VERSION
+        } else {
+            SCOPED_VERSION
+        },
+        scope: (mode != DatabaseImportMode::Full).then_some(mode),
         cache_root: path_text(cache_root)?.to_string(),
         windows_paths: cfg!(windows),
         database,
@@ -945,8 +1055,22 @@ fn write_bundle(
 }
 
 fn validate_manifest(manifest: &Manifest) -> Result<BTreeMap<&str, &Blob>, String> {
-    if manifest.format != FORMAT || manifest.version != VERSION {
+    if manifest.format != FORMAT
+        || !matches!(
+            (manifest.version, manifest.scope),
+            (VERSION, None)
+                | (
+                    SCOPED_VERSION,
+                    Some(DatabaseImportMode::ChatOnly | DatabaseImportMode::SettingsOnly)
+                )
+        )
+    {
         return Err("Unsupported full backup manifest format or version".to_string());
+    }
+    if manifest.scope == Some(DatabaseImportMode::SettingsOnly)
+        && (!manifest.files.is_empty() || !manifest.origins.is_empty())
+    {
+        return Err("Settings backup contains unexpected managed files".into());
     }
     let root = RootLabel::new(&manifest.cache_root, manifest.windows_paths)?;
     if manifest.files.len() > MAX_FILES
@@ -1156,7 +1280,10 @@ impl Seek for MetadataBudgetReader<'_> {
     }
 }
 
-fn unpack_bundle(source: &Path, workspace: &Path) -> Result<Manifest, String> {
+fn read_bundle(
+    source: &Path,
+    restore: Option<(&Path, DatabaseImportMode)>,
+) -> Result<Manifest, String> {
     let mut source = File::open(source)
         .map_err(|error| format!("Failed to open full backup archive: {error}"))?;
     zip_directory_budget(&mut source)?;
@@ -1246,6 +1373,12 @@ fn unpack_bundle(source: &Path, workspace: &Path) -> Result<Manifest, String> {
     if entries.len() != blobs.len() + 1 {
         return Err("Full backup archive entries do not match its manifest".to_string());
     }
+    let Some((workspace, mode)) = restore else {
+        return Ok(manifest);
+    };
+    if manifest.scope.is_some_and(|scope| scope != mode) {
+        return Err("database_backup_scope_unavailable".into());
+    }
     fs::create_dir(workspace.join("blobs"))
         .map_err(|error| format!("Failed to create full backup restore workspace: {error}"))?;
     for blob in blobs.values() {
@@ -1256,6 +1389,9 @@ fn unpack_bundle(source: &Path, workspace: &Path) -> Result<Manifest, String> {
             .ok_or_else(|| "Full backup blob entry is missing".to_string())?;
         if size != blob.bytes {
             return Err("Full backup blob size does not match its manifest".to_string());
+        }
+        if !mode.includes_data() && blob.sha256 != manifest.database {
+            continue;
         }
         let mut entry = archive
             .by_index(index)
@@ -1289,6 +1425,7 @@ async fn prepare_snapshot(
     contract: &DatabaseContractSource,
     manifest: &Manifest,
     cache_root: &Path,
+    mode: DatabaseImportMode,
 ) -> Result<(), String> {
     let mut connection =
         SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(path))
@@ -1324,6 +1461,9 @@ async fn prepare_snapshot(
             .is_some()
         {
             return Err("Full backup database contains invalid foreign key references".to_string());
+        }
+        if !mode.includes_data() {
+            return Ok(());
         }
         let references = collect_references(
             &mut connection,

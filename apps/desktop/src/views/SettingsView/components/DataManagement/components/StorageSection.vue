@@ -1,6 +1,7 @@
 <script setup lang="ts">
     import SettingsRow from '@components/SettingsRow.vue';
     import { Button } from '@components/ui/button';
+    import DonutChart from '@components/ui/donut-chart/DonutChart.vue';
     import { useAlert } from '@composables/useAlert';
     import { useConfirm } from '@composables/useConfirm';
     import { log } from '@services/ObservabilityService';
@@ -86,6 +87,16 @@
 
     const numberFormatter = computed(
         () => new Intl.NumberFormat(getLocale(), { maximumFractionDigits: 1 })
+    );
+    const categorySlices = computed(() =>
+        (summary.value?.categories ?? [])
+            .filter((category) => category.bytes > 0)
+            .map((category) => ({
+                key: category.id,
+                label: t(CATEGORY_LABELS[category.id]),
+                value: category.bytes,
+            }))
+            .sort((first, second) => second.value - first.value)
     );
     const safeBytes = computed(() =>
         (summary.value?.categories ?? []).reduce(
@@ -297,6 +308,7 @@
         class="space-y-4"
         data-testid="settings-storage-section"
         data-settings-search-target="storage"
+        :aria-busy="operation !== null && !confirming"
     >
         <div class="flex items-center justify-between gap-4">
             <h2 class="settings-section-title">{{ t('settings.storage.title') }}</h2>
@@ -343,20 +355,22 @@
             </p>
         </div>
 
-        <div
-            class="settings-row-group divide-y divide-border-subtle"
-            :aria-busy="operation !== null && !confirming"
-        >
-            <template v-if="summary">
-                <SettingsRow
-                    data-testid="settings-storage-total"
-                    control-width="auto"
-                    :label="t('settings.storage.total')"
-                >
-                    <div class="text-right text-lg font-semibold text-text-primary tabular-nums">
-                        {{ formatBytes(summary.totalBytes) }}
-                    </div>
-                </SettingsRow>
+        <div v-if="summary" class="settings-row-group divide-y divide-border-subtle">
+            <DonutChart
+                class="p-5"
+                data-testid="settings-storage-total"
+                :data="categorySlices"
+                :legend="categorySlices.length > 0"
+                :total-value="summary.totalBytes"
+                :total-label="t('settings.storage.total')"
+                :format-value="formatBytes"
+                :size="176"
+                :thickness="22"
+            />
+            <details>
+                <summary class="cursor-pointer px-5 py-3 text-compact text-text-secondary">
+                    {{ t('settings.storage.breakdown') }}
+                </summary>
                 <SettingsRow
                     v-for="category in summary.categories"
                     :key="category.id"
@@ -365,17 +379,48 @@
                     control-width="auto"
                     :label="t(CATEGORY_LABELS[category.id])"
                 >
-                    <div class="flex flex-wrap items-center justify-end gap-3">
+                    <template
+                        v-if="category.id === 'database' && summary.databaseFreeBytes > 0"
+                        #description
+                    >
+                        <span class="text-xs text-text-secondary">
+                            {{
+                                t('settings.storage.databaseFree', {
+                                    size: formatBytes(summary.databaseFreeBytes),
+                                })
+                            }}
+                        </span>
+                    </template>
+                    <div
+                        class="flex flex-wrap items-center justify-end gap-3"
+                        :data-settings-search-target="
+                            category.id === 'database' ? 'storage-compaction' : undefined
+                        "
+                    >
                         <span class="text-xs text-text-tertiary">
                             {{ tp('settings.storage.files', category.fileCount) }}
                         </span>
                         <span class="text-compact text-text-primary tabular-nums">
                             {{ formatBytes(category.bytes) }}
                         </span>
+                        <Button
+                            v-if="category.id === 'database' && summary.databaseFreeBytes > 0"
+                            variant="outline-neutral"
+                            data-testid="settings-storage-compact"
+                            :disabled="actionsDisabled"
+                            @click="compactDatabase"
+                        >
+                            {{
+                                operation === 'compact' && !confirming
+                                    ? t('settings.storage.compacting')
+                                    : t('settings.storage.compact')
+                            }}
+                        </Button>
                     </div>
                 </SettingsRow>
-            </template>
-
+            </details>
+        </div>
+        <div class="settings-row-group">
             <SettingsRow
                 control-width="auto"
                 :label="t('settings.storage.safeCleanup')"
@@ -401,33 +446,6 @@
                             operation === 'safe' && !confirming
                                 ? t('settings.storage.cleaning')
                                 : t('settings.storage.cleanup')
-                        }}
-                    </Button>
-                </div>
-            </SettingsRow>
-            <SettingsRow
-                control-width="auto"
-                :label="t('settings.storage.compactDatabase')"
-                data-settings-search-target="storage-compaction"
-            >
-                <div class="flex flex-wrap items-center justify-end gap-3">
-                    <span v-if="summary" class="text-xs text-text-secondary tabular-nums">
-                        {{
-                            t('settings.storage.databaseFree', {
-                                size: formatBytes(summary.databaseFreeBytes),
-                            })
-                        }}
-                    </span>
-                    <Button
-                        variant="strong"
-                        data-testid="settings-storage-compact"
-                        :disabled="actionsDisabled || !summary?.databaseFreeBytes"
-                        @click="compactDatabase"
-                    >
-                        {{
-                            operation === 'compact' && !confirming
-                                ? t('settings.storage.compacting')
-                                : t('settings.storage.compact')
                         }}
                     </Button>
                 </div>
@@ -503,7 +521,11 @@
             >
                 {{ resultMessage }}
             </p>
-            <details v-if="visibleFailures.length" class="text-compact text-text-secondary">
+            <details
+                v-if="visibleFailures.length"
+                class="text-compact text-text-secondary"
+                data-testid="settings-storage-failures"
+            >
                 <summary class="cursor-pointer">
                     {{ t('settings.storage.results.failures') }}
                 </summary>

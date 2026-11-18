@@ -634,10 +634,10 @@ const zhCNMessages = {
     'settings.dataManagement.settingsBackup': '数据备份与恢复',
     'settings.dataManagement.exportSettings': '导出备份',
     'settings.dataManagement.exportSettingsDescription':
-        '默认导出包含数据库和托管附件的 .zip 完整备份，也支持仅导出 .db。备份含服务商配置，请妥善保管。',
+        '选择设置、数据或两者一起导出。包含设置的备份可能含 API 密钥，请妥善保管。',
     'settings.dataManagement.importSettings': '导入备份',
     'settings.dataManagement.importSettingsDescription':
-        '从 .zip 或 .db 备份恢复数据，可选择仅导入对话或覆盖设置。',
+        '选择 .zip 或 .db 文件，再选择要恢复的内容。',
     'settings.dataManagement.exporting': '正在导出',
     'settings.dataManagement.importing': '正在导入',
     'settings.dataManagement.importSuccess': '导入成功',
@@ -655,17 +655,19 @@ const zhCNMessages = {
     'settings.dataManagement.modelDatabaseUpdated': '大模型数据库已更新',
     'settings.dataManagement.modelDatabaseAlreadyUpToDate': '大模型数据库已是最新',
     'settings.dataManagement.updateModelDatabaseFailed': '更新大模型数据库失败',
-    'settings.dataManagement.importMode.title': '选择导入模式',
-    'settings.dataManagement.importMode.description':
-        '请选择导入方式。导入失败会自动回滚，成功后应用会重启。',
-    'settings.dataManagement.importMode.chatOnly.title': '仅导入对话数据',
-    'settings.dataManagement.importMode.chatOnly.description':
-        '合并会话、消息和请求记录，不覆盖当前设置',
-    'settings.dataManagement.importMode.full.title': '覆盖设置并导入对话',
-    'settings.dataManagement.importMode.full.description':
-        '覆盖设置，合并模型、服务商、会话和消息等',
     'settings.storage.title': '存储空间',
     'settings.storage.total': '已用空间',
+    'settings.storage.breakdown': '查看分类明细',
+    'settings.backup.scope.settings': '设置',
+    'settings.backup.scope.data': '数据',
+    'settings.backup.scope.configuration': '应用偏好、模型、服务商凭据和工具配置',
+    'settings.backup.scope.history': '对话、用量、搜索历史和托管附件',
+    'settings.backup.scope.overwrite': '导入会替换本机偏好，并合并服务商、模型和工具配置。',
+    'settings.backup.scope.readFailed': '无法读取备份内容，请检查文件后重试。',
+    'database.backup.dialog.archiveFilterName': 'TouchAI 备份压缩包',
+    'database.backup.archiveRequired': '请将分项备份保存为 .zip 文件。',
+    'database.backup.scopeUnavailable': '这个备份没有所选内容，请重新选择文件。',
+    'startup.import.mode.settingsOnly': '仅恢复设置',
     'settings.storage.refresh': '刷新',
     'settings.storage.scanning': '正在扫描存储空间...',
     'settings.storage.category.attachments': '附件',
@@ -684,7 +686,7 @@ const zhCNMessages = {
     'settings.storage.units.mebibytes': 'MiB',
     'settings.storage.units.gibibytes': 'GiB',
     'settings.storage.units.tebibytes': 'TiB',
-    'settings.storage.safeCleanup': '安全清理',
+    'settings.storage.safeCleanup': '未使用的文件',
     'settings.storage.cleanup': '清理',
     'settings.storage.cleaning': '正在清理...',
     'settings.storage.reclaimable': '可回收 {size}',
@@ -692,12 +694,12 @@ const zhCNMessages = {
     'settings.storage.cleanupConfirmTitle': '清理未使用的文件',
     'settings.storage.cleanupConfirm':
         '将清理最多 {size} 的未引用托管附件、剪贴板副本、缩略图和临时文件。原始文件、录制文件、日志、已安装资源和浏览器数据会保留。是否继续？',
-    'settings.storage.compactDatabase': '压缩数据库',
-    'settings.storage.compact': '压缩',
-    'settings.storage.compacting': '正在压缩...',
-    'settings.storage.databaseFree': '空闲页 {size}',
+    'settings.storage.compactDatabase': '释放数据库空间',
+    'settings.storage.compact': '释放空间',
+    'settings.storage.compacting': '正在释放...',
+    'settings.storage.databaseFree': '预计可释放 {size}',
     'settings.storage.compactConfirm':
-        '将回收最多 {size} 的数据库空闲页。对话和设置会保留。此操作需要磁盘剩余空间，且不能在存储操作进行时运行。是否继续？',
+        '整理数据库最多可释放 {size}。对话和设置会保留。整理时需要临时磁盘空间。是否继续？',
     'settings.storage.destructiveTitle': '录制文件与日志',
     'settings.storage.managedRecordings': '默认托管录制文件',
     'settings.storage.managedLogs': '默认托管日志',
@@ -710,7 +712,8 @@ const zhCNMessages = {
         '将删除 TouchAI 默认托管目录中最多 {size} 的旧日志与崩溃记录，保留当前运行日志。自定义目录和其他类别不会受影响，此操作无法撤销。是否继续？',
     'settings.storage.results.cleanup':
         '已删除 {files} 个文件，检测到释放 {released}，预计待释放 {pending}，失败 {failed} 个文件。',
-    'settings.storage.results.compaction': '数据库从 {before} 压缩至 {after}，已释放 {released}。',
+    'settings.storage.results.compaction':
+        '数据库占用从 {before} 减至 {after}，已释放 {released}。',
     'settings.storage.results.failures': '失败文件',
     'settings.storage.results.moreFailures': '另有 {count} 个失败文件',
     'settings.storage.moreWarnings': '另有 {count} 条警告',
@@ -728,8 +731,9 @@ const zhCNMessages = {
     'settings.storage.errors.ioFailed': '部分存储文件无法读取或删除。请检查权限并刷新重试。',
     'settings.storage.errors.corruptAttachment': '附件校验失败，未修改未通过校验的附件。',
     'settings.storage.search.usage': '本地文件、数据库、已安装资源和浏览器数据占用的磁盘空间。',
-    'settings.storage.search.cleanup': '移除未引用的托管附件、剪贴板副本、缩略图和临时缓存文件。',
-    'settings.storage.search.compaction': '通过 VACUUM 回收 SQLite 数据库空闲页。',
+    'settings.storage.search.cleanup':
+        '安全清理未引用的托管附件、剪贴板副本、缩略图和临时缓存文件。',
+    'settings.storage.search.compaction': '压缩数据库，通过 VACUUM 回收 SQLite 数据库空闲页。',
     'settings.builtInTools.tabs.config': '配置',
     'settings.builtInTools.tabs.logs': '调用日志',
     'settings.builtInTools.title': '内置工具',
@@ -1981,10 +1985,10 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.dataManagement.settingsBackup': 'Data backup & restore',
     'settings.dataManagement.exportSettings': 'Export backup',
     'settings.dataManagement.exportSettingsDescription':
-        'Export a full .zip backup with the database and managed attachments, or a database-only .db. Backups contain provider configuration; keep them private.',
+        'Export settings, data, or both. Backups with settings can contain API keys. Keep them private.',
     'settings.dataManagement.importSettings': 'Import backup',
     'settings.dataManagement.importSettingsDescription':
-        'Restore data from a .zip or .db backup. Choose conversation-only import or overwrite settings.',
+        'Select a .zip or .db backup, then choose what to restore.',
     'settings.dataManagement.exporting': 'Exporting',
     'settings.dataManagement.importing': 'Importing',
     'settings.dataManagement.importSuccess': 'Import complete',
@@ -2003,17 +2007,23 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.dataManagement.modelDatabaseUpdated': 'Model database updated',
     'settings.dataManagement.modelDatabaseAlreadyUpToDate': 'Model database is already up to date',
     'settings.dataManagement.updateModelDatabaseFailed': 'Failed to update model database',
-    'settings.dataManagement.importMode.title': 'Choose import mode',
-    'settings.dataManagement.importMode.description':
-        'Choose how to import. Failed imports roll back automatically; the app restarts after success.',
-    'settings.dataManagement.importMode.chatOnly.title': 'Import conversation data only',
-    'settings.dataManagement.importMode.chatOnly.description':
-        'Merge sessions, messages, and request records without overwriting current settings',
-    'settings.dataManagement.importMode.full.title': 'Overwrite settings and import conversations',
-    'settings.dataManagement.importMode.full.description':
-        'Overwrite settings and merge models, providers, sessions, messages, and related data',
     'settings.storage.title': 'Storage',
     'settings.storage.total': 'Used space',
+    'settings.storage.breakdown': 'Category details',
+    'settings.backup.scope.settings': 'Settings',
+    'settings.backup.scope.data': 'Data',
+    'settings.backup.scope.configuration':
+        'Preferences, models, provider credentials and tool configuration',
+    'settings.backup.scope.history': 'Conversations, usage, search history and managed attachments',
+    'settings.backup.scope.overwrite':
+        'Import replaces local preferences and merges provider, model and tool configuration.',
+    'settings.backup.scope.readFailed':
+        'Could not read the backup contents. Check the file and try again.',
+    'database.backup.dialog.archiveFilterName': 'TouchAI backup archive',
+    'database.backup.archiveRequired': 'Save the selected backup content as a .zip file.',
+    'database.backup.scopeUnavailable':
+        'This backup does not contain the selected content. Choose the file again.',
+    'startup.import.mode.settingsOnly': 'Restore settings only',
     'settings.storage.refresh': 'Refresh',
     'settings.storage.scanning': 'Scanning storage...',
     'settings.storage.category.attachments': 'Attachments',
@@ -2032,7 +2042,7 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.storage.units.mebibytes': 'MiB',
     'settings.storage.units.gibibytes': 'GiB',
     'settings.storage.units.tebibytes': 'TiB',
-    'settings.storage.safeCleanup': 'Safe cleanup',
+    'settings.storage.safeCleanup': 'Unused files',
     'settings.storage.cleanup': 'Clean up',
     'settings.storage.cleaning': 'Cleaning up...',
     'settings.storage.reclaimable': '{size} reclaimable',
@@ -2040,12 +2050,12 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.storage.cleanupConfirmTitle': 'Clean up unused files',
     'settings.storage.cleanupConfirm':
         'Clean up up to {size} of unused app-owned attachments, clipboard copies, thumbnails and temporary files? Original files, recordings, logs, installed assets and browser data are kept.',
-    'settings.storage.compactDatabase': 'Compact database',
-    'settings.storage.compact': 'Compact',
-    'settings.storage.compacting': 'Compacting...',
-    'settings.storage.databaseFree': '{size} unused pages',
+    'settings.storage.compactDatabase': 'Free up database space',
+    'settings.storage.compact': 'Free up space',
+    'settings.storage.compacting': 'Freeing space...',
+    'settings.storage.databaseFree': 'Up to {size} can be freed',
     'settings.storage.compactConfirm':
-        'Reclaim up to {size} of unused database pages? Conversations and settings are kept. This needs free disk space and cannot run during active storage work.',
+        'Free up to {size} in the database? Conversations and settings are kept. This needs temporary disk space.',
     'settings.storage.destructiveTitle': 'Recordings and logs',
     'settings.storage.managedRecordings': 'Default managed recordings',
     'settings.storage.managedLogs': 'Default managed logs',
@@ -2087,7 +2097,8 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
         'Disk space used by local files, the database, installed assets and browser data.',
     'settings.storage.search.cleanup':
         'Remove unused app-owned attachments, clipboard copies, thumbnails and temporary cache files.',
-    'settings.storage.search.compaction': 'Reclaim unused SQLite pages with VACUUM.',
+    'settings.storage.search.compaction':
+        'Compact the database to reclaim unused SQLite pages with VACUUM.',
     'settings.builtInTools.tabs.config': 'Configuration',
     'settings.builtInTools.tabs.logs': 'Call logs',
     'settings.builtInTools.title': 'Built-in tools',
