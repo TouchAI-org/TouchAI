@@ -80,6 +80,21 @@ describe('user searches for a setting', () => {
         expect(wrapper.get('[data-testid="settings-search-results"]').text()).toContain('开机');
     });
 
+    it('user finds the shortcut action and its General setting when searching for Steer in English', async () => {
+        setLocale('en-US');
+        const wrapper = mountSearch();
+
+        await searchFor(wrapper, 'Steer');
+
+        const labels = options(wrapper).map((option) => option.text());
+        expect(labels).toEqual(
+            expect.arrayContaining([
+                expect.stringContaining('Steer'),
+                expect.stringContaining('Send shortcut'),
+            ])
+        );
+    });
+
     it('user sees the first match highlighted before touching the arrow keys', async () => {
         const wrapper = mountSearch();
 

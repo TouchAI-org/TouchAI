@@ -112,7 +112,7 @@ function assertQueuedMessage(message) {
         `The queued message lost one of its actions: ${JSON.stringify(message)}.`
     );
     assertVisible(
-        message.pendingActionText === '' && message.sendNowLabel === 'Prioritize',
+        message.pendingActionText === '' && message.sendNowLabel === 'Steer',
         `The queued message actions were not icon-only with an accessible steer name: ${JSON.stringify(
             message
         )}.`
@@ -992,7 +992,7 @@ describe('user sends queued and priority messages during a running answer', () =
                 message?.pendingDelivery === 'priority' &&
                 message.backgroundColor !== 'rgba(0, 0, 0, 0)'
             );
-        }, 'Clicking Prioritize did not turn the queued bubble into a solid steer.');
+        }, 'Clicking Steer did not turn the queued bubble into a solid steer.');
         assertSolidSteer(messageByText(promoted, queuedOne));
         assertQueuedMessage(messageByText(promoted, queuedTwo));
         const loadingBeforeDelivery = loadingMessage(promoted);
