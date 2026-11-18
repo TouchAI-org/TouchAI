@@ -5,7 +5,6 @@
     import PasswordInput from '@components/PasswordInput.vue';
     import { Badge } from '@components/ui/badge';
     import { Button } from '@components/ui/button';
-    import { ConfirmButton } from '@components/ui/confirm-button';
     import { Input } from '@components/ui/input';
     import { SegmentedControl } from '@components/ui/segmented-control';
     import { Switch } from '@components/ui/switch';
@@ -130,12 +129,15 @@
                             class="!mt-0"
                         />
                     </div>
-                    <ConfirmButton
+                    <Button
+                        variant="strong"
+                        class="h-9 shrink-0"
                         data-testid="search-provider-editor-save"
-                        :label="t('settings.search.editor.save')"
                         :disabled="!canSave"
                         @click="save"
-                    />
+                    >
+                        {{ t('settings.search.editor.save') }}
+                    </Button>
                 </div>
             </div>
             <div v-else key="display" class="flex h-full min-w-0 items-center gap-3 px-3.5">
