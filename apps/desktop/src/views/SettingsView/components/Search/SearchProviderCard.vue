@@ -105,55 +105,59 @@
                         {{ label }}
                     </h3>
                 </div>
-                <label v-if="endpointRequired" class="grid gap-1.5">
-                    <span class="text-caption text-text-secondary">
-                        {{ t('settings.search.editor.instanceUrl') }}
-                    </span>
-                    <Input
-                        v-model="endpointDraft"
-                        variant="filled"
-                        type="url"
-                        :data-testid="`search-${id}-api-key-input`"
-                        :placeholder="keyPlaceholder"
-                        spellcheck="false"
-                    />
-                </label>
-                <label v-else class="grid gap-1.5">
-                    <span class="text-caption text-text-secondary">
-                        {{ t('settings.search.editor.apiKey') }}
-                    </span>
-                    <PasswordInput
-                        v-model="keyDraft"
-                        :input-test-id="`search-${id}-api-key-input`"
-                        :placeholder="keyPlaceholder"
-                        class="!mt-0"
-                    />
-                </label>
-                <label v-if="supportsEndpoint && !endpointRequired" class="grid gap-1.5">
-                    <span class="text-caption text-text-secondary">
-                        {{ t('settings.search.editor.baseUrl') }}
-                    </span>
-                    <Input
-                        v-model="endpointDraft"
-                        variant="filled"
-                        type="url"
-                        :data-testid="`search-${id}-base-url-input`"
-                        :placeholder="endpointPlaceholder"
-                        spellcheck="false"
-                    />
-                </label>
-                <p v-if="invalid" class="text-caption text-text-danger">
-                    {{ t('settings.search.editor.required') }}
-                </p>
-                <div>
+                <div class="flex items-end gap-2">
+                    <label v-if="endpointRequired" class="grid min-w-0 flex-1 gap-1">
+                        <span class="text-caption text-text-secondary">
+                            {{ t('settings.search.editor.instanceUrl') }}
+                        </span>
+                        <Input
+                            v-model="endpointDraft"
+                            variant="filled"
+                            type="url"
+                            :data-testid="`search-${id}-api-key-input`"
+                            :placeholder="t('settings.search.editor.keyPlaceholder')"
+                            spellcheck="false"
+                        />
+                    </label>
+                    <label v-else class="grid min-w-0 flex-1 gap-1">
+                        <span class="text-caption text-text-secondary">
+                            {{ t('settings.search.editor.apiKey') }}
+                        </span>
+                        <PasswordInput
+                            v-model="keyDraft"
+                            :input-test-id="`search-${id}-api-key-input`"
+                            :placeholder="t('settings.search.editor.keyPlaceholder')"
+                            class="!mt-0"
+                        />
+                    </label>
+                    <label
+                        v-if="supportsEndpoint && !endpointRequired"
+                        class="grid min-w-0 flex-1 gap-1"
+                    >
+                        <span class="text-caption text-text-secondary">
+                            {{ t('settings.search.editor.baseUrl') }}
+                        </span>
+                        <Input
+                            v-model="endpointDraft"
+                            variant="filled"
+                            type="url"
+                            :data-testid="`search-${id}-base-url-input`"
+                            :placeholder="t('settings.search.editor.baseUrlPlaceholder')"
+                            spellcheck="false"
+                        />
+                    </label>
                     <Button
                         variant="strong"
+                        class="mb-0.5 shrink-0"
                         data-testid="search-provider-editor-save"
                         @click="save"
                     >
                         {{ t('settings.search.editor.save') }}
                     </Button>
                 </div>
+                <p v-if="invalid" class="text-caption text-text-danger">
+                    {{ t('settings.search.editor.required') }}
+                </p>
             </div>
             <div v-else key="display" class="flex h-full min-w-0 items-center gap-3 px-3.5">
                 <span class="flex size-9 shrink-0 items-center justify-center overflow-hidden">

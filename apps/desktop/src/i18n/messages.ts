@@ -493,6 +493,8 @@ const zhCNMessages = {
     'settings.search.editor.baseUrl': 'Base URL（可选）',
     'settings.search.editor.save': '保存',
     'settings.search.editor.required': '请填写必填项',
+    'settings.search.editor.keyPlaceholder': '输入 API Key',
+    'settings.search.editor.baseUrlPlaceholder': '可选',
     'settings.search.provider.keyField': 'Key',
     'settings.search.provider.urlField': 'URL',
     'settings.search.provider.baseUrlPlaceholder': '可选 Base URL，留空使用官方地址',
@@ -1822,6 +1824,8 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.search.editor.baseUrl': 'Base URL (optional)',
     'settings.search.editor.save': 'Save',
     'settings.search.editor.required': 'Fill in the required fields',
+    'settings.search.editor.keyPlaceholder': 'Enter API Key',
+    'settings.search.editor.baseUrlPlaceholder': 'Optional',
     'settings.search.provider.baseUrlPlaceholder':
         'Optional base URL; leave blank for the official host',
     'settings.search.provider.apiKeyRequired': 'Enter an API Key before enabling',
