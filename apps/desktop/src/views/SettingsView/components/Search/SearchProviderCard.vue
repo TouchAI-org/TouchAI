@@ -87,19 +87,21 @@
     <article
         data-testid="search-provider-row"
         :data-provider="id"
-        class="h-26 min-w-0 rounded-card border border-border-subtle bg-surface-floating"
+        class="relative h-26 min-w-0 rounded-card border border-border-subtle bg-surface-floating"
     >
         <div
             class="flex h-full min-w-0"
             :class="editing ? 'flex-col p-3.5' : ''"
             :data-testid="editing ? 'search-provider-editor' : undefined"
         >
-            <div
-                class="flex min-w-0 items-center"
-                :class="editing ? 'w-full gap-2' : 'h-full flex-1 gap-3 px-3.5'"
+            <motion.div
+                v-if="editing"
+                :initial="{ opacity: 0 }"
+                :animate="{ opacity: 1 }"
+                :transition="{ ...transitions.quick, delay: 0.14 }"
+                class="absolute top-3.5 left-3.5 z-20"
             >
                 <Button
-                    v-if="editing"
                     variant="ghost"
                     size="icon-sm"
                     data-testid="search-provider-editor-back"
@@ -108,13 +110,22 @@
                 >
                     <AppIcon name="arrow-left" class="size-4" />
                 </Button>
-
+            </motion.div>
+            <div
+                class="flex min-w-0 items-center gap-3"
+                :class="editing ? 'w-full' : 'h-full flex-1 px-3.5'"
+            >
                 <motion.span
                     v-if="logo"
-                    layout
+                    :initial="false"
+                    :animate="{
+                        width: editing ? 28 : 72,
+                        height: editing ? 28 : 72,
+                        marginLeft: editing ? 36 : 0,
+                    }"
                     :transition="headerTransition"
                     class="flex shrink-0 items-center justify-center bg-surface-sunken"
-                    :class="editing ? 'size-7 rounded-lg p-0.5' : 'size-18 rounded-2xl p-2'"
+                    :class="editing ? 'rounded-lg p-0.5' : 'rounded-2xl p-2'"
                 >
                     <span
                         v-if="logoHasBackground"
@@ -132,15 +143,12 @@
 
                 <div class="min-w-0 flex-1" :class="editing ? 'flex items-center' : ''">
                     <div class="flex min-w-0 items-center gap-1.5">
-                        <motion.h3
-                            :initial="false"
-                            :animate="editing ? { x: [12, 0] } : { x: [-12, 0] }"
-                            :transition="headerTransition"
+                        <h3
                             class="min-w-0 truncate text-compact leading-5 font-medium text-settings-text"
                             :title="label"
                         >
                             {{ label }}
-                        </motion.h3>
+                        </h3>
                         <Badge
                             v-if="!editing && quota"
                             variant="source"
