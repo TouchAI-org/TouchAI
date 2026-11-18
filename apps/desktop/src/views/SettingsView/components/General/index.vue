@@ -63,16 +63,6 @@
             ? 'Mod+Enter'
             : 'Enter'
     );
-    const sendShortcutBindings = computed(() =>
-        t('settings.general.sendShortcutBindings', {
-            queue: formatShortcutForDisplay(
-                settings.value.searchKeybindings['search.submit.queue']
-            ),
-            priority: formatShortcutForDisplay(
-                settings.value.searchKeybindings['search.submit.priority']
-            ),
-        })
-    );
     const isSavingSendShortcut = ref(false);
 
     const searchWindowSizeOptions = computed(
@@ -299,14 +289,15 @@
                         data-settings-search-target="send-shortcut"
                         control-width="180"
                         label-as="label"
+                        label-for="settings-send-shortcut"
                         label-class="block"
                         :label="t('settings.general.sendShortcut')"
-                        :description="sendShortcutBindings"
                         :label-attrs="{ 'data-testid': 'settings-general-row-label' }"
                         control-class="ml-auto w-[180px]"
                         :control-attrs="{ 'data-testid': 'settings-general-control' }"
                     >
                         <CustomSelect
+                            id="settings-send-shortcut"
                             :model-value="selectedSendShortcut"
                             :options="sendShortcutOptions"
                             :disabled="isSavingSendShortcut"

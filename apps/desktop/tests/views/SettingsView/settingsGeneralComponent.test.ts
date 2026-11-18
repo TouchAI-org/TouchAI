@@ -205,8 +205,9 @@ describe('user changes general settings', () => {
         expect(wrapper.text()).toContain('启动时最小化');
         expect(wrapper.text()).toContain('窗口尺寸');
         expect(wrapper.text()).toContain('对话体验');
-        expect(wrapper.text()).toContain('发送快捷键');
-        expect(wrapper.text()).toContain('Enter 排队 · Ctrl+Enter 插队');
+        const sendShortcutRow = wrapper.get('[data-settings-search-target="send-shortcut"]');
+        expect(sendShortcutRow.get('label').text()).toBe('发送快捷键');
+        expect(sendShortcutRow.text()).not.toContain('插队');
         expect(wrapper.text()).toContain('输出时滚动策略');
         expect(wrapper.text()).toContain('界面语言');
         expect(wrapper.text()).toContain('版本更新通道');
@@ -294,8 +295,14 @@ describe('user changes general settings', () => {
         await flushPromises();
 
         const row = wrapper.get('[data-settings-search-target="send-shortcut"]');
-        expect(row.text()).toContain('Queue: Cmd+Enter · Prioritize: Enter');
         const sendShortcut = row.findComponent({ name: 'CustomSelectStub' });
+        expect(row.get('label').text()).toBe('Send shortcut');
+        expect(sendShortcut.attributes('id')).toBeTruthy();
+        expect(row.get('label').attributes('for')).toBe(sendShortcut.attributes('id'));
+        expect(sendShortcut.props('options')).toContainEqual({
+            value: 'Mod+Enter',
+            label: 'Cmd+Enter',
+        });
         expect(sendShortcut.props('modelValue')).toBe('Mod+Enter');
     });
 
