@@ -899,42 +899,40 @@ describe('given priority messages have a durable queue entry', () => {
         ]);
     });
 
-    it('user restores only uncommitted steers when a later message in the same batch fails', async () => {
+    it('user recovers every steer in order with its selected skill when a later history write fails', async () => {
         const messages = [
-            priorityMessage('pending-1', 'First committed priority'),
+            priorityMessage('pending-1', 'First priority with a skill'),
             priorityMessage('pending-2', 'Second failed priority'),
         ];
+        messages[0]!.inputSnapshot = {
+            text: messages[0]!.prompt,
+            attachments: [],
+            skills: [{ name: 'summary', path: skillFile().path }],
+        };
         const { runtime, state } = durablePriorityRun(messages, () => {
             database.exec(`CREATE TEMP TRIGGER injected_write_failure
                 BEFORE INSERT ON message_parts WHEN NEW.type = 'text' AND NEW.content = 'Second failed priority'
                 BEGIN SELECT RAISE(ABORT, 'history storage unavailable'); END`);
         });
         await expect(runtime.run()).rejects.toBeInstanceOf(Error);
-        expect(state.pending.map((message) => message.id)).toEqual(['pending-2']);
-        expect(state.events).toContainEqual(
-            expect.objectContaining({
-                type: 'user_messages_delivered',
-                messages: [expect.objectContaining({ id: 'pending-1' })],
-            })
+        expect(state.events.some((event) => event.type === 'user_messages_delivered')).toBe(false);
+        expect(state.pending.map((message) => message.id)).toEqual(
+            messages.map((message) => message.id)
         );
+        expect(
+            httpFetch.mock.calls.every(([, init]) =>
+                messages.every(({ prompt }) => !init.body.includes(prompt))
+            )
+        ).toBe(true);
         const restored = await new PendingMessagePersistence().load(state.sessionId!);
-        expect(restored).toEqual([
-            expect.objectContaining({ id: 'pending-2', prompt: 'Second failed priority' }),
-        ]);
-        expect(
-            database
-                .prepare(
-                    "SELECT content FROM message_parts WHERE content = 'First committed priority'"
-                )
-                .all()
-        ).toHaveLength(1);
-        expect(
-            database
-                .prepare(
-                    "SELECT content FROM message_parts WHERE content = 'Second failed priority'"
-                )
-                .all()
-        ).toEqual([]);
+        expect(restored.map((message) => message.id)).toEqual(
+            messages.map((message) => message.id)
+        );
+        const history = database.prepare(
+            'SELECT content FROM message_parts WHERE content IN (?, ?) ORDER BY message_id'
+        );
+        const prompts = messages.map((message) => message.prompt);
+        expect(history.all(...prompts)).toEqual([]);
 
         database.exec('DROP TRIGGER injected_write_failure');
         httpFetch.mockReset();
@@ -948,20 +946,18 @@ describe('given priority messages have a durable queue entry', () => {
             response: 'Three concise points.',
         });
         await expect(new PendingMessagePersistence().load(state.sessionId!)).resolves.toEqual([]);
-        expect(
-            database
-                .prepare(
-                    "SELECT content FROM message_parts WHERE content = 'First committed priority'"
-                )
-                .all()
-        ).toHaveLength(1);
-        expect(
-            database
-                .prepare(
-                    "SELECT content FROM message_parts WHERE content = 'Second failed priority'"
-                )
-                .all()
-        ).toHaveLength(1);
+        expect(history.all(...prompts).map((row) => row.content)).toEqual(prompts);
+        expect(httpFetch.mock.calls).toHaveLength(2);
+        const lastRequest = JSON.parse(httpFetch.mock.calls[1]![1].body) as {
+            messages: Array<{ role: string; content: string }>;
+        };
+        const recoveredInputs = lastRequest.messages
+            .filter((message) => message.role === 'user')
+            .slice(-2);
+        expect(recoveredInputs[0]?.content).toContain(prompts[0]);
+        expect(recoveredInputs[0]?.content).toContain(privateMarker);
+        expect(recoveredInputs[1]?.content).toBe(prompts[1]);
+        expect(JSON.stringify(recovered.state.events)).not.toContain(privateMarker);
     });
 });
 

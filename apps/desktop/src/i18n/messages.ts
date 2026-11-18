@@ -1190,6 +1190,7 @@ const zhCNMessages = {
     'agent.persistenceIssue.attachmentPrepare':
         '保存附件缓存失败，本轮仍会继续发送，但附件可能无法持久化或复用远端引用。',
     'agent.persistenceIssue.turnStart': '保存会话轮次失败，对话将继续但可能无法保存。',
+    'agent.persistenceIssue.queuedTurnStart': '消息未发送，仍在队列中。',
     'agent.persistenceIssue.turnCompleted': '保存会话完成状态失败，对话将继续但可能无法保存。',
     'agent.persistenceIssue.turnCancelled': '保存会话取消状态失败，对话记录可能不完整。',
     'agent.persistenceIssue.retryStarted': '保存重试检查点失败，但本轮仍会继续重试。',
@@ -1197,6 +1198,7 @@ const zhCNMessages = {
     'agent.persistenceIssue.userMessageDelivery': '插队消息未能保存到历史记录。',
     'agent.priorityMessage.removedTitle': '消息未发送，已移出队列',
     'agent.priorityMessage.unsupportedAttachmentsBody': '当前模型不支持{types}。',
+    'agent.priorityMessage.prepareFailedBody': '无法准备消息内容。',
     'agent.priorityMessage.attachmentImage': '图片',
     'agent.priorityMessage.attachmentFile': '文件',
     'agent.priorityMessage.skillLoadFailedBody': '无法加载所选技能。',
@@ -2511,6 +2513,7 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
         'Failed to save attachment cache. This turn will continue, but attachments may not persist or reuse remote references.',
     'agent.persistenceIssue.turnStart':
         'Failed to save session turn. The conversation will continue but may not be saved.',
+    'agent.persistenceIssue.queuedTurnStart': 'Message was not sent and remains queued.',
     'agent.persistenceIssue.turnCompleted':
         'Failed to save session completion state. The conversation will continue but may not be saved.',
     'agent.persistenceIssue.turnCancelled':
@@ -2522,6 +2525,7 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'agent.persistenceIssue.userMessageDelivery': 'Could not save the priority message to history.',
     'agent.priorityMessage.removedTitle': 'Message not sent: removed from queue',
     'agent.priorityMessage.unsupportedAttachmentsBody': 'This model does not support {types}.',
+    'agent.priorityMessage.prepareFailedBody': 'Could not prepare the message.',
     'agent.priorityMessage.attachmentImage': 'images',
     'agent.priorityMessage.attachmentFile': 'files',
     'agent.priorityMessage.skillLoadFailedBody': 'Could not load the selected skill.',

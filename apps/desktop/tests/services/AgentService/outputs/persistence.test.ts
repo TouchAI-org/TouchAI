@@ -265,10 +265,13 @@ describe('user waits for the answer while its turn is recorded', () => {
     it('user gets a delivered steer removed from the queue in the same transaction', async () => {
         const projector = createProjector();
 
-        await projector.persistInjectedUserMessage({
-            prompt: 'Steer this',
-            pendingMessageId: 'pending-2',
-        });
+        await projector.persistInjectedUserMessages([
+            {
+                prompt: 'Steer this',
+                id: 'pending-2',
+                attachments: [],
+            },
+        ]);
 
         expect(queries.deletePendingMessage).toHaveBeenCalledWith('pending-2', expect.anything());
         expect(queries.deletePendingMessage.mock.calls[0]?.[1]).toBe(

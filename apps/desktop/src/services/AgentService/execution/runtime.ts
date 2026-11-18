@@ -478,7 +478,11 @@ export class AiConversationRuntime {
                 log.error('[AiConversationRuntime] Failed to record request start:', error);
                 await this.reportPersistenceIssue({
                     phase: 'turn_start',
-                    ...buildPersistenceIssue('agent.persistenceIssue.turnStart'),
+                    ...buildPersistenceIssue(
+                        this.options.pendingMessageId
+                            ? 'agent.persistenceIssue.queuedTurnStart'
+                            : 'agent.persistenceIssue.turnStart'
+                    ),
                     error,
                 });
                 if (this.options.pendingMessageId) {
@@ -507,7 +511,7 @@ export class AiConversationRuntime {
         if (pending.length === 0) {
             return { messages: [] };
         }
-        const delivered: DeliveredPendingUserMessage[] = [];
+        const prepared: DeliveredPendingUserMessage[] = [];
         const rejectedMessageIds: string[] = [];
         const messages: AiMessage[] = [];
         const privateContents: NonNullable<InjectedUserMessages['privateContents']> = [];
@@ -571,7 +575,8 @@ export class AiConversationRuntime {
                     await persister.discardPendingUserMessage(pendingMessage.id);
                     await this.reportPersistenceIssue({
                         phase: 'user_message_delivery',
-                        ...buildPersistenceIssue('agent.persistenceIssue.userMessageDelivery'),
+                        title: t('agent.priorityMessage.removedTitle'),
+                        body: t('agent.priorityMessage.prepareFailedBody'),
                         error,
                     });
                     rejectedMessageIds.push(pendingMessage.id);
@@ -607,16 +612,6 @@ export class AiConversationRuntime {
                     break;
                 }
 
-                const persisted = await persister.persistInjectedUserMessage({
-                    prompt: pendingMessage.prompt,
-                    attachments: pendingMessage.attachments,
-                    pendingMessageId: pendingMessage.id,
-                    inputSnapshot: pendingMessage.inputSnapshot,
-                });
-                if (persisted.source) {
-                    message.contextSource = persisted.source;
-                }
-
                 messages.push(message);
                 if (skillContext) {
                     privateContents.push({
@@ -624,7 +619,7 @@ export class AiConversationRuntime {
                         content: withPrioritySkillContext(message, skillContext).content,
                     });
                 }
-                delivered.push({
+                prepared.push({
                     id: pendingMessage.id,
                     prompt: pendingMessage.prompt,
                     attachments: pendingMessage.attachments,
@@ -632,7 +627,23 @@ export class AiConversationRuntime {
                         ? { inputSnapshot: pendingMessage.inputSnapshot }
                         : {}),
                 });
-                settledMessageIds.add(pendingMessage.id);
+            }
+            if (prepared.length === 0 || this.options.signal?.aborted) {
+                return { messages: [] };
+            }
+
+            const sources = await persister.persistInjectedUserMessages(prepared);
+            for (const [index, delivery] of prepared.entries()) {
+                const source = sources.get(delivery.id);
+                if (source) messages[index]!.contextSource = source;
+                settledMessageIds.add(delivery.id);
+            }
+            if (this.options.taskId) {
+                this.notifyTurnEvent({
+                    type: 'user_messages_delivered',
+                    taskId: this.options.taskId,
+                    messages: prepared,
+                });
             }
         } catch (error) {
             const failure = error instanceof DrizzleQueryError ? (error.cause ?? error) : error;
@@ -653,13 +664,6 @@ export class AiConversationRuntime {
                     type: 'user_messages_rejected',
                     taskId: this.options.taskId,
                     messageIds: rejectedMessageIds,
-                });
-            }
-            if (delivered.length > 0 && this.options.taskId) {
-                this.notifyTurnEvent({
-                    type: 'user_messages_delivered',
-                    taskId: this.options.taskId,
-                    messages: delivered,
                 });
             }
             const unsettledMessageIds = pending

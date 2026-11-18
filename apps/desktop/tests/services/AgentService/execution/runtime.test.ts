@@ -69,10 +69,9 @@ const {
         beginNextAttempt: vi.fn(async () => undefined),
         closeOutputBoundary: vi.fn(),
         discardPendingUserMessage: vi.fn(async () => undefined),
-        persistInjectedUserMessage: vi.fn(async () => ({
-            messageId: 11,
-            source: { id: 11, fingerprint: 'f'.repeat(64) },
-        })),
+        persistInjectedUserMessages: vi.fn(
+            async () => new Map([['pending-1', { id: 11, fingerprint: 'f'.repeat(64) }]])
+        ),
     },
 }));
 
@@ -381,11 +380,13 @@ describe('user starts a turn that needs a new conversation', () => {
             model: createModel(),
         });
 
-        expect(projectorMock.persistInjectedUserMessage).toHaveBeenCalledWith({
-            prompt: 'Insert this',
-            attachments: [],
-            pendingMessageId: 'pending-1',
-        });
+        expect(projectorMock.persistInjectedUserMessages).toHaveBeenCalledWith([
+            {
+                prompt: 'Insert this',
+                attachments: [],
+                id: 'pending-1',
+            },
+        ]);
         // The stored row is the context source, so the next request can point back at it.
         expect(injected).toEqual({
             messages: [
@@ -431,11 +432,13 @@ describe('user starts a turn that needs a new conversation', () => {
             model: createModel(),
         });
 
-        expect(projectorMock.persistInjectedUserMessage).toHaveBeenCalledWith({
-            prompt: 'Steer this',
-            attachments: [],
-            pendingMessageId: 'pending-1',
-        });
+        expect(projectorMock.persistInjectedUserMessages).toHaveBeenCalledWith([
+            {
+                prompt: 'Steer this',
+                attachments: [],
+                id: 'pending-1',
+            },
+        ]);
         expect(injected).toEqual({
             messages: [
                 {
@@ -617,7 +620,7 @@ describe('user starts a turn that needs a new conversation', () => {
         });
 
         expect(injected).toEqual({ messages: [] });
-        expect(projectorMock.persistInjectedUserMessage).not.toHaveBeenCalled();
+        expect(projectorMock.persistInjectedUserMessages).not.toHaveBeenCalled();
         expect(events).toContainEqual({
             type: 'user_messages_rejected',
             taskId: 'task-1',
@@ -685,7 +688,7 @@ describe('user starts a turn that needs a new conversation', () => {
         });
 
         expect(injected).toEqual({ messages: [] });
-        expect(projectorMock.persistInjectedUserMessage).not.toHaveBeenCalled();
+        expect(projectorMock.persistInjectedUserMessages).not.toHaveBeenCalled();
         expect(buildUserPromptMessageMock).not.toHaveBeenCalled();
         expect(events).toContainEqual({
             type: 'user_messages_rejected',
@@ -735,7 +738,7 @@ describe('user starts a turn that needs a new conversation', () => {
         expect(injected).toEqual({ messages: [] });
         // A message that cannot be materialized must not leave a committed
         // history row behind and then remain eligible for a retry.
-        expect(projectorMock.persistInjectedUserMessage).not.toHaveBeenCalled();
+        expect(projectorMock.persistInjectedUserMessages).not.toHaveBeenCalled();
         expect(projectorMock.closeOutputBoundary).toHaveBeenCalled();
         expect(events).toContainEqual({
             type: 'user_messages_rejected',
@@ -743,14 +746,18 @@ describe('user starts a turn that needs a new conversation', () => {
             messageIds: ['pending-1'],
         });
         expect(reportPersistenceIssue).toHaveBeenCalledWith(
-            expect.objectContaining({ phase: 'user_message_delivery' })
+            expect.objectContaining({
+                phase: 'user_message_delivery',
+                title: expect.stringMatching(/移出队列|removed from queue/i),
+                body: expect.stringMatching(/无法准备消息内容|could not prepare the message/i),
+            })
         );
     });
 
     it('user keeps the interrupted answer separate when persisting a steer fails', async () => {
         const executor = createExecutor();
         buildUserPromptMessageMock.mockResolvedValue({ role: 'user', content: 'Steer this' });
-        projectorMock.persistInjectedUserMessage.mockRejectedValueOnce(
+        projectorMock.persistInjectedUserMessages.mockRejectedValueOnce(
             new Error('database is locked')
         );
         const releasePriorityUserMessages = vi.fn();
@@ -831,6 +838,25 @@ describe('user starts a turn that needs a new conversation', () => {
         const { runtime } = run(executor, { taskId: 'task-1' });
 
         await expect(runtime.run()).resolves.toMatchObject({ response: 'Answer' });
+    });
+
+    it('user is told the queued message was not sent when starting it fails', async () => {
+        projectorMock.recordTurnStart.mockRejectedValueOnce(new Error('database is locked'));
+        const reportPersistenceIssue = vi.fn();
+        const { runtime } = run(createExecutor(), {
+            pendingMessageId: 'pending-1',
+            environment: { reportPersistenceIssue },
+        });
+
+        await expect(runtime.run()).rejects.toThrow();
+        expect(reportPersistenceIssue).toHaveBeenCalledWith(
+            expect.objectContaining({
+                phase: 'turn_start',
+                body: expect.stringMatching(
+                    /消息未发送，仍在队列中|message was not sent and remains queued/i
+                ),
+            })
+        );
     });
 
     it('user still gets the answer when reporting a persistence problem throws', async () => {

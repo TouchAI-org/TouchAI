@@ -83,8 +83,8 @@ import type { AiToolCall } from '../contracts/tooling';
 import type { AttemptCheckpoint } from '../execution/executor';
 import { canonicalJson } from '../infrastructure/providers/ai-sdk/cache';
 import { createPromptInputSnapshot, serializePromptSnapshot } from '../prompt/serialization';
-import type { PromptInputSnapshot, PromptSnapshot } from '../prompt/types';
-import type { TaskExecutionMode } from '../task/types';
+import type { PromptSnapshot } from '../prompt/types';
+import type { DeliveredPendingUserMessage, TaskExecutionMode } from '../task/types';
 
 /**
  * 封装轮次尝试状态，确保实体对象与开始时间戳保持一致。
@@ -844,62 +844,49 @@ export class PersistenceProjector {
         await deletePendingMessage(pendingMessageId);
     }
 
-    /**
-     * 写入一条运行中插队的用户消息。
-     *
-     * 附件准备与写入都复用普通用户消息的路径；消息落库后关闭当前 assistant
-     * 输出边界，确保下一次模型输出会新建 assistant 消息而不是续写工具轮之前的气泡。
-     */
-    async persistInjectedUserMessage(options: {
-        prompt: string;
-        attachments?: AttachmentIndex[];
-        pendingMessageId?: string;
-        inputSnapshot?: PromptInputSnapshot;
-    }): Promise<{ messageId: number; source?: ContextMessageSource }> {
-        const attachments = options.attachments ?? [];
-        const inputSnapshot = createPromptInputSnapshot(options.inputSnapshot);
-        if (attachments.length > 0) {
-            await Promise.all(
-                attachments.map((attachment) => prepareAttachmentForPersistence(attachment))
-            );
-        }
+    async persistInjectedUserMessages(
+        messages: readonly DeliveredPendingUserMessage[]
+    ): Promise<Map<string, ContextMessageSource>> {
+        const attachments = messages.flatMap((message) => message.attachments);
+        await Promise.all(attachments.map(prepareAttachmentForPersistence));
 
         const result = await db.transaction(async (tx) => {
             const sessionId = await this.ensureSessionId(tx);
-            const persistedAttachments = await Promise.all(
-                attachments.map((attachment) => persistPreparedAttachment(attachment, tx))
-            );
-            const messageId = await this.persistMessage({
-                role: 'user',
-                content: options.prompt,
-                attachments: persistedAttachments,
-                database: tx,
-                sessionId,
-            });
-            const turn = inputSnapshot
-                ? await appendSessionTurnInputSnapshot({
-                      id: this.getTurnId(),
-                      messageId,
-                      inputSnapshotJson: JSON.stringify(inputSnapshot),
-                      database: tx,
-                  })
-                : this.turn;
-            if (options.pendingMessageId) {
-                await deletePendingMessage(options.pendingMessageId, tx);
+            const sources = new Map<string, ContextMessageSource>();
+            let turn = this.turn;
+            for (const message of messages) {
+                const persistedAttachments = await Promise.all(
+                    message.attachments.map((attachment) =>
+                        persistPreparedAttachment(attachment, tx)
+                    )
+                );
+                const messageId = await this.persistMessage({
+                    role: 'user',
+                    content: message.prompt,
+                    attachments: persistedAttachments,
+                    database: tx,
+                    sessionId,
+                });
+                const inputSnapshot = createPromptInputSnapshot(message.inputSnapshot);
+                if (inputSnapshot) {
+                    turn = await appendSessionTurnInputSnapshot({
+                        id: this.getTurnId(),
+                        messageId,
+                        inputSnapshotJson: JSON.stringify(inputSnapshot),
+                        database: tx,
+                    });
+                }
+                await deletePendingMessage(message.id, tx);
+                const row = (await findContextMessageRows(sessionId, { ids: [messageId] }, tx))[0];
+                if (row) sources.set(message.id, await contextMessageSource(row));
             }
-            const row = (await findContextMessageRows(sessionId, { ids: [messageId] }, tx))[0];
-            return {
-                sessionId,
-                messageId,
-                turn,
-                source: row ? await contextMessageSource(row) : undefined,
-            };
+            return { sessionId, turn, sources };
         });
 
         this.sessionId = result.sessionId;
         this.turn = result.turn;
         this.closeOutputBoundary();
-        return { messageId: result.messageId, source: result.source };
+        return result.sources;
     }
 
     async getContextMessageSource(
