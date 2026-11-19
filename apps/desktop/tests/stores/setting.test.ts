@@ -29,6 +29,7 @@ const EXPECTED_GENERAL_SETTING_KEYS: GeneralSettingKey[] = [
     'start_on_boot',
     'start_minimized',
     'output_scroll_behavior',
+    'conversation_content_width',
     'search_window_size_preset',
     'language',
     'app_update_channel',
@@ -105,6 +106,23 @@ describe('user changes a persisted setting', () => {
         });
     });
 
+    it.each([
+        [null, 880],
+        ['', 880],
+        ['broken', 880],
+        ['Infinity', 880],
+        ['602', 640],
+        ['1198', 1200],
+        ['2800', 2400],
+    ] as const)(
+        'user loads a saved width of %s and gets a reading limit of %i pixels',
+        (raw, width) => {
+            const settings = createDefaultGeneralSettings();
+            applyPersistedGeneralSettingValue(settings, 'conversation_content_width', raw);
+            expect(settings.conversationContentWidth).toBe(width);
+        }
+    );
+
     it('user clones nested settings without sharing mutable references', () => {
         const settings = createDefaultGeneralSettings();
         const clone = cloneGeneralSettingsSnapshot(settings);
@@ -122,6 +140,7 @@ describe('user changes a persisted setting', () => {
             'automaticallyReduceMotion',
             'globalShortcut',
             'outputScrollBehavior',
+            'conversationContentWidth',
             'searchWindowSizePreset',
             'language',
             'appUpdateChannel',
@@ -141,6 +160,7 @@ describe('user changes a persisted setting', () => {
             'updateStartOnBoot',
             'updateStartMinimized',
             'updateOutputScrollBehavior',
+            'updateConversationContentWidth',
             'updateSearchWindowSizePreset',
             'updateLanguage',
             'updateAppUpdateChannel',
