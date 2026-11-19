@@ -323,6 +323,15 @@
         t(fetchStrategyMessages[draft.value.fetchStrategy].description)
     );
 
+    const routeBranches = SEARCH_SOURCES.map((source, index) => {
+        const x = ((index + 0.5) / SEARCH_SOURCES.length) * 1000;
+        return {
+            source,
+            left: `${((index + 0.5) / SEARCH_SOURCES.length) * 100}%`,
+            path: `M500 56 C500 125 ${x} 150 ${x} 238`,
+        };
+    });
+
     const priorityRows = computed<SearchProviderId[]>({
         get: () => draft.value.providerPriority.filter((id) => providerConfig(id).enabled),
         set: (next) => {
@@ -695,37 +704,70 @@
                     <h2 class="settings-section-title">
                         {{ t('settings.search.section.routing') }}
                     </h2>
-                    <div class="settings-row-group p-4">
-                        <div class="grid gap-2">
-                            <div
-                                v-for="source in SEARCH_SOURCES"
-                                :key="source"
-                                class="flex min-w-0 items-center gap-2 rounded-control border border-border-subtle bg-surface-floating px-3 py-2"
+                    <div
+                        class="relative h-80 overflow-hidden rounded-card border border-border-subtle bg-surface-floating"
+                    >
+                        <div
+                            class="absolute top-5 left-1/2 z-10 flex size-9 -translate-x-1/2 items-center justify-center rounded-full border border-border-subtle bg-surface-floating"
+                        >
+                            <AppIcon name="search" class="size-4 text-text-tertiary" />
+                        </div>
+                        <svg
+                            class="pointer-events-none absolute inset-0 h-full w-full"
+                            viewBox="0 0 1000 320"
+                            preserveAspectRatio="none"
+                            aria-hidden="true"
+                        >
+                            <path
+                                v-for="branch in routeBranches"
+                                :key="branch.source"
+                                :d="branch.path"
+                                fill="none"
+                                stroke="#ded9d1"
+                                stroke-width="1"
+                            />
+                        </svg>
+                        <div
+                            v-for="branch in routeBranches"
+                            :key="branch.source"
+                            class="absolute flex w-20 -translate-x-1/2 flex-col items-center gap-1"
+                            style="top: 238px"
+                            :style="{ left: branch.left }"
+                        >
+                            <span
+                                class="w-full truncate text-center text-caption text-settings-text"
                             >
-                                <span
-                                    class="flex size-5 shrink-0 items-center justify-center rounded-full bg-surface-sunken"
-                                >
-                                    <span class="size-1.5 rounded-full bg-primary-500" />
-                                </span>
-                                <span
-                                    class="w-20 shrink-0 truncate text-compact text-settings-text"
-                                >
-                                    {{ t(sourceMessages[source]) }}
-                                </span>
-                                <span class="h-px min-w-3 flex-1 bg-border-subtle" />
-                                <AppIcon
-                                    name="chevron-right"
-                                    class="size-3 shrink-0 text-text-tertiary"
+                                {{ t(sourceMessages[branch.source]) }}
+                            </span>
+                            <span
+                                class="relative flex size-8 items-center justify-center rounded-lg bg-surface-floating"
+                                :title="
+                                    t(providerMessages[draft.sourceRoutes[branch.source]].label)
+                                "
+                            >
+                                <img
+                                    v-if="draft.sourceRoutes[branch.source] !== 'auto'"
+                                    :src="providerLogos[draft.sourceRoutes[branch.source]]"
+                                    alt=""
+                                    class="size-6 object-contain"
                                 />
-                                <div class="w-40 shrink-0">
-                                    <CustomSelect
-                                        v-model="draft.sourceRoutes[source]"
-                                        :data-testid="`search-source-route-${source}`"
-                                        :options="enabledProviderOptions"
-                                        :disabled="!toolEnabled"
-                                    />
-                                </div>
-                            </div>
+                                <AppIcon v-else name="search" class="size-4 text-text-tertiary" />
+                                <select
+                                    v-model="draft.sourceRoutes[branch.source]"
+                                    :data-testid="`search-source-route-${branch.source}`"
+                                    :aria-label="t(sourceMessages[branch.source])"
+                                    class="absolute inset-0 cursor-pointer opacity-0"
+                                    :disabled="!toolEnabled"
+                                >
+                                    <option
+                                        v-for="option in enabledProviderOptions"
+                                        :key="option.value"
+                                        :value="option.value"
+                                    >
+                                        {{ option.label }}
+                                    </option>
+                                </select>
+                            </span>
                         </div>
                     </div>
                 </section>
