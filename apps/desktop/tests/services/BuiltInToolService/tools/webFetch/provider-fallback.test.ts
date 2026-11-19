@@ -148,3 +148,78 @@ describe('user reads a page through a configured search engine', () => {
         expect(tauriFetchMock).toHaveBeenCalledTimes(1);
     });
 });
+
+describe('user explicitly selects a fetch engine', () => {
+    it('user gets the requested engine even when the direct strategy is selected', async () => {
+        readSettingsMock.mockResolvedValue(
+            settingsOf({
+                fetchStrategy: 'direct',
+                providers: {
+                    exa: { enabled: true, apiKey: 'exa-key', fetchEnabled: true },
+                },
+                providerPriority: ['exa'],
+            })
+        );
+        tauriFetchMock.mockResolvedValueOnce(
+            json({
+                results: [
+                    {
+                        title: 'Exa page',
+                        url: 'https://example.com/exa',
+                        text: 'exa extracted body',
+                    },
+                ],
+            })
+        );
+
+        const result = await executeWebFetchTool(
+            {
+                url: 'https://example.com/a',
+                mode: 'reader',
+                maxChars: 2000,
+                provider: 'exa',
+            },
+            {},
+            context()
+        );
+
+        expect(result.isError).toBe(false);
+        expect(result.result).toContain('exa extracted body');
+        expect(tauriFetchMock.mock.calls[0]?.[0]).toContain('/contents');
+        expect(tauriFetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('user falls back to direct fetch when the requested engine is disabled for fetching', async () => {
+        readSettingsMock.mockResolvedValue(
+            settingsOf({
+                fetchStrategy: 'direct',
+                providers: {
+                    exa: { enabled: true, apiKey: 'exa-key', fetchEnabled: false },
+                },
+                providerPriority: ['exa'],
+            })
+        );
+        tauriFetchMock.mockResolvedValueOnce(
+            new Response('direct body', {
+                status: 200,
+                headers: { 'content-type': 'text/plain' },
+            })
+        );
+
+        const result = await executeWebFetchTool(
+            {
+                url: 'https://example.com/a',
+                mode: 'page_text',
+                maxChars: 2000,
+                provider: 'exa',
+            },
+            {},
+            context()
+        );
+
+        expect(result.isError).toBe(false);
+        expect(result.result).toContain('direct body');
+        expect(tauriFetchMock).toHaveBeenCalledTimes(1);
+        expect(tauriFetchMock.mock.calls[0]?.[0]).toBe('https://example.com/a');
+    });
+});

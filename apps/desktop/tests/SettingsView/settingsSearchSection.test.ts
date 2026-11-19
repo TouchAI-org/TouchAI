@@ -273,6 +273,26 @@ describe('user edits the search settings', () => {
         wrapper.unmount();
     });
 
+    it('user can exclude an engine from content fetching', async () => {
+        const wrapper = mount(SearchSettingsView);
+        await nextTick();
+        await wrapper.get('[data-testid="search-provider-edit-exa"]').trigger('click');
+        const tabs = wrapper.get('[data-testid="search-provider-credential-tabs"]');
+        await tabs.findAll('button')[2]!.trigger('click');
+        const toggle = wrapper.get('[data-testid="search-provider-fetch-toggle-exa"]');
+        expect(toggle.attributes('aria-checked')).toBe('true');
+        await toggle.trigger('click');
+        await vi.advanceTimersByTimeAsync(300);
+        expect(updateSearchSettingsMock).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+                providers: expect.objectContaining({
+                    exa: expect.objectContaining({ fetchEnabled: false }),
+                }),
+            })
+        );
+        wrapper.unmount();
+    });
+
     it('user cannot enable fusion with a fixed default engine', async () => {
         const wrapper = mount(SearchSettingsView);
         await nextTick();

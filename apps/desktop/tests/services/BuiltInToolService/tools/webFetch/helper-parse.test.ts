@@ -133,6 +133,19 @@ describe('user gets an unsafe address refused before the assistant fetches it', 
         expect(request.url.toString()).toBe('https://example.com/article');
     });
 
+    it('user can request a specific fetch engine', () => {
+        setLocale('en-US');
+
+        const request = parseWebFetchRequest({
+            url: 'https://example.com/article',
+            mode: 'reader',
+            maxChars: 5000,
+            provider: 'exa',
+        });
+
+        expect(request.provider).toBe('exa');
+    });
+
     it('user gets the optional limits kept when they were given', () => {
         setLocale('en-US');
 

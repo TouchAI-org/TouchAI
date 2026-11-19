@@ -38,6 +38,18 @@ export const SEARCH_SOURCES = [
 
 export const WEB_FETCH_STRATEGIES = ['direct', 'fallback', 'prefer'] as const;
 
+export const SEARCH_FETCH_PROVIDERS = [
+    'anysearch',
+    'deepseek',
+    'exa',
+    'tavily',
+    'firecrawl',
+    'keenable',
+    'doubao',
+    'tinyfish',
+    'serper',
+] as const;
+
 export const SEARCH_ROUTING_STRATEGIES = ['capability', 'manual', 'priority'] as const;
 
 const LEGACY_ROUTING_STRATEGIES = ['model', 'intent', 'parallel'] as const;
@@ -55,6 +67,7 @@ export type SearchProviderId = (typeof SEARCH_PROVIDER_IDS)[number];
 export type SearchRouteIntent = (typeof SEARCH_ROUTE_INTENTS)[number];
 export type SearchSource = (typeof SEARCH_SOURCES)[number];
 export type SearchRoutingStrategy = (typeof SEARCH_ROUTING_STRATEGIES)[number];
+export type SearchFetchProvider = (typeof SEARCH_FETCH_PROVIDERS)[number];
 export type WebFetchStrategy = (typeof WEB_FETCH_STRATEGIES)[number];
 export type SearchProviderApiKeyRequirement = 'none' | 'optional' | 'required';
 export type SearchProviderEndpointRequirement = 'none' | 'required';
@@ -284,6 +297,7 @@ export interface SearchProviderConfig {
     enabled: boolean;
     apiKey: string;
     endpoint: string;
+    fetchEnabled?: boolean;
 }
 
 export interface SearchSettingsConfig {
@@ -310,6 +324,7 @@ const providerConfigSchema = z.object({
     enabled: z.boolean().optional(),
     apiKey: z.string().optional(),
     endpoint: z.string().optional(),
+    fetchEnabled: z.boolean().optional(),
 });
 
 const searchSettingsSchema = z
@@ -443,6 +458,7 @@ function normalizeProviders(
             enabled: provider.enabled ?? next[providerId].enabled,
             apiKey: provider.apiKey?.trim() ?? '',
             endpoint: provider.endpoint?.trim() ?? '',
+            ...(provider.fetchEnabled === false ? { fetchEnabled: false } : {}),
         };
         if (
             (SEARCH_PROVIDER_API_KEY_REQUIREMENTS[providerId] === 'required' &&

@@ -9,6 +9,7 @@
     import { log } from '@services/ObservabilityService';
     import {
         parseSearchSettingsConfig,
+        SEARCH_FETCH_PROVIDERS,
         SEARCH_PARALLEL_MAX,
         SEARCH_PROVIDER_API_KEY_REQUIREMENTS,
         SEARCH_PROVIDER_ENDPOINT_REQUIREMENTS,
@@ -474,6 +475,13 @@
         }
     }
 
+    function updateProviderFetchEnabled(providerId: SearchProviderId, enabled: boolean) {
+        draft.value.providers[providerId] = {
+            ...draft.value.providers[providerId],
+            fetchEnabled: enabled,
+        };
+    }
+
     function beginProviderEdit(providerId: SearchProviderId) {
         editingProvider.value = providerId;
     }
@@ -719,7 +727,7 @@
                         {{ t('settings.search.section.engines') }}
                     </h2>
                     <div v-for="group in providerGroups" :key="group.label" class="space-y-3">
-                        <h3 class="text-compact font-medium text-text-secondary">
+                        <h3 class="text-compact font-medium text-settings-text">
                             {{ t(group.label) }}
                         </h3>
                         <div class="grid grid-cols-1 items-start gap-3 @2xl:grid-cols-2">
@@ -746,6 +754,12 @@
                                 :endpoint-value="providerConfig(providerId).endpoint"
                                 :endpoint-required="providerRequiresEndpoint(providerId)"
                                 :supports-endpoint="providersWithEndpoint.has(providerId)"
+                                :supports-fetch="
+                                    (
+                                        SEARCH_FETCH_PROVIDERS as readonly SearchProviderId[]
+                                    ).includes(providerId)
+                                "
+                                :fetch-enabled="providerConfig(providerId).fetchEnabled !== false"
                                 :logo-has-background="providerLogoHasBackground.has(providerId)"
                                 :endpoint-placeholder="
                                     t('settings.search.provider.baseUrlPlaceholder')
@@ -756,6 +770,7 @@
                                 @edit="beginProviderEdit(providerId)"
                                 @cancel="cancelProviderEdit"
                                 @save="saveProviderCredentials(providerId, $event)"
+                                @fetch-enabled="updateProviderFetchEnabled(providerId, $event)"
                             />
                         </div>
                     </div>

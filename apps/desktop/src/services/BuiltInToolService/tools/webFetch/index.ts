@@ -69,15 +69,31 @@ function formatProviderFetchResult(
 async function providerFetchResult(
     request: WebFetchRequest,
     signal: AbortSignal,
-    preferred: boolean
+    mode: 'preferred' | 'fallback' | 'explicit'
 ): Promise<BuiltInToolExecutionResult | null> {
     try {
         const value = await readEffectiveSettingValue(SEARCH_SETTINGS_KEY);
         const settings = parseSearchSettingsConfig(typeof value === 'string' ? value : null);
+        if (mode === 'explicit') {
+            if (!request.provider) return null;
+            const payload = await tryProviderFetches(
+                request.url.toString(),
+                settings,
+                signal,
+                request.provider
+            );
+            return payload
+                ? {
+                      result: formatProviderFetchResult(request, payload),
+                      isError: false,
+                      status: 'success',
+                  }
+                : null;
+        }
         if (settings.fetchStrategy === 'direct') {
             return null;
         }
-        if (preferred !== (settings.fetchStrategy === 'prefer')) {
+        if ((mode === 'preferred') !== (settings.fetchStrategy === 'prefer')) {
             return null;
         }
         const payload = await tryProviderFetches(request.url.toString(), settings, signal);
@@ -247,13 +263,19 @@ export async function executeWebFetchTool(
     void config;
 
     try {
-        const preferred = await providerFetchResult(request, signal, true);
+        if (request.provider) {
+            const explicit = await providerFetchResult(request, signal, 'explicit');
+            if (explicit) {
+                return explicit;
+            }
+        }
+        const preferred = await providerFetchResult(request, signal, 'preferred');
         if (preferred) {
             return preferred;
         }
         const response = await fetchWithSafeRedirects(request, signal);
         if (shouldTryReaderFallback(response)) {
-            const providerFallback = await providerFetchResult(request, signal, false);
+            const providerFallback = await providerFetchResult(request, signal, 'fallback');
             if (providerFallback) {
                 await cancelResponseBody(response, 'WebFetch response discarded');
                 return providerFallback;
@@ -326,7 +348,7 @@ export async function executeWebFetchTool(
         return resultPayload;
     } catch (error) {
         if (!(error instanceof WebFetchControlError)) {
-            const providerFallback = await providerFetchResult(request, signal, false);
+            const providerFallback = await providerFetchResult(request, signal, 'fallback');
             if (providerFallback) {
                 return providerFallback;
             }

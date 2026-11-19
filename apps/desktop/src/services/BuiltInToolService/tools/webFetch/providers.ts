@@ -1,9 +1,10 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import type {
-    SearchProviderConfig,
-    SearchProviderId,
-    SearchSettingsConfig,
+import {
+    SEARCH_FETCH_PROVIDERS,
+    type SearchFetchProvider,
+    type SearchProviderConfig,
+    type SearchSettingsConfig,
 } from '@services/SettingsService/domain';
 
 import { createTauriFetch } from '@/services/HttpService';
@@ -12,19 +13,8 @@ import { normalizeOptionalString } from '@/utils/text';
 const tauriFetch = createTauriFetch();
 
 /** 这些引擎的官方 API 都能直接返回一份可读正文，而不只是搜索结果摘要。 */
-export const FETCH_CAPABLE_PROVIDERS = [
-    'anysearch',
-    'deepseek',
-    'exa',
-    'tavily',
-    'firecrawl',
-    'keenable',
-    'doubao',
-    'tinyfish',
-    'serper',
-] as const satisfies readonly SearchProviderId[];
-
-export type FetchCapableProvider = (typeof FETCH_CAPABLE_PROVIDERS)[number];
+export const FETCH_CAPABLE_PROVIDERS = SEARCH_FETCH_PROVIDERS;
+export type FetchCapableProvider = SearchFetchProvider;
 
 export interface ProviderFetchPayload {
     provider: FetchCapableProvider;
@@ -343,15 +333,17 @@ const FETCHERS: Record<
 export async function tryProviderFetches(
     url: string,
     settings: SearchSettingsConfig,
-    signal: AbortSignal
+    signal: AbortSignal,
+    requested?: FetchCapableProvider
 ): Promise<ProviderFetchPayload | null> {
-    const candidates = settings.providerPriority.filter(
-        (provider): provider is FetchCapableProvider =>
-            FETCH_CAPABLE_PROVIDERS.includes(provider as FetchCapableProvider)
-    );
+    const candidates = requested
+        ? [requested]
+        : settings.providerPriority.filter((provider): provider is FetchCapableProvider =>
+              FETCH_CAPABLE_PROVIDERS.includes(provider as FetchCapableProvider)
+          );
     for (const provider of candidates) {
         const config = settings.providers[provider];
-        if (!config.enabled) continue;
+        if (!config.enabled || config.fetchEnabled === false) continue;
         if (
             provider !== 'tavily' &&
             provider !== 'keenable' &&

@@ -1,5 +1,7 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
+import { SEARCH_FETCH_PROVIDERS } from '@services/SettingsService/domain';
+
 import type { AiToolDefinition } from '@/services/AgentService/contracts/tooling';
 
 import {
@@ -36,6 +38,7 @@ export const webFetchArgsSchema = z.object({
     maxChars: integerInRangeSchema(500, 40_000),
     timeoutMs: optionalIntegerInRangeSchema(1_000, 60_000),
     maxResponseBytes: optionalIntegerInRangeSchema(50_000, 10_000_000),
+    provider: z.enum(SEARCH_FETCH_PROVIDERS).optional(),
 });
 
 /**
@@ -44,6 +47,7 @@ export const webFetchArgsSchema = z.object({
 export const WEB_FETCH_TOOL_DESCRIPTION = [
     'Fetch known public web pages and extract readable text.',
     'Use builtin__web_search for discovery; use builtin__web_fetch only after you already know the exact URL to read.',
+    'Set provider only when the user explicitly asks for a specific fetch-capable search engine; otherwise omit it and the configured fetch priority is used.',
 ].join(' ');
 
 function withExamples(description: string, ...examples: string[]): string {
@@ -89,6 +93,12 @@ export const WEB_FETCH_TOOL_INPUT_SCHEMA: AiToolDefinition['input_schema'] = {
                 '10000',
                 '30000'
             ),
+        },
+        provider: {
+            type: 'string',
+            enum: [...SEARCH_FETCH_PROVIDERS],
+            description:
+                'Optional fetch-capable engine requested by the user. It must be enabled and allowed for content fetching; omit to use the configured fetch priority.',
         },
         maxResponseBytes: {
             type: 'integer',

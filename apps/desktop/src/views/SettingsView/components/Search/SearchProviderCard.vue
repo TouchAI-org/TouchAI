@@ -28,6 +28,8 @@
         endpointValue: string;
         endpointRequired: boolean;
         supportsEndpoint: boolean;
+        supportsFetch: boolean;
+        fetchEnabled: boolean;
         logoHasBackground: boolean;
         endpointPlaceholder: string;
         keyPlaceholder: string;
@@ -69,15 +71,22 @@
         edit: [];
         cancel: [];
         save: [value: { apiKey: string; endpoint: string }];
+        'fetch-enabled': [value: boolean];
     }>();
 
-    const fieldOptions = [
-        { value: 'key', label: t('settings.search.provider.keyField') },
-        { value: 'endpoint', label: t('settings.search.provider.urlField') },
-    ];
+    const fieldOptions = computed(() => {
+        const options = [{ value: 'key', label: t('settings.search.provider.keyField') }];
+        if (props.supportsEndpoint && !props.endpointRequired) {
+            options.push({ value: 'endpoint', label: t('settings.search.provider.urlField') });
+        }
+        if (props.supportsFetch) {
+            options.push({ value: 'fetch', label: t('settings.search.provider.fetchTab') });
+        }
+        return options;
+    });
     const keyDraft = ref('');
     const endpointDraft = ref('');
-    const field = ref<'key' | 'endpoint'>('key');
+    const field = ref<'key' | 'endpoint' | 'fetch'>('key');
 
     watch(
         () => props.editing,
@@ -212,7 +221,7 @@
                         transition: contentExitTransition,
                     }"
                     :transition="contentEnterTransition"
-                    class="absolute m-0 line-clamp-2 overflow-hidden text-caption whitespace-pre-line text-text-secondary"
+                    class="absolute m-0 line-clamp-2 overflow-hidden text-caption whitespace-pre-line text-settings-text"
                     style="left: 98px; top: 48px; right: 100px"
                     :title="description"
                 >
@@ -281,36 +290,57 @@
                     :transition="fieldsEnterTransition"
                     class="absolute inset-x-3.5 bottom-3.5 flex items-center gap-2"
                 >
-                    <div class="min-w-0 flex-1">
-                        <Input
-                            v-if="field === 'endpoint'"
-                            v-model="endpointDraft"
-                            variant="filled"
-                            class="h-9 text-xs"
-                            type="url"
-                            :data-testid="`search-${id}-base-url-input`"
-                            :placeholder="endpointPlaceholder"
-                            spellcheck="false"
-                        />
-                        <PasswordInput
-                            v-else
-                            v-model="keyDraft"
-                            variant="filled"
-                            :input-test-id="`search-${id}-api-key-input`"
-                            :placeholder="keyPlaceholder"
-                            class="!mt-0"
-                            input-class="h-9 py-0 pr-10 text-xs"
-                        />
-                    </div>
-                    <Button
-                        variant="strong"
-                        class="h-9 shrink-0"
-                        data-testid="search-provider-editor-save"
-                        :disabled="!canSave"
-                        @click="save"
-                    >
-                        {{ t('settings.search.editor.save') }}
-                    </Button>
+                    <template v-if="field === 'fetch'">
+                        <div class="flex min-w-0 flex-1 items-center justify-between gap-3">
+                            <div class="min-w-0">
+                                <p class="m-0 text-compact leading-5 text-settings-text">
+                                    {{ t('settings.search.provider.fetchEnabled') }}
+                                </p>
+                                <p class="m-0 mt-0.5 text-caption leading-4 text-settings-text">
+                                    {{ t('settings.search.provider.fetchEnabled.description') }}
+                                </p>
+                            </div>
+                            <Switch
+                                :data-testid="`search-provider-fetch-toggle-${id}`"
+                                :aria-label="t('settings.search.provider.fetchEnabled')"
+                                :model-value="fetchEnabled"
+                                :disabled="disabled"
+                                @update:model-value="emit('fetch-enabled', $event)"
+                            />
+                        </div>
+                    </template>
+                    <template v-else>
+                        <div class="min-w-0 flex-1">
+                            <Input
+                                v-if="field === 'endpoint'"
+                                v-model="endpointDraft"
+                                variant="filled"
+                                class="h-9 text-xs"
+                                type="url"
+                                :data-testid="`search-${id}-base-url-input`"
+                                :placeholder="endpointPlaceholder"
+                                spellcheck="false"
+                            />
+                            <PasswordInput
+                                v-else
+                                v-model="keyDraft"
+                                variant="filled"
+                                :input-test-id="`search-${id}-api-key-input`"
+                                :placeholder="keyPlaceholder"
+                                class="!mt-0"
+                                input-class="h-9 py-0 pr-10 text-xs"
+                            />
+                        </div>
+                        <Button
+                            variant="strong"
+                            class="h-9 shrink-0"
+                            data-testid="search-provider-editor-save"
+                            :disabled="!canSave"
+                            @click="save"
+                        >
+                            {{ t('settings.search.editor.save') }}
+                        </Button>
+                    </template>
                 </motion.div>
             </AnimatePresence>
         </div>

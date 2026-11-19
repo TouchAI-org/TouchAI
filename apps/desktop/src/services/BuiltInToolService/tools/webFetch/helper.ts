@@ -1,6 +1,7 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import { Readability } from '@mozilla/readability';
+import type { SearchFetchProvider } from '@services/SettingsService/domain';
 import TurndownService from 'turndown';
 
 import { t, tt } from '@/i18n';
@@ -38,6 +39,7 @@ export interface WebFetchRequest {
     maxChars: number;
     timeoutMs: number;
     maxResponseBytes: number;
+    provider?: SearchFetchProvider;
 }
 
 interface ResponseTextPayload {
@@ -182,6 +184,7 @@ export function parseWebFetchRequest(args: Record<string, unknown>): WebFetchReq
         url: parsedUrl,
         mode: parsedArgs.mode,
         maxChars: parsedArgs.maxChars,
+        provider: parsedArgs.provider,
         timeoutMs: parsedArgs.timeoutMs ?? DEFAULT_TIMEOUT_MS,
         maxResponseBytes: parsedArgs.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES,
     };
