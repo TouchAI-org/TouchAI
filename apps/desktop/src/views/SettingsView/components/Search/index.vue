@@ -573,6 +573,7 @@
                     <h2 class="settings-section-title">{{ t('settings.search.section.basic') }}</h2>
                     <div class="settings-row-group divide-y divide-neutral-200/70">
                         <SettingsRow
+                            v-if="draft.routingStrategy === 'manual'"
                             data-settings-search-target="search-default-provider"
                             control-width="320"
                             :label="t('settings.search.defaultProvider')"
@@ -623,28 +624,6 @@
                                 :disabled="!toolEnabled"
                             />
                         </SettingsRow>
-                    </div>
-                </section>
-
-                <section class="mt-10 space-y-4" data-settings-search-target="search-strategy">
-                    <h2 class="settings-section-title">
-                        {{ t('settings.search.section.strategy') }}
-                    </h2>
-                    <div class="settings-row-group divide-y divide-neutral-200/70">
-                        <div data-settings-search-target="search-strategy" class="px-5 py-5">
-                            <div class="text-compact leading-6 font-normal text-settings-text">
-                                {{ t('settings.search.strategy') }}
-                            </div>
-                            <div class="mt-1 text-xs text-neutral-500">
-                                {{ t('settings.search.strategy.description') }}
-                            </div>
-                            <div class="mt-4">
-                                <SearchStrategyChoices
-                                    v-model="draft.routingStrategy"
-                                    :disabled="!toolEnabled"
-                                />
-                            </div>
-                        </div>
                         <SettingsRow
                             v-if="draft.routingStrategy !== 'manual'"
                             data-settings-search-target="search-parallelProviders"
@@ -694,55 +673,15 @@
                     </div>
                 </section>
 
-                <section class="mt-10 space-y-4" data-settings-search-target="search-providers">
+                <section class="mt-10 space-y-4" data-settings-search-target="search-strategy">
                     <h2 class="settings-section-title">
-                        {{ t('settings.search.section.engines') }}
+                        {{ t('settings.search.section.strategy') }}
                     </h2>
-                    <div v-for="group in providerGroups" :key="group.label" class="space-y-3">
-                        <h3 class="text-compact font-medium text-settings-text">
-                            {{ t(group.label) }}
-                        </h3>
-                        <div class="grid grid-cols-1 items-start gap-3 @2xl:grid-cols-2">
-                            <SearchProviderCard
-                                v-for="providerId in group.ids"
-                                :id="providerId"
-                                :key="providerId"
-                                :label="t(providerMessages[providerId].label)"
-                                :description="t(providerMessages[providerId].description)"
-                                :logo="providerLogos[providerId]!"
-                                :quota="
-                                    providerMessages[providerId].quotaLabel
-                                        ? t(providerMessages[providerId].quotaLabel!)
-                                        : null
-                                "
-                                :enabled="providerConfig(providerId).enabled"
+                    <div class="settings-row-group">
+                        <div class="px-5 py-5">
+                            <SearchStrategyChoices
+                                v-model="draft.routingStrategy"
                                 :disabled="!toolEnabled"
-                                :editable="
-                                    providerAcceptsApiKey(providerId) ||
-                                    providerRequiresEndpoint(providerId)
-                                "
-                                :editing="editingProvider === providerId"
-                                :credential="providerConfig(providerId).apiKey"
-                                :endpoint-value="providerConfig(providerId).endpoint"
-                                :endpoint-required="providerRequiresEndpoint(providerId)"
-                                :supports-endpoint="providersWithEndpoint.has(providerId)"
-                                :supports-fetch="
-                                    (
-                                        SEARCH_FETCH_PROVIDERS as readonly SearchProviderId[]
-                                    ).includes(providerId)
-                                "
-                                :fetch-enabled="providerConfig(providerId).fetchEnabled !== false"
-                                :logo-has-background="providerLogoHasBackground.has(providerId)"
-                                :endpoint-placeholder="
-                                    t('settings.search.provider.baseUrlPlaceholder')
-                                "
-                                :key-placeholder="t(providerMessages[providerId].keyPlaceholder)"
-                                :api-key-required="providerRequiresApiKey(providerId)"
-                                @enabled="updateProviderEnabled(providerId, $event)"
-                                @edit="beginProviderEdit(providerId)"
-                                @cancel="cancelProviderEdit"
-                                @save="saveProviderCredentials(providerId, $event)"
-                                @fetch-enabled="updateProviderFetchEnabled(providerId, $event)"
                             />
                         </div>
                     </div>
@@ -756,22 +695,38 @@
                     <h2 class="settings-section-title">
                         {{ t('settings.search.section.routing') }}
                     </h2>
-                    <div class="settings-row-group divide-y divide-neutral-200/70">
-                        <SettingsRow
-                            v-for="source in draft.routingStrategy === 'capability'
-                                ? SEARCH_SOURCES
-                                : []"
-                            :key="source"
-                            :label="t(sourceMessages[source])"
-                            control-width="320"
-                        >
-                            <CustomSelect
-                                v-model="draft.sourceRoutes[source]"
-                                :data-testid="`search-source-route-${source}`"
-                                :options="enabledProviderOptions"
-                                :disabled="!toolEnabled"
-                            />
-                        </SettingsRow>
+                    <div class="settings-row-group p-4">
+                        <div class="grid gap-2">
+                            <div
+                                v-for="source in SEARCH_SOURCES"
+                                :key="source"
+                                class="flex min-w-0 items-center gap-2 rounded-control border border-border-subtle bg-surface-floating px-3 py-2"
+                            >
+                                <span
+                                    class="flex size-5 shrink-0 items-center justify-center rounded-full bg-surface-sunken"
+                                >
+                                    <span class="size-1.5 rounded-full bg-primary-500" />
+                                </span>
+                                <span
+                                    class="w-20 shrink-0 truncate text-compact text-settings-text"
+                                >
+                                    {{ t(sourceMessages[source]) }}
+                                </span>
+                                <span class="h-px min-w-3 flex-1 bg-border-subtle" />
+                                <AppIcon
+                                    name="chevron-right"
+                                    class="size-3 shrink-0 text-text-tertiary"
+                                />
+                                <div class="w-40 shrink-0">
+                                    <CustomSelect
+                                        v-model="draft.sourceRoutes[source]"
+                                        :data-testid="`search-source-route-${source}`"
+                                        :options="enabledProviderOptions"
+                                        :disabled="!toolEnabled"
+                                    />
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </section>
 
@@ -785,9 +740,6 @@
                             <h2 class="settings-section-title">
                                 {{ t('settings.search.priority') }}
                             </h2>
-                            <p class="settings-section-description">
-                                {{ t('settings.search.priority.hint') }}
-                            </p>
                         </div>
                     </div>
                     <p v-if="disabledPriorityCount > 0" class="text-caption text-text-tertiary">
@@ -866,6 +818,59 @@
                             </Button>
                         </li>
                     </VueDraggable>
+                </section>
+                <section class="mt-10 space-y-4" data-settings-search-target="search-providers">
+                    <h2 class="settings-section-title">
+                        {{ t('settings.search.section.engines') }}
+                    </h2>
+                    <div v-for="group in providerGroups" :key="group.label" class="space-y-3">
+                        <h3 class="text-compact font-medium text-settings-text">
+                            {{ t(group.label) }}
+                        </h3>
+                        <div class="grid grid-cols-1 items-start gap-3 @2xl:grid-cols-2">
+                            <SearchProviderCard
+                                v-for="providerId in group.ids"
+                                :id="providerId"
+                                :key="providerId"
+                                :label="t(providerMessages[providerId].label)"
+                                :description="t(providerMessages[providerId].description)"
+                                :logo="providerLogos[providerId]!"
+                                :quota="
+                                    providerMessages[providerId].quotaLabel
+                                        ? t(providerMessages[providerId].quotaLabel!)
+                                        : null
+                                "
+                                :enabled="providerConfig(providerId).enabled"
+                                :disabled="!toolEnabled"
+                                :editable="
+                                    providerAcceptsApiKey(providerId) ||
+                                    providerRequiresEndpoint(providerId)
+                                "
+                                :editing="editingProvider === providerId"
+                                :credential="providerConfig(providerId).apiKey"
+                                :endpoint-value="providerConfig(providerId).endpoint"
+                                :endpoint-required="providerRequiresEndpoint(providerId)"
+                                :supports-endpoint="providersWithEndpoint.has(providerId)"
+                                :supports-fetch="
+                                    (
+                                        SEARCH_FETCH_PROVIDERS as readonly SearchProviderId[]
+                                    ).includes(providerId)
+                                "
+                                :fetch-enabled="providerConfig(providerId).fetchEnabled !== false"
+                                :logo-has-background="providerLogoHasBackground.has(providerId)"
+                                :endpoint-placeholder="
+                                    t('settings.search.provider.baseUrlPlaceholder')
+                                "
+                                :key-placeholder="t(providerMessages[providerId].keyPlaceholder)"
+                                :api-key-required="providerRequiresApiKey(providerId)"
+                                @enabled="updateProviderEnabled(providerId, $event)"
+                                @edit="beginProviderEdit(providerId)"
+                                @cancel="cancelProviderEdit"
+                                @save="saveProviderCredentials(providerId, $event)"
+                                @fetch-enabled="updateProviderFetchEnabled(providerId, $event)"
+                            />
+                        </div>
+                    </div>
                 </section>
             </fieldset>
             <p v-if="saveState === 'error'" role="alert" class="text-compact text-text-danger">

@@ -367,7 +367,7 @@ const zhCNMessages = {
     'settings.search.moveEarlier': '将 {name} 提前',
     'settings.search.moveLater': '将 {name} 延后',
     'settings.search.saveError': '搜索设置保存失败，请重试。',
-    'settings.search.section.strategy': '选择策略',
+    'settings.search.section.strategy': '搜索策略',
     'settings.search.strategy': '搜索引擎选择方式',
     'settings.search.strategy.description': '决定每次搜索时由谁选择搜索引擎',
     'settings.search.strategy.model': '模型自选',
@@ -1701,7 +1701,7 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.search.moveEarlier': 'Move {name} earlier',
     'settings.search.moveLater': 'Move {name} later',
     'settings.search.saveError': 'Search settings could not be saved. Please retry.',
-    'settings.search.section.strategy': 'Strategy',
+    'settings.search.section.strategy': 'Search strategy',
     'settings.search.strategy': 'Search engine selection',
     'settings.search.strategy.description':
         'Choose how the search engine is picked for each request',

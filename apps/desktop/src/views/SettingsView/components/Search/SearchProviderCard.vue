@@ -296,7 +296,7 @@
                                 <p class="m-0 text-compact leading-5 text-settings-text">
                                     {{ t('settings.search.provider.fetchEnabled') }}
                                 </p>
-                                <p class="m-0 mt-0.5 text-caption leading-4 text-settings-text">
+                                <p class="m-0 mt-0.5 text-caption text-muted-foreground">
                                     {{ t('settings.search.provider.fetchEnabled.description') }}
                                 </p>
                             </div>
