@@ -1,39 +1,13 @@
 import type { SessionTurnAttemptHistoryRow } from '@database/queries/sessionTurnAttempts';
 import type { SessionTurnHistoryRow } from '@database/queries/sessionTurns';
 import { createMessagePart, createMessageRow } from '@tests/utils/messages';
+import { buildSessionHistory } from '@tests/utils/sessionHistory';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { selectToolCalls } from '@/app/api/agent/history';
 import { setLocale } from '@/i18n';
-import { buildSessionHistory } from '@/services/AgentService/session/history';
-import { selectToolCalls } from '@/utils/session';
 
 const BASE_TIME = '2026-05-22T10:00:00.000Z';
-
-vi.mock('@/services/BuiltInToolService/registry', () => ({
-    builtInToolRegistry: {
-        get: (toolId: string) =>
-            toolId === 'bash'
-                ? {
-                      id: 'bash',
-                      displayName: 'Bash',
-                      buildConversationSemantic: (args: Record<string, unknown>) => ({
-                          action: 'run',
-                          target: typeof args.command === 'string' ? args.command : 'Bash',
-                      }),
-                  }
-                : null,
-        list: () => [
-            {
-                id: 'bash',
-                displayName: 'Bash',
-            },
-        ],
-    },
-}));
-
-vi.mock('@/services/BuiltInToolService/tools/widgetTool', () => ({
-    SHOW_WIDGET_TOOL_NAME: 'builtin__show_widget',
-}));
 
 function createTurn(overrides: Partial<SessionTurnHistoryRow>): SessionTurnHistoryRow {
     return {

@@ -1,11 +1,11 @@
 <script setup lang="ts">
     import AlertMessage from '@components/AlertMessage.vue';
     import AppIcon from '@components/AppIcon.vue';
-    import { type ShortcutCaptureSystemKeyEvent } from '@services/EventService';
-    import { log } from '@services/ObservabilityService';
     import { storeToRefs } from 'pinia';
     import { computed, ref } from 'vue';
 
+    import { log } from '@/app/api/diagnostics';
+    import { type ShortcutCaptureSystemKeyEvent } from '@/app/api/settings/events';
     import {
         getSearchKeybindingDefinition,
         SEARCH_KEYBINDING_DEFINITIONS,

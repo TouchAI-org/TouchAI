@@ -1,13 +1,10 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
+import type { AiStreamChunk } from '@touchai/models/contracts';
+import { OpenAICompatibleProviderAdapter } from '@touchai/models/providers/openai-compatible';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { AiStreamChunk } from '@/services/AgentService/contracts/protocol';
-import { OpenAICompatibleProviderAdapter } from '@/services/AgentService/infrastructure/providers/adapters/openai-compatible';
-
 const { httpFetch } = vi.hoisted(() => ({ httpFetch: vi.fn() }));
-
-vi.mock('@tauri-apps/plugin-http', () => ({ fetch: httpFetch }));
 
 function response(usage: unknown): Response {
     const chunks = [
@@ -35,10 +32,13 @@ function response(usage: unknown): Response {
 
 async function answer(usage: unknown): Promise<AiStreamChunk[]> {
     httpFetch.mockResolvedValueOnce(response(usage));
-    const adapter = new OpenAICompatibleProviderAdapter({
-        apiEndpoint: 'https://controlled.test/v1',
-        apiKey: 'controlled-key',
-    });
+    const adapter = new OpenAICompatibleProviderAdapter(
+        {
+            apiEndpoint: 'https://controlled.test/v1',
+            apiKey: 'controlled-key',
+        },
+        createTestModelsHost(httpFetch)
+    );
     const chunks: AiStreamChunk[] = [];
     for await (const chunk of adapter.stream({
         model: 'controlled-model',
@@ -111,3 +111,4 @@ describe('given a compatible provider sends usage through the installed SDK', ()
         expect(lastChunk(missing)?.usageReported).toBe(false);
     });
 });
+import { createTestModelsHost } from '@tests/utils/provider';

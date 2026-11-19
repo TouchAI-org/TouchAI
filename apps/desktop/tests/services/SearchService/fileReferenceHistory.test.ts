@@ -1,12 +1,12 @@
-import type { QuickShortcutItem } from '@services/NativeService';
-import { log } from '@services/ObservabilityService';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
     FILE_REFERENCE_HISTORY_QUERY,
     loadFileReferenceSuggestions,
     recordAcceptedFileReference,
-} from '@/services/SearchService/fileReferenceHistory';
+} from '@/modules/search/fileReferenceHistory.io';
+import { log } from '@/platform/diagnostics';
+import type { QuickShortcutItem } from '@/platform/native';
 
 const { findRecentQuickSearchClicksByQueryMock, upsertQuickSearchClickMock } = vi.hoisted(() => ({
     findRecentQuickSearchClicksByQueryMock: vi.fn(),

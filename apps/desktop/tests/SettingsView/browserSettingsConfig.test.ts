@@ -1,67 +1,16 @@
-import { createPinia, setActivePinia } from 'pinia';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-const settingsValues = new Map<string, string | null>();
-const setSettingMock = vi.hoisted(() =>
-    vi.fn(async ({ key, value }: { key: string; value: string }) => {
-        settingsValues.set(key, value);
-        return { id: 1, key, value, created_at: '', updated_at: '' };
-    })
-);
-const getSettingValueMock = vi.hoisted(() =>
-    vi.fn(async ({ key }: { key: string }) => settingsValues.get(key) ?? null)
-);
-const getSettingValuesMock = vi.hoisted(() =>
-    vi.fn(async ({ keys }: { keys: string[] }) =>
-        Object.fromEntries(keys.map((key) => [key, settingsValues.get(key) ?? null]))
-    )
-);
-
-vi.mock('@database/queries', () => ({
-    getSettingValue: getSettingValueMock,
-    getSettingValues: getSettingValuesMock,
-    setSetting: setSettingMock,
-}));
-
-vi.mock('@services/EventService', () => ({
-    AppEvent: { SETTINGS_GENERAL_UPDATED: 'settings-general-updated' },
-    eventService: {
-        emit: vi.fn(async () => undefined),
-        on: vi.fn(async () => undefined),
-    },
-}));
-
-vi.mock('@tauri-apps/api/window', () => ({
-    getCurrentWindow: () => ({ label: 'settings' }),
-}));
-
-import { createSettingsBus } from '@tests/utils/settingsTransport';
-
-import { setActiveSettingsService } from '@/services/SettingsService';
-import { SettingsService } from '@/services/SettingsService/service';
+import { closeTestDatabases } from '@tests/database/sqliteHarness';
+import { createSettingsWindowFixture } from '@tests/utils/settingsWindow';
+import { afterEach, describe, expect, it } from 'vitest';
+afterEach(closeTestDatabases);
 
 describe('user edits the browser settings', () => {
-    beforeEach(() => {
-        settingsValues.clear();
-        setSettingMock.mockClear();
-        getSettingValueMock.mockClear();
-        setActivePinia(createPinia());
-        // The settings store now mirrors the single owner; provide it a bus-backed owner.
-        const bus = createSettingsBus();
-        setActiveSettingsService(new SettingsService({ transport: bus.transport('main') }));
-    });
-
-    afterEach(() => {
-        setActiveSettingsService(null);
-    });
-
     it('user normalizes defaults and invalid json', async () => {
         const {
             DEFAULT_BROWSER_SETTINGS,
             getDefaultHomepageError,
             parseBrowserSettingsConfig,
             serializeBrowserSettingsConfig,
-        } = await import('@services/SettingsService/domain');
+        } = await import('@/app/api/settings/tools');
 
         expect(DEFAULT_BROWSER_SETTINGS.version).toBe(1);
         expect(DEFAULT_BROWSER_SETTINGS.defaultHomepage).toBe('https://touch-ai.org');
@@ -91,7 +40,7 @@ describe('user edits the browser settings', () => {
     });
 
     it('user trims string fields and preserves configured permissions', async () => {
-        const { parseBrowserSettingsConfig } = await import('@services/SettingsService/domain');
+        const { parseBrowserSettingsConfig } = await import('@/app/api/settings/tools');
 
         expect(
             parseBrowserSettingsConfig(
@@ -144,7 +93,7 @@ describe('user edits the browser settings', () => {
     });
 
     it('user derives the merged fingerprint profile from legacy fingerprint fields', async () => {
-        const { parseBrowserSettingsConfig } = await import('@services/SettingsService/domain');
+        const { parseBrowserSettingsConfig } = await import('@/app/api/settings/tools');
 
         expect(
             parseBrowserSettingsConfig(
@@ -173,39 +122,35 @@ describe('user edits the browser settings', () => {
         });
     });
 
-    it('user loads and saves browser settings through the existing settings store', async () => {
-        const { DEFAULT_BROWSER_SETTINGS } = await import('@services/SettingsService/domain');
-        const { useSettingsStore } = await import('@/stores/settings');
-        settingsValues.set(
-            'browser_settings',
-            JSON.stringify({
+    it('user loads saved browser configuration and commits edits through the main writer', async () => {
+        const fixture = createSettingsWindowFixture({
+            label: 'settings',
+            values: {
+                browser_settings: JSON.stringify({
+                    defaultHomepage: 'https://example.test/home',
+                    existingSessionPolicy: 'deny',
+                }),
+            },
+        });
+        try {
+            await fixture.initialize();
+            const store = fixture.tools();
+            await store.initialize();
+            expect(store.browserSettings).toMatchObject({
                 defaultHomepage: 'https://example.test/home',
                 existingSessionPolicy: 'deny',
-            })
-        );
-
-        const store = useSettingsStore();
-        await store.initialize();
-
-        expect(store.settings.browserSettings).toMatchObject({
-            ...DEFAULT_BROWSER_SETTINGS,
-            defaultHomepage: 'https://example.test/home',
-            existingSessionPolicy: 'deny',
-        });
-
-        await store.updateBrowserSettings({
-            ...store.settings.browserSettings,
-            defaultHomepage: 'https://example.test/next',
-            headless: true,
-        });
-
-        expect(setSettingMock).toHaveBeenLastCalledWith({
-            key: 'browser_settings',
-            value: expect.stringContaining('https://example.test/next'),
-        });
-        expect(setSettingMock).toHaveBeenLastCalledWith({
-            key: 'browser_settings',
-            value: expect.stringContaining('"headless":true'),
-        });
+            });
+            await store.updateBrowserSettings({
+                ...store.browserSettings,
+                defaultHomepage: 'https://example.test/next',
+                headless: true,
+            });
+            expect(JSON.parse(fixture.values.get('browser_settings')!)).toMatchObject({
+                defaultHomepage: 'https://example.test/next',
+                headless: true,
+            });
+        } finally {
+            fixture.dispose();
+        }
     });
 });

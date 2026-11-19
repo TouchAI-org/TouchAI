@@ -1,6 +1,6 @@
-﻿// Copyright (c) 2026. Qian Cheng. Licensed under GPL v3.
-
+import { createTestWindowPresentation } from '@tests/utils/windowPresentation'; // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3.
 import { mount } from '@vue/test-utils';
+import { beforeEach as beforePresentation } from 'vitest';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { setLocale } from '@/i18n';
@@ -148,4 +148,8 @@ describe('user filters the usage page', () => {
 
         expect(wrapper.get('input').attributes('placeholder')).toBe('Search models or providers');
     });
+});
+
+beforePresentation(async () => {
+    (await createTestWindowPresentation('settings')).install();
 });

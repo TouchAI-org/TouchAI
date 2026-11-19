@@ -1,10 +1,8 @@
+import { createFileSearchToolsFixture } from '@tests/utils/fileSearchTools';
 import { describe, expect, it } from 'vitest';
 
 import { setLocale } from '@/i18n';
-import {
-    buildEverythingQuery,
-    formatFileSearchResult,
-} from '@/services/BuiltInToolService/tools/fileSearch/helper';
+const { buildEverythingQuery, formatFileSearchResult } = createFileSearchToolsFixture();
 
 /**
  * FileSearch turns the model's structured arguments into one Everything query string. Everything

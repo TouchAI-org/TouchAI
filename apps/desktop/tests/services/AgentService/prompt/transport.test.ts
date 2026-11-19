@@ -1,12 +1,13 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import type { AttachmentIndex } from '@services/AgentService/infrastructure/attachments';
+import { describe, expect, it } from 'vitest';
+
 import {
     buildPromptAttachmentSlots,
     buildPromptTransportMessages,
-} from '@services/AgentService/prompt/transport';
-import type { PromptSnapshot } from '@services/AgentService/prompt/types';
-import { describe, expect, it } from 'vitest';
+} from '@/app/workflows/agent/transport';
+import type { PromptSnapshot } from '@/modules/agent/contracts/prompt';
+import type { AttachmentIndex } from '@/modules/attachments';
 
 function snapshot(overrides: Partial<PromptSnapshot> = {}): PromptSnapshot {
     return { systemPrompt: '', userPrompt: '', ...overrides } as PromptSnapshot;

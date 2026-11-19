@@ -1,7 +1,8 @@
 import { mountComposable } from '@tests/utils/composables';
+import { withTestSkillSearch } from '@tests/utils/searchHost';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { SelectedSkill, SkillMetadata } from '@/services/AgentService/skills';
+import type { SelectedSkill, SkillMetadata } from '@/modules/skills';
 import {
     containsSkillQuery,
     filterSkillCandidates,
@@ -193,11 +194,13 @@ describe('given the catalog includes a selected skill', () => {
             path: `/skills/skill-${index}/SKILL.md`,
         }));
         const onSelect = vi.fn();
-        const picker = useSkillAutocomplete({
-            discoverSkills: async () => catalog,
-            getSelectedSkills: () => [],
-            onSelect,
-        });
+        const picker = useSkillAutocomplete(
+            withTestSkillSearch({
+                discoverSkills: async () => catalog,
+                getSelectedSkills: () => [],
+                onSelect,
+            })
+        );
         await picker.refresh('/');
         expect(picker.candidates.value).toHaveLength(catalog.length);
         for (let index = 0; index < catalog.length; index++) {
@@ -230,11 +233,13 @@ describe('given the catalog includes a selected skill', () => {
 
 describe('given the user is entering a skill query', () => {
     it('user given the first or last skill when navigating beyond it then follows the same bounded selection as files', async () => {
-        const picker = useSkillAutocomplete({
-            discoverSkills: async () => skills,
-            getSelectedSkills: () => [],
-            onSelect: () => undefined,
-        });
+        const picker = useSkillAutocomplete(
+            withTestSkillSearch({
+                discoverSkills: async () => skills,
+                getSelectedSkills: () => [],
+                onSelect: () => undefined,
+            })
+        );
         await picker.refresh('/');
         picker.handleKeyDown(keyboardEvent('ArrowUp').event);
         expect(picker.highlightedIndex.value).toBe(-1);
@@ -252,11 +257,13 @@ describe('given the user is entering a skill query', () => {
         'user given visible %s suggestions when editing the keyword then keeps the picker open until filtering completes',
         async (prefix) => {
             const onSelect = vi.fn();
-            const picker = useSkillAutocomplete({
-                discoverSkills: async () => skills,
-                getSelectedSkills: () => [],
-                onSelect,
-            });
+            const picker = useSkillAutocomplete(
+                withTestSkillSearch({
+                    discoverSkills: async () => skills,
+                    getSelectedSkills: () => [],
+                    onSelect,
+                })
+            );
             await picker.refresh(prefix);
             picker.moveHighlight(1);
 
@@ -286,11 +293,13 @@ describe('given the user is entering a skill query', () => {
         'user requests insertion for %s without choosing a candidate and keeps the picker open',
         async (prefix) => {
             const selections: SelectedSkill[] = [];
-            const picker = useSkillAutocomplete({
-                discoverSkills: async () => skills,
-                getSelectedSkills: () => [],
-                onSelect: (skill) => selections.push(skill),
-            });
+            const picker = useSkillAutocomplete(
+                withTestSkillSearch({
+                    discoverSkills: async () => skills,
+                    getSelectedSkills: () => [],
+                    onSelect: (skill) => selections.push(skill),
+                })
+            );
             await picker.refresh(prefix);
             expect(picker.highlightedSkill.value).toBeNull();
 
@@ -308,11 +317,13 @@ describe('given the user is entering a skill query', () => {
             const { event, preventDefault, stopPropagation } = keyboardEvent('Enter');
 
             const mounted = await mountComposable(() =>
-                useSkillAutocomplete({
-                    discoverSkills: async () => skills,
-                    getSelectedSkills: () => [],
-                    onSelect,
-                })
+                useSkillAutocomplete(
+                    withTestSkillSearch({
+                        discoverSkills: async () => skills,
+                        getSelectedSkills: () => [],
+                        onSelect,
+                    })
+                )
             );
 
             await mounted.result.refresh(`please use ${prefix}ui-ux`);
@@ -349,11 +360,13 @@ describe('given the user is entering a skill query', () => {
     it('user keeps a completed path after a pending slash query finishes loading', async () => {
         const catalog = deferred<SkillMetadata[]>();
         const selections: SelectedSkill[] = [];
-        const picker = useSkillAutocomplete({
-            discoverSkills: async () => catalog.promise,
-            getSelectedSkills: () => [],
-            onSelect: (skill) => selections.push(skill),
-        });
+        const picker = useSkillAutocomplete(
+            withTestSkillSearch({
+                discoverSkills: async () => catalog.promise,
+                getSelectedSkills: () => [],
+                onSelect: (skill) => selections.push(skill),
+            })
+        );
 
         const loading = picker.refresh('/usr');
         expect(picker.isOpen.value).toBe(false);
@@ -378,11 +391,13 @@ describe('given the user is entering a skill query', () => {
             .mockResolvedValueOnce([skills[0]])
             .mockResolvedValueOnce([skills[1]]);
         const mounted = await mountComposable(() =>
-            useSkillAutocomplete({
-                discoverSkills,
-                getSelectedSkills: () => [],
-                onSelect: vi.fn(),
-            })
+            useSkillAutocomplete(
+                withTestSkillSearch({
+                    discoverSkills,
+                    getSelectedSkills: () => [],
+                    onSelect: vi.fn(),
+                })
+            )
         );
 
         await mounted.result.refresh('please use $');
@@ -406,11 +421,13 @@ describe('given the user is entering a skill query', () => {
     it('user closes when the trigger disappears and ignores the stale catalog response', async () => {
         const catalog = deferred<SkillMetadata[]>();
         const mounted = await mountComposable(() =>
-            useSkillAutocomplete({
-                discoverSkills: async () => catalog.promise,
-                getSelectedSkills: () => [],
-                onSelect: vi.fn(),
-            })
+            useSkillAutocomplete(
+                withTestSkillSearch({
+                    discoverSkills: async () => catalog.promise,
+                    getSelectedSkills: () => [],
+                    onSelect: vi.fn(),
+                })
+            )
         );
 
         const firstRefresh = mounted.result.refresh('please use $');
@@ -436,13 +453,15 @@ describe('given the user is entering a skill query', () => {
     it('user retains a failed skill query for retry while suggestions stay hidden', async () => {
         const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const mounted = await mountComposable(() =>
-            useSkillAutocomplete({
-                discoverSkills: async () => {
-                    throw new Error('catalog unavailable');
-                },
-                getSelectedSkills: () => [],
-                onSelect: vi.fn(),
-            })
+            useSkillAutocomplete(
+                withTestSkillSearch({
+                    discoverSkills: async () => {
+                        throw new Error('catalog unavailable');
+                    },
+                    getSelectedSkills: () => [],
+                    onSelect: vi.fn(),
+                })
+            )
         );
 
         await mounted.result.refresh('please use $code');
@@ -465,11 +484,13 @@ describe('given the user is entering a skill query', () => {
 
     it('user navigates available skills and lets unrelated keys bubble', async () => {
         const mounted = await mountComposable(() =>
-            useSkillAutocomplete({
-                discoverSkills: async () => skills,
-                getSelectedSkills: () => [],
-                onSelect: vi.fn(),
-            })
+            useSkillAutocomplete(
+                withTestSkillSearch({
+                    discoverSkills: async () => skills,
+                    getSelectedSkills: () => [],
+                    onSelect: vi.fn(),
+                })
+            )
         );
 
         await mounted.result.refresh('please use $');
@@ -504,11 +525,13 @@ describe('given the user is entering a skill query', () => {
     it('user keeps keyboard selection safe when no candidates are available', async () => {
         const onSelect = vi.fn();
         const mounted = await mountComposable(() =>
-            useSkillAutocomplete({
-                discoverSkills: async () => skills,
-                getSelectedSkills: () => skills.map(({ name, path }) => ({ name, path })),
-                onSelect,
-            })
+            useSkillAutocomplete(
+                withTestSkillSearch({
+                    discoverSkills: async () => skills,
+                    getSelectedSkills: () => skills.map(({ name, path }) => ({ name, path })),
+                    onSelect,
+                })
+            )
         );
 
         await mounted.result.refresh('please use $');
@@ -536,11 +559,13 @@ describe('given the user is entering a skill query', () => {
     it('user ignores direct selection when there is no active trigger', async () => {
         const onSelect = vi.fn();
         const mounted = await mountComposable(() =>
-            useSkillAutocomplete({
-                discoverSkills: async () => skills,
-                getSelectedSkills: () => [],
-                onSelect,
-            })
+            useSkillAutocomplete(
+                withTestSkillSearch({
+                    discoverSkills: async () => skills,
+                    getSelectedSkills: () => [],
+                    onSelect,
+                })
+            )
         );
 
         mounted.result.selectSkill(skills[0]!);

@@ -1,0 +1,55 @@
+// Copyright (c) 2026. 千诚. Licensed under GPL v3.
+
+import { sendWindowNotification } from '@/platform/windows/notifications';
+export { initNotificationPermission } from '@/platform/windows/notifications';
+
+import { type MessageParams, type SourceText, tt } from '@/i18n';
+
+type NotificationTitle =
+    | {
+          title: string;
+          titleSource?: never;
+          titleParams?: never;
+      }
+    | {
+          title?: never;
+          titleSource: SourceText;
+          titleParams?: MessageParams;
+      }
+    | {
+          title?: never;
+          titleSource?: never;
+          titleParams?: never;
+      };
+
+type NotificationBody =
+    | {
+          body: string;
+          bodySource?: never;
+          bodyParams?: never;
+      }
+    | {
+          body?: never;
+          bodySource: SourceText;
+          bodyParams?: MessageParams;
+      }
+    | {
+          body?: never;
+          bodySource?: never;
+          bodyParams?: never;
+      };
+
+export type NotificationOptions = NotificationTitle & NotificationBody;
+
+export function notify(options: NotificationOptions): void {
+    sendWindowNotification({
+        title:
+            options.titleSource !== undefined
+                ? tt(options.titleSource, options.titleParams)
+                : (options.title ?? ''),
+        body:
+            options.bodySource !== undefined
+                ? tt(options.bodySource, options.bodyParams)
+                : (options.body ?? ''),
+    });
+}

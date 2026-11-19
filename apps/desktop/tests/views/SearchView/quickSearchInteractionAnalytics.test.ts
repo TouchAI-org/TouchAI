@@ -1,4 +1,3 @@
-import type { QuickSearchResult, QuickShortcutItem } from '@services/NativeService';
 import { mountComposable } from '@tests/utils/composables';
 import { deferred, installProductAnalytics } from '@tests/utils/productAnalytics';
 import { mockTauriCommand } from '@tests/utils/tauri';
@@ -6,6 +5,7 @@ import { flushPromises } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ref } from 'vue';
 
+import type { QuickSearchResult, QuickShortcutItem } from '@/platform/native';
 import { useQuickSearchLogic } from '@/views/SearchView/components/QuickSearchPanel/composables/useQuickSearchLogic';
 
 const { openPath, revealItemInDir } = vi.hoisted(() => ({

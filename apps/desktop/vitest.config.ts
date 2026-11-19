@@ -9,22 +9,42 @@ import { defineConfig } from 'vitest/config';
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
 export default defineConfig({
+    root: __dirname,
     plugins: [vue(), tailwindcss(), Icons()],
     test: {
         environment: 'jsdom',
         // This stylesheet is passed as text into the code renderer's Shadow DOM.
         css: { include: [/markdown-code-surface\.css/] },
         globals: true,
-        include: ['tests/**/*.test.{ts,js}'],
+        projects: [
+            {
+                extends: true,
+                test: {
+                    name: 'desktop',
+                    environment: 'jsdom',
+                    include: ['tests/**/*.test.{ts,js}'],
+                    setupFiles: ['./tests/setup/vitest.ts'],
+                },
+            },
+            {
+                extends: true,
+                test: {
+                    name: 'business-packages',
+                    environment: 'node',
+                    include: ['../../packages/*/tests/**/*.test.ts'],
+                    setupFiles: [],
+                },
+            },
+        ],
         exclude: ['node_modules', 'dist', '.idea', '.git', '.cache'],
-        setupFiles: ['./tests/setup/vitest.ts'],
         coverage: {
             provider: 'v8',
             // `json` feeds the patch-coverage gate (the lines this change touched); the others
             // feed the step summary, the uploaded artifact and local browsing.
             reporter: ['text', 'html', 'json-summary', 'json', 'lcov'],
             reportsDirectory: './.coverage/unit',
-            include: ['src/**/*.{ts,vue}'],
+            include: ['src/**/*.{ts,vue}', '../../packages/*/src/**/*.ts'],
+            allowExternal: true,
             exclude: [
                 'src/**/*.d.ts',
                 'src/main.ts',
@@ -54,19 +74,25 @@ export default defineConfig({
                 branches: 84,
                 functions: 88,
                 lines: 91,
-                'src/services/EventService/**/*.ts': {
+                'src/platform/windows/events.ts': {
                     statements: 90,
                     branches: 100,
                     functions: 100,
                     lines: 90,
                 },
-                'src/services/NativeService/**/*.ts': {
+                'src/app/api/windows/eventContracts.ts': {
+                    statements: 90,
+                    branches: 100,
+                    functions: 100,
+                    lines: 90,
+                },
+                'src/platform/native/**/*.ts': {
                     statements: 90,
                     branches: 80,
                     functions: 90,
                     lines: 90,
                 },
-                'src/services/BuiltInToolService/tools/browser/**/*.ts': {
+                'src/modules/tools/builtin/browser/**/*.ts': {
                     statements: 90,
                     branches: 90,
                     functions: 90,
@@ -124,7 +150,6 @@ export default defineConfig({
             '@components': resolve(__dirname, './src/components'),
             '@assets': resolve(__dirname, './src/assets'),
             '@composables': resolve(__dirname, './src/composables'),
-            '@services': resolve(__dirname, './src/services'),
             '@database': resolve(__dirname, './src/database'),
             '@utils': resolve(__dirname, './src/utils'),
             '@types': resolve(__dirname, './src/types'),

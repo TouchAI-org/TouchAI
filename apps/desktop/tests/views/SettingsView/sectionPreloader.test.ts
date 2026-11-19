@@ -1,3 +1,5 @@
+import { createTestWindowPresentation } from '@tests/utils/windowPresentation';
+import { beforeEach as beforePresentation } from 'vitest';
 import { describe, expect, it, vi } from 'vitest';
 
 import { createSectionPreloader } from '@/views/SettingsView/sectionPreloader';
@@ -136,4 +138,8 @@ describe('createSectionPreloader', () => {
         expect(onError).toHaveBeenCalledWith('broken', expect.any(Error));
         expect(preloader.isLoaded('healthy')).toBe(true);
     });
+});
+
+beforePresentation(async () => {
+    (await createTestWindowPresentation('settings')).install();
 });

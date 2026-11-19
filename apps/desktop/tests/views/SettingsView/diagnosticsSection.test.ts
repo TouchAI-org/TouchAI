@@ -1,6 +1,7 @@
+import { createTestWindowPresentation } from '@tests/utils/windowPresentation';
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
-
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
+import { beforeEach as beforePresentation } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
@@ -32,7 +33,7 @@ const mocks = vi.hoisted(() => ({
     error: vi.fn(),
 }));
 
-vi.mock('@services/NativeService', () => ({
+vi.mock('@/platform/native', () => ({
     native: {
         observability: {
             setDiagnosticMode: mocks.setDiagnosticMode,
@@ -140,4 +141,8 @@ describe('user exports and controls diagnostics', () => {
         expect(mocks.exportBundle).toHaveBeenCalledWith('/tmp/TouchAI-diagnostics.zip');
         expect(mocks.success).toHaveBeenCalled();
     });
+});
+
+beforePresentation(async () => {
+    (await createTestWindowPresentation('settings')).install();
 });

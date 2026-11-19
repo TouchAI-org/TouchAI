@@ -1,13 +1,17 @@
+import { createTestSearchHost } from '@tests/utils/searchHost';
+import { createSettingsWindowFixture } from '@tests/utils/settingsWindow';
 import { installSkillCommands } from '@tests/utils/skills';
 import { getTauriInvokeCalls, mockTauriCommand } from '@tests/utils/tauri';
 import { EditorContent } from '@tiptap/vue-3';
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
-import { createPinia } from 'pinia';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { computed, defineComponent, ref, watch } from 'vue';
 
+import type { InputHistorySnapshot } from '@/app/api/agent/history';
+import { clipboardDraftApiKey } from '@/app/api/attachments/drafts';
+import { searchApiKey } from '@/app/api/search/queries';
 import { setLocale } from '@/i18n';
-import type { InputHistorySnapshot } from '@/types/session';
+import { createClipboardDrafts } from '@/modules/attachments';
 import QuickSearchPanel from '@/views/SearchView/components/QuickSearchPanel/index.vue';
 import SearchBar from '@/views/SearchView/components/SearchBar/index.vue';
 import type { FilePickerContext } from '@/views/SearchView/components/SearchBar/types';
@@ -18,6 +22,8 @@ const files = [
     { name: 'README-contributing.md', path: 'D:/docs/README-contributing.md', source: 'file' },
 ];
 let wrapper: VueWrapper;
+let clipboard: ReturnType<typeof createClipboardDrafts>;
+let preferences: ReturnType<typeof createSettingsWindowFixture>;
 const rangeDescriptors = ['getClientRects', 'getBoundingClientRect'].map((name) => ({
     name,
     descriptor: Object.getOwnPropertyDescriptor(Range.prototype, name),
@@ -95,10 +101,12 @@ const FileSearchInput = defineComponent({
     </div>`,
 });
 
-beforeEach(() => {
+beforeEach(async () => {
+    clipboard = createClipboardDrafts();
+    preferences = createSettingsWindowFixture();
+    await preferences.initialize();
     setLocale('en-US');
     installSkillCommands();
-    mockTauriCommand('database_query', { rows: [], rowsAffected: 0, lastInsertId: null });
     mockTauriCommand('quick_search_prepare_index', undefined);
     mockTauriCommand('quick_search_get_status', { db_loaded: true, index_warmed: true });
     mockTauriCommand('quick_search_get_shortcut_icons', {});
@@ -124,6 +132,8 @@ beforeEach(() => {
 afterEach(async () => {
     await new Promise(requestAnimationFrame);
     wrapper?.unmount();
+    clipboard.dispose();
+    preferences.dispose();
     for (const { name, descriptor } of rangeDescriptors) {
         if (descriptor) Object.defineProperty(Range.prototype, name, descriptor);
         else Reflect.deleteProperty(Range.prototype, name);
@@ -134,7 +144,14 @@ async function openFiles(compact = false, unmountClosed = false) {
     wrapper = mount(FileSearchInput, {
         attachTo: document.body,
         props: { compact, unmountClosed },
-        global: { plugins: [createPinia()] },
+        global: {
+            plugins: [preferences.pinia],
+            provide: {
+                ...preferences.viewOptions.global.provide,
+                [searchApiKey as symbol]: createTestSearchHost().api,
+                [clipboardDraftApiKey as symbol]: clipboard.api,
+            },
+        },
     });
     const input = wrapper.getComponent(SearchBar);
     const panel = wrapper.getComponent(QuickSearchPanel);
@@ -228,7 +245,14 @@ describe('given file results beside the main input', () => {
                 },
                 startDragging: async () => {},
             },
-            global: { plugins: [createPinia()] },
+            global: {
+                plugins: [preferences.pinia],
+                provide: {
+                    ...preferences.viewOptions.global.provide,
+                    [searchApiKey as symbol]: createTestSearchHost().api,
+                    [clipboardDraftApiKey as symbol]: clipboard.api,
+                },
+            },
         });
         await flushPromises();
         const editor = wrapper.getComponent(EditorContent).props('editor')!;

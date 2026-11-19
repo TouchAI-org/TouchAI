@@ -4,11 +4,11 @@
     import AppIcon from '@components/AppIcon.vue';
     import { Button } from '@components/ui/button';
     import { Tooltip, TooltipTrigger } from '@components/ui/tooltip';
-    import { log } from '@services/ObservabilityService';
     import { computed, ref } from 'vue';
 
+    import { log } from '@/app/api/diagnostics';
+    import { writeClipboardText } from '@/app/api/windows/clipboard';
     import { t } from '@/i18n';
-    import { clipboardService } from '@/services/ClipboardService';
 
     import { parseBashLogInput, parseBashLogOutput } from './toolLogDisplay';
 
@@ -57,7 +57,7 @@
 
     async function copyText(value: string) {
         try {
-            await clipboardService.writeText(value);
+            await writeClipboardText(value);
         } catch (error) {
             log.error('[ToolLogContent] Failed to copy log content:', error);
         }

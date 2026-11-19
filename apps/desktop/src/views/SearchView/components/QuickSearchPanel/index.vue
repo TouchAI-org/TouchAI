@@ -74,6 +74,12 @@
     import type { ComponentPublicInstance } from 'vue';
     import { computed, onBeforeUnmount, ref, toRef, useId, watch } from 'vue';
 
+    import type {
+        SearchActionOutcome,
+        SearchActivationContext,
+        SearchMatch,
+    } from '@/app/api/search/queries';
+    import { fileSearchItem } from '@/app/api/search/queries';
     import {
         ResultItem,
         ResultPanel,
@@ -83,12 +89,6 @@
     } from '@/components/ui/result-panel';
     import { RESULT_COMPACT_ROW_HEIGHT } from '@/components/ui/result-panel/layout';
     import { t } from '@/i18n';
-    import type {
-        SearchActionOutcome,
-        SearchActivationContext,
-        SearchMatch,
-    } from '@/services/SearchService';
-    import { fileSearchItem } from '@/services/SearchService/files';
     import { useSettingsStore } from '@/stores/settings';
     import { formatShortcutForDisplay } from '@/utils/shortcuts';
 

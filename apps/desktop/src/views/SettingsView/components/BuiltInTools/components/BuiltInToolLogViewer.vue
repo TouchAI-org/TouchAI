@@ -6,9 +6,10 @@
     import { Button } from '@components/ui/button';
     import { Input } from '@components/ui/input';
     import { useListFilter } from '@composables/useListFilter';
-    import { log as appLog } from '@services/ObservabilityService';
     import { onMounted, ref, watch } from 'vue';
 
+    import { log as appLog } from '@/app/api/diagnostics';
+    import { useToolsAdministrationApi } from '@/app/api/tools/administration';
     import { t } from '@/i18n';
 
     import ToolLogEntry from '../../common/ToolLogEntry.vue';
@@ -18,7 +19,6 @@
         type BuiltInToolLogEntity,
         type BuiltInToolLogSummary,
         getBuiltInToolDisplayName,
-        loadBuiltInToolQueries,
     } from '../types';
 
     interface Props {
@@ -26,6 +26,7 @@
     }
 
     const props = defineProps<Props>();
+    const queries = useToolsAdministrationApi();
 
     // 列表只拿摘要；完整 input/output 在展开时按 id 拉取。
     const logs = ref<BuiltInToolLogSummary[]>([]);
@@ -51,7 +52,6 @@
     async function loadLogs() {
         loading.value = true;
         try {
-            const queries = await loadBuiltInToolQueries();
             logs.value = await queries.findBuiltInToolLogSummariesByToolId(props.tool.tool_id, {
                 limit: PAGE_SIZE,
             });
@@ -68,7 +68,6 @@
     async function loadMore() {
         loadingMore.value = true;
         try {
-            const queries = await loadBuiltInToolQueries();
             const moreLogs = await queries.findBuiltInToolLogSummariesByToolId(props.tool.tool_id, {
                 limit: PAGE_SIZE,
                 offset: logs.value.length,
@@ -88,7 +87,6 @@
         }
 
         try {
-            const queries = await loadBuiltInToolQueries();
             const detail = await queries.findBuiltInToolLogById(logId);
             if (detail) {
                 details.value = { ...details.value, [logId]: detail };

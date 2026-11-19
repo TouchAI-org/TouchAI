@@ -1,19 +1,18 @@
 <!-- Copyright (c) 2026. Qian Cheng. Licensed under GPL v3 -->
 
 <script setup lang="ts">
-    import { computerUse } from '@services/NativeService';
-    import type { ComputerUseFeedback } from '@services/NativeService/computerUse';
-    import { log } from '@services/ObservabilityService';
-    import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
     import { computed, onMounted, onUnmounted, ref } from 'vue';
     import { I18nT } from 'vue-i18n';
 
+    import { log } from '@/app/api/diagnostics';
+    import { type ComputerUseFeedback, useGlowWindowApi } from '@/app/api/windows/presentation';
     import { setLocale, t } from '@/i18n';
     import IconMousePointer from '~icons/lucide/mouse-pointer-2';
 
     defineOptions({
         name: 'ComputerUseGlowView',
     });
+    const glow = useGlowWindowApi();
 
     const feedback = ref<ComputerUseFeedback>({
         generation: -1,
@@ -41,14 +40,11 @@
 
     onMounted(async () => {
         try {
-            const unlisten = await getCurrentWebviewWindow().listen<ComputerUseFeedback>(
-                'computer-use-glow-pulse',
-                ({ payload }) => receive(payload)
-            );
+            const unlisten = await glow.onFeedback(receive);
             if (disposed) unlisten();
             else {
                 unlistenPulse = unlisten;
-                receive(await computerUse.feedback());
+                receive(await glow.readFeedback());
             }
         } catch (error) {
             log.warn('[ComputerUseGlow] Failed to listen for pulse events:', error);

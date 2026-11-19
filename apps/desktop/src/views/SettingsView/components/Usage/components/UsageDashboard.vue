@@ -2,19 +2,19 @@
 
 <script setup lang="ts">
     import AnimatedCounter from '@components/ui/animated-counter/AnimatedCounter.vue';
+    import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+
+    import {
+        AppEvent,
+        eventService,
+        type SessionTaskUsageProgressEvent,
+    } from '@/app/api/usage/events';
     import type {
         UsageBucket,
         UsageLiveTurn,
         UsageSummary,
         UsageTrendPoint,
-    } from '@database/queries/usageStats';
-    import {
-        AppEvent,
-        eventService,
-        type SessionTaskUsageProgressEvent,
-    } from '@services/EventService';
-    import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-
+    } from '@/app/api/usage/queries';
     import { getLocale, t } from '@/i18n';
 
     import {

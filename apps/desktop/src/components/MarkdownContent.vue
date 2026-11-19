@@ -43,7 +43,6 @@
         MARKDOWN_SCROLL_ROOT_KEY,
         type MarkdownScrollRootResolver,
     } from '@components/markdownScrollRoot';
-    import { log } from '@services/ObservabilityService';
     import {
         languageMap,
         type MarkdownIt,
@@ -51,6 +50,7 @@
         setDefaultI18nMap,
     } from 'markstream-vue';
 
+    import { log } from '@/app/api/diagnostics';
     import {
         applyMarkdownBasePlugins,
         finishedMarkdownParser,
@@ -134,7 +134,6 @@
 </script>
 
 <script setup lang="ts">
-    import { notify } from '@services/NotificationService';
     import MarkdownRender, {
         type CodeBlockMonacoOptions,
         type ParsedNode,
@@ -142,12 +141,14 @@
     } from 'markstream-vue';
     import { computed, inject, onUnmounted, ref, watch } from 'vue';
 
+    import { useProductAnalyticsApi } from '@/app/api/analytics/product';
+    import { writeClipboardText } from '@/app/api/windows/clipboard';
+    import { notify } from '@/app/api/windows/notifications';
     import { getLocale, locale, t } from '@/i18n';
-    import { runResultAction } from '@/services/AnalyticsService/productInteractions';
-    import { clipboardService } from '@/services/ClipboardService';
     import codeSurfaceStyles from '@/styles/markdown-code-surface.css?inline';
     import { containsLongCodeBlock } from '@/utils/markdownCodeBlock';
     import { hasUnclosedMathDelimiterOutsideCode } from '@/utils/markdownMathDetection';
+    const { runResultAction } = useProductAnalyticsApi();
 
     /** 流式阶段代码块超过该长度时先用纯文本 pre 渲染。 */
     const LONG_CODE_BLOCK_STREAMING_THRESHOLD = 6000;
@@ -1222,7 +1223,7 @@
         }
 
         try {
-            await runResultAction('copy_code', () => clipboardService.writeText(text));
+            await runResultAction('copy_code', () => writeClipboardText(text));
             notify({
                 title: 'TouchAI',
                 body: t('common.copied'),

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { normalizeImageBytes } from '@/services/AgentService/infrastructure/attachments/imageNormalization';
+import { normalizeImageBytes } from '@/modules/attachments/image.io';
 
 class FakeOffscreenCanvas {
     width: number;

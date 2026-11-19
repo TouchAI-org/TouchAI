@@ -1,87 +1,91 @@
-import { createPinia, setActivePinia } from 'pinia';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { flushPromises } from '@vue/test-utils';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-const { findAllMcpServersMock, findMcpToolsByServerIdMock, onMock, obsErrorMock } = vi.hoisted(
-    () => ({
-        findAllMcpServersMock: vi.fn(),
-        findMcpToolsByServerIdMock: vi.fn(),
-        onMock: vi.fn(),
-        obsErrorMock: vi.fn(),
-    })
-);
+import { AppEvent, eventService } from '@/app/workflows/windows/events';
+import {
+    flushObservability,
+    initObservability,
+    resetObservabilityForTests,
+} from '@/platform/diagnostics';
 
-vi.mock('@database/queries', () => ({
-    findAllMcpServers: findAllMcpServersMock,
-    findMcpToolsByServerId: findMcpToolsByServerIdMock,
-}));
+import { closeTestDatabases } from '../database/sqliteHarness';
+import { mountMcpWindow } from '../utils/mcpWindow';
+import { getTauriInvokeCalls, interceptTauriInvoke } from '../utils/tauri';
 
-vi.mock('@/services/AgentService/infrastructure/mcp', () => ({
-    mcpManager: {
-        setStatusFromEvent: vi.fn(),
-        refreshAllServerStatuses: vi.fn(),
-    },
-}));
+let fixture: Awaited<ReturnType<typeof mountMcpWindow<undefined>>>;
+beforeEach(async () => {
+    fixture = await mountMcpWindow(() => undefined, { label: 'main' });
+});
+afterEach(async () => {
+    resetObservabilityForTests();
+    await fixture.dispose();
+    closeTestDatabases();
+});
 
-vi.mock('@services/EventService', async (importOriginal) => ({
-    ...(await importOriginal<typeof import('@services/EventService')>()),
-    eventService: { on: onMock },
-}));
-
-vi.mock('@services/ObservabilityService', () => ({
-    error: obsErrorMock,
-    log: { trace: vi.fn(), debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-}));
-
-describe('user sees the saved mcp servers', () => {
-    beforeEach(() => {
-        setActivePinia(createPinia());
-        vi.clearAllMocks();
+describe('given the MCP view reads saved data through its production window bindings', () => {
+    it('user sees an empty list with loading finished when saved servers cannot be read', async () => {
+        interceptTauriInvoke((call, next) => {
+            if (
+                call.cmd === 'database_query' &&
+                (call.payload as { request: { sql: string } }).request.sql.includes(
+                    'from "mcp_servers"'
+                )
+            ) {
+                throw new Error('fixture database is locked');
+            }
+            return next();
+        });
+        await expect(fixture.store.loadServers()).resolves.toBeUndefined();
+        expect(fixture.store.servers).toEqual([]);
+        expect(fixture.store.loading).toBe(false);
     });
 
-    it('user gets an empty list with loading finished when servers cannot be read', async () => {
-        findAllMcpServersMock.mockRejectedValue(new Error('database is locked'));
-        const { useMcpStore } = await import('@/stores/mcp');
-        const store = useMcpStore();
-
-        await expect(store.loadServers()).resolves.toBeUndefined();
-
-        expect(store.servers).toEqual([]);
-        expect(store.loading).toBe(false);
+    it('user sees no tools for a server whose saved tools cannot be read', async () => {
+        interceptTauriInvoke((call, next) => {
+            if (
+                call.cmd === 'database_query' &&
+                (call.payload as { request: { sql: string } }).request.sql.includes(
+                    'from "mcp_tools"'
+                )
+            ) {
+                throw new Error('fixture database is locked');
+            }
+            return next();
+        });
+        await expect(fixture.store.loadServerTools(1)).resolves.toBeUndefined();
+        expect(fixture.store.getServerTools(1)).toEqual([]);
     });
 
-    it('user gets no tools for a server whose tools cannot be read', async () => {
-        findMcpToolsByServerIdMock.mockRejectedValue(new Error('database is locked'));
-        const { useMcpStore } = await import('@/stores/mcp');
-        const store = useMcpStore();
-
-        await expect(store.loadServerTools(1)).resolves.toBeUndefined();
-
-        expect(store.getServerTools(1)).toEqual([]);
-    });
-
-    it('user gets one connect failure event when a server enters the error state', async () => {
-        findAllMcpServersMock.mockResolvedValue([]);
-        const { useMcpStore } = await import('@/stores/mcp');
-        const store = useMcpStore();
-
-        await store.initialize();
-
-        const handleStatus = onMock.mock.calls[0]?.[1] as (event: {
-            serverId: number;
-            status: string;
-            error?: string | null;
-        }) => void;
-        handleStatus({ serverId: 3, status: 'error', error: 'spawn failed' });
-        handleStatus({ serverId: 3, status: 'error', error: 'spawn failed' });
-        handleStatus({ serverId: 3, status: 'connected' });
-        handleStatus({ serverId: 3, status: 'error', error: 'spawn failed again' });
-
-        expect(obsErrorMock).toHaveBeenCalledTimes(2);
-        expect(obsErrorMock).toHaveBeenCalledWith(
-            'mcp.connect.failed',
-            'spawn failed',
-            { 'mcp.server.id': 3 },
-            expect.any(String)
-        );
+    it('user receives one diagnostic failure per error transition rather than one per repeated status broadcast', async () => {
+        await fixture.store.initialize();
+        initObservability();
+        await eventService.emit(AppEvent.MCP_STATUS, {
+            serverId: 1,
+            status: 'error',
+            error: 'spawn failed',
+        });
+        await eventService.emit(AppEvent.MCP_STATUS, {
+            serverId: 1,
+            status: 'error',
+            error: 'spawn failed',
+        });
+        await eventService.emit(AppEvent.MCP_STATUS, { serverId: 1, status: 'connected' });
+        await eventService.emit(AppEvent.MCP_STATUS, {
+            serverId: 1,
+            status: 'error',
+            error: 'spawn failed again',
+        });
+        await flushPromises();
+        await flushObservability();
+        const failures = getTauriInvokeCalls('obs_ingest')
+            .flatMap(
+                ({ payload }) =>
+                    (payload as { batch: { event: string; attrs: Record<string, unknown> }[] })
+                        .batch
+            )
+            .filter(({ event }) => event === 'mcp.connect.failed');
+        expect(failures).toHaveLength(2);
+        expect(failures.every(({ attrs }) => attrs['mcp.server.id'] === 1)).toBe(true);
+        expect(fixture.store.getServerError(1)).toBe('spawn failed again');
     });
 });

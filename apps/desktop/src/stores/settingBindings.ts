@@ -1,19 +1,17 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
+import { computed, type ComputedRef, type Ref } from 'vue';
+
 import {
-    type BrowserSettingsConfig,
     GENERAL_SETTING_COMPUTED_BINDINGS,
     type GeneralSettingsData,
     type OutputScrollBehavior,
-    type SearchSettingsConfig,
-} from '@services/SettingsService/domain';
-import { computed, type ComputedRef, type Ref } from 'vue';
-
+} from '@/app/api/settings/preferences';
 import type { AppUpdateChannel } from '@/config/appUpdate';
+import type { AppLocale } from '@/config/locales';
 import type { AnimationSpeed } from '@/config/motion';
 import type { SearchKeybindings } from '@/config/searchKeybindings';
 import type { SearchWindowDefaultSize, SearchWindowSizePreset } from '@/config/searchWindow';
-import type { AppLocale } from '@/i18n/locales';
 
 export interface GeneralSettingsComputedRefs {
     animationSpeed: ComputedRef<AnimationSpeed>;
@@ -28,8 +26,6 @@ export interface GeneralSettingsComputedRefs {
     appUpdateAutoCheck: ComputedRef<boolean>;
     appUpdateLastCheckedAt: ComputedRef<string | null>;
     usageDetailRetentionDays: ComputedRef<number>;
-    browserSettings: ComputedRef<BrowserSettingsConfig>;
-    searchSettings: ComputedRef<SearchSettingsConfig>;
 }
 
 export function createGeneralSettingsComputedRefs(

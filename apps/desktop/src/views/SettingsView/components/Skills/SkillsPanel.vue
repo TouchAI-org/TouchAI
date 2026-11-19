@@ -9,7 +9,6 @@
     import { useConfirm } from '@composables/useConfirm';
     import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
-    import { t } from '@/i18n';
     import {
         deleteUserSkillDirectory,
         discoverManageableSkills,
@@ -17,7 +16,8 @@
         readSkillContent,
         setUserSkillDisabled,
         type SkillMetadata,
-    } from '@/services/AgentService/skills';
+    } from '@/app/api/skills/catalog';
+    import { t } from '@/i18n';
     import { collapseWhitespace, truncateText } from '@/utils/text';
 
     import { useSettingsResizablePanel } from '../../composables/useSettingsResizablePanel';

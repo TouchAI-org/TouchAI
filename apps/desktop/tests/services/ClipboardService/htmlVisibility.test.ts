@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { normalizeClipboardPayload } from '@/services/ClipboardService/html';
-import type { ClipboardPayload } from '@/services/NativeService/types';
+import { normalizeClipboardPayload } from '@/modules/attachments/clipboardHtml';
+import type { ClipboardPayload } from '@/platform/native/types';
 
 function payloadOf(overrides: Partial<ClipboardPayload>): ClipboardPayload {
     return {

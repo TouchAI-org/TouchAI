@@ -51,19 +51,25 @@ const originalThresholds = {
     branches: 84,
     functions: 88,
     lines: 91,
-    'src/services/EventService/**/*.ts': {
+    'src/platform/windows/events.ts': {
         statements: 90,
         branches: 100,
         functions: 100,
         lines: 90,
     },
-    'src/services/NativeService/**/*.ts': {
+    'src/app/api/windows/eventContracts.ts': {
+        statements: 90,
+        branches: 100,
+        functions: 100,
+        lines: 90,
+    },
+    'src/platform/native/**/*.ts': {
         statements: 90,
         branches: 80,
         functions: 90,
         lines: 90,
     },
-    'src/services/BuiltInToolService/tools/browser/**/*.ts': {
+    'src/modules/tools/builtin/browser/**/*.ts': {
         statements: 90,
         branches: 90,
         functions: 90,
@@ -790,6 +796,7 @@ describe('user runs every repository CI check and moved UI preview elsewhere', (
             'pnpm test:ui-preview',
             'pnpm test:ci:typecheck',
             'pnpm exec eslint tests/ci vitest.ci.config.ts',
+            'pnpm check:architecture',
             'pnpm test:ci',
         ]);
     });

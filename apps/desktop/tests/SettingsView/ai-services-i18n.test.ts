@@ -98,56 +98,9 @@ vi.mock('@/utils/modelSchemas', () => ({
     parseModelModalities: vi.fn(() => null),
 }));
 
-vi.mock('@/services/AgentService/infrastructure/modelMetadata', () => ({
+vi.mock('@/app/api/models/metadata', () => ({
     updateModelMetadata: vi.fn(),
 }));
-
-vi.mock('@/services/AgentService', () => ({
-    aiService: {
-        createProviderInstance: () => ({
-            getApiTargets: () => ({
-                generationTarget:
-                    'https://very-long-provider.example.com/openai-compatible/v1/chat/completions',
-            }),
-        }),
-    },
-}));
-
-vi.mock('@/services/AgentService/infrastructure/providers', () => {
-    const providerDriverDefinitions = [
-        {
-            driver: 'openai',
-            label: 'OpenAI Compatible',
-            logo: 'openai.svg',
-            placeholder: 'https://api.openai.com/v1',
-        },
-    ];
-
-    return {
-        providerDriverDefinitions,
-        getProviderDriverDefinitions: () => providerDriverDefinitions,
-        getProviderDriverDefinition: () => providerDriverDefinitions[0],
-        parseProviderConfigJson: (configJson: string | null) =>
-            configJson ? JSON.parse(configJson) : {},
-    };
-});
-
-vi.mock('@/services/AgentService/infrastructure/providers/driverCatalog', () => {
-    const providerDriverDefinitions = [
-        {
-            driver: 'openai',
-            label: 'OpenAI Compatible',
-            logo: 'openai.svg',
-            placeholder: 'https://api.openai.com/v1',
-        },
-    ];
-
-    return {
-        providerDriverDefinitions,
-        getProviderDriverDefinitions: () => providerDriverDefinitions,
-        getProviderDriverDefinition: () => providerDriverDefinitions[0],
-    };
-});
 
 function createProvider(overrides: Partial<Provider> = {}): Provider {
     return {

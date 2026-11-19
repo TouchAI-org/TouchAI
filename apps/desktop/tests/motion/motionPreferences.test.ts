@@ -1,11 +1,11 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { effectScope, nextTick, ref, watch } from 'vue';
+
 import {
     applyPersistedGeneralSettingValue,
     createDefaultGeneralSettings,
     serializeGeneralSetting,
-} from '@services/SettingsService/domain';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { effectScope, nextTick, ref, watch } from 'vue';
-
+} from '@/app/api/settings/preferences';
 import { useMotionPressure } from '@/composables/useMotionPressure';
 import { normalizeAnimationSpeed, resolveMotionDuration } from '@/config/motion';
 

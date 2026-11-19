@@ -1,3 +1,5 @@
+import { createTestWindowPresentation } from '@tests/utils/windowPresentation';
+import { beforeEach as beforePresentation } from 'vitest';
 import { describe, expect, it } from 'vitest';
 
 import { readScrollTop, resolveRestoredScrollTop } from '@/views/SettingsView/sectionScrollMemory';
@@ -21,4 +23,8 @@ describe('settings section scroll memory', () => {
         expect(resolveRestoredScrollTop(600, 300, 400)).toBe(0);
         expect(resolveRestoredScrollTop(600, 700, 400)).toBe(300);
     });
+});
+
+beforePresentation(async () => {
+    (await createTestWindowPresentation('settings')).install();
 });

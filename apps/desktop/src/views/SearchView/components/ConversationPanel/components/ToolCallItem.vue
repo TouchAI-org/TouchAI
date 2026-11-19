@@ -156,16 +156,13 @@
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
     import MotionCollapse from '@components/MotionCollapse.vue';
-    import {
-        SEARCH_PROVIDER_METADATA,
-        type SearchProviderId,
-    } from '@services/SettingsService/domain';
     import type { Component } from 'vue';
     import { computed, ref } from 'vue';
 
+    import type { ToolCallInfo } from '@/app/api/agent/history';
+    import { SEARCH_PROVIDER_METADATA, type SearchProviderId } from '@/app/api/tools/catalog';
+    import { buildComputerUsePresentation } from '@/app/api/tools/results';
     import { t } from '@/i18n';
-    import { buildComputerUsePresentation } from '@/services/BuiltInToolService/tools/computerUse/presentation';
-    import type { ToolCallInfo } from '@/types/session';
 
     import BuiltInBashToolCallItem from './BuiltInBashToolCallItem.vue';
     import WebSearchSourcesCard from './WebSearchSourcesCard.vue';

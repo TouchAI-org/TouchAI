@@ -1,9 +1,9 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
 import type { UsageLiveTurn, UsageSummary, UsageTrendPoint } from '@database/queries/usageStats';
-import type { SessionTaskUsageProgressEvent } from '@services/EventService';
 import { describe, expect, it } from 'vitest';
 
+import type { SessionTaskUsageProgressEvent } from '@/app/api/usage/events';
 import {
     buildLiveCurve,
     buildUsageCurve,

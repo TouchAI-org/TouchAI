@@ -1,7 +1,8 @@
-import { AppEvent } from '@services/EventService';
 import { emit } from '@tauri-apps/api/event';
 import { getTauriInvokeCalls, interceptTauriInvoke, mockTauriCommand } from '@tests/utils/tauri';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { AppEvent } from '@/app/workflows/windows/events';
 
 const existsMock = vi.hoisted(() => vi.fn(async () => true));
 const readFileMock = vi.hoisted(() => vi.fn(async () => new Uint8Array([0x77, 0x4f, 0x46, 0x32])));
@@ -115,7 +116,7 @@ describe('user reads text in the bundled serif font', () => {
     it(
         'user loads the cached serif font during initialization without waiting for font-ready',
         async () => {
-            const { initializeFontLoader } = await import('@/utils/font');
+            const { initializeFontLoader } = await import('@/platform/windows/font');
 
             initializeFontLoader();
 
@@ -144,7 +145,7 @@ describe('user reads text in the bundled serif font', () => {
 
                 return next();
             });
-            const { initializeFontLoader } = await import('@/utils/font');
+            const { initializeFontLoader } = await import('@/platform/windows/font');
 
             initializeFontLoader();
 
@@ -157,7 +158,7 @@ describe('user reads text in the bundled serif font', () => {
         'user does not inject a missing startup font asset before font-ready arrives',
         async () => {
             existsMock.mockResolvedValue(false);
-            const { initializeFontLoader } = await import('@/utils/font');
+            const { initializeFontLoader } = await import('@/platform/windows/font');
 
             initializeFontLoader();
             await waitForFontReadyListener();
@@ -178,7 +179,7 @@ describe('user reads text in the bundled serif font', () => {
     it(
         'user keeps one font-face style when font-ready is delivered more than once',
         async () => {
-            const { initializeFontLoader } = await import('@/utils/font');
+            const { initializeFontLoader } = await import('@/platform/windows/font');
 
             initializeFontLoader();
             await waitForFontReadyListener();
@@ -197,7 +198,7 @@ describe('user reads text in the bundled serif font', () => {
     it(
         'user does not register duplicate font-ready listeners when initialized more than once',
         async () => {
-            const { initializeFontLoader } = await import('@/utils/font');
+            const { initializeFontLoader } = await import('@/platform/windows/font');
 
             initializeFontLoader();
             initializeFontLoader();
@@ -218,7 +219,7 @@ describe('user reads text in the bundled serif font', () => {
     it(
         'user can reload the startup font-face rule after the injected style is removed',
         async () => {
-            const { initializeFontLoader } = await import('@/utils/font');
+            const { initializeFontLoader } = await import('@/platform/windows/font');
 
             initializeFontLoader();
             await vi.waitFor(() => expect(fontStyles()).toHaveLength(1));
@@ -256,7 +257,7 @@ describe('user reads text in the bundled serif font', () => {
                     return appended;
                 });
 
-            const { initializeFontLoader } = await import('@/utils/font');
+            const { initializeFontLoader } = await import('@/platform/windows/font');
 
             initializeFontLoader();
 
@@ -271,7 +272,7 @@ describe('user reads text in the bundled serif font', () => {
     it(
         'user refreshes an early font-face rule after the font file is downloaded',
         async () => {
-            const { initializeFontLoader } = await import('@/utils/font');
+            const { initializeFontLoader } = await import('@/platform/windows/font');
 
             initializeFontLoader();
             await waitForFontReadyListener();
@@ -309,7 +310,7 @@ describe('user reads text in the bundled serif font', () => {
                 return 'D:\\TouchAI\\assets\\font';
             });
 
-            const { initializeFontLoader } = await import('@/utils/font');
+            const { initializeFontLoader } = await import('@/platform/windows/font');
 
             initializeFontLoader();
             await waitForFontReadyListener();
@@ -337,7 +338,7 @@ describe('user reads text in the bundled serif font', () => {
         async () => {
             // resetModules gives the font module a fresh ObservabilityService,
             // so the spy has to come from the same instance.
-            const { log: fontLog } = await import('@services/ObservabilityService');
+            const { log: fontLog } = await import('@/platform/diagnostics');
             const consoleError = vi.spyOn(fontLog, 'error').mockImplementation(() => {});
             let directoryCallCount = 0;
 
@@ -350,7 +351,7 @@ describe('user reads text in the bundled serif font', () => {
                 return 'D:\\TouchAI\\assets\\font';
             });
 
-            const { initializeFontLoader } = await import('@/utils/font');
+            const { initializeFontLoader } = await import('@/platform/windows/font');
 
             initializeFontLoader();
             await waitForFontReadyListener();
@@ -380,7 +381,7 @@ describe('user reads text in the bundled serif font', () => {
                 };
             });
 
-            const { initializeFontLoader } = await import('@/utils/font');
+            const { initializeFontLoader } = await import('@/platform/windows/font');
 
             initializeFontLoader();
             await waitForFontReadyListener();
@@ -409,7 +410,7 @@ describe('user reads text in the bundled serif font', () => {
                 })
             );
 
-            const { initializeFontLoader } = await import('@/utils/font');
+            const { initializeFontLoader } = await import('@/platform/windows/font');
 
             initializeFontLoader();
 
@@ -440,7 +441,7 @@ describe('user reads text in the bundled serif font', () => {
                 })
             );
 
-            const { initializeFontLoader } = await import('@/utils/font');
+            const { initializeFontLoader } = await import('@/platform/windows/font');
 
             initializeFontLoader();
 
@@ -470,7 +471,7 @@ describe('user reads text in the bundled serif font', () => {
             );
             stubFontFaceLoader();
 
-            const { initializeFontLoader } = await import('@/utils/font');
+            const { initializeFontLoader } = await import('@/platform/windows/font');
 
             initializeFontLoader();
 
@@ -499,7 +500,7 @@ describe('user reads text in the bundled serif font', () => {
                 'D:\\TouchAI\\assets\\font\\SourceHanSerifSC-VF.ttf'
             );
 
-            const { initializeFontLoader } = await import('@/utils/font');
+            const { initializeFontLoader } = await import('@/platform/windows/font');
 
             initializeFontLoader();
 
@@ -543,7 +544,7 @@ describe('user reads text in the bundled serif font', () => {
             );
             stubFontFaceLoader();
 
-            const { initializeFontLoader } = await import('@/utils/font');
+            const { initializeFontLoader } = await import('@/platform/windows/font');
 
             initializeFontLoader();
 
@@ -570,7 +571,7 @@ describe('user reads text in the bundled serif font', () => {
             );
             const { createdFaces, load } = stubFontFaceLoader();
 
-            const { initializeFontLoader } = await import('@/utils/font');
+            const { initializeFontLoader } = await import('@/platform/windows/font');
 
             initializeFontLoader();
 
@@ -611,7 +612,7 @@ describe('user reads text in the bundled serif font', () => {
             const { createdFaces, load } = stubFontFaceLoader();
             load.mockRejectedValueOnce(new Error(' A network error occurred.'));
 
-            const { initializeFontLoader } = await import('@/utils/font');
+            const { initializeFontLoader } = await import('@/platform/windows/font');
 
             initializeFontLoader();
 
@@ -636,7 +637,7 @@ describe('user reads text in the bundled serif font', () => {
             );
             stubFontFaceLoader();
 
-            const { initializeFontLoader } = await import('@/utils/font');
+            const { initializeFontLoader } = await import('@/platform/windows/font');
 
             await initializeFontLoader();
             await vi.waitFor(() => expect(fontApi.add).toHaveBeenCalledTimes(1));
@@ -662,7 +663,7 @@ describe('user reads text in the bundled serif font', () => {
             );
             stubFontFaceLoader();
 
-            const { initializeFontLoader } = await import('@/utils/font');
+            const { initializeFontLoader } = await import('@/platform/windows/font');
 
             initializeFontLoader();
             await waitForFontReadyListener();
@@ -701,10 +702,10 @@ describe('user reads text in the bundled serif font', () => {
                 })
             );
             stubFontFaceLoader();
-            const { log: fontLog } = await import('@services/ObservabilityService');
+            const { log: fontLog } = await import('@/platform/diagnostics');
             const warn = vi.spyOn(fontLog, 'warn').mockImplementation(() => {});
 
-            const { initializeFontLoader } = await import('@/utils/font');
+            const { initializeFontLoader } = await import('@/platform/windows/font');
 
             const startupLoad = initializeFontLoader();
             await waitForFontReadyListener();
@@ -764,7 +765,7 @@ describe('user reads text in the bundled serif font', () => {
                 'D:\\TouchAI\\assets\\font\\SourceHanSerifSC-VF.ttf'
             );
 
-            const { initializeFontLoader } = await import('@/utils/font');
+            const { initializeFontLoader } = await import('@/platform/windows/font');
 
             const startupLoad = initializeFontLoader();
             await waitForFontReadyListener();

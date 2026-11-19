@@ -3,12 +3,10 @@
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
     import type { AppIconName } from '@components/appIconMap';
-    import { native } from '@services/NativeService';
-    import { log } from '@services/ObservabilityService';
-    import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-    import { exit } from '@tauri-apps/plugin-process';
     import { onMounted, onUnmounted } from 'vue';
 
+    import { log } from '@/app/api/diagnostics';
+    import { useTrayWindowApi } from '@/app/api/windows/presentation';
     import { type MessageKey, t } from '@/i18n';
 
     defineOptions({
@@ -42,19 +40,24 @@
             action: quitApp,
         },
     ];
+    const tray = useTrayWindowApi();
+    let disposed = false;
     let unlistenBlur: (() => void) | null = null;
 
     onMounted(async () => {
         try {
-            unlistenBlur = await getCurrentWebviewWindow().listen('tauri://blur', () => {
-                closeTrayMenu();
+            const stop = await tray.onBlur(() => {
+                void closeTrayMenu();
             });
+            if (disposed) stop();
+            else unlistenBlur = stop;
         } catch (error) {
             log.error('[TrayMenu] Failed to setup focus listener:', error);
         }
     });
 
     onUnmounted(() => {
+        disposed = true;
         unlistenBlur?.();
         unlistenBlur = null;
         void closeTrayMenu();
@@ -68,7 +71,7 @@
 
     async function showMainWindow() {
         try {
-            await native.window.showSearchWindow();
+            await tray.showSearch();
         } catch (error) {
             log.error('[TrayMenu] Error showing main window:', error);
         }
@@ -79,7 +82,7 @@
     async function openSettings() {
         try {
             try {
-                native.window.openSettingsWindow().then();
+                await tray.openSettings();
             } catch (error) {
                 log.error('Failed to open settings:', error);
             }
@@ -92,7 +95,7 @@
 
     async function quitApp() {
         try {
-            await exit(0);
+            await tray.quit();
         } catch (error) {
             log.error('Failed to quit app:', error);
         }
@@ -102,7 +105,7 @@
 
     async function closeTrayMenu() {
         try {
-            native.window.closeTrayMenu().then();
+            await tray.closeMenu();
         } catch (error) {
             log.error('Failed to close tray menu:', error);
         }

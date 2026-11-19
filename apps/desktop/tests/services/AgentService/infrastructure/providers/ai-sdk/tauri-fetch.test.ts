@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createTauriFetch } from '@/services/AgentService/infrastructure/providers/ai-sdk/tauriFetch';
+import { createTauriFetch } from '@/platform/http';
 
 const tauriFetchMock = vi.fn();
 

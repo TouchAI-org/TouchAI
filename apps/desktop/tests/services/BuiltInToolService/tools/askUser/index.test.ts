@@ -1,12 +1,15 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import { AiErrorCode } from '@services/AgentService/contracts/errors';
-import type { AskUserAnswer, AskUserQuestion } from '@services/AgentService/contracts/tooling';
-import { askUserTool } from '@services/BuiltInToolService/tools/askUser';
-import type { BaseBuiltInToolExecutionContext } from '@services/BuiltInToolService/types';
+import { toolMessages } from '@tests/utils/toolMessages';
+
+import { AiErrorCode } from '@/app/api/agent/errors';
+import type { AskUserAnswer, AskUserQuestion } from '@/modules/tools';
+import { createAskUserTools } from '@/modules/tools';
+const askUserTool = createAskUserTools(toolMessages)[0]!;
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
+import type { BaseBuiltInToolExecutionContext } from '@/modules/tools';
 
 function question(overrides: Partial<AskUserQuestion> = {}): AskUserQuestion {
     return {

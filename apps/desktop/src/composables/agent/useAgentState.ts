@@ -2,8 +2,8 @@
 
 import { computed, onUnmounted, ref } from 'vue';
 
-import { sessionTaskCenter, type SessionTaskViewSnapshot } from '@/services/AgentService';
-import type { SessionMessage } from '@/types/session';
+import type { SessionMessage, TaskViewSnapshot } from '@/app/api/agent';
+import { useAgentApi } from '@/app/api/agent';
 
 export interface UseAgentStateOptions {
     onChunk?: (content: string) => void;
@@ -51,6 +51,7 @@ function extractLatestAssistantBuffers(history: SessionMessage[]): {
  * - 不负责发起任务，也不负责持久化会话恢复
  */
 export function useAgentState(options: UseAgentStateOptions = {}) {
+    const agent = useAgentApi();
     const isLoading = ref(false);
     const error = ref<Error | null>(null);
     const response = ref('');
@@ -58,11 +59,11 @@ export function useAgentState(options: UseAgentStateOptions = {}) {
     const currentSessionId = ref<number | null>(null);
     const sessionHistory = ref<SessionMessage[]>([]);
     const attachedTaskId = ref<string | null>(null);
-    const taskStatus = ref<SessionTaskViewSnapshot['status'] | null>(null);
-    const currentModel = ref<SessionTaskViewSnapshot['currentModel']>(null);
-    const pendingToolApproval = ref<SessionTaskViewSnapshot['pendingToolApproval']>(null);
-    const pendingApprovalQueue = ref<SessionTaskViewSnapshot['pendingApprovals']>([]);
-    const pendingUserQuestion = ref<SessionTaskViewSnapshot['pendingUserQuestion']>(null);
+    const taskStatus = ref<TaskViewSnapshot['status'] | null>(null);
+    const currentModel = ref<TaskViewSnapshot['currentModel']>(null);
+    const pendingToolApproval = ref<TaskViewSnapshot['pendingToolApproval']>(null);
+    const pendingApprovalQueue = ref<TaskViewSnapshot['pendingApprovals']>([]);
+    const pendingUserQuestion = ref<TaskViewSnapshot['pendingUserQuestion']>(null);
     const hasError = computed(() => error.value !== null);
     const hasResponse = computed(() => response.value.length > 0);
 
@@ -94,7 +95,7 @@ export function useAgentState(options: UseAgentStateOptions = {}) {
     /**
      * 将任务快照同步到页面状态。
      */
-    function applyTaskSnapshot(snapshot: SessionTaskViewSnapshot) {
+    function applyTaskSnapshot(snapshot: TaskViewSnapshot) {
         attachedTaskId.value = snapshot.taskId;
         currentSessionId.value = snapshot.sessionId;
         sessionHistory.value = snapshot.sessionHistory;
@@ -168,7 +169,7 @@ export function useAgentState(options: UseAgentStateOptions = {}) {
     /**
      * 挂接到指定任务并开始接收快照。
      */
-    function attachTaskView(taskId: string, initialSnapshot?: SessionTaskViewSnapshot) {
+    function attachTaskView(taskId: string, initialSnapshot?: TaskViewSnapshot) {
         // 页面一次只观察一个任务；切换会话或重新挂载时，先断开旧订阅再挂到新任务。
         detachTaskView();
 
@@ -177,7 +178,7 @@ export function useAgentState(options: UseAgentStateOptions = {}) {
         }
 
         try {
-            unsubscribeTask = sessionTaskCenter.subscribeTask(taskId, (snapshot) => {
+            unsubscribeTask = agent.subscribeTask(taskId, (snapshot) => {
                 applyTaskSnapshot(snapshot);
             });
         } catch (rawError) {

@@ -207,7 +207,8 @@ describe('when the diff base is not available', () => {
             runPatchCoverage(
                 { coveragePath: reportPath, base: 'missing', root: '.', floor: 85 },
                 {
-                    readDiff: () => {
+                    resolveBase: () => 'missing',
+                    readChangedLines: () => {
                         throw new Error('Cannot diff against "missing"');
                     },
                 }
@@ -238,9 +239,9 @@ describe('when main has moved on since the branch started', () => {
                     expect(ref).toBe('main-tip');
                     return 'merge-base-sha';
                 },
-                readDiff: (base) => {
+                readChangedLines: (base) => {
                     seen.push(base);
-                    return '';
+                    return new Map();
                 },
             }
         );
@@ -327,7 +328,7 @@ describe('when the change touches a file the coverage config excludes', () => {
 
         const { result } = runPatchCoverage(
             { coveragePath: reportPath, base: 'main-tip', root: 'apps/desktop', floor: 85 },
-            { resolveBase: () => 'main-tip', readDiff: () => diff }
+            { resolveBase: () => 'main-tip', readChangedLines: () => parseChangedLines(diff) }
         );
 
         expect(result.total).toBe(0);
@@ -343,7 +344,7 @@ describe('when the change touches a file the coverage config excludes', () => {
  */
 describe('when the change touches a file the coverage report cannot contain', () => {
     const unmeasuredPaths = [
-        'apps/desktop/src/services/AgentService/infrastructure/modelMetadata/snapshot.json',
+        'apps/desktop/src/modules/models/metadata/snapshot.json',
         'apps/desktop/src/styles/tokens.css',
         'apps/desktop/src/assets/logo.svg',
     ];
@@ -368,10 +369,79 @@ describe('when the change touches a file the coverage report cannot contain', ()
 
         const { result } = runPatchCoverage(
             { coveragePath: reportPath, base: 'main-tip', root: 'apps/desktop', floor: 85 },
-            { resolveBase: () => 'main-tip', readDiff: () => diff }
+            { resolveBase: () => 'main-tip', readChangedLines: () => parseChangedLines(diff) }
         );
 
         expect(result.total).toBe(0);
         expect(result.files).toEqual([]);
     });
+});
+
+describe('given production behavior is extracted into a business package', () => {
+    it('user measures covered package changes through the normal Desktop command with the repository root', async () => {
+        const { readFileSync, mkdtempSync, rmSync, writeFileSync } = await import('node:fs');
+        const { tmpdir } = await import('node:os');
+        const { dirname, join, resolve } = await import('node:path');
+        const { fileURLToPath } = await import('node:url');
+        const { parseArgs, runPatchCoverage } =
+            await import('../../scripts/ci/coverage/patch-coverage-cli.mjs');
+        const desktop = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+        const repository = resolve(desktop, '../..');
+        const manifest = JSON.parse(readFileSync(join(desktop, 'package.json'), 'utf8'));
+        const flags = String(manifest.scripts['test:coverage:patch']).split(' ').slice(2);
+        const options = parseArgs(flags, {});
+        const directory = mkdtempSync(join(tmpdir(), 'package-patch-'));
+        try {
+            const file = 'packages/models/src/feature.ts';
+            const coveragePath = join(directory, 'coverage.json');
+            writeFileSync(
+                coveragePath,
+                JSON.stringify({
+                    [join(repository, file)]: coverageFor([1], { covered: [1] }),
+                })
+            );
+            const { result, failures } = runPatchCoverage(
+                { ...options, coveragePath, root: resolve(repository, options.root) },
+                {
+                    resolveBase: () => 'fixture',
+                    readChangedLines: () => new Map([[file, new Set([1])]]),
+                }
+            );
+            expect(result).toMatchObject({ total: 1, covered: 1, percent: 100 });
+            expect(failures).toEqual([]);
+        } finally {
+            rmSync(directory, { recursive: true, force: true });
+        }
+    });
+
+    it.each(['agent-core', 'models'])(
+        'user receives a failed patch gate for uncovered %s behavior',
+        async (name) => {
+            const { mkdtempSync, rmSync, writeFileSync } = await import('node:fs');
+            const { tmpdir } = await import('node:os');
+            const { join } = await import('node:path');
+            const { runPatchCoverage } =
+                await import('../../scripts/ci/coverage/patch-coverage-cli.mjs');
+            const directory = mkdtempSync(join(tmpdir(), 'package-patch-'));
+            try {
+                const coveragePath = join(directory, 'coverage.json');
+                writeFileSync(coveragePath, '{}');
+                const file = `packages/${name}/src/feature.ts`;
+                const { result, failures } = runPatchCoverage(
+                    { coveragePath, base: 'fixture', root: '.', floor: 85 },
+                    {
+                        resolveBase: () => 'fixture',
+                        readChangedLines: (_base, paths) =>
+                            paths.includes(`packages/${name}/src`)
+                                ? new Map([[file, new Set([1])]])
+                                : new Map(),
+                    }
+                );
+                expect(result).toMatchObject({ total: 1, covered: 0, percent: 0 });
+                expect(failures).toHaveLength(1);
+            } finally {
+                rmSync(directory, { recursive: true, force: true });
+            }
+        }
+    );
 });

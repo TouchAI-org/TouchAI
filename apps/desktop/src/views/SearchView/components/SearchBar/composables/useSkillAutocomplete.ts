@@ -1,23 +1,14 @@
 import { computed, getCurrentScope, onScopeDispose, ref } from 'vue';
 
+import { type SearchApi, useSearchApi } from '@/app/api/search/queries';
+import { filterSkillCandidates, skillSearchItem } from '@/app/api/search/queries';
+import { discoverSkills, type SelectedSkill, type SkillMetadata } from '@/app/api/skills/catalog';
 import { nextResultIndex } from '@/components/ui/result-panel/navigation';
-import {
-    discoverSkills,
-    type SelectedSkill,
-    type SkillMetadata,
-} from '@/services/AgentService/skills';
-import { normalizeSkillPath } from '@/services/AgentService/skills/path';
-import { SearchActionDispatcher, SearchProviderRegistry } from '@/services/SearchService';
-import {
-    createSkillSearchProvider,
-    filterSkillCandidates,
-    type SkillReferenceAction,
-    skillSearchItem,
-} from '@/services/SearchService/skills';
+import { normalizeSkillPath } from '@/utils/pathIdentity';
 
 import { handleAutocompleteKeyDown, resolveAutocompleteCompletion } from '../utils/autocomplete';
 
-export { filterSkillCandidates } from '@/services/SearchService/skills';
+export { filterSkillCandidates } from '@/app/api/search/queries';
 
 export interface SkillAutocompleteTrigger {
     query: string;
@@ -35,6 +26,7 @@ export interface SkillPickerState {
 }
 
 export interface UseSkillAutocompleteOptions {
+    search?: Pick<SearchApi, 'openSkillSession'>;
     discoverSkills?: () => Promise<SkillMetadata[]>;
     autoSelectFirst?: () => boolean;
     getSelectedSkills: () => SelectedSkill[];
@@ -79,16 +71,16 @@ export function useSkillAutocomplete(options: UseSkillAutocompleteOptions) {
     let refreshId = 0;
     let catalogRequest: Promise<SkillMetadata[]> | null = null;
     let catalog: SkillMetadata[] | null = null;
-    const session = new SearchProviderRegistry().createSession([
-        createSkillSearchProvider(loadCatalog, options.getSelectedSkills),
-    ]);
-    const actions = new SearchActionDispatcher();
-    actions.register<SkillReferenceAction>('skill.reference', (action) => {
-        const trigger = activeTrigger.value;
-        if (!trigger || isLoading.value || error.value) return { status: 'unavailable' };
-        options.onSelect(action.skill, trigger);
-        close();
-        return { status: 'completed' };
+    const session = (options.search ?? useSearchApi()).openSkillSession({
+        catalog: loadCatalog,
+        selected: options.getSelectedSkills,
+        select(skill) {
+            const trigger = activeTrigger.value;
+            if (!trigger || isLoading.value || error.value) return { status: 'unavailable' };
+            options.onSelect(skill, trigger);
+            close();
+            return { status: 'completed' };
+        },
     });
     if (getCurrentScope()) onScopeDispose(() => session.dispose());
 
@@ -249,7 +241,7 @@ export function useSkillAutocomplete(options: UseSkillAutocompleteOptions) {
             (candidate) => candidate.result.id === normalizeSkillPath(skill.path)
         );
         if (match)
-            void session.activate(match, 'completion', actions, {
+            void session.activate(match, 'completion', {
                 signal: new AbortController().signal,
             });
     }

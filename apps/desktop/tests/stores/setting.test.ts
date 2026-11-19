@@ -1,195 +1,95 @@
+import { createSettingsPanelFixture } from '@tests/utils/settingsPanel';
+import { afterEach, describe, expect, it } from 'vitest';
+import { ref } from 'vue';
+
 import {
     applyGeneralSettingValue,
     applyPersistedGeneralSettingValue,
     cloneGeneralSettingsSnapshot,
     createDefaultGeneralSettings,
-    createGeneralSettingUpdaters,
-    DEFAULT_BROWSER_SETTINGS,
-    DEFAULT_SEARCH_SETTINGS,
-    GENERAL_SETTING_COMPUTED_BINDINGS,
-    GENERAL_SETTING_DEFINITIONS,
-    GENERAL_SETTING_UPDATER_BINDINGS,
-    type GeneralSettingKey,
-    type GeneralSettingValue,
     getGeneralSettingDefinition,
     getGeneralSettingEventValue,
-    JSON_GENERAL_SETTING_DEFINITIONS,
-    JSON_SETTINGS_SECTIONS,
     serializeGeneralSetting,
-} from '@services/SettingsService/domain';
-import { describe, expect, it, vi } from 'vitest';
-import { ref } from 'vue';
-
+} from '@/app/api/settings/preferences';
 import { createGeneralSettingsComputedRefs } from '@/stores/settingBindings';
 
-const EXPECTED_GENERAL_SETTING_KEYS: GeneralSettingKey[] = [
-    'animation_speed',
-    'automatically_reduce_motion',
-    'global_shortcut',
-    'start_on_boot',
-    'start_minimized',
-    'output_scroll_behavior',
-    'search_window_size_preset',
-    'language',
-    'app_update_channel',
-    'app_update_auto_check',
-    'app_update_last_checked_at',
-    'usage_detail_retention_days',
-    'search_keybindings',
-    'browser_settings',
-    'search_settings',
-];
+let fixture: Awaited<ReturnType<typeof createSettingsPanelFixture>> | undefined;
+afterEach(async () => {
+    await fixture?.dispose();
+    fixture = undefined;
+});
 
-describe('user changes a persisted setting', () => {
-    it('user declares every persisted general setting key in one registry', () => {
-        expect(GENERAL_SETTING_DEFINITIONS.map((definition) => definition.key)).toEqual(
-            EXPECTED_GENERAL_SETTING_KEYS
-        );
-        for (const key of EXPECTED_GENERAL_SETTING_KEYS) {
-            expect(getGeneralSettingDefinition(key)?.key).toBe(key);
-        }
-        expect(getGeneralSettingDefinition('missing' as GeneralSettingKey)).toBeNull();
-    });
-
-    it('user keeps definition keys unique so store load order is unambiguous', () => {
-        const keys = GENERAL_SETTING_DEFINITIONS.map((definition) => definition.key);
-
-        expect(new Set(keys).size).toBe(keys.length);
-    });
-
-    it('user derives json-backed general settings from the json settings registry', () => {
-        expect(JSON_GENERAL_SETTING_DEFINITIONS.map((definition) => definition.key)).toEqual(
-            JSON_SETTINGS_SECTIONS.map((section) => section.key)
-        );
-    });
-
-    it('user applies, serializes, and exposes event values through definitions', () => {
+describe('given ordinary preferences have public normalization and projection contracts', () => {
+    it('user opens preferences without receiving browser or search business configuration', () => {
         const settings = createDefaultGeneralSettings();
+        expect(settings).not.toHaveProperty('browserSettings');
+        expect(settings).not.toHaveProperty('searchSettings');
+        expect(getGeneralSettingDefinition('browser_settings' as never)).toBeNull();
+        expect(getGeneralSettingDefinition('search_settings' as never)).toBeNull();
+    });
 
+    it('user applies scalar choices and sees their compatible serialized and event values', () => {
+        const settings = createDefaultGeneralSettings();
         applyGeneralSettingValue(settings, 'start_on_boot', 'true');
         expect(settings.startOnBoot).toBe(true);
         expect(serializeGeneralSetting(settings, 'start_on_boot')).toBe('true');
         expect(getGeneralSettingEventValue(settings, 'start_on_boot')).toBe(true);
-
         applyGeneralSettingValue(settings, 'search_window_size_preset', 'large');
         expect(settings.searchWindowSizePreset).toBe('large');
         expect(settings.searchWindowDefaultSize).toMatchObject({ width: 938 });
-
-        applyGeneralSettingValue(
-            settings,
-            'browser_settings',
-            JSON.stringify({ defaultHomepage: 'https://example.test' })
-        );
-        expect(settings.browserSettings.defaultHomepage).toBe('https://example.test');
-        expect(serializeGeneralSetting(settings, 'browser_settings')).toContain(
-            'https://example.test'
-        );
     });
 
-    it('user normalizes invalid persisted scalar values back to declarative defaults', () => {
+    it('user reopens invalid saved scalar choices and receives the existing defaults', () => {
         const settings = createDefaultGeneralSettings();
-
         applyPersistedGeneralSettingValue(settings, 'output_scroll_behavior', 'invalid');
         applyPersistedGeneralSettingValue(settings, 'search_window_size_preset', 'invalid');
         applyPersistedGeneralSettingValue(settings, 'app_update_auto_check', 'false');
-
         expect(settings.outputScrollBehavior).toBe('follow_output');
         expect(settings.searchWindowSizePreset).toBe('normal');
         expect(settings.searchWindowDefaultSize).toMatchObject({ width: 750 });
         expect(settings.appUpdateAutoCheck).toBe(false);
     });
 
-    it('user keeps language as a persisted-before-apply setting', () => {
-        expect(getGeneralSettingDefinition('language')).toMatchObject({
-            persistBeforeApply: true,
-        });
-    });
-
-    it('user clones nested settings without sharing mutable references', () => {
+    it('user edits a cloned projection without changing another view nested preferences', () => {
         const settings = createDefaultGeneralSettings();
         const clone = cloneGeneralSettingsSnapshot(settings);
-
-        clone.browserSettings.permissions.navigate = 'deny';
-        clone.searchSettings.providers.anysearch.enabled = false;
-
-        expect(settings.browserSettings.permissions.navigate).not.toBe('deny');
-        expect(settings.searchSettings.providers.anysearch.enabled).toBe(true);
+        clone.searchKeybindings['search.history.open'] = 'Mod+J';
+        clone.searchWindowDefaultSize.width = 900;
+        expect(settings.searchKeybindings['search.history.open']).not.toBe('Mod+J');
+        expect(settings.searchWindowDefaultSize.width).toBe(750);
     });
 
-    it('user declares stable computed and updater bindings in the settings registry', () => {
-        expect(GENERAL_SETTING_COMPUTED_BINDINGS.map((binding) => binding.exposedName)).toEqual([
-            'animationSpeed',
-            'automaticallyReduceMotion',
-            'globalShortcut',
-            'outputScrollBehavior',
-            'searchWindowSizePreset',
-            'language',
-            'appUpdateChannel',
-            'appUpdateAutoCheck',
-            'appUpdateLastCheckedAt',
-            'usageDetailRetentionDays',
-            'searchKeybindings',
-            'searchWindowDefaultSize',
-            'browserSettings',
-            'searchSettings',
-        ]);
-
-        expect(GENERAL_SETTING_UPDATER_BINDINGS.map((binding) => binding.exposedName)).toEqual([
-            'updateAnimationSpeed',
-            'updateAutomaticallyReduceMotion',
-            'updateGlobalShortcut',
-            'updateStartOnBoot',
-            'updateStartMinimized',
-            'updateOutputScrollBehavior',
-            'updateSearchWindowSizePreset',
-            'updateLanguage',
-            'updateAppUpdateChannel',
-            'updateAppUpdateAutoCheck',
-            'updateAppUpdateLastCheckedAt',
-            'updateUsageDetailRetentionDays',
-            'updateSearchKeybindings',
-            'updateBrowserSettings',
-            'updateSearchSettings',
-        ]);
-    });
-
-    it('user creates computed refs from declared state bindings', () => {
+    it('user changes the projected shortcut and a computed control reflects that choice', () => {
         const settings = ref(createDefaultGeneralSettings());
-        const computedRefs = createGeneralSettingsComputedRefs(settings);
-
-        expect(computedRefs.globalShortcut.value).toBe('Alt+Space');
-
+        const controls = createGeneralSettingsComputedRefs(settings);
+        expect(controls.globalShortcut.value).toBe('Alt+Space');
         settings.value.globalShortcut = 'Ctrl+Space';
-
-        expect(computedRefs.globalShortcut.value).toBe('Ctrl+Space');
+        expect(controls.globalShortcut.value).toBe('Ctrl+Space');
     });
 
-    it('user creates updater methods from declared key bindings', async () => {
-        const updateSetting = vi.fn(async (key: GeneralSettingKey, value: GeneralSettingValue) => {
-            void key;
-            void value;
+    it('user changes preferences through store commands and production main commits normalized values', async () => {
+        fixture = await createSettingsPanelFixture({ values: { language: 'en-US' } });
+        await fixture.preferences.updateAnimationSpeed('faster');
+        await fixture.preferences.updateStartMinimized(false);
+        await fixture.preferences.updateOutputScrollBehavior('stay_position');
+        await fixture.preferences.updateSearchWindowSizePreset('large');
+        expect(fixture.saved('animation_speed')).toBe('faster');
+        expect(fixture.saved('start_minimized')).toBe('false');
+        expect(fixture.saved('output_scroll_behavior')).toBe('stay_position');
+        expect(fixture.saved('search_window_size_preset')).toBe('large');
+        expect(fixture.client.settings.getSnapshot()).toMatchObject({
+            animationSpeed: 'faster',
+            startMinimized: false,
+            outputScrollBehavior: 'stay_position',
+            searchWindowDefaultSize: { width: 938 },
         });
-        const updaters = createGeneralSettingUpdaters(updateSetting);
+    });
 
-        await updaters.updateGlobalShortcut('Ctrl+Space');
-        await updaters.updateLanguage('en-US');
-        await updaters.updateBrowserSettings({
-            ...DEFAULT_BROWSER_SETTINGS,
-            defaultHomepage: 'https://example.test',
-        });
-        await updaters.updateSearchSettings(DEFAULT_SEARCH_SETTINGS);
-
-        expect(updateSetting).toHaveBeenNthCalledWith(1, 'global_shortcut', 'Ctrl+Space');
-        expect(updateSetting).toHaveBeenNthCalledWith(2, 'language', 'en-US');
-        expect(updateSetting).toHaveBeenNthCalledWith(
-            3,
-            'browser_settings',
-            expect.stringContaining('https://example.test')
-        );
-        expect(updateSetting).toHaveBeenNthCalledWith(
-            4,
-            'search_settings',
-            expect.stringContaining('providers')
-        );
+    it('user changes language through a client and another window observes the committed preference', async () => {
+        fixture = await createSettingsPanelFixture({ values: { language: 'zh-CN' } });
+        await fixture.preferences.updateLanguage('en-US');
+        expect(fixture.saved('language')).toBe('en-US');
+        expect(fixture.window.settings.getSnapshot().language).toBe('en-US');
+        expect(fixture.preferences.language).toBe('en-US');
     });
 });

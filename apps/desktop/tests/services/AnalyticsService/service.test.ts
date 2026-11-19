@@ -1,9 +1,11 @@
-import { analytics } from '@services/AnalyticsService';
-import type { AnalyticsOperationHandle, AnalyticsState } from '@services/AnalyticsService/types';
-import { native } from '@services/NativeService';
+import { createAnalytics } from '@/modules/analytics';
+let analytics: ReturnType<typeof createAnalytics>;
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('@services/NativeService', () => ({
+import type { AnalyticsOperationHandle, AnalyticsState } from '@/modules/analytics/public';
+import { native } from '@/platform/native';
+
+vi.mock('@/platform/native', () => ({
     native: {
         analytics: {
             getState: vi.fn(),
@@ -48,6 +50,7 @@ const validAttributes = {
 describe('AnalyticsService', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        analytics = createAnalytics(native.analytics);
     });
 
     it('user gets a queued result when the native channel accepts the event', async () => {

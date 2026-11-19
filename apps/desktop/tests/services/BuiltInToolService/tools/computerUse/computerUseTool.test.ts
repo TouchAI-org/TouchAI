@@ -1,5 +1,19 @@
-import type { BaseBuiltInToolExecutionContext } from '@services/BuiltInToolService/types';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+    closeTestDatabases,
+    openMigratedDatabase,
+    routeQueriesTo,
+} from '@tests/database/sqliteHarness';
+import { mcpFormatting, mcpResultFiles } from '@tests/utils/mcpFormatting';
+import { mockTauriCommand } from '@tests/utils/tauri';
+import { toolMessages } from '@tests/utils/toolMessages';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import type { BaseBuiltInToolExecutionContext } from '@/modules/tools';
+import {
+    createBuiltinRegistrations,
+    createComputerControl,
+    createComputerUseTools,
+} from '@/modules/tools';
 
 const settings = {
     allowForeground: false,
@@ -12,14 +26,12 @@ const settings = {
     telemetryEnabled: false,
 };
 
-const allowed = new Set<string>();
-const allowForSession = vi.fn((key: string) => allowed.add(key));
+// These responders replace only the native driver boundary.
 const execute = vi.fn();
 const cancel = vi.fn();
-const pulseGlow = vi.fn(async () => undefined);
-const startActivity = vi.fn(async () => undefined);
-const enabled = vi.fn(async () => true);
-const groups = vi.fn(async (): Promise<Record<string, boolean>> => ({}));
+const pulseGlow = vi.fn<(...args: unknown[]) => Promise<void>>(async () => undefined);
+let enabledState = true;
+let groupValues: Record<string, boolean> = {};
 let selectedDriver = 'cua-driver';
 const agentCatalog = [
     'desktop_snapshot',
@@ -87,48 +99,54 @@ const catalog = [
         annotations: { readOnlyHint: true },
     },
 ];
-const persistImage = vi.hoisted(() =>
-    vi.fn(async () => ({
-        id: 'image-1',
-        type: 'image',
-        path: '/cache/screenshot.png',
-        originPath: 'computer-use://capture',
-        name: 'screenshot.png',
-    }))
-);
+let database: ReturnType<typeof openMigratedDatabase>;
+let control: ReturnType<typeof createComputerControl>;
+let descriptor: ReturnType<typeof createComputerUseTools>[number];
+const cancellations = new Map<string, () => unknown>();
 
-vi.mock('@/services/AgentService/infrastructure/attachments/storage', () => ({
-    createPersistedAttachmentFromData: persistImage,
-}));
+function saveFixtureConfiguration() {
+    database
+        .prepare('UPDATE built_in_tools SET enabled = ? WHERE tool_id = ?')
+        .run(enabledState ? 1 : 0, 'computer_use');
+    const save = database.prepare(
+        'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+    );
+    save.run('computer_use.settings', JSON.stringify(settings));
+    save.run('computer_use.driver', selectedDriver);
+    for (const [group, value] of Object.entries(groupValues))
+        save.run(`computer_use.group.${group}`, String(value));
+}
 
-vi.mock('@services/ComputerUseService', () => ({
-    computerUseService: {
-        allowForSession: (key: string) => allowForSession(key),
-        execute: (...args: unknown[]) => execute(...args),
-        isAllowedForSession: (key: string) => allowed.has(key),
-        loadSettings: async () => settings,
-        isEnabled: () => enabled(),
-        loadGroups: () => groups(),
-        listTools: async () => (selectedDriver === 'agent-desktop' ? agentCatalog : catalog),
-        loadDriver: async () => selectedDriver,
-        pulseGlow,
-        startActivity,
+const tool = {
+    get defaultConfig() {
+        return descriptor.defaultConfig;
     },
-    targetKey: (pid?: unknown, windowId?: unknown) =>
-        `${String(pid ?? '-')}:${String(windowId ?? '-')}`,
-}));
-
-const { ComputerUseTool } = await import('@services/BuiltInToolService/tools/computerUse/index');
-
-const tool = new ComputerUseTool();
+    parseConfig(value: string | null) {
+        return descriptor.parseConfig(value);
+    },
+    async buildToolDefinition(...args: Parameters<typeof descriptor.buildToolDefinition>) {
+        saveFixtureConfiguration();
+        return descriptor.buildToolDefinition(...args);
+    },
+    async buildApprovalRequest(
+        args: Record<string, unknown>,
+        config: typeof descriptor.defaultConfig
+    ) {
+        saveFixtureConfiguration();
+        return descriptor.buildApprovalRequest(args, config, 'builtin__computer_use', context());
+    },
+    async execute(...args: Parameters<typeof descriptor.execute>) {
+        saveFixtureConfiguration();
+        return descriptor.execute(...args);
+    },
+};
 
 function context(signal?: AbortSignal): BaseBuiltInToolExecutionContext {
     return {
         callId: 'call-1',
-        hasExecutedBuiltInTool: () => false,
         iteration: 1,
         signal,
-    } as BaseBuiltInToolExecutionContext;
+    };
 }
 
 function driverResult(structured: Record<string, unknown> = {}) {
@@ -139,26 +157,82 @@ function driverResult(structured: Record<string, unknown> = {}) {
     };
 }
 
-beforeEach(() => {
+beforeEach(async () => {
     selectedDriver = 'cua-driver';
-    allowed.clear();
-    allowForSession.mockClear();
     execute.mockReset();
     cancel.mockReset();
     pulseGlow.mockReset();
-    startActivity.mockReset();
-    persistImage.mockClear();
+    mcpResultFiles.clear();
+    cancellations.clear();
     settings.approval = 'each';
     settings.allowForeground = false;
     settings.cursorVisible = true;
     settings.allowedApps = [];
-    enabled.mockResolvedValue(true);
-    groups.mockResolvedValue({});
+    enabledState = true;
+    groupValues = {};
     execute.mockReturnValue({
         cancel,
         executionId: 'exec-1',
         result: Promise.resolve(driverResult({ effect: 'confirmed', route: 'accessibility' })),
     });
+    database = openMigratedDatabase();
+    routeQueriesTo(database);
+    mockTauriCommand('computer_use_list_tools', (payload) =>
+        (payload as { driver: string }).driver === 'agent-desktop' ? agentCatalog : catalog
+    );
+    mockTauriCommand('computer_use_invoke', (payload) => {
+        const request = payload as {
+            tool: string;
+            arguments: Record<string, unknown>;
+            executionId: string;
+        };
+        if (['set_config', 'set_agent_cursor_enabled'].includes(request.tool))
+            return { isError: false };
+        const reply = execute(request.tool, request.arguments) as {
+            cancel(): unknown;
+            result: Promise<Record<string, unknown>>;
+        };
+        cancellations.set(request.executionId, reply.cancel);
+        return reply.result;
+    });
+    mockTauriCommand('computer_use_cancel', (payload) => {
+        cancellations.get((payload as { executionId: string }).executionId)?.();
+        return true;
+    });
+    mockTauriCommand('computer_use_glow_pulse', (payload) => {
+        const { pointer, activityId } = payload as {
+            pointer?: { x: number; y: number };
+            activityId?: string;
+        };
+        return pointer === undefined && activityId === undefined
+            ? pulseGlow()
+            : pulseGlow(pointer, activityId);
+    });
+    control = createComputerControl({
+        locale: () => 'en-US',
+        onStopped: async () => () => {},
+        warn: () => {},
+    });
+    const [computerTool] = createComputerUseTools({
+        control,
+        messages: toolMessages,
+        warn: () => {},
+        images: {
+            extract: (content, context) =>
+                mcpFormatting.extractMcpToolAttachments(
+                    { success: true, is_error: false, content },
+                    { toolCallId: context.callId, toolName: 'computer_use' }
+                ),
+        },
+    });
+    if (!computerTool) throw new Error('Missing computer use tool');
+    descriptor = computerTool;
+    await createBuiltinRegistrations([descriptor]).synchronize();
+    await control.loadDriver();
+});
+afterEach(async () => {
+    await control.dispose();
+    closeTestDatabases();
 });
 
 describe('computer use tool', () => {
@@ -277,7 +351,7 @@ describe('computer use tool', () => {
         selectedDriver = 'agent-desktop';
         settings.approval = 'full-access';
         settings.allowForeground = true;
-        groups.mockResolvedValue({ clipboard: false });
+        groupValues = { clipboard: false };
         const result = await tool.execute(
             {
                 action: 'desktop_batch',
@@ -407,7 +481,7 @@ describe('computer use tool', () => {
     });
 
     it('user given disabled input tools when using a direct native action then cannot bypass that permission', async () => {
-        groups.mockResolvedValue({ input: false });
+        groupValues = { input: false };
         const result = await tool.execute(
             { action: 'press_key', key: 'Escape' },
             tool.defaultConfig,
@@ -781,7 +855,7 @@ describe('computer use tool', () => {
     });
 
     it('user given disabled window tools when observing without a target then cannot list windows indirectly', async () => {
-        groups.mockResolvedValue({ windows: false });
+        groupValues = { windows: false };
         const result = await tool.execute({ action: 'observe' }, tool.defaultConfig, context());
         expect(result.errorMessage).toBe('tool_group_disabled:windows');
         expect(execute).not.toHaveBeenCalled();
@@ -809,7 +883,7 @@ describe('computer use tool', () => {
         expect(execute).not.toHaveBeenCalled();
     });
     it('user given a disabled master switch when executing an old call then receives a refusal', async () => {
-        enabled.mockResolvedValue(false);
+        enabledState = false;
         const result = await tool.execute(
             { action: 'list_windows' },
             tool.defaultConfig,
@@ -844,7 +918,7 @@ describe('computer use tool', () => {
     });
 
     it('user given disabled clipboard tools when invoking an alias or native tool then both are refused', async () => {
-        groups.mockResolvedValue({ clipboard: false });
+        groupValues = { clipboard: false };
         for (const args of [
             { action: 'clipboard_write', text: 'secret' },
             { action: 'call', tool: 'clipboard_write', arguments: { text: 'secret' } },
@@ -858,7 +932,7 @@ describe('computer use tool', () => {
     it('user given disabled input tools when using a batch or script then cannot bypass that group', async () => {
         settings.approval = 'full-access';
         settings.allowForeground = true;
-        groups.mockResolvedValue({ input: false });
+        groupValues = { input: false };
         for (const action of ['run_steps', 'run_script']) {
             const result = await tool.execute(
                 {
@@ -985,7 +1059,7 @@ describe('computer use tool', () => {
             tool.defaultConfig,
             {
                 ...context(),
-                currentModel: { modalities: '{"input":["text","image"]}' },
+                currentModel: { supportsImages: true },
             } as BaseBuiltInToolExecutionContext
         );
         expect(result.attachments).toHaveLength(1);
@@ -1225,11 +1299,18 @@ describe('computer use tool', () => {
             tool.defaultConfig,
             {
                 ...context(),
-                currentModel: { modalities: '{"input":["text","image"]}' },
+                currentModel: { supportsImages: true },
             } as BaseBuiltInToolExecutionContext
         );
         expect(result.attachments).toHaveLength(1);
-        expect(result.attachments?.[0]?.path).toBe('/cache/screenshot.png');
+        expect([...mcpResultFiles.values()], JSON.stringify(result.attachments)).toContainEqual(
+            new Uint8Array([104, 105])
+        );
+        expect(result.attachments![0]).toMatchObject({
+            type: 'image',
+            size: 2,
+            mimeType: 'image/png',
+        });
         expect(result.result).toContain('capture-1');
         expect(result.result).toContain('800');
         expect(result.result).not.toContain('aGk=');
@@ -1248,12 +1329,12 @@ describe('computer use tool', () => {
             tool.defaultConfig,
             {
                 ...context(),
-                currentModel: { modalities: '{"input":["text"]}' },
+                currentModel: { supportsImages: false },
             } as BaseBuiltInToolExecutionContext
         );
         expect(result.attachments).toBeUndefined();
         expect(result.result).toContain('does not support images');
-        expect(persistImage).not.toHaveBeenCalled();
+        expect(mcpResultFiles.size).toBe(0);
     });
 
     it('user observes a window without being asked to approve', async () => {
@@ -1277,7 +1358,7 @@ describe('computer use tool', () => {
 
     it('user is not asked again for the same action on an allowed window', async () => {
         settings.approval = 'session-window';
-        allowed.add('12:34');
+        control.allowForSession('12:34');
 
         await expect(
             tool.buildApprovalRequest(
@@ -1329,7 +1410,7 @@ describe('computer use tool', () => {
     it('user still confirms a foreground escalation on an allowed window', async () => {
         settings.approval = 'session-window';
         settings.allowForeground = true;
-        allowed.add('12:34');
+        control.allowForSession('12:34');
 
         const request = await tool.buildApprovalRequest(
             { action: 'click', foreground: true, pid: 12, window_id: 34 },
@@ -1478,7 +1559,7 @@ describe('computer use tool', () => {
 
     it('user always confirms a launch even after an empty session key was allowed', async () => {
         settings.approval = 'session-window';
-        allowed.add('-:-');
+        control.allowForSession('-:-');
 
         const request = await tool.buildApprovalRequest(
             { action: 'launch', path: 'C:\\Windows\\System32\\notepad.exe' },
@@ -1498,14 +1579,13 @@ describe('computer use tool', () => {
             context()
         );
 
-        expect(allowForSession).not.toHaveBeenCalled();
-        expect(allowed.has('-:-')).toBe(false);
+        expect(control.isAllowedForSession('-:-')).toBe(false);
     });
 
     it('user gets a modified key sent through the foreground only when allowed', async () => {
         settings.allowForeground = true;
         settings.approval = 'session-window';
-        allowed.add('12:34');
+        control.allowForSession('12:34');
 
         const request = await tool.buildApprovalRequest(
             { action: 'key', key: 'a', modifiers: ['Ctrl'], pid: 12, window_id: 34 },
@@ -1599,7 +1679,7 @@ describe('computer use tool', () => {
 
     it('user gets a session grant reused by another action on the same window', async () => {
         settings.approval = 'session-window';
-        allowed.add('12:34');
+        control.allowForSession('12:34');
 
         await expect(
             tool.buildApprovalRequest(
@@ -1886,7 +1966,7 @@ describe('computer use tool', () => {
             tool.defaultConfig,
             {
                 ...context(),
-                currentModel: { modalities: '{"input":["text","image"]}' },
+                currentModel: { supportsImages: true },
             } as BaseBuiltInToolExecutionContext
         );
 

@@ -1,6 +1,6 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import type { SessionTaskUsageProgressEvent } from '@services/EventService';
+import type { SessionTaskUsageProgressEvent } from '@/app/api/usage/events';
 
 /** 多路流的聚合视图 */
 export interface LiveUsageAggregate {

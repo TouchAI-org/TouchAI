@@ -1,137 +1,62 @@
-﻿import { mountComposable } from '@tests/utils/composables';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createAgentWindowFixture } from '@tests/utils/agentWindow';
+import { mountComposable } from '@tests/utils/composables';
+import { describe, expect, it } from 'vitest';
 
+import { agentApiKey } from '@/app/api/agent';
 import { useAgent } from '@/composables/agent/useAgent';
 
-/**
- * When a conversation is reopened the page has to pick a model and provider to show in the
- * composer. The saved model row wins; if it was deleted the session's own columns are the only
- * record left of what the conversation used.
- */
-const { getSessionDataMock, sessionTaskCenterMock } = vi.hoisted(() => ({
-    getSessionDataMock: vi.fn(),
-    sessionTaskCenterMock: {
-        attachSessionView: vi.fn(() => null),
-        approveTaskToolCall: vi.fn(() => true),
-        cancelTask: vi.fn(() => true),
-        rejectTaskToolCall: vi.fn(() => true),
-        startTask: vi.fn(),
-        subscribeTask: vi.fn(),
-    },
-}));
-
-vi.mock('@database/queries/sessions', () => ({
-    findSessionById: vi.fn(async () => ({ id: 1, title: 'Active session' })),
-}));
-
-vi.mock('@services/NotificationService', () => ({ notify: vi.fn() }));
-
-vi.mock('@/services/AgentService', async () => {
-    const actual =
-        await vi.importActual<typeof import('@/services/AgentService')>('@/services/AgentService');
-    return { ...actual, sessionTaskCenter: sessionTaskCenterMock };
-});
-
-vi.mock('@/services/AgentService/session', async () => {
-    const actual = await vi.importActual<typeof import('@/services/AgentService/session')>(
-        '@/services/AgentService/session'
+describe('given a persisted conversation is reopened through the main session API', () => {
+    it.each([
+        { label: 'existing model row', model: 'fixture-model', provider: 1 },
+        { label: 'deleted model row', model: 'deleted-model', provider: 1 },
+        { label: 'no recorded model', model: null, provider: null },
+        { label: 'only a recorded provider', model: null, provider: 1 },
+    ])(
+        'user retains the recorded selection when reopening a conversation with $label',
+        async ({ model, provider }) => {
+            const fixture = createAgentWindowFixture('main', undefined, {
+                aroundInvoke: async (call, next) => {
+                    const result = await next();
+                    const request = (call.payload as { request?: { sql?: string } } | undefined)
+                        ?.request;
+                    // Historical native readers may omit identity; shipped SQLite requires a string.
+                    if (
+                        model === null &&
+                        call.cmd === 'database_query' &&
+                        request?.sql?.includes('from "sessions"')
+                    ) {
+                        const reply = result as { rows: Record<string, unknown>[] };
+                        return {
+                            ...reply,
+                            rows: reply.rows.map((row) => ({ ...row, model: null })),
+                        };
+                    }
+                    return result;
+                },
+            });
+            fixture.database
+                .prepare(
+                    `INSERT INTO sessions (id, session_id, title, model, provider_id)
+            VALUES (7, 'reopened-session', 'Deploy plan', ?, ?)`
+                )
+                .run(model ?? '', provider);
+            const mounted = await mountComposable(
+                () => useAgent(),
+                (app) => app.provide(agentApiKey, fixture.window.api)
+            );
+            try {
+                expect(await mounted.result.openSession(7)).toEqual({
+                    sessionId: 7,
+                    title: 'Deploy plan',
+                    modelId: model,
+                    providerId: provider,
+                });
+                expect(mounted.result.currentSessionId.value).toBe(7);
+                expect(mounted.result.isLoading.value).toBe(false);
+            } finally {
+                mounted.unmount();
+                await fixture.window.dispose();
+            }
+        }
     );
-    return {
-        ...actual,
-        getSessionData: getSessionDataMock,
-        loadCompleteSessionHistory: vi.fn(async (sessionId: number) => {
-            const data = (await getSessionDataMock(sessionId)) as {
-                session: unknown;
-                model: unknown;
-            };
-            return { history: [], session: data.session, model: data.model };
-        }),
-        buildSessionHistoryFromData: vi.fn(async () => []),
-    };
-});
-
-function sessionData(overrides: Record<string, unknown> = {}) {
-    return {
-        session: {
-            id: 7,
-            title: 'Deploy plan',
-            model: 'gpt-5',
-            provider_id: 3,
-        },
-        messages: [],
-        turns: [],
-        attempts: [],
-        model: { model_id: 'gpt-5', provider_id: 3 },
-        ...overrides,
-    };
-}
-
-beforeEach(() => {
-    vi.clearAllMocks();
-    sessionTaskCenterMock.attachSessionView.mockReturnValue(null);
-});
-
-describe('user reopens a conversation whose model still exists', () => {
-    it('user gets the model and provider from the saved model row', async () => {
-        getSessionDataMock.mockResolvedValue(sessionData());
-        const mounted = await mountComposable(() => useAgent());
-
-        const loaded = await mounted.result.openSession(7);
-
-        expect(loaded).toMatchObject({ sessionId: 7, title: 'Deploy plan' });
-        expect(loaded.modelId).toBe('gpt-5');
-        expect(loaded.providerId).toBe(3);
-
-        mounted.unmount();
-    });
-});
-
-describe('user reopens a conversation whose model was deleted', () => {
-    it('user gets the model id from the session record instead', async () => {
-        // The model row is gone, so the session's own columns are the only record left.
-        getSessionDataMock.mockResolvedValue(sessionData({ model: null }));
-        const mounted = await mountComposable(() => useAgent());
-
-        const loaded = await mounted.result.openSession(7);
-
-        expect(loaded.modelId).toBe('gpt-5');
-        expect(loaded.providerId).toBe(3);
-
-        mounted.unmount();
-    });
-
-    it('user gets no model shown when the session never recorded one', async () => {
-        getSessionDataMock.mockResolvedValue(
-            sessionData({
-                model: null,
-                session: { id: 7, title: 'Deploy plan', model: null, provider_id: null },
-            })
-        );
-        const mounted = await mountComposable(() => useAgent());
-
-        const loaded = await mounted.result.openSession(7);
-
-        // A null is honest here; inventing a default would send the next prompt to the wrong model.
-        expect(loaded.modelId).toBeNull();
-        expect(loaded.providerId).toBeNull();
-
-        mounted.unmount();
-    });
-
-    it('user gets the provider kept even when the model id is missing', async () => {
-        getSessionDataMock.mockResolvedValue(
-            sessionData({
-                model: null,
-                session: { id: 7, title: 'Deploy plan', model: null, provider_id: 5 },
-            })
-        );
-        const mounted = await mountComposable(() => useAgent());
-
-        const loaded = await mounted.result.openSession(7);
-
-        expect(loaded.modelId).toBeNull();
-        expect(loaded.providerId).toBe(5);
-
-        mounted.unmount();
-    });
 });

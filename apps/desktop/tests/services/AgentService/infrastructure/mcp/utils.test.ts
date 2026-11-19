@@ -1,8 +1,15 @@
-import type { McpToolCallResponse } from '@services/NativeService';
+import {
+    closeTestDatabases,
+    openMigratedDatabase,
+    routeQueriesTo,
+} from '@tests/database/sqliteHarness';
+import { mcpFormatting, mcpResultFiles } from '@tests/utils/mcpFormatting';
+import { mockTauriCommand } from '@tests/utils/tauri';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
-import {
+import type { McpToolCallResponse } from '@/platform/native';
+const {
     extractMcpToolAttachments,
     formatMcpToolResponse,
     localizeNativeMcpTimeoutError,
@@ -10,24 +17,13 @@ import {
     raceWithTimeoutAndSignal,
     readOptionalMcpArgs,
     readOptionalMcpRecord,
-} from '@/services/AgentService/infrastructure/mcp/utils';
+} = mcpFormatting;
 
 /**
  * MCP servers hand back opaque content blocks. Turning them into text and attachments is what
  * makes a third-party tool usable from the conversation, so the observable contract is: the text
  * the model reads, the files the user gets, and the error the user sees.
  */
-
-const { createPersistedAttachmentFromDataMock } = vi.hoisted(() => ({
-    createPersistedAttachmentFromDataMock: vi.fn(),
-}));
-
-vi.mock('@/services/AgentService/infrastructure/attachments', async (importOriginal) => ({
-    ...(await importOriginal<
-        typeof import('@/services/AgentService/infrastructure/attachments')
-    >()),
-    createPersistedAttachmentFromData: createPersistedAttachmentFromDataMock,
-}));
 
 function response(content: McpToolCallResponse['content']): McpToolCallResponse {
     return { success: true, content, is_error: false };
@@ -38,19 +34,13 @@ const SAMPLE_BASE64 = 'AQIDBA==';
 
 beforeEach(() => {
     setLocale('en-US');
-    createPersistedAttachmentFromDataMock.mockReset();
-    createPersistedAttachmentFromDataMock.mockImplementation(
-        async (options: { name: string; originPath: string; type: string }) => ({
-            id: 'attachment-1',
-            type: options.type,
-            path: `D:/cache/${options.name}`,
-            originPath: options.originPath,
-            name: options.name,
-        })
-    );
+    mcpResultFiles.clear();
+    routeQueriesTo(openMigratedDatabase());
+    mockTauriCommand('get_app_directory_path', '/fixture/cache');
 });
 
 afterEach(() => {
+    closeTestDatabases();
     vi.useRealTimers();
 });
 
@@ -388,7 +378,7 @@ describe('user gets the images and files an MCP tool produced', () => {
         );
 
         expect(attachments).toHaveLength(1);
-        expect(createPersistedAttachmentFromDataMock).toHaveBeenCalledWith(
+        expect(attachments[0]).toEqual(
             expect.objectContaining({
                 type: 'image',
                 name: 'tool-image-1.png',
@@ -397,9 +387,7 @@ describe('user gets the images and files an MCP tool produced', () => {
                 originPath: 'mcp://tool-result/screenshot/call-1/image-1',
             })
         );
-        expect(
-            Array.from(createPersistedAttachmentFromDataMock.mock.calls[0]![0].data as Uint8Array)
-        ).toEqual([1, 2, 3, 4]);
+        expect(Array.from(mcpResultFiles.get(attachments[0]!.path)!)).toEqual([1, 2, 3, 4]);
     });
 
     it('user gets an image block with no bytes skipped instead of saved as an empty file', async () => {
@@ -409,11 +397,11 @@ describe('user gets the images and files an MCP tool produced', () => {
         );
 
         expect(attachments).toEqual([]);
-        expect(createPersistedAttachmentFromDataMock).not.toHaveBeenCalled();
+        expect(mcpResultFiles.size).toBe(0);
     });
 
     it('user gets an image with no media type named by its position', async () => {
-        await extractMcpToolAttachments(
+        const attachments = await extractMcpToolAttachments(
             response([
                 { type: 'text', text: 'intro' },
                 { type: 'image', data: SAMPLE_BASE64 },
@@ -421,13 +409,11 @@ describe('user gets the images and files an MCP tool produced', () => {
             { toolCallId: 'call-1', toolName: 'screenshot' }
         );
 
-        expect(createPersistedAttachmentFromDataMock).toHaveBeenCalledWith(
-            expect.objectContaining({ name: 'tool-image-2' })
-        );
+        expect(attachments[0]).toEqual(expect.objectContaining({ name: 'tool-image-2' }));
     });
 
     it('user gets a resource file saved as a file attachment addressed by its own uri', async () => {
-        await extractMcpToolAttachments(
+        const attachments = await extractMcpToolAttachments(
             response([
                 {
                     type: 'resource',
@@ -439,7 +425,7 @@ describe('user gets the images and files an MCP tool produced', () => {
             { toolCallId: 'call-1', toolName: 'read_report' }
         );
 
-        expect(createPersistedAttachmentFromDataMock).toHaveBeenCalledWith(
+        expect(attachments[0]).toEqual(
             expect.objectContaining({
                 type: 'file',
                 name: 'q3.pdf',
@@ -451,7 +437,7 @@ describe('user gets the images and files an MCP tool produced', () => {
     });
 
     it('user gets a resource image saved as an image attachment', async () => {
-        await extractMcpToolAttachments(
+        const attachments = await extractMcpToolAttachments(
             response([
                 {
                     type: 'resource',
@@ -463,63 +449,63 @@ describe('user gets the images and files an MCP tool produced', () => {
             { toolCallId: 'call-1', toolName: 'chart' }
         );
 
-        expect(createPersistedAttachmentFromDataMock).toHaveBeenCalledWith(
+        expect(attachments[0]).toEqual(
             expect.objectContaining({ type: 'image', name: 'chart.png' })
         );
     });
 
     it('user gets a resource with no media type recognised from its file extension', async () => {
-        await extractMcpToolAttachments(
+        const attachments = await extractMcpToolAttachments(
             response([{ type: 'resource', uri: 'file:///tmp/photo.png', blob: SAMPLE_BASE64 }]),
             { toolCallId: 'call-1', toolName: 'gallery' }
         );
 
-        expect(createPersistedAttachmentFromDataMock).toHaveBeenCalledWith(
+        expect(attachments[0]).toEqual(
             expect.objectContaining({ type: 'image', mimeType: 'image/png', name: 'photo.png' })
         );
     });
 
     it('user gets a resource with an unknown extension saved as a plain file', async () => {
-        await extractMcpToolAttachments(
+        const attachments = await extractMcpToolAttachments(
             response([{ type: 'resource', uri: 'file:///tmp/data.bin', blob: SAMPLE_BASE64 }]),
             { toolCallId: 'call-1', toolName: 'export' }
         );
 
-        expect(createPersistedAttachmentFromDataMock).toHaveBeenCalledWith(
+        expect(attachments[0]).toEqual(
             expect.objectContaining({ type: 'file', mimeType: undefined, name: 'data.bin' })
         );
     });
 
     it('user gets a resource whose address ends in a dot saved as a plain file', async () => {
-        await extractMcpToolAttachments(
+        const attachments = await extractMcpToolAttachments(
             response([{ type: 'resource', uri: 'file:///tmp/notes.', blob: SAMPLE_BASE64 }]),
             { toolCallId: 'call-1', toolName: 'export' }
         );
 
         // A trailing dot leaves an empty extension, so no media type can be inferred from it.
-        expect(createPersistedAttachmentFromDataMock).toHaveBeenCalledWith(
+        expect(attachments[0]).toEqual(
             expect.objectContaining({ type: 'file', mimeType: undefined, name: 'notes.' })
         );
     });
 
     it('user gets a resource with an unparseable address ending in a dot saved as a plain file', async () => {
-        await extractMcpToolAttachments(
+        const attachments = await extractMcpToolAttachments(
             response([{ type: 'resource', uri: 'not a uri/archive.', blob: SAMPLE_BASE64 }]),
             { toolCallId: 'call-1', toolName: 'export' }
         );
 
-        expect(createPersistedAttachmentFromDataMock).toHaveBeenCalledWith(
+        expect(attachments[0]).toEqual(
             expect.objectContaining({ type: 'file', mimeType: undefined, name: 'archive.' })
         );
     });
 
     it('user gets a resource with no address saved under a synthetic path', async () => {
-        await extractMcpToolAttachments(
+        const attachments = await extractMcpToolAttachments(
             response([{ type: 'resource', mime_type: 'application/pdf', blob: SAMPLE_BASE64 }]),
             { toolCallId: 'call-9', toolName: 'export' }
         );
 
-        expect(createPersistedAttachmentFromDataMock).toHaveBeenCalledWith(
+        expect(attachments[0]).toEqual(
             expect.objectContaining({
                 name: 'tool-file-1.pdf',
                 originPath: 'mcp://tool-result/export/call-9/file-1',
@@ -528,12 +514,15 @@ describe('user gets the images and files an MCP tool produced', () => {
     });
 
     it('user gets a resource with no address and no media type named by its position', async () => {
-        await extractMcpToolAttachments(response([{ type: 'resource', blob: SAMPLE_BASE64 }]), {
-            toolCallId: 'call-1',
-            toolName: 'export',
-        });
+        const attachments = await extractMcpToolAttachments(
+            response([{ type: 'resource', blob: SAMPLE_BASE64 }]),
+            {
+                toolCallId: 'call-1',
+                toolName: 'export',
+            }
+        );
 
-        expect(createPersistedAttachmentFromDataMock).toHaveBeenCalledWith(
+        expect(attachments[0]).toEqual(
             expect.objectContaining({
                 type: 'file',
                 name: 'tool-file-1',
@@ -558,11 +547,11 @@ describe('user gets the images and files an MCP tool produced', () => {
         );
 
         expect(attachments).toEqual([]);
-        expect(createPersistedAttachmentFromDataMock).not.toHaveBeenCalled();
+        expect(mcpResultFiles.size).toBe(0);
     });
 
     it('user gets several attachments in the order the server sent them', async () => {
-        await extractMcpToolAttachments(
+        const attachments = await extractMcpToolAttachments(
             response([
                 { type: 'image', mime_type: 'image/png', data: SAMPLE_BASE64 },
                 { type: 'text', text: 'caption' },
@@ -572,56 +561,58 @@ describe('user gets the images and files an MCP tool produced', () => {
             { toolCallId: 'call-7', toolName: 'gallery' }
         );
 
-        expect(
-            createPersistedAttachmentFromDataMock.mock.calls.map((call) => call[0].name)
-        ).toEqual(['tool-image-1.png', 'tool-image-3.gif', 'doc.pdf']);
+        expect(attachments.map((attachment) => attachment.name)).toEqual([
+            'tool-image-1.png',
+            'tool-image-3.gif',
+            'doc.pdf',
+        ]);
     });
 
     it('user gets a file name from a uri whose path ends without a file name', async () => {
-        await extractMcpToolAttachments(
+        const attachments = await extractMcpToolAttachments(
             response([{ type: 'resource', uri: 'file:///tmp/exports/', blob: SAMPLE_BASE64 }]),
             { toolCallId: 'call-1', toolName: 'export' }
         );
 
         // With no usable file name the attachment is named after its position and the mime map
         // cannot help because there is no extension, so the raw uri's last segment is used.
-        expect(createPersistedAttachmentFromDataMock).toHaveBeenCalledWith(
+        expect(attachments[0]).toEqual(
             expect.objectContaining({ originPath: 'file:///tmp/exports/' })
         );
-        expect(createPersistedAttachmentFromDataMock.mock.calls[0]![0].name).not.toBe('');
+        expect(attachments[0]!.name).not.toBe('');
     });
 
     it('user gets an attachment named from a uri that is not a valid web address', async () => {
-        await extractMcpToolAttachments(
+        const attachments = await extractMcpToolAttachments(
             response([{ type: 'resource', uri: 'not a uri/notes.txt', blob: SAMPLE_BASE64 }]),
             { toolCallId: 'call-1', toolName: 'export' }
         );
 
-        expect(createPersistedAttachmentFromDataMock).toHaveBeenCalledWith(
+        expect(attachments[0]).toEqual(
             expect.objectContaining({ name: 'notes.txt', type: 'file' })
         );
     });
 
     it('user gets an attachment named from a mime type when the uri is unreadable', async () => {
-        await extractMcpToolAttachments(
+        const attachments = await extractMcpToolAttachments(
             response([
                 { type: 'resource', uri: '/', mime_type: 'image/webp', blob: SAMPLE_BASE64 },
             ]),
             { toolCallId: 'call-1', toolName: 'export' }
         );
 
-        expect(createPersistedAttachmentFromDataMock).toHaveBeenCalledWith(
+        expect(attachments[0]).toEqual(
             expect.objectContaining({ name: 'tool-file-1.webp', mimeType: 'image/webp' })
         );
     });
 
     it('user gets a resource uri with an upper-case extension recognised', async () => {
-        await extractMcpToolAttachments(
+        const attachments = await extractMcpToolAttachments(
             response([{ type: 'resource', uri: 'file:///tmp/SCAN.PNG', blob: SAMPLE_BASE64 }]),
             { toolCallId: 'call-1', toolName: 'scan' }
         );
 
-        expect(createPersistedAttachmentFromDataMock).toHaveBeenCalledWith(
+        expect(attachments[0]).toEqual(
             expect.objectContaining({ type: 'image', mimeType: 'image/png' })
         );
     });

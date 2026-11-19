@@ -315,6 +315,9 @@ describe('user runs desktop E2E from one freshly built application', () => {
             'window-size.e2e.js',
             'clipboard-paste.e2e.js',
             'path-reference.e2e.js',
+            'agent-core.e2e.js',
+            'agent-tools.e2e.js',
+            'data-management.e2e.js',
         ]);
         expect(wdio).toContain('autoSaveBaseline: updateVisualBaselines');
         expect(wdio).toContain('compareOptions');

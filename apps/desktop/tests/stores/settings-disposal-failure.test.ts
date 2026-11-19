@@ -1,10 +1,15 @@
-import { setActiveSettingsService, type SettingsService } from '@services/SettingsService';
-import { createDefaultGeneralSettings } from '@services/SettingsService/domain';
-import { flushPromises } from '@vue/test-utils';
-import { createPinia, disposePinia, setActivePinia } from 'pinia';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { closeTestDatabases } from '@tests/database/sqliteHarness';
+import { createSettingsWindowFixture } from '@tests/utils/settingsWindow';
+import { afterEach, describe, expect, it } from 'vitest';
 
-import { useSettingsStore } from '@/stores/settings';
+let fixture: ReturnType<typeof createSettingsWindowFixture> | undefined;
+afterEach(() => {
+    fixture?.dispose();
+    fixture = undefined;
+    closeTestDatabases();
+});
+
+import { disposePinia } from 'pinia';
 
 function deferred() {
     let resolve!: () => void;
@@ -14,70 +19,40 @@ function deferred() {
     return { promise, resolve };
 }
 
-let pinia: ReturnType<typeof createPinia>;
-
-beforeEach(() => {
-    pinia = createPinia();
-    setActivePinia(pinia);
-});
-
-afterEach(async () => {
-    setActiveSettingsService(null);
-    disposePinia(pinia);
-    await flushPromises();
-});
-
-describe('user disposes while settings initialization fails', () => {
-    it('user sees no late initialization error escape after disposal', async () => {
-        const readStarted = deferred();
-        const failRead = deferred();
-        const service = {
-            dispose: vi.fn(),
-            getSnapshot: () => createDefaultGeneralSettings(),
-            initialize: vi.fn(async () => {
-                readStarted.resolve();
-                await failRead.promise;
-                throw new Error('storage read failed');
-            }),
-            mutate: vi.fn(),
-            refresh: vi.fn(),
-            subscribe: vi.fn(() => () => undefined),
-        } as unknown as SettingsService;
-        setActiveSettingsService(service);
-        const store = useSettingsStore();
+describe('given a preferences projection is detached during startup', () => {
+    it('user closes the projection while storage fails and receives no late ready state or error', async () => {
+        const entered = deferred();
+        const read = deferred();
+        fixture = createSettingsWindowFixture({
+            query: {
+                async beforeQuery({ sql }) {
+                    if (!sql.startsWith('select')) return;
+                    entered.resolve();
+                    await read.promise;
+                    throw new Error('storage read failed');
+                },
+            },
+        });
+        const store = fixture.store();
         const initialization = store.initialize();
-        await readStarted.promise;
-
+        await entered.promise;
         await store.dispose();
-        failRead.resolve();
-
+        read.resolve();
         await expect(initialization).resolves.toBeUndefined();
         expect(store.initialized).toBe(false);
         expect(store.loading).toBe(false);
         expect(store.settings.language).toBe('zh-CN');
-        expect(service.dispose).toHaveBeenCalledTimes(1);
     });
 
-    it('user replaces the active service and disposing the old store leaves the replacement open', async () => {
-        const createService = () =>
-            ({
-                dispose: vi.fn(),
-                getSnapshot: () => createDefaultGeneralSettings(),
-                initialize: vi.fn(async () => undefined),
-                mutate: vi.fn(),
-                refresh: vi.fn(),
-                subscribe: vi.fn(() => () => undefined),
-            }) as unknown as SettingsService;
-        const firstService = createService();
-        const replacementService = createService();
-        setActiveSettingsService(firstService);
-        const store = useSettingsStore();
+    it('user detaches one preferences projection and the existing main writer still serves another window', async () => {
+        fixture = createSettingsWindowFixture({ values: { language: 'zh-CN' } });
+        const store = fixture.store();
         await store.initialize();
-
-        setActiveSettingsService(replacementService);
-        await store.dispose();
-
-        expect(firstService.dispose).toHaveBeenCalledTimes(1);
-        expect(replacementService.dispose).not.toHaveBeenCalled();
+        disposePinia(fixture.pinia);
+        const client = fixture.createClient('settings');
+        await client.api.initialize();
+        expect((await client.api.mutate('language', 'en-US')).status).toBe('committed');
+        expect(fixture.owner.api.getSnapshot().language).toBe('en-US');
+        expect(store.settings.language).toBe('zh-CN');
     });
 });

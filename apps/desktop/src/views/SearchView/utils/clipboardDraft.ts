@@ -1,6 +1,6 @@
 import type { Ref } from 'vue';
 
-import type { ClipboardPayload, ClipboardPayloadFragment } from '@/services/NativeService/types';
+import type { ClipboardPayload, ClipboardPayloadFragment } from '@/app/api/attachments/drafts';
 
 interface DraftTarget<TAttachment> {
     queryText: Ref<string>;

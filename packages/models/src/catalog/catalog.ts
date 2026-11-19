@@ -1,0 +1,291 @@
+import { z } from '../encoding/json';
+import { modelLimitSchema, modelModalitiesSchema } from './modalities';
+
+/** 分级定价：请求输入超过 `tier.size` 后，整个请求按这组价算 */
+const rawCostTierSchema = z.object({
+    input: z.number().optional(),
+    output: z.number().optional(),
+    cache_read: z.number().optional(),
+    cache_write: z.number().optional(),
+    reasoning: z.number().optional(),
+    tier: z
+        .object({
+            type: z.string().optional(),
+            size: z.number().optional(),
+        })
+        .optional(),
+});
+
+const rawCostSchema = z.object({
+    input: z.number().optional(),
+    output: z.number().optional(),
+    cache_read: z.number().optional(),
+    cache_write: z.number().optional(),
+    /** 推理 token 单价；缺省时与 output 同价 */
+    reasoning: z.number().optional(),
+    currency: z.string().optional(),
+    /** 按上下文长度分级的价格，models.dev 约 666 个模型带这项 */
+    tiers: z.array(rawCostTierSchema).optional(),
+});
+
+const rawModelSchema = z.object({
+    id: z.string().min(1),
+    name: z.string().min(1),
+    family: z.string().optional(),
+    attachment: z.boolean().catch(false),
+    modalities: modelModalitiesSchema.optional(),
+    open_weights: z.boolean().catch(false),
+    reasoning: z.boolean().catch(false),
+    release_date: z.string().optional(),
+    temperature: z.boolean().catch(false),
+    tool_call: z.boolean().catch(false),
+    knowledge: z.string().optional(),
+    limit: modelLimitSchema.optional(),
+    reasoning_options: z.unknown().optional(),
+    canonical_model_id: z.string().optional(),
+    /** 每百万 token 定价，来自 models.dev */
+    cost: rawCostSchema.optional(),
+});
+
+const rawProviderSchema = z.object({
+    models: z.record(z.string(), rawModelSchema),
+});
+
+const rawCatalogSchema = z.record(z.string(), z.unknown());
+
+export type CatalogModel = z.infer<typeof rawModelSchema>;
+
+interface SourceEntry {
+    providerId: string;
+    modelKey: string;
+    model: CatalogModel;
+    canonicalId: string;
+}
+
+export interface ModelCatalog {
+    models: Record<string, CatalogModel>;
+    alias: Record<string, string>;
+}
+
+/** 从模型名推导出来的别名优先级最低，避免盖掉真实收录方的写法。 */
+const DERIVED_ALIAS_PRIORITY = 2000;
+const FAMILY_ALIAS_PRIORITY = 5000;
+
+/** 已整理过的目录结构：模型表 + 别名表。 */
+const curatedCatalogSchema = z.object({
+    models: z.record(z.string(), rawModelSchema),
+    alias: z.record(z.string(), z.string()),
+});
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** 已整理过的目录固定带 `models` + `alias` 两个对象字段，跟上游的 provider 结构区分开。 */
+function isCuratedCatalog(value: Record<string, unknown>): boolean {
+    if (!isPlainObject(value.models) || !isPlainObject(value.alias)) {
+        return false;
+    }
+
+    return Object.values(value.alias).every((alias) => typeof alias === 'string');
+}
+
+function ownerSegmentOf(canonicalId: string): string {
+    const separatorIndex = canonicalId.indexOf('/');
+    return separatorIndex === -1 ? canonicalId : canonicalId.slice(0, separatorIndex);
+}
+
+function nameSegmentOf(canonicalId: string): string {
+    const separatorIndex = canonicalId.indexOf('/');
+    return separatorIndex === -1 ? '' : canonicalId.slice(separatorIndex + 1);
+}
+
+/** 归属 provider 自己的条目优先，其次才是别家转载的条目。 */
+function sourcePriority(entry: SourceEntry): number {
+    const owner = ownerSegmentOf(entry.canonicalId);
+    const name = nameSegmentOf(entry.canonicalId);
+
+    if (entry.providerId === owner && entry.modelKey === name) {
+        return 0;
+    }
+
+    if (entry.providerId === owner) {
+        return 1;
+    }
+
+    if (entry.modelKey === name) {
+        return 2;
+    }
+
+    return 3;
+}
+
+/** 别名优先级：官方写法 > 其他收录方写法 > 从模型名推导的写法。 */
+function aliasPriority(entry: SourceEntry, providerIds: Set<string>): number {
+    const owner = ownerSegmentOf(entry.canonicalId);
+    const name = nameSegmentOf(entry.canonicalId);
+    let priority = 0;
+
+    if (entry.providerId !== owner) {
+        priority += 1000;
+    }
+
+    if (entry.modelKey !== name) {
+        priority += 100;
+    }
+
+    if (!providerIds.has(owner)) {
+        priority += 10;
+    }
+
+    return priority;
+}
+
+const RETAINED_MODEL_FIELDS = [
+    'id',
+    'name',
+    'family',
+    'attachment',
+    'modalities',
+    'open_weights',
+    'reasoning',
+    'release_date',
+    'temperature',
+    'tool_call',
+    'knowledge',
+    'limit',
+    'reasoning_options',
+    // 定价：漏掉它会让整条成本链路归零（用量页只显示未定价）。
+    'cost',
+] as const;
+
+function retainedFieldCount(model: CatalogModel): number {
+    let count = 0;
+
+    for (const field of RETAINED_MODEL_FIELDS) {
+        if (model[field] !== undefined) {
+            count += 1;
+        }
+    }
+
+    if (Array.isArray(model.reasoning_options) && model.reasoning_options.length > 0) {
+        count += 2;
+    }
+
+    return count;
+}
+
+/**
+ * 把 models.dev 的原始目录整理成「模型表 + 别名表」。
+ *
+ * 模型表按 canonical id 去重，同一模型有多家收录时保留官方条目；
+ * 别名表保留所有收录方的写法，让中转站的自定义命名也能命中。
+ */
+export function buildCatalog(rawData: unknown): ModelCatalog {
+    const rawCatalog = rawCatalogSchema.parse(rawData);
+
+    // 内置快照已经是整理后的结构，直接用，避免二次整理。
+    if (isCuratedCatalog(rawCatalog)) {
+        return curatedCatalogSchema.parse(rawCatalog);
+    }
+
+    const groups = new Map<string, SourceEntry[]>();
+
+    for (const [providerId, rawProvider] of Object.entries(rawCatalog)) {
+        const parsedProvider = rawProviderSchema.safeParse(rawProvider);
+        if (!parsedProvider.success) {
+            continue;
+        }
+
+        for (const [modelKey, model] of Object.entries(parsedProvider.data.models)) {
+            const canonicalId = model.canonical_model_id || modelKey.toLowerCase();
+            const entries = groups.get(canonicalId) ?? [];
+            entries.push({ providerId, modelKey, model, canonicalId });
+            groups.set(canonicalId, entries);
+        }
+    }
+
+    const providerIds = new Set(Object.keys(rawCatalog));
+    const models: Record<string, CatalogModel> = {};
+    const aliasCandidates = new Map<string, { canonicalId: string; priority: number }>();
+
+    const offerAlias = (alias: string, canonicalId: string, priority: number): void => {
+        if (alias.length === 0) {
+            return;
+        }
+
+        const key = alias.toLowerCase();
+        const current = aliasCandidates.get(key);
+
+        if (current) {
+            if (current.priority < priority) {
+                return;
+            }
+
+            if (current.priority === priority && current.canonicalId <= canonicalId) {
+                return;
+            }
+        }
+
+        aliasCandidates.set(key, { canonicalId, priority });
+    };
+
+    for (const canonicalId of Object.keys(Object.fromEntries(groups)).sort()) {
+        const entries = groups.get(canonicalId)!;
+
+        entries.sort((left, right) => {
+            const leftPriority = sourcePriority(left);
+            const rightPriority = sourcePriority(right);
+
+            if (leftPriority !== rightPriority) {
+                return leftPriority - rightPriority;
+            }
+
+            const leftFields = retainedFieldCount(left.model);
+            const rightFields = retainedFieldCount(right.model);
+
+            if (leftFields !== rightFields) {
+                return rightFields - leftFields;
+            }
+
+            if (left.modelKey.length !== right.modelKey.length) {
+                return left.modelKey.length - right.modelKey.length;
+            }
+
+            return left.modelKey < right.modelKey ? -1 : left.modelKey > right.modelKey ? 1 : 0;
+        });
+
+        const source = entries[0]!;
+        const record: Record<string, unknown> = {};
+
+        for (const field of RETAINED_MODEL_FIELDS) {
+            if (source.model[field] !== undefined) {
+                record[field] = source.model[field];
+            }
+        }
+
+        models[canonicalId] = record as CatalogModel;
+
+        for (const entry of entries) {
+            const priority = aliasPriority(entry, providerIds);
+            offerAlias(entry.modelKey, canonicalId, priority);
+            offerAlias(entry.model.id, canonicalId, priority + 1);
+        }
+
+        const derivedPriority =
+            DERIVED_ALIAS_PRIORITY + (providerIds.has(ownerSegmentOf(canonicalId)) ? 0 : 10);
+        offerAlias(nameSegmentOf(canonicalId) || canonicalId, canonicalId, derivedPriority);
+        offerAlias(canonicalId, canonicalId, derivedPriority + 1);
+
+        if (typeof source.model.family === 'string') {
+            offerAlias(source.model.family, canonicalId, FAMILY_ALIAS_PRIORITY);
+        }
+    }
+
+    const alias: Record<string, string> = {};
+    for (const key of [...aliasCandidates.keys()].sort()) {
+        alias[key] = aliasCandidates.get(key)!.canonicalId;
+    }
+
+    return { models, alias };
+}

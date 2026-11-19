@@ -116,6 +116,7 @@
     import { Virtualizer, type VirtualizerHandle } from 'virtua/vue';
     import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue';
 
+    import type { ContextCompactionMessagePart, SessionMessage } from '@/app/api/agent/history';
     import {
         MessageScroller,
         type MessageScrollerHandle,
@@ -125,7 +126,6 @@
     } from '@/components/ui/message-scroller';
     import { t, tt } from '@/i18n';
     import { useSettingsStore } from '@/stores/settings';
-    import type { ContextCompactionMessagePart, SessionMessage } from '@/types/session';
 
     import ConversationToolbar from './components/ConversationToolbar.vue';
     import MessageItem from './components/MessageItem.vue';

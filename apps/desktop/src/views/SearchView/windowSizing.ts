@@ -1,4 +1,4 @@
-import { log } from '@services/ObservabilityService';
+import { log } from '@/app/api/diagnostics';
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 /**
  * 搜索窗口尺寸决策层（纯函数，无副作用）。
@@ -8,8 +8,6 @@ import { log } from '@services/ObservabilityService';
  * 2. 窗口状态转换 — 最大化/还原的状态管理
  * 3. 节流调度 — 防止高频 resize 事件淹没 IPC
  */
-import { getCurrentWindow } from '@tauri-apps/api/window';
-
 import { SEARCH_CONVERSATION_AUTO_MAX_HEIGHT } from '@/config/searchWindow';
 
 /** Physical top inset used by the compact search surface on monitor hosts. */
@@ -198,6 +196,7 @@ export interface MaximizableWindow {
     isMaximized: () => Promise<boolean>;
     maximize: () => Promise<void>;
     unmaximize: () => Promise<void>;
+    onResized: (listener: () => void) => Promise<() => void>;
 }
 
 /**
@@ -207,19 +206,19 @@ export interface MaximizableWindow {
  * 通过 50ms debounce 等动画结束后读取最终状态。
  * timeoutMs 兜底防止事件永远不触发。
  */
-function waitForWindowStabilized(timeoutMs = 200): Promise<boolean> {
+function waitForWindowStabilized(window: MaximizableWindow, timeoutMs = 200): Promise<boolean> {
     return new Promise((resolve) => {
         let settled = false;
         let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-        const unlisten = getCurrentWindow().onResized(() => {
+        const unlisten = window.onResized(() => {
             if (settled) return;
             if (debounceTimer) clearTimeout(debounceTimer);
             debounceTimer = setTimeout(() => {
                 if (!settled) {
                     settled = true;
                     void unlisten.then((fn) => fn());
-                    void getCurrentWindow().isMaximized().then(resolve);
+                    void window.isMaximized().then(resolve);
                 }
             }, 50);
         });
@@ -246,7 +245,7 @@ export async function ensureWindowRestoredFromMaximized(window: MaximizableWindo
     }
 
     await window.unmaximize();
-    await waitForWindowStabilized();
+    await waitForWindowStabilized(window);
     return !(await window.isMaximized());
 }
 
@@ -261,7 +260,7 @@ export async function ensureWindowMaximized(window: MaximizableWindow) {
     }
 
     await window.maximize();
-    return waitForWindowStabilized();
+    return waitForWindowStabilized(window);
 }
 
 /**

@@ -11,6 +11,61 @@
     import { useScrollbarStabilizer } from '@composables/useScrollbarStabilizer';
     import { useScrollFade } from '@composables/useScrollFade';
     import {
+        computed,
+        defineAsyncComponent,
+        nextTick,
+        onMounted,
+        onUnmounted,
+        ref,
+        watch,
+    } from 'vue';
+
+    import type { ProviderConfigurationAttempt } from '@/app/api/analytics/product';
+    import { useProductAnalyticsApi } from '@/app/api/analytics/product';
+    import { mapProviderCategory } from '@/app/api/analytics/product';
+    import { log } from '@/app/api/diagnostics';
+    import type {
+        Model,
+        ModelPatch,
+        ModelWithProvider,
+        NewModel,
+        NewProvider,
+        Provider,
+        ProviderPatch,
+    } from '@/app/api/models/administration';
+    import {
+        ModelAdministrationError,
+        useModelAdministrationApi,
+    } from '@/app/api/models/administration';
+    import { getProviderDriverDefinition } from '@/app/api/models/catalog';
+    import { useModelDiscoveryApi } from '@/app/api/models/discovery';
+    import { useModelMetadataApi } from '@/app/api/models/metadata';
+    import { AppEvent, eventService } from '@/app/api/settings/events';
+    import { locale, t } from '@/i18n';
+
+    defineOptions({
+        name: 'SettingsAiServicesSection',
+    });
+
+    import BadgedLogo from './components/BadgedLogo.vue';
+    import ModelList from './components/ModelList.vue';
+    import ProviderConfig from './components/ProviderConfig.vue';
+    import ProviderList from './components/ProviderList.vue';
+    const {
+        beginProviderConfigurationAttempt,
+        runProviderConfiguration,
+        runProviderConfigurationAttempt,
+    } = useProductAnalyticsApi();
+
+    // Keep the editor's presentation dependencies out of the settings first paint.
+    const ProviderFormDialog = defineAsyncComponent(
+        () => import('./components/ProviderFormDialog.vue')
+    );
+
+    const alert = useAlert();
+    const discovery = useModelDiscoveryApi();
+    const metadata = useModelMetadataApi();
+    const {
         createModel,
         createProvider,
         deleteModel,
@@ -22,51 +77,9 @@
         setDefaultModel,
         updateModel,
         updateProvider,
-    } from '@database/queries';
-    import { isLlmMetadataAliasEmpty, isLlmMetadataEmpty } from '@database/queries/llmMetadata.ts';
-    import type { ModelWithProvider } from '@database/queries/models.ts';
-    import type { Model, NewModel, NewProvider, Provider } from '@database/schema.ts';
-    import { AppEvent, eventService } from '@services/EventService';
-    import { log } from '@services/ObservabilityService';
-    import {
-        computed,
-        defineAsyncComponent,
-        nextTick,
-        onMounted,
-        onUnmounted,
-        ref,
-        watch,
-    } from 'vue';
-
-    import { locale, t } from '@/i18n';
-    import {
         persistRefreshedModels,
-        refreshModelMetadataIfStale,
-    } from '@/services/AgentService/infrastructure/modelMetadata';
-    import { getProviderDriverDefinition } from '@/services/AgentService/infrastructure/providers/driverCatalog';
-    import type { ProviderConfigurationAttempt } from '@/services/AnalyticsService/productInteractions';
-    import {
-        beginProviderConfigurationAttempt,
-        mapProviderCategory,
-        runProviderConfiguration,
-        runProviderConfigurationAttempt,
-    } from '@/services/AnalyticsService/productInteractions';
-
-    defineOptions({
-        name: 'SettingsAiServicesSection',
-    });
-
-    import BadgedLogo from './components/BadgedLogo.vue';
-    import ModelList from './components/ModelList.vue';
-    import ProviderConfig from './components/ProviderConfig.vue';
-    import ProviderList from './components/ProviderList.vue';
-
-    // 对话框会实例化 provider（拉起厂商 adapter），按需加载以保持设置页首屏轻量。
-    const ProviderFormDialog = defineAsyncComponent(
-        () => import('./components/ProviderFormDialog.vue')
-    );
-
-    const alert = useAlert();
+    } = useModelAdministrationApi();
+    const lifetime = new AbortController();
 
     const contentScrollRef = ref<HTMLElement | null>(null);
     const modelListRef = ref<InstanceType<typeof ModelList> | null>(null);
@@ -134,6 +147,7 @@
     };
 
     async function broadcastModelsUpdated() {
+        if (lifetime.signal.aborted) return;
         await eventService.emit(AppEvent.AI_MODELS_UPDATED, {
             sourceId: instanceId,
             updatedAt: Date.now(),
@@ -265,6 +279,7 @@
                 findAllProvidersSorted(),
                 findDefaultModel(),
             ]);
+            if (lifetime.signal.aborted) return;
             providers.value = nextProviders;
             defaultModelId.value = defaultModel?.id || null;
             defaultModelProviderId.value = defaultModel?.provider_id || null;
@@ -288,6 +303,7 @@
         try {
             loadingModels.value = true;
             const models = await findModelsWithProvider({ providerId });
+            if (lifetime.signal.aborted) return;
             setCachedModels(providerId, models);
         } catch (err) {
             log.error('Failed to load models:', err);
@@ -317,10 +333,6 @@
             if (!provider) return;
 
             const newEnabled = provider.enabled === 1 ? 0 : 1;
-            if (newEnabled === 0) {
-                assertProviderCanBeDisabled(provider);
-            }
-
             await updateProvider({
                 id: providerId,
                 providerPatch: { enabled: newEnabled },
@@ -335,7 +347,7 @@
                 alert.info(t('settings.ai.providerDisabled'));
             }
         } catch (err) {
-            alert.error(err instanceof Error ? err.message : t('settings.ai.operationFailed'));
+            alert.error(administrationMessage(err, t('settings.ai.operationFailed'), 'disable'));
         }
     };
 
@@ -351,7 +363,7 @@
         return normalizedValue;
     }
 
-    function normalizeProviderPatch(providerPatch: Partial<Provider>): Partial<Provider> {
+    function normalizeProviderPatch(providerPatch: ProviderPatch): ProviderPatch {
         return {
             ...providerPatch,
             ...(providerPatch.name !== undefined
@@ -373,20 +385,24 @@
         };
     }
 
-    function assertProviderCanBeDisabled(provider: Provider) {
-        if (defaultModelProviderId.value === provider.id) {
-            throw new Error(t('settings.ai.cannotDisableProviderWithDefaultModel'));
+    function administrationMessage(
+        error: unknown,
+        fallback: string,
+        action?: 'disable' | 'delete'
+    ) {
+        if (error instanceof ModelAdministrationError) {
+            if (error.code === 'PROVIDER_HAS_DEFAULT_MODEL')
+                return t(
+                    action === 'disable'
+                        ? 'settings.ai.cannotDisableProviderWithDefaultModel'
+                        : 'settings.ai.cannotDeleteProviderWithDefaultModel'
+                );
+            if (error.code === 'BUILTIN_PROVIDER')
+                return t('settings.ai.cannotDeleteBuiltInProvider');
+            if (error.code === 'PROVIDER_NOT_FOUND') return t('settings.ai.providerNotFound');
+            return fallback;
         }
-    }
-
-    function assertProviderCanBeDeleted(provider: Provider) {
-        if (provider.is_builtin) {
-            throw new Error(t('settings.ai.cannotDeleteBuiltInProvider'));
-        }
-
-        if (defaultModelProviderId.value === provider.id) {
-            throw new Error(t('settings.ai.cannotDeleteProviderWithDefaultModel'));
-        }
+        return error instanceof Error ? error.message : fallback;
     }
 
     const handleProviderContextMenu = (providerId: number, event: MouseEvent) => {
@@ -394,7 +410,7 @@
     };
 
     const handleUpdateProvider = async (
-        data: Partial<Provider>,
+        data: ProviderPatch,
         providerId: number,
         attempt: ProviderConfigurationAttempt
     ) => {
@@ -415,7 +431,7 @@
                 await refreshSelectedProviderModelsAfterConfigChange();
             }
         } catch (err) {
-            alert.error(err instanceof Error ? err.message : t('settings.ai.saveFailed'));
+            alert.error(administrationMessage(err, t('settings.ai.saveFailed')));
         }
     };
 
@@ -504,11 +520,11 @@
             showAddDialog.value = false;
             await refreshSelectedProviderModelsAfterConfigChange();
         } catch (err) {
-            alert.error(err instanceof Error ? err.message : t('settings.ai.createFailed'));
+            alert.error(administrationMessage(err, t('settings.ai.createFailed')));
         }
     };
 
-    const handleUpdateProviderInfo = async (data: Partial<Provider>) => {
+    const handleUpdateProviderInfo = async (data: ProviderPatch) => {
         const providerId = editingProvider.value?.id;
         if (providerId === undefined) return;
 
@@ -537,7 +553,7 @@
             showEditDialog.value = false;
             await refreshSelectedProviderModelsAfterConfigChange();
         } catch (err) {
-            alert.error(err instanceof Error ? err.message : t('settings.ai.saveFailed'));
+            alert.error(administrationMessage(err, t('settings.ai.saveFailed')));
         }
     };
 
@@ -548,7 +564,6 @@
                 throw new Error(t('settings.ai.providerNotFound'));
             }
 
-            assertProviderCanBeDeleted(provider);
             await deleteProvider({ id: providerId });
             providers.value = providers.value.filter((item) => item.id !== providerId);
             removeCachedModels(providerId);
@@ -556,7 +571,7 @@
             if (editingProvider.value?.id === providerId) showEditDialog.value = false;
             alert.success(t('settings.ai.deleteSucceeded'));
         } catch (err) {
-            alert.error(err instanceof Error ? err.message : t('settings.ai.deleteFailed'));
+            alert.error(administrationMessage(err, t('settings.ai.deleteFailed')));
         }
     };
 
@@ -577,18 +592,18 @@
             await broadcastModelsUpdated();
             alert.success(t('settings.ai.createSucceeded'));
         } catch (err) {
-            alert.error(err instanceof Error ? err.message : t('settings.ai.createFailed'));
+            alert.error(administrationMessage(err, t('settings.ai.createFailed')));
         }
     };
 
-    const handleUpdateModel = async (id: number, data: Partial<Model>) => {
+    const handleUpdateModel = async (id: number, data: ModelPatch) => {
         try {
             await updateModel({ id, modelPatch: data });
             patchCachedModel(id, data);
             await broadcastModelsUpdated();
             alert.success(t('common.saved'));
         } catch (err) {
-            alert.error(err instanceof Error ? err.message : t('settings.ai.saveFailed'));
+            alert.error(administrationMessage(err, t('settings.ai.saveFailed')));
         }
     };
 
@@ -605,7 +620,7 @@
                 alert.success(t('settings.ai.deleteSucceeded'));
             }
         } catch (err) {
-            alert.error(err instanceof Error ? err.message : t('settings.ai.deleteFailed'));
+            alert.error(administrationMessage(err, t('settings.ai.deleteFailed')));
         }
     };
 
@@ -664,7 +679,7 @@
             await broadcastModelsUpdated();
             alert.success(t('settings.ai.setSucceeded'));
         } catch (err) {
-            alert.error(err instanceof Error ? err.message : t('settings.ai.setFailed'));
+            alert.error(administrationMessage(err, t('settings.ai.setFailed')));
         }
     };
 
@@ -686,6 +701,7 @@
     }
 
     async function refreshSelectedProviderModelsAfterConfigChange(): Promise<void> {
+        if (lifetime.signal.aborted) return;
         await handleRefreshModels(AUTO_REFRESH_MODELS_NOTIFICATIONS);
     }
 
@@ -693,7 +709,7 @@
     const handleRefreshModels = async (
         options: boolean | RefreshModelsNotificationOptions = {}
     ) => {
-        if (!selectedProviderId.value) return;
+        if (lifetime.signal.aborted || !selectedProviderId.value) return;
 
         const notifications = resolveRefreshModelsNotifications(options);
         const currentProviderId = selectedProviderId.value;
@@ -711,17 +727,11 @@
                 return;
             }
 
-            const { aiService } = await import('@/services/AgentService');
-            const providerInstance = aiService.createProviderInstance(
-                provider.driver,
-                provider.api_endpoint,
-                provider.api_key,
-                provider.config_json
-            );
-
             let fetchedModels;
             try {
-                fetchedModels = await providerInstance.listModels();
+                fetchedModels = await discovery.listModels(currentProviderId, {
+                    signal: lifetime.signal,
+                });
             } catch (error) {
                 if (refreshingProviderId.value !== currentProviderId) {
                     return;
@@ -779,12 +789,10 @@
 
     async function refreshMetadataInBackground() {
         try {
-            const [metadataEmpty, aliasesEmpty] = await Promise.all([
-                isLlmMetadataEmpty(),
-                isLlmMetadataAliasEmpty(),
-            ]);
-            const result = await refreshModelMetadataIfStale();
+            const missing = await metadata.isMissing({ signal: lifetime.signal });
+            const result = await metadata.refresh({ signal: lifetime.signal });
 
+            if (lifetime.signal.aborted) return;
             if (result.status === 'updated') {
                 const providerIds = [...modelsCache.value.keys()];
                 const refreshedModels = await Promise.all(
@@ -793,32 +801,38 @@
                         models: await findModelsWithProvider({ providerId }),
                     }))
                 );
+                if (lifetime.signal.aborted) return;
                 for (const { providerId, models } of refreshedModels) {
                     if (modelsCache.value.has(providerId)) setCachedModels(providerId, models);
                 }
-            } else if (metadataEmpty || aliasesEmpty) {
+            } else if (missing) {
                 log.warn('[AiServicesView] llm-metadata is still empty');
             }
         } catch (error) {
-            log.error('[AiServicesView] Failed to check or update llm-metadata:', error);
+            if (!lifetime.signal.aborted)
+                log.error('[AiServicesView] Failed to check or update llm-metadata:', error);
         }
     }
 
     onMounted(async () => {
         void refreshMetadataInBackground();
-        unlistenAiModelsUpdated = await eventService.on(
-            AppEvent.AI_MODELS_UPDATED,
-            async (payload) => {
-                // Local actions already patch state; reloading would reset the list and scroll.
-                if (payload.sourceId === instanceId) return;
-                await loadProviders();
-            }
-        );
+        const unlisten = await eventService.on(AppEvent.AI_MODELS_UPDATED, async (payload) => {
+            // Local actions already patch state; reloading would reset the list and scroll.
+            if (payload.sourceId === instanceId) return;
+            await loadProviders();
+        });
 
+        if (lifetime.signal.aborted) {
+            unlisten();
+            return;
+        }
+        unlistenAiModelsUpdated = unlisten;
         await loadProviders();
     });
 
     onUnmounted(() => {
+        lifetime.abort();
+        refreshingProviderId.value = null;
         const editAttempt = pendingEditConfiguration.value;
         const addAttempt = pendingAddConfiguration.value;
         pendingEditConfiguration.value = null;

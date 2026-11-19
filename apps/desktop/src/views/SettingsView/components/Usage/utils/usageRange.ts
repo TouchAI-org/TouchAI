@@ -1,6 +1,6 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import type { UsageFilter, UsageRangePreset } from '@database/queries/usageStats';
+import type { UsageFilter, UsageRangePreset } from '@/app/api/usage/queries';
 
 /**
  * 时间范围选项在界面上出现的顺序。

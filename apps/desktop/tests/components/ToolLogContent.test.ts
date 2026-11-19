@@ -1,14 +1,11 @@
+import { mockTauriCommand } from '@tests/utils/tauri';
 import { mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import ToolLogContent from '@/components/ToolLogContent.vue';
 import { parseBashLogOutput } from '@/components/toolLogDisplay';
 import { setLocale } from '@/i18n';
-import { clipboardService } from '@/services/ClipboardService';
-
-vi.mock('@/services/ClipboardService', () => ({
-    clipboardService: { writeText: vi.fn(async () => undefined) },
-}));
+const clipboardWriteTextMock = vi.fn();
 
 vi.mock('@components/AppIcon.vue', () => ({
     default: {
@@ -27,8 +24,11 @@ const bashOutput =
 
 describe('user reads a tool log entry', () => {
     beforeEach(() => {
+        mockTauriCommand('write_clipboard_text', (payload) =>
+            clipboardWriteTextMock((payload as { text: string }).text)
+        );
         setLocale('zh-CN');
-        vi.mocked(clipboardService.writeText).mockClear();
+        vi.mocked(clipboardWriteTextMock).mockClear();
     });
 
     it('user places the actual working directory above the command and removes it from the result', async () => {
@@ -51,9 +51,9 @@ describe('user reads a tool log entry', () => {
         await wrapper.get('button[aria-pressed="false"]').trigger('click');
         expect(inputSection.get('pre').text()).toContain('"reason": "Inspect files"');
         await wrapper.get('button[aria-label="复制输入参数"]').trigger('click');
-        expect(clipboardService.writeText).toHaveBeenCalledWith(inputSection.get('pre').text());
+        expect(clipboardWriteTextMock).toHaveBeenCalledWith(inputSection.get('pre').text());
         await wrapper.get('button[aria-label="复制输出结果"]').trigger('click');
-        expect(clipboardService.writeText).toHaveBeenLastCalledWith('file content');
+        expect(clipboardWriteTextMock).toHaveBeenLastCalledWith('file content');
     });
 
     it('user preserves other tools and unrecognized Bash output verbatim', () => {
@@ -150,9 +150,7 @@ describe('user reads a tool log entry', () => {
     });
 
     it('user keeps the log readable when copying is unavailable', async () => {
-        vi.mocked(clipboardService.writeText).mockRejectedValueOnce(
-            new Error('clipboard unavailable')
-        );
+        vi.mocked(clipboardWriteTextMock).mockRejectedValueOnce(new Error('clipboard unavailable'));
         const wrapper = mount(ToolLogContent, {
             props: { input: bashInput, output: bashOutput, isBash: true },
         });

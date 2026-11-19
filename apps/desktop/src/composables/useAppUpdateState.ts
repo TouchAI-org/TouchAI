@@ -1,17 +1,19 @@
-import { appUpdateService } from '@services/AppUpdateService';
-import { log } from '@services/ObservabilityService';
 import { onMounted, onUnmounted, shallowRef } from 'vue';
 
+import { log } from '@/app/api/diagnostics';
+import { useUpdatesApi } from '@/app/api/updates';
+
 export function useAppUpdateState() {
-    const updateState = shallowRef(appUpdateService.getState());
+    const updates = useUpdatesApi();
+    const updateState = shallowRef(updates.getState());
     let unsubscribe: (() => void) | null = null;
 
     onMounted(() => {
-        unsubscribe = appUpdateService.subscribe((state) => {
+        unsubscribe = updates.subscribe((state) => {
             updateState.value = state;
         });
 
-        void appUpdateService.initialize().catch((error) => {
+        void updates.initialize().catch((error) => {
             log.warn('[AppUpdateService] Failed to initialize update state:', error);
         });
     });

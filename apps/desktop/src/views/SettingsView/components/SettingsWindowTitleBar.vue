@@ -2,22 +2,15 @@
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
-    import { log } from '@services/ObservabilityService';
-    import type { UnlistenFn } from '@tauri-apps/api/event';
-    import { getCurrentWindow } from '@tauri-apps/api/window';
     import { onBeforeUnmount, onMounted, ref } from 'vue';
 
+    import { log } from '@/app/api/diagnostics';
+    import { type StopWindowListener, useWindowChromeApi } from '@/app/api/windows/presentation';
     import { t } from '@/i18n';
 
-    const currentWindow = (() => {
-        try {
-            return getCurrentWindow();
-        } catch {
-            return null;
-        }
-    })();
+    const currentWindow = useWindowChromeApi();
     const isWindowMaximized = ref(false);
-    let unlistenResized: UnlistenFn | null = null;
+    let unlistenResized: StopWindowListener | null = null;
     let unmounted = false;
     let syncRevision = 0;
 

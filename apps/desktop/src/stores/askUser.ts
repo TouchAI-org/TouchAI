@@ -7,7 +7,7 @@ import type {
     AskUserAnswer,
     AskUserQuestion,
     ToolApprovalDecisionRequest,
-} from '@/services/AgentService/contracts/tooling';
+} from '@/app/api/tools/decisions';
 
 export type AskUserKind = 'approval' | 'confirm' | 'question';
 

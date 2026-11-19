@@ -1,6 +1,7 @@
-import { log } from '@services/ObservabilityService';
-import { currentMonitor, getCurrentWindow } from '@tauri-apps/api/window';
 import { type Ref, watch } from 'vue';
+
+import { log } from '@/app/api/diagnostics';
+import { type SearchWindowApi, useSearchWindowApi } from '@/app/api/windows/presentation';
 
 import type { SearchPanelGeometry, SearchPanelResizeDirection } from '../panelResizeGeometry';
 import { resizeSearchHostFrame } from '../panelResizeGeometry';
@@ -25,7 +26,10 @@ interface UseSearchPanelResizingOptions {
     onResizeEnd?: () => void;
 }
 
-export function useSearchPanelResizing(options: UseSearchPanelResizingOptions) {
+export function useSearchPanelResizing(
+    options: UseSearchPanelResizingOptions,
+    searchWindow: SearchWindowApi = useSearchWindowApi()
+) {
     let cancelActiveResize: (() => void) | null = null;
     let activeResizeCompletion: Promise<void> | null = null;
 
@@ -112,11 +116,11 @@ export function useSearchPanelResizing(options: UseSearchPanelResizingOptions) {
             let physicalOrigin: SearchPanelGeometry['physicalOrigin'] | undefined;
             let rollbackAttempted = false;
             try {
-                const currentWindow = getCurrentWindow();
+                const currentWindow = searchWindow;
                 const [origin, scaleFactor, monitor] = await Promise.all([
                     currentWindow.outerPosition(),
                     currentWindow.scaleFactor(),
-                    currentMonitor(),
+                    currentWindow.currentMonitor(),
                 ]);
                 if (!monitor || !Number.isFinite(scaleFactor) || scaleFactor <= 0) {
                     throw new Error('Search window display geometry is unavailable');

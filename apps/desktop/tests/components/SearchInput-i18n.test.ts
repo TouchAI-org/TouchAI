@@ -1,9 +1,25 @@
-import { describe, expect, it } from 'vitest';
-import { ref } from 'vue';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { createApp, ref } from 'vue';
 
+import { clipboardDraftApiKey } from '@/app/api/attachments/drafts';
+import { initializeSearchWindow } from '@/app/bootstrap/search';
 import { setLocale } from '@/i18n';
-import type { Index } from '@/services/AgentService/infrastructure/attachments';
-import { useSearchAttachments } from '@/views/SearchView/composables/useSearchInput';
+import type { Index } from '@/modules/attachments';
+import { useSearchAttachments as createSearchAttachments } from '@/views/SearchView/composables/useSearchInput';
+
+let host: ReturnType<typeof initializeSearchWindow>;
+let app: ReturnType<typeof createApp>;
+beforeEach(() => {
+    host = initializeSearchWindow('main');
+    app = createApp({ render: () => null });
+    app.provide(clipboardDraftApiKey, host.clipboard!);
+});
+afterEach(() => {
+    host.dispose();
+    setLocale('zh-CN');
+});
+const useSearchAttachments = (...args: Parameters<typeof createSearchAttachments>) =>
+    app.runWithContext(() => createSearchAttachments(...args));
 
 function createAttachmentIndex(
     id: string,

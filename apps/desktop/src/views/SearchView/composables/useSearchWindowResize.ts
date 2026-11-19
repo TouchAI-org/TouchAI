@@ -1,11 +1,10 @@
 // Copyright (c) 2026. 閸楀啳鐦? Licensed under GPL v3.
 
 import { useMotion } from '@composables/useMotion';
-import { native } from '@services/NativeService';
-import { log } from '@services/ObservabilityService';
-import { currentMonitor, getCurrentWindow } from '@tauri-apps/api/window';
 import { computed, nextTick, onUnmounted, type Ref, ref, shallowRef, watch } from 'vue';
 
+import { log } from '@/app/api/diagnostics';
+import { useSearchWindowApi } from '@/app/api/windows/presentation';
 import {
     SEARCH_SURFACE_EASING,
     SEARCH_SURFACE_MOTION,
@@ -75,7 +74,8 @@ const MEASURE_COALESCE_MS = 16;
 
 /** One serialized geometry owner coordinates native bounds and the visible card. */
 export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
-    const currentWindow = getCurrentWindow();
+    const currentWindow = useSearchWindowApi();
+    const searchWindow = currentWindow;
     const { reducedMotion, duration: motionDuration } = useMotion();
 
     const currentWidth = ref(0);
@@ -426,7 +426,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         return true;
     }
 
-    function applyState(state: Awaited<ReturnType<typeof native.window.commitSearchPanelResize>>) {
+    function applyState(state: Awaited<ReturnType<typeof searchWindow.commitSearchPanelResize>>) {
         currentWidth.value = state.currentWidth;
         searchWindowHeightMode.value = state.heightMode;
         monitorHost.value = state.monitorHost;
@@ -510,10 +510,10 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
                 try {
                     if (monitorHost.value) {
                         const state = commitOptions.reset
-                            ? await native.window
+                            ? await searchWindow
                                   .resetSearchWindowBounds()
-                                  .then(() => native.window.getSearchWindowState())
-                            : await native.window.commitSearchPanelResize({
+                                  .then(() => searchWindow.getSearchWindowState())
+                            : await searchWindow.commitSearchPanelResize({
                                   from,
                                   to: { width: from.width, height: target },
                                   auto: !(
@@ -549,9 +549,9 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
                         }
                     } else {
                         if (commitOptions.reset) {
-                            await native.window.resetSearchWindowBounds();
+                            await searchWindow.resetSearchWindowBounds();
                         } else {
-                            await native.window.resizeWindowHeight({
+                            await searchWindow.resizeWindowHeight({
                                 targetHeight: target,
                                 center: true,
                                 animate: false,
@@ -559,7 +559,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
                             });
                         }
                         if (!isCurrentGeometry(generation)) return false;
-                        const state = await native.window.getSearchWindowState();
+                        const state = await searchWindow.getSearchWindowState();
                         if (!isCurrentGeometry(generation)) return false;
                         applyState(state);
                         nativeCommitted = true;
@@ -718,7 +718,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     async function syncSearchWindowHeightMode() {
         const generation = commitGeneration;
         await enqueueGeometry(generation, async () => {
-            const state = await native.window.getSearchWindowState();
+            const state = await searchWindow.getSearchWindowState();
             if (!isCurrentGeometry(generation) || isLogicalPanelResizing.value) return;
             applyState(state);
         });
@@ -740,7 +740,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         const generation = commitGeneration;
         try {
             const [monitor, position] = await Promise.all([
-                currentMonitor(),
+                currentWindow.currentMonitor(),
                 monitorHost.value ? currentWindow.outerPosition() : Promise.resolve(null),
             ]);
             if (position && isCurrentGeometry(generation)) hostOrigin.value = position;
@@ -761,7 +761,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         const allowHeightOverride = searchWindowHeightPolicy.value.allowHeightOverride;
         if (lastAllowHeightOverride === allowHeightOverride) return;
 
-        await native.window.setSearchWindowAllowHeightOverride(allowHeightOverride);
+        await searchWindow.setSearchWindowAllowHeightOverride(allowHeightOverride);
         lastAllowHeightOverride = allowHeightOverride;
     }
 
@@ -782,7 +782,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
             return;
         }
 
-        await native.window.setSearchWindowMinSize(constraints);
+        await searchWindow.setSearchWindowMinSize(constraints);
         lastResizeConstraintsKey = constraintsKey;
         searchWindowResizeConstraintsReady.value = true;
     }
@@ -864,7 +864,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
 
         const defaultSizeKey = getDefaultSizeKey();
         if (lastSyncedDefaultSizeKey !== defaultSizeKey) {
-            await native.window.setSearchWindowDefaults(options.defaultSize.value);
+            await searchWindow.setSearchWindowDefaults(options.defaultSize.value);
             lastSyncedDefaultSizeKey = defaultSizeKey;
         }
 
@@ -938,7 +938,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
                     width: currentWidth.value || options.defaultSize.value.width,
                     height: currentHeight.value || options.defaultSize.value.height,
                 };
-                const state = await native.window.commitSearchPanelResize({
+                const state = await searchWindow.commitSearchPanelResize({
                     from,
                     to: from,
                     auto: true,
@@ -974,7 +974,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         const generation = claimGeometry();
         return (
             (await enqueueGeometry(generation, async () => {
-                const state = await native.window.getSearchWindowState();
+                const state = await searchWindow.getSearchWindowState();
                 if (!isCurrentGeometry(generation)) return false;
                 applyState(state);
                 return true;
@@ -1025,7 +1025,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         }
 
         return enqueueGeometry(start.generation, async () => {
-            const state = await native.window.commitSearchPanelResize({
+            const state = await searchWindow.commitSearchPanelResize({
                 from: start.size,
                 to: size,
                 physicalOrigin: physicalOrigin
@@ -1063,7 +1063,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         const generation = claimGeometry();
         try {
             await enqueueGeometry(generation, async () => {
-                const state = await native.window.commitSearchPanelResize({
+                const state = await searchWindow.commitSearchPanelResize({
                     from: { width: currentWidth.value, height: currentHeight.value },
                     to: start.size,
                     physicalOrigin: physicalOrigin

@@ -9,7 +9,7 @@
     "packageManager": "pnpm@10.32.1",
     "scripts": {
         "dev": "pnpm --filter @touchai/desktop dev",
-        "build": "pnpm --filter @touchai/desktop build",
+        "build": "pnpm build:packages && pnpm --filter @touchai/desktop build",
         "preview": "pnpm --filter @touchai/desktop preview",
         "tauri": "pnpm --filter @touchai/desktop tauri",
         "site:dev": "pnpm --filter @touchai/site dev",
@@ -24,14 +24,14 @@
         "test:e2e": "pnpm --filter @touchai/desktop test:e2e",
         "test:rust": "pnpm --filter @touchai/desktop test:rust",
         "test:coverage:rust": "pnpm --filter @touchai/desktop test:coverage:rust",
-        "test:typecheck": "pnpm --filter @touchai/desktop test:typecheck",
+        "test:typecheck": "pnpm test:typecheck:packages && pnpm --filter @touchai/desktop test:typecheck",
         "test:ui": "pnpm --filter @touchai/desktop test:ui",
         "test:run": "pnpm --filter @touchai/desktop test:run",
-        "test:pr": "pnpm test:ci:typecheck && pnpm test:ci && pnpm --filter @touchai/desktop test:pr && pnpm --filter @touchai/site build",
-        "type:check": "pnpm --filter @touchai/desktop type:check",
-        "lint": "pnpm --filter @touchai/desktop lint",
-        "lint:check": "pnpm --filter @touchai/desktop lint:check",
-        "check": "pnpm --filter @touchai/desktop check",
+        "test:pr": "pnpm check:architecture && pnpm test:ci:typecheck && pnpm test:ci && pnpm type:check:packages && pnpm test:typecheck:packages && pnpm --filter @touchai/desktop test:pr && pnpm --filter @touchai/site build",
+        "type:check": "pnpm type:check:packages && pnpm --filter @touchai/desktop type:check",
+        "lint": "pnpm exec eslint packages tooling/architecture --fix && pnpm --filter @touchai/desktop lint",
+        "lint:check": "pnpm lint:packages && pnpm --filter @touchai/desktop lint:check",
+        "check": "pnpm check:architecture && pnpm type:check:packages && pnpm test:typecheck:packages && pnpm lint:packages && pnpm --filter @touchai/desktop check",
         "format:check": "prettier --check . --ignore-path .prettierignore",
         "format:fix": "prettier --write . --ignore-path .prettierignore && pnpm run format:rust:fix",
         "format:rust:fix": "pnpm --filter @touchai/desktop format:rust:fix",
@@ -42,7 +42,13 @@
         "design:check": "pnpm lint:check",
         "design:prune": "pnpm --filter @touchai/desktop exec eslint . --prune-suppressions && prettier --write apps/desktop/eslint-suppressions.json",
         "test:visual": "pnpm --filter @touchai/desktop test:visual:components",
-        "storybook": "pnpm --filter @touchai/desktop storybook"
+        "storybook": "pnpm --filter @touchai/desktop storybook",
+        "build:packages": "pnpm --filter @touchai/models --filter @touchai/agent-core --workspace-concurrency=1 run build",
+        "type:check:packages": "pnpm --filter @touchai/models --filter @touchai/agent-core --workspace-concurrency=1 run type:check",
+        "test:typecheck:packages": "pnpm --filter @touchai/models --filter @touchai/agent-core --workspace-concurrency=1 run test:typecheck",
+        "check:architecture": "node tooling/architecture/check.mjs",
+        "lint:packages": "eslint packages tooling/architecture",
+        "test:coverage:patch": "pnpm --filter @touchai/desktop test:coverage:patch"
     },
     "devDependencies": {
         "@actions/expressions": "0.3.61",
@@ -107,6 +113,10 @@
         ],
         "apps/desktop/src-tauri/**/*.rs": [
             "cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --"
+        ],
+        "{packages,tooling}/**/*.{js,mjs,ts}": [
+            "eslint --fix",
+            "prettier --write --ignore-path .prettierignore"
         ]
     },
     "keywords": [

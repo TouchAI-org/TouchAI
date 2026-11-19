@@ -1,12 +1,13 @@
-import type { BuiltInBashExecutionResponse } from '@services/NativeService';
+import { createAgentProjection } from '@tests/utils/agentProjection';
+import { createBashToolsFixture } from '@tests/utils/bashTools';
 import { closeTauriChannel, emitTauriChannelMessage, mockTauriCommand } from '@tests/utils/tauri';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { SessionTaskProjection } from '@/services/AgentService/task/projection/projection';
-import type { SessionTaskSnapshot } from '@/services/AgentService/task/types';
-import { DEFAULT_BASH_TOOL_CONFIG } from '@/services/BuiltInToolService/tools/bash/constants';
-import { executeBashTool } from '@/services/BuiltInToolService/tools/bash/index';
-import { selectToolCalls } from '@/utils/session';
+import type { TaskViewSnapshot as SessionTaskSnapshot } from '@/app/api/agent';
+import { DEFAULT_BASH_TOOL_CONFIG } from '@/modules/tools/builtin/bash/constants';
+import type { BuiltInBashExecutionResponse } from '@/platform/native';
+const executeBashTool = createBashToolsFixture().execute;
+import { selectToolCalls } from '@/app/api/agent/history';
 
 afterEach(() => {
     vi.useRealTimers();
@@ -170,7 +171,7 @@ describe('user watches a shell command produce output live', () => {
         });
 
         const snapshot = createTaskSnapshot();
-        const projection = new SessionTaskProjection(snapshot, vi.fn());
+        const projection = createAgentProjection(snapshot, vi.fn());
         projection.bootstrap([], 'run bash', undefined);
         projection.handleChunk({
             content: '',

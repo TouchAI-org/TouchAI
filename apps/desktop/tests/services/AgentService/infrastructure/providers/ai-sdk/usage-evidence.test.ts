@@ -1,9 +1,8 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
+import { createAiSdkStreamProcessor } from '@touchai/models';
 import type { LanguageModelUsage, TextStreamPart, ToolSet } from 'ai';
 import { describe, expect, it } from 'vitest';
-
-import { createAiSdkStreamProcessor } from '@/services/AgentService/infrastructure/providers/ai-sdk/stream';
 
 function usage(raw: Record<string, number | null>): LanguageModelUsage {
     return {

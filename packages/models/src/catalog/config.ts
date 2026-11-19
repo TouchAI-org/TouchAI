@@ -1,0 +1,22 @@
+// Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
+
+import type { ProviderConfigJson } from '../contracts/model';
+import { REASONING_MODES, REASONING_PROTOCOLS } from '../contracts/reasoning';
+import { safeParseJsonWithSchema, z } from '../encoding/json';
+
+export const MIMO_API_BASE_URL = 'https://token-plan-cn.xiaomimimo.com/v1';
+
+const providerConfigJsonSchema = z.object({
+    headers: z.record(z.string(), z.string()).optional(),
+    queryParams: z.record(z.string(), z.string()).optional(),
+    reasoning: z
+        .object({
+            format: z.enum(REASONING_PROTOCOLS).optional(),
+            mode: z.enum(REASONING_MODES).optional(),
+        })
+        .optional(),
+});
+
+export function parseProviderConfigJson(configJson?: string | null): ProviderConfigJson {
+    return safeParseJsonWithSchema(providerConfigJsonSchema, configJson, {});
+}

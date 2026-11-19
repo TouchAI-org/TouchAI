@@ -1,95 +1,71 @@
-import { log } from '@services/ObservabilityService';
+import { emit } from '@tauri-apps/api/event';
+import { routeQueriesTo } from '@tests/database/sqliteHarness';
+import {
+    createAgentWindowFixture,
+    network,
+    response,
+    streamingResponse,
+} from '@tests/utils/agentWindow';
 import { mountComposable } from '@tests/utils/composables';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { getTauriInvokeCalls } from '@tests/utils/tauri';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { nextTick, watch } from 'vue';
 
+import type { TaskViewSnapshot } from '@/app/api/agent';
+import { agentApiKey } from '@/app/api/agent';
+import { AppEvent } from '@/app/api/agent/events';
 import { useSessionStatus } from '@/composables/useSessionStatus';
-import { AppEvent } from '@/services/EventService/types';
 
-/**
- * The session list shows a running or waiting badge next to each session. The composable is the
- * only thing that decides which sessions carry one, so a mistake here either hides work in
- * progress or leaves a badge on a session that finished an hour ago.
- */
-const { eventServiceMock, sessionTaskCenterMock } = vi.hoisted(() => ({
-    eventServiceMock: {
-        on: vi.fn(),
-    },
-    sessionTaskCenterMock: {
-        getSessionStatus: vi.fn(),
-    },
-}));
-
-vi.mock('@/services/EventService', () => ({ eventService: eventServiceMock }));
-vi.mock('@/services/AgentService', () => ({ sessionTaskCenter: sessionTaskCenterMock }));
-
-type StatusListener = (event: { sessionId: number; status: string }) => void;
-
-let statusListener: StatusListener;
-
-beforeEach(() => {
-    vi.clearAllMocks();
-    eventServiceMock.on.mockImplementation((_event: string, listener: StatusListener) => {
-        statusListener = listener;
-        return Promise.resolve(() => undefined);
-    });
+let fixture: ReturnType<typeof createAgentWindowFixture>;
+const mounted: (() => void)[] = [];
+beforeEach(async () => {
+    fixture = createAgentWindowFixture();
+    await fixture.window.ready;
 });
-
-describe('user sees which sessions are busy', () => {
-    it('user gets a badge when a session starts running', async () => {
-        const { result, unmount } = await mountComposable(() => useSessionStatus());
-
-        statusListener({ sessionId: 1, status: 'running' });
-
-        expect(result.getSessionStatus(1)).toBe('running');
-        unmount();
+afterEach(async () => {
+    for (const unmount of mounted.splice(0)) unmount();
+    await fixture.window.dispose();
+});
+async function mountStatus() {
+    const view = await mountComposable(useSessionStatus, (app) =>
+        app.provide(agentApiKey, fixture.window.api)
+    );
+    mounted.push(view.unmount);
+    return view;
+}
+async function status(sessionId: number, value: TaskViewSnapshot['status']) {
+    await emit(AppEvent.SESSION_TASK_STATUS_CHANGED, {
+        sessionId,
+        taskId: `task-${sessionId}`,
+        status: value,
+        previousStatus: null,
+        reminder: null,
     });
+    await nextTick();
+}
 
-    it('user gets a badge when a session waits for approval', async () => {
-        const { result, unmount } = await mountComposable(() => useSessionStatus());
+describe('given the session list uses the production Agent client and native status events', () => {
+    it.each(['running', 'waiting_approval'] as const)(
+        'user sees a %s badge when a live status arrives',
+        async (value) => {
+            const { result } = await mountStatus();
+            await status(1, value);
+            expect(result.getSessionStatus(1)).toBe(value);
+        }
+    );
 
-        statusListener({ sessionId: 2, status: 'waiting_approval' });
+    it.each(['completed', 'failed', 'cancelled'] as const)(
+        'user loses a busy badge when the session becomes %s',
+        async (value) => {
+            const { result } = await mountStatus();
+            await status(1, 'running');
+            await status(1, value);
+            expect(result.getSessionStatus(1)).toBeUndefined();
+        }
+    );
 
-        expect(result.getSessionStatus(2)).toBe('waiting_approval');
-        unmount();
-    });
-
-    it('user loses the badge when the session completes', async () => {
-        const { result, unmount } = await mountComposable(() => useSessionStatus());
-        statusListener({ sessionId: 1, status: 'running' });
-
-        statusListener({ sessionId: 1, status: 'completed' });
-
-        // A finished session must not keep a badge; the list would look stuck.
-        expect(result.getSessionStatus(1)).toBeUndefined();
-        unmount();
-    });
-
-    it('user loses the badge when the session fails', async () => {
-        const { result, unmount } = await mountComposable(() => useSessionStatus());
-        statusListener({ sessionId: 1, status: 'running' });
-
-        statusListener({ sessionId: 1, status: 'failed' });
-
-        expect(result.getSessionStatus(1)).toBeUndefined();
-        unmount();
-    });
-
-    it('user keeps each session badge independent', async () => {
-        const { result, unmount } = await mountComposable(() => useSessionStatus());
-
-        statusListener({ sessionId: 1, status: 'running' });
-        statusListener({ sessionId: 2, status: 'waiting_approval' });
-
-        expect(result.getSessionStatus(1)).toBe('running');
-        expect(result.getSessionStatus(2)).toBe('waiting_approval');
-        unmount();
-    });
-
-    it('user gets the list re-rendered when a badge appears', async () => {
-        const { result, unmount } = await mountComposable(() => useSessionStatus());
-        // A watcher stands in for the session list: it only fires if the ref is reactive,
-        // whether the implementation replaces the Map or mutates it in place.
+    it('user keeps independent session badges and reactive rendering when events arrive', async () => {
+        const { result } = await mountStatus();
         let renders = 0;
         const stop = watch(
             result.sessionStatuses,
@@ -98,101 +74,111 @@ describe('user sees which sessions are busy', () => {
             },
             { deep: true }
         );
-
-        statusListener({ sessionId: 1, status: 'running' });
-        await nextTick();
-
+        await status(1, 'running');
+        await status(2, 'waiting_approval');
+        expect(result.getSessionStatus(1)).toBe('running');
+        expect(result.getSessionStatus(2)).toBe('waiting_approval');
         expect(renders).toBeGreaterThan(0);
-        expect(result.getSessionStatus(1)).toBe('running');
         stop();
-        unmount();
     });
 
-    it('user gets only the busy sessions refreshed from the task centre', async () => {
-        sessionTaskCenterMock.getSessionStatus.mockImplementation((sessionId: number) =>
-            sessionId === 1
-                ? { status: 'running' }
-                : sessionId === 2
-                  ? { status: 'completed' }
-                  : undefined
-        );
-        const { result, unmount } = await mountComposable(() => useSessionStatus());
-
-        result.refreshAllStatuses([1, 2, 3]);
-
-        // 1 is busy; 2 finished and 3 is unknown, so neither carries a badge.
-        expect(result.getSessionStatus(1)).toBe('running');
-        expect(result.getSessionStatus(2)).toBeUndefined();
-        expect(result.getSessionStatus(3)).toBeUndefined();
-        unmount();
+    it('user refreshes only currently active sessions through the production task owner', async () => {
+        const channel = streamingResponse();
+        network.replies.push(channel.response);
+        const task = await fixture.window.api.startTask({ prompt: 'keep one session active' });
+        await expect
+            .poll(() => fixture.window.api.getTaskSnapshot(task.taskId)?.sessionId)
+            .toBeTruthy();
+        const sessionId = fixture.window.api.getTaskSnapshot(task.taskId)!.sessionId!;
+        await expect.poll(() => network.requests.length).toBe(1);
+        network.replies.push(response('finished other session'));
+        const completed = await fixture.window.api.startTask({ prompt: 'finish another session' });
+        await completed.completion;
+        const finishedId = fixture.window.api.getTaskSnapshot(completed.taskId)!.sessionId!;
+        const { result } = await mountStatus();
+        result.refreshAllStatuses([sessionId, finishedId, 999]);
+        expect(result.getSessionStatus(sessionId)).toBe('running');
+        expect(result.getSessionStatus(finishedId)).toBeUndefined();
+        expect(result.getSessionStatus(999)).toBeUndefined();
+        channel.delta({ role: 'assistant', content: 'active session finished' });
+        channel.finish();
+        await task.completion;
     });
 
-    it('user gets the refresh to replace earlier badges rather than merge them', async () => {
-        sessionTaskCenterMock.getSessionStatus.mockReturnValue({ status: 'completed' });
-        const { result, unmount } = await mountComposable(() => useSessionStatus());
-        statusListener({ sessionId: 1, status: 'running' });
-        statusListener({ sessionId: 2, status: 'waiting_approval' });
-
-        // Session 2 is not mentioned by the refresh at all.
+    it('user refreshes the requested sessions and omitted earlier badges disappear', async () => {
+        const { result } = await mountStatus();
+        await status(1, 'running');
+        await status(2, 'waiting_approval');
         result.refreshAllStatuses([1]);
-
-        // The refresh is authoritative: an omitted session loses its badge too.
-        expect(result.getSessionStatus(1)).toBeUndefined();
-        expect(result.getSessionStatus(2)).toBeUndefined();
-        unmount();
-    });
-
-    it('user gets the status subscription opened once on mount', async () => {
-        const { unmount } = await mountComposable(() => useSessionStatus());
-
-        expect(eventServiceMock.on).toHaveBeenCalledWith(
-            AppEvent.SESSION_TASK_STATUS_CHANGED,
-            expect.any(Function)
-        );
-        expect(eventServiceMock.on).toHaveBeenCalledTimes(1);
-        unmount();
-    });
-
-    it('user gets the subscription closed when the view goes away', async () => {
-        const unlisten = vi.fn();
-        eventServiceMock.on.mockResolvedValue(unlisten);
-        const { unmount } = await mountComposable(() => useSessionStatus());
-
-        unmount();
-        await Promise.resolve();
-
-        expect(unlisten).toHaveBeenCalled();
-    });
-
-    it('user gets the subscription closed even when it resolves after the view is gone', async () => {
-        let resolveSubscription: (unlisten: () => void) => void = () => undefined;
-        const pending = new Promise<() => void>((resolve) => {
-            resolveSubscription = resolve;
-        });
-        eventServiceMock.on.mockReturnValue(pending);
-        const unlisten = vi.fn();
-
-        const { unmount } = await mountComposable(() => useSessionStatus());
-        unmount();
-        resolveSubscription(unlisten);
-        await Promise.resolve();
-        await Promise.resolve();
-
-        // A late subscription must not leak a listener on a dead view.
-        expect(unlisten).toHaveBeenCalled();
-    });
-
-    it('user gets no badge when the subscription fails to open', async () => {
-        eventServiceMock.on.mockRejectedValue(new Error('no bridge'));
-        const consoleError = vi.spyOn(log, 'error').mockImplementation(() => undefined);
-
-        const { result, unmount } = await mountComposable(() => useSessionStatus());
-        await Promise.resolve();
-
-        // The view must still render with an empty map rather than throwing.
         expect(result.sessionStatuses.value.size).toBe(0);
-        expect(consoleError).toHaveBeenCalled();
-        consoleError.mockRestore();
+    });
+
+    it('user closes the view and later native status changes cannot revive its badges', async () => {
+        const { result, unmount } = await mountStatus();
+        await status(1, 'running');
+        const registrations = getTauriInvokeCalls('plugin:event|listen').filter(
+            ({ payload }) =>
+                (payload as { event: string }).event === AppEvent.SESSION_TASK_STATUS_CHANGED
+        );
+        expect(registrations).toHaveLength(1);
         unmount();
+        await status(2, 'running');
+        expect(result.getSessionStatus(2)).toBeUndefined();
+        expect(
+            getTauriInvokeCalls('plugin:event|unlisten').map(({ payload }) => payload)
+        ).toContainEqual(expect.objectContaining({ event: AppEvent.SESSION_TASK_STATUS_CHANGED }));
+    });
+
+    it('user closes before native registration resolves and its late listener is released', async () => {
+        const admission = Promise.withResolvers<void>();
+        routeQueriesTo(fixture.database, {
+            aroundInvoke: async (call, next) => {
+                if (
+                    call.cmd === 'plugin:event|listen' &&
+                    (call.payload as { event: string }).event ===
+                        AppEvent.SESSION_TASK_STATUS_CHANGED
+                )
+                    await admission.promise;
+                return next();
+            },
+        });
+        const { result, unmount } = await mountStatus();
+        unmount();
+        admission.resolve();
+        await expect
+            .poll(
+                () =>
+                    getTauriInvokeCalls('plugin:event|unlisten').filter(
+                        ({ payload }) =>
+                            (payload as { event: string }).event ===
+                            AppEvent.SESSION_TASK_STATUS_CHANGED
+                    ).length
+            )
+            .toBe(1);
+        await status(1, 'running');
+        expect(result.sessionStatuses.value.size).toBe(0);
+    });
+
+    it('user retains an empty usable list after native subscription fails and a new view can subscribe again', async () => {
+        let refuse = true;
+        routeQueriesTo(fixture.database, {
+            aroundInvoke: (call, next) => {
+                if (
+                    refuse &&
+                    call.cmd === 'plugin:event|listen' &&
+                    (call.payload as { event: string }).event ===
+                        AppEvent.SESSION_TASK_STATUS_CHANGED
+                )
+                    throw new Error('fixture native bridge unavailable');
+                return next();
+            },
+        });
+        const failed = await mountStatus();
+        expect(failed.result.sessionStatuses.value.size).toBe(0);
+        failed.unmount();
+        refuse = false;
+        const following = await mountStatus();
+        await status(1, 'running');
+        expect(following.result.getSessionStatus(1)).toBe('running');
     });
 });

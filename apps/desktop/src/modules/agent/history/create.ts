@@ -1,0 +1,998 @@
+import { parseDbDateTimestamp } from '@/utils/date';
+import { normalizeString } from '@/utils/text';
+
+import { readContextSummary } from '../contracts/context';
+import { readStoredText as getMessageText } from '../contracts/contextRead';
+import type { SelectedSkill, SessionMessage, ToolCallInfo, WidgetInfo } from '../contracts/history';
+import { createInputHistorySnapshot } from '../contracts/history';
+import type {
+    HistoryAttempt as SessionTurnAttemptHistoryRow,
+    HistoryMessage as MessageRow,
+    HistoryPart as MessagePartEntity,
+    HistoryToolStatus as PersistedToolLogStatus,
+    HistoryTurn as SessionTurnHistoryRow,
+    SessionHistoryHost,
+} from '../contracts/historyRead';
+import {
+    historyToolName as getToolCallName,
+    readHistoryToolData as readToolCallData,
+} from '../contracts/historyRead';
+import type {
+    AgentStructuredPayload as ToolEventStructuredPayload,
+    ConversationSemantic as BuiltInToolConversationSemantic,
+    WidgetPayload as ShowWidgetPayload,
+} from '../contracts/presentation';
+import type { PromptSnapshot } from '../contracts/prompt';
+import { createReasoningPart, createTextPart, createToolCallPart, selectToolCalls } from './parts';
+import {
+    ensureAssistantWidgets,
+    ensureWidgetPart,
+    findWidgetTarget,
+    findWidgetTargetByCallId,
+    retargetWidgetPart,
+    type WidgetTarget,
+    type WidgetTargetLookups,
+} from './widgets';
+
+/** Reconstruct committed history without importing another business module or an I/O owner. */
+export function createSessionHistory(host: SessionHistoryHost) {
+    const hydratePersistedAttachments = host.hydrateAttachments.bind(host);
+    const messages = Object.freeze({
+        tt: host.messages.tt.bind(host.messages),
+        displayError: host.messages.displayError.bind(host.messages),
+        retryText: host.messages.retryText.bind(host.messages),
+    });
+    const tt = messages.tt;
+    const resolveBuiltInToolConversationSemantic = host.tools.resolveSemantic.bind(host.tools);
+    const buildBuiltInToolConversationPresentation = host.tools.presentation.bind(host.tools);
+    const SHOW_WIDGET_TOOL_NAME = host.tools.widgetToolName;
+    const log = { error: host.diagnostics.error.bind(host.diagnostics) };
+    type PersistedHistoryEntry = Omit<MessageRow, 'attachments'> & {
+        attachments?: Awaited<ReturnType<typeof hydratePersistedAttachments>>;
+        toolCalls?: ToolCallInfo[];
+    };
+
+    interface SessionHistoryBuildResult {
+        history: SessionMessage[];
+        historyIndexByPersistedMessageId: Map<number, number>;
+    }
+
+    interface BuildSessionHistoryOptions {
+        messages: MessageRow[];
+        turns: SessionTurnHistoryRow[];
+        attempts: SessionTurnAttemptHistoryRow[];
+        resolveServerName: (serverId: number | null) => string;
+    }
+
+    function normalizeDisplayName(namespacedName: string): string {
+        const match = namespacedName.match(/^mcp__\d+__(.+)$/);
+        if (match?.[1]) {
+            return match[1];
+        }
+
+        return namespacedName.replace(/^builtin__/, '');
+    }
+
+    function parseToolArguments(raw: string | null): Record<string, unknown> {
+        if (!raw) {
+            return {};
+        }
+
+        try {
+            const parsed: unknown = JSON.parse(raw);
+            return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
+                ? (parsed as Record<string, unknown>)
+                : {};
+        } catch {
+            return {};
+        }
+    }
+
+    function parseBuiltInConversationSemantic(
+        raw: string | null | undefined
+    ): BuiltInToolConversationSemantic | undefined {
+        if (!raw) {
+            return undefined;
+        }
+
+        try {
+            const parsed = JSON.parse(raw) as Partial<BuiltInToolConversationSemantic>;
+            return typeof parsed.action === 'string'
+                ? {
+                      action: parsed.action as BuiltInToolConversationSemantic['action'],
+                      ...(typeof parsed.target === 'string' ? { target: parsed.target } : {}),
+                  }
+                : undefined;
+        } catch {
+            return undefined;
+        }
+    }
+
+    /**
+     * 解析并校验持久化的结构化载荷。
+     *
+     * 历史导入 / 外部备份里的 `data` 可能是脏数据，逐条校验并过滤。
+     */
+    function parseStructuredPayload(
+        raw: string | null | undefined
+    ): ToolEventStructuredPayload | undefined {
+        if (!raw) {
+            return undefined;
+        }
+
+        try {
+            const parsed = JSON.parse(raw) as ToolEventStructuredPayload;
+            if (!parsed || parsed.kind !== 'web_search_sources' || !Array.isArray(parsed.sources)) {
+                return undefined;
+            }
+
+            const sources = parsed.sources.filter(
+                (source: (typeof parsed.sources)[number]) =>
+                    Boolean(source) &&
+                    typeof source.id === 'string' &&
+                    typeof source.title === 'string' &&
+                    typeof source.url === 'string' &&
+                    /^https?:\/\//i.test(source.url)
+            );
+
+            return sources.length > 0 ? { ...parsed, sources } : undefined;
+        } catch {
+            return undefined;
+        }
+    }
+
+    function syncBuiltInToolCallPresentation(toolCall: ToolCallInfo): void {
+        if (toolCall.source !== 'builtin') {
+            delete toolCall.builtinConversationSemantic;
+            delete toolCall.builtinPresentation;
+            return;
+        }
+
+        if (!toolCall.builtinConversationSemantic) {
+            toolCall.builtinConversationSemantic =
+                resolveBuiltInToolConversationSemantic(
+                    toolCall.namespacedName || toolCall.name,
+                    toolCall.arguments ?? {}
+                ) ?? undefined;
+        }
+        toolCall.builtinPresentation =
+            buildBuiltInToolConversationPresentation(
+                toolCall.namespacedName || toolCall.name,
+                toolCall.arguments ?? {},
+                toolCall.status,
+                {
+                    semantic: toolCall.builtinConversationSemantic,
+                }
+            ) ?? undefined;
+    }
+
+    function getPromptSnapshotInputSkills(promptSnapshot?: PromptSnapshot): SelectedSkill[] {
+        if (promptSnapshot?.inputSnapshot?.skills?.length) {
+            return promptSnapshot.inputSnapshot.skills.map((skill) => ({
+                name: skill.name,
+                path: skill.path,
+            }));
+        }
+
+        return (promptSnapshot?.skills ?? []).map((skill) => ({
+            name: skill.name,
+            path: skill.path,
+        }));
+    }
+
+    function isCancellationStatusText(text?: string | null): boolean {
+        const normalized = normalizeString(text)?.toLowerCase() ?? '';
+        if (!normalized) {
+            return false;
+        }
+
+        return (
+            normalized.includes('取消') ||
+            normalized.includes('cancelled by user') ||
+            normalized.includes('request cancelled')
+        );
+    }
+    function assertUnreachablePersistedToolStatus(value: never): never {
+        throw new Error(`Unexpected persisted tool status: ${String(value)}`);
+    }
+
+    function mapPersistedToolResultStatus(
+        toolStatus: PersistedToolLogStatus | null,
+        resultText: string
+    ): ToolCallInfo['status'] {
+        if (toolStatus === null) {
+            return 'completed';
+        }
+
+        switch (toolStatus) {
+            case 'rejected':
+                return 'rejected';
+            case 'awaiting_approval':
+                return 'awaiting_approval';
+            case 'pending':
+            case 'approved':
+                return 'executing';
+            case 'timeout':
+                return 'error';
+            case 'error':
+                return isCancellationStatusText(resultText) ? 'cancelled' : 'error';
+            case 'cancelled':
+                return 'cancelled';
+            case 'success':
+                return 'completed';
+        }
+
+        return assertUnreachablePersistedToolStatus(toolStatus);
+    }
+
+    function isPersistedToolResultErrorStatus(
+        toolStatus: PersistedToolLogStatus | null,
+        resultText: string
+    ): boolean {
+        return mapPersistedToolResultStatus(toolStatus, resultText) === 'error';
+    }
+
+    function buildPersistedShowWidgetPayload(toolCall: ToolCallInfo): ShowWidgetPayload | null {
+        if (toolCall.namespacedName !== SHOW_WIDGET_TOOL_NAME) {
+            return null;
+        }
+
+        const mode = toolCall.arguments.mode === 'remove' ? 'remove' : 'render';
+        const widgetId =
+            normalizeString(toolCall.arguments.widgetId) || (mode === 'render' ? toolCall.id : '');
+        if (!widgetId) {
+            return null;
+        }
+
+        const title = normalizeString(toolCall.arguments.title) || widgetId || 'ShowWidget';
+        const description =
+            normalizeString(toolCall.arguments.description) ||
+            'Inline generative artifact rendered in the answer.';
+        const html =
+            normalizeString(toolCall.arguments.widget_code) ||
+            normalizeString(toolCall.arguments.html);
+
+        if (mode === 'render' && !html) {
+            return null;
+        }
+
+        return {
+            callId: toolCall.id,
+            widgetId,
+            title,
+            description,
+            html,
+            mode,
+            phase: 'ready',
+        };
+    }
+
+    /** Convert each stored message once, keeping the database row and parts intact. */
+    async function buildPersistedEntries(
+        rows: MessageRow[],
+        resolveServerName: (serverId: number | null) => string
+    ): Promise<PersistedHistoryEntry[]> {
+        return Promise.all(
+            rows.map(async (row): Promise<PersistedHistoryEntry> => {
+                const entry: PersistedHistoryEntry = {
+                    ...row,
+                    attachments:
+                        row.role === 'user'
+                            ? await hydratePersistedAttachments(row.attachments)
+                            : undefined,
+                };
+                if (row.role === 'tool_call') {
+                    entry.toolCalls = row.parts
+                        .filter((part) => part.type === 'tool_call')
+                        .map((part): ToolCallInfo => {
+                            const data = readToolCallData(part);
+                            const namespacedName = getToolCallName(data);
+                            const source = data.toolKind;
+                            const serverId =
+                                data.toolKind === 'mcp' ? (data.server_id ?? null) : null;
+                            const serverName =
+                                serverId === null ? undefined : resolveServerName(serverId);
+                            const resultText =
+                                typeof data.output === 'string' ? data.output : undefined;
+                            const call: ToolCallInfo = {
+                                id: data.toolCallId,
+                                name: normalizeDisplayName(namespacedName),
+                                namespacedName,
+                                source,
+                                serverId,
+                                serverName,
+                                sourceLabel:
+                                    source === 'builtin' ? '内置工具' : serverName || 'MCP 工具',
+                                arguments: parseToolArguments(data.input),
+                                builtinConversationSemantic:
+                                    data.toolKind === 'builtin'
+                                        ? parseBuiltInConversationSemantic(
+                                              data.conversation_semantic_json
+                                          )
+                                        : undefined,
+                                status: mapPersistedToolResultStatus(
+                                    data.status ?? null,
+                                    resultText ?? ''
+                                ),
+                                result: resultText,
+                                isError: isPersistedToolResultErrorStatus(
+                                    data.status ?? null,
+                                    resultText ?? ''
+                                ),
+                                durationMs: data.duration_ms ?? undefined,
+                                startedAt: parseDbDateTimestamp(part.created_at ?? row.created_at),
+                                structuredPayload:
+                                    data.toolKind === 'builtin'
+                                        ? parseStructuredPayload(data.structured_payload_json)
+                                        : undefined,
+                            };
+                            syncBuiltInToolCallPresentation(call);
+                            return call;
+                        });
+                }
+                return entry;
+            })
+        );
+    }
+
+    /**
+     * 将持久化层拆开的 agent loop 组装为 UI 中的一条 assistant 对话消息。
+     *
+     * 规则：
+     * - `user` 行始终单独保留；
+     * - 同一个 `user` 之后直到下一个 `user` 之前的非 user 行，合并成一个 assistant message；
+     * - `tool_call` 行里的文本、推理和工具调用都按原始顺序放回 parts；
+     * - 工具结果直接来自 tool_call 片段自身的 data.output，不再有独立结果行。
+     *
+     * @param entries 已聚合的持久化历史记录。
+     * @returns UI 可直接消费的对话历史。
+     */
+    function appendAssistantOutput(message: SessionMessage, parts: MessagePartEntity[]): void {
+        for (const part of parts) {
+            if (part.type === 'text') {
+                if (!part.content) continue;
+                message.parts.push(createTextPart(part.content));
+                message.content += part.content;
+            } else if (part.type === 'reasoning') {
+                appendReasoningPart(message, part);
+                message.reasoning = `${message.reasoning ?? ''}${part.content}`;
+            } else if (part.type === 'context_compaction') {
+                const summary = readContextSummary(part);
+                if (summary)
+                    message.parts.push({
+                        id: summary.id,
+                        type: 'context_compaction',
+                        state: 'compacted',
+                    });
+            }
+        }
+    }
+
+    /**
+     * 按位置把 `tool_call` 行的片段分成「正文」与「工具结果」。
+     *
+     * 工具结果的回退存储是「紧跟在工具调用之后的一串 text」，所以只把尾部连续
+     * text 当结果；直接取「第一个 tool_call 之前」会丢弃工具调用后的 reasoning。
+     */
+    function splitToolCallRowParts(parts: MessagePartEntity[]): {
+        prose: MessagePartEntity[];
+        trailingResults: MessagePartEntity[];
+    } {
+        // 调用方已按 sort_order 排序；这里再排一次，让函数自包含、不依赖外部约定。
+        const ordered = [...parts].sort(
+            (left, right) => left.sort_order - right.sort_order || left.id - right.id
+        );
+
+        // 从末尾往回扫，收集连续的 text 片段
+        let trailingStart = ordered.length;
+        while (trailingStart > 0 && ordered[trailingStart - 1]!.type === 'text') {
+            trailingStart -= 1;
+        }
+
+        // 整行都是 text（没有任何 tool_call）：都是正文，没有回退结果。
+        if (trailingStart === 0) {
+            return { prose: ordered, trailingResults: [] };
+        }
+
+        return {
+            prose: ordered.slice(0, trailingStart),
+            trailingResults: ordered.slice(trailingStart),
+        };
+    }
+    function appendReasoningPart(message: SessionMessage, segment: MessagePartEntity): void {
+        const part = createReasoningPart(segment.content);
+        part.startedAt = segment.started_at ?? undefined;
+        // An interrupted part stops at its last persisted wall-clock timestamp.
+        part.endedAt =
+            segment.ended_at ??
+            (segment.started_at === null
+                ? undefined
+                : Math.max(segment.started_at, parseDbDateTimestamp(segment.updated_at)));
+        message.parts.push(part);
+    }
+
+    function convertEntriesToSessionHistory(
+        entries: PersistedHistoryEntry[],
+        promptSnapshotsByMessageId: Map<number, PromptSnapshot>
+    ): SessionHistoryBuildResult {
+        const history: SessionMessage[] = [];
+        const historyIndexByPersistedMessageId = new Map<number, number>();
+        let activeAssistantMessage: SessionMessage | null = null;
+        let activeAssistantEntryIds: number[] = [];
+        const widgetsByCallId = new Map<string, WidgetTarget>();
+        const widgetsByWidgetId = new Map<string, WidgetTarget>();
+        const widgetLookups: WidgetTargetLookups = {
+            widgetsByCallId,
+            widgetsByWidgetId,
+        };
+
+        const indexPersistedWidget = (message: SessionMessage, widget: WidgetInfo): void => {
+            const target = { message, widget };
+            widgetsByCallId.set(widget.callId, target);
+            widgetsByWidgetId.set(widget.widgetId, target);
+        };
+
+        const unindexPersistedWidget = (widget: WidgetInfo): void => {
+            const widgetTarget = widgetsByWidgetId.get(widget.widgetId);
+            if (widgetTarget?.widget === widget) {
+                widgetsByWidgetId.delete(widget.widgetId);
+            }
+
+            const callTarget = widgetsByCallId.get(widget.callId);
+            if (callTarget?.widget === widget) {
+                widgetsByCallId.delete(widget.callId);
+            }
+        };
+
+        const flushAssistantMessage = () => {
+            if (!activeAssistantMessage) {
+                return;
+            }
+
+            const historyIndex = history.length;
+            history.push(activeAssistantMessage);
+            for (const entryId of activeAssistantEntryIds) {
+                historyIndexByPersistedMessageId.set(entryId, historyIndex);
+            }
+            activeAssistantMessage = null;
+            activeAssistantEntryIds = [];
+        };
+
+        const ensureAssistantMessage = (entry: PersistedHistoryEntry): SessionMessage => {
+            if (!activeAssistantMessage) {
+                activeAssistantMessage = {
+                    id: `assistant-${entry.id}`,
+                    role: 'assistant',
+                    content: '',
+                    parts: [],
+                    timestamp: parseDbDateTimestamp(entry.created_at),
+                };
+            }
+
+            if (!activeAssistantEntryIds.includes(entry.id)) {
+                activeAssistantEntryIds.push(entry.id);
+            }
+
+            return activeAssistantMessage;
+        };
+
+        /**
+         * ShowWidget 的 artifact 生命周期允许跨轮次更新或移除同一 widget。
+         *
+         * 历史回放需要按整段会话顺序重放这些变更，因此这里会跨 assistant message
+         * 查找已登记的 widget，而不是只看当前消息。
+         */
+        const upsertPersistedWidget = (
+            preferredMessage: SessionMessage,
+            payload: ShowWidgetPayload,
+            updatedAt: number
+        ): WidgetInfo => {
+            const preferredMessageId = preferredMessage.id;
+            const targetMessage =
+                findWidgetTarget(history, payload.widgetId, preferredMessageId, widgetLookups)
+                    ?.message ??
+                findWidgetTargetByCallId(history, payload.callId, preferredMessageId, widgetLookups)
+                    ?.message ??
+                preferredMessage;
+            const widgets = ensureAssistantWidgets(targetMessage);
+            const existingWidget =
+                findWidgetTarget(history, payload.widgetId, targetMessage.id, widgetLookups)
+                    ?.widget ??
+                findWidgetTargetByCallId(history, payload.callId, targetMessage.id, widgetLookups)
+                    ?.widget;
+
+            if (existingWidget) {
+                const previousWidgetId = existingWidget.widgetId;
+                unindexPersistedWidget(existingWidget);
+                Object.assign(existingWidget, payload, {
+                    id: payload.widgetId,
+                    updatedAt,
+                });
+                retargetWidgetPart(targetMessage, previousWidgetId, payload.widgetId);
+                ensureWidgetPart(targetMessage, payload.widgetId);
+                indexPersistedWidget(targetMessage, existingWidget);
+                return existingWidget;
+            }
+
+            const widget: WidgetInfo = {
+                id: payload.widgetId,
+                ...payload,
+                updatedAt,
+            };
+            widgets.push(widget);
+            ensureWidgetPart(targetMessage, payload.widgetId);
+            indexPersistedWidget(targetMessage, widget);
+            return widget;
+        };
+
+        const removePersistedWidgetByWidgetId = (widgetId: string): void => {
+            const target = findWidgetTarget(
+                history,
+                widgetId,
+                activeAssistantMessage?.id,
+                widgetLookups
+            );
+            if (!target) {
+                return;
+            }
+
+            unindexPersistedWidget(target.widget);
+            target.message.widgets = target.message.widgets?.filter(
+                (widget) => widget.widgetId !== widgetId
+            );
+            target.message.parts = target.message.parts.filter(
+                (part) => !(part.type === 'widget' && part.widgetId === widgetId)
+            );
+        };
+
+        const removePersistedWidgetByCallId = (callId: string): void => {
+            const target = findWidgetTargetByCallId(
+                history,
+                callId,
+                activeAssistantMessage?.id,
+                widgetLookups
+            );
+            if (!target) {
+                return;
+            }
+
+            const removedWidgetId = target.widget.widgetId;
+            unindexPersistedWidget(target.widget);
+            target.message.widgets = target.message.widgets?.filter(
+                (widget) => widget.callId !== callId
+            );
+            target.message.parts = target.message.parts.filter(
+                (part) => !(part.type === 'widget' && part.widgetId === removedWidgetId)
+            );
+        };
+
+        for (const entry of entries) {
+            if (entry.role === 'user') {
+                flushAssistantMessage();
+                const promptSnapshot = promptSnapshotsByMessageId.get(entry.id);
+                const historyIndex = history.length;
+                const content = getMessageText(entry.parts);
+                history.push({
+                    id: `user-${entry.id}`,
+                    role: 'user',
+                    content,
+                    attachments: entry.attachments?.length ? entry.attachments : undefined,
+                    inputSnapshot: createInputHistorySnapshot({
+                        text: content,
+                        attachments: entry.attachments ?? [],
+                        skills: getPromptSnapshotInputSkills(promptSnapshot),
+                        editorDoc: promptSnapshot?.inputSnapshot?.editorDoc,
+                        excludeFromHistory: promptSnapshot?.inputSnapshot?.excludeFromHistory,
+                    }),
+                    parts: [],
+                    timestamp: parseDbDateTimestamp(entry.created_at),
+                });
+                historyIndexByPersistedMessageId.set(entry.id, historyIndex);
+                continue;
+            }
+
+            const assistantMessage = ensureAssistantMessage(entry);
+
+            if (entry.role === 'assistant') {
+                appendAssistantOutput(assistantMessage, entry.parts);
+            } else if (entry.role === 'tool_call') {
+                // 只渲染工具调用之前的正文；尾部的 text 是工具结果，不应当成正文。
+                appendAssistantOutput(assistantMessage, splitToolCallRowParts(entry.parts).prose);
+            }
+
+            if (entry.role === 'tool_call' && entry.toolCalls?.length) {
+                // 回退 text 没有 call id，只在恰好一个调用缺结果时回填，避免张冠李戴。
+                const fallbackResult = splitToolCallRowParts(entry.parts)
+                    .trailingResults.filter((part) => part.type === 'text')
+                    .map((part) => part.content.trim())
+                    .filter(Boolean)
+                    .join('\n\n');
+                const callsMissingResult = entry.toolCalls.filter(
+                    (toolCall) => !toolCall.result?.trim()
+                );
+                const fallbackTarget =
+                    fallbackResult && callsMissingResult.length === 1
+                        ? callsMissingResult[0]
+                        : null;
+
+                for (const toolCall of entry.toolCalls) {
+                    if (toolCall === fallbackTarget) {
+                        toolCall.result = fallbackResult;
+                    }
+
+                    if (toolCall.namespacedName !== SHOW_WIDGET_TOOL_NAME) {
+                        assistantMessage.parts.push(createToolCallPart(toolCall));
+                    }
+
+                    if (toolCall.namespacedName === SHOW_WIDGET_TOOL_NAME) {
+                        const payload = buildPersistedShowWidgetPayload(toolCall);
+                        if (toolCall.isError) {
+                            removePersistedWidgetByCallId(toolCall.id);
+                        } else if (payload?.mode === 'remove') {
+                            removePersistedWidgetByWidgetId(payload.widgetId);
+                        } else if (payload?.mode === 'render') {
+                            upsertPersistedWidget(
+                                assistantMessage,
+                                payload,
+                                parseDbDateTimestamp(entry.created_at)
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        flushAssistantMessage();
+        return {
+            history,
+            historyIndexByPersistedMessageId,
+        };
+    }
+
+    function createDerivedErrorMessage(turn: SessionTurnHistoryRow): SessionMessage {
+        const content = tt('请求失败: {error}', {
+            error: messages.displayError(turn.error_message ?? ''),
+        });
+
+        return {
+            id: `turn-error-${turn.id}`,
+            role: 'assistant',
+            content,
+            parts: [createTextPart(content)],
+            timestamp: parseDbDateTimestamp(turn.updated_at || turn.created_at),
+            isError: true,
+        };
+    }
+
+    function createDerivedCancelledMessage(turn: SessionTurnHistoryRow): SessionMessage {
+        const content = tt('请求已取消');
+
+        return {
+            id: `turn-cancelled-${turn.id}`,
+            role: 'assistant',
+            content,
+            parts: [createTextPart(content)],
+            timestamp: parseDbDateTimestamp(turn.updated_at || turn.created_at),
+            isCancelled: true,
+        };
+    }
+
+    function hasVisibleAssistantContent(message: SessionMessage): boolean {
+        if (message.role !== 'assistant') {
+            return false;
+        }
+
+        if (message.content.trim() || message.reasoning?.trim()) {
+            return true;
+        }
+
+        return message.parts.some((part) => {
+            if (part.type === 'text' || part.type === 'reasoning') {
+                return !!part.content.trim();
+            }
+
+            return true;
+        });
+    }
+
+    function attachStatusText(message: SessionMessage, statusText: string): boolean {
+        if (!hasVisibleAssistantContent(message)) {
+            return false;
+        }
+
+        message.statusText = message.statusText
+            ? `${message.statusText}\n${statusText}`
+            : statusText;
+        return true;
+    }
+
+    function markToolCallsCancelled(
+        message: SessionMessage,
+        cancellationText = tt('请求已取消')
+    ): void {
+        if (message.role !== 'assistant') {
+            return;
+        }
+
+        for (const toolCall of selectToolCalls(message)) {
+            if (toolCall.status !== 'executing' && toolCall.status !== 'awaiting_approval') {
+                continue;
+            }
+
+            toolCall.status = 'cancelled';
+            toolCall.isError = false;
+            toolCall.result = cancellationText;
+            syncBuiltInToolCallPresentation(toolCall);
+        }
+    }
+
+    function createDerivedRetryMessage(
+        turnId: number,
+        attempt: SessionTurnAttemptHistoryRow
+    ): SessionMessage {
+        const content = messages.retryText(attempt.attempt_index, attempt.max_retries);
+
+        return {
+            id: `turn-retry-${turnId}-${attempt.attempt_index}`,
+            role: 'assistant',
+            content,
+            parts: [createTextPart(content)],
+            timestamp: parseDbDateTimestamp(
+                attempt.finished_at || attempt.updated_at || attempt.created_at
+            ),
+            isRetrying: true,
+        };
+    }
+
+    function resolvePromptAnchorIndex(
+        turn: SessionTurnHistoryRow,
+        historyIndexByPersistedMessageId: Map<number, number>
+    ): number | null {
+        if (turn.prompt_message_id !== null) {
+            const promptIndex = historyIndexByPersistedMessageId.get(turn.prompt_message_id);
+            if (promptIndex !== undefined) {
+                return promptIndex;
+            }
+        }
+
+        return null;
+    }
+
+    function resolveFailedRequestAnchorIndex(
+        turn: SessionTurnHistoryRow,
+        history: SessionMessage[],
+        historyIndexByPersistedMessageId: Map<number, number>
+    ): number {
+        if (turn.response_message_id !== null) {
+            const responseIndex = historyIndexByPersistedMessageId.get(turn.response_message_id);
+            if (responseIndex !== undefined) {
+                return responseIndex;
+            }
+        }
+
+        const promptIndex = resolvePromptAnchorIndex(turn, historyIndexByPersistedMessageId);
+        if (promptIndex !== null) {
+            const trailingAssistant = history[promptIndex + 1];
+            if (trailingAssistant?.role === 'assistant') {
+                return promptIndex + 1;
+            }
+
+            return promptIndex;
+        }
+
+        return history.length - 1;
+    }
+
+    function resolveRetryAnchor(
+        turn: SessionTurnHistoryRow,
+        history: SessionMessage[],
+        historyIndexByPersistedMessageId: Map<number, number>
+    ): { position: 'before' | 'after'; anchorIndex: number } {
+        if (turn.response_message_id !== null) {
+            const responseIndex = historyIndexByPersistedMessageId.get(turn.response_message_id);
+            if (responseIndex !== undefined) {
+                return {
+                    position: 'before',
+                    anchorIndex: responseIndex,
+                };
+            }
+        }
+
+        const promptIndex = resolvePromptAnchorIndex(turn, historyIndexByPersistedMessageId);
+        if (promptIndex !== null) {
+            const trailingAssistant = history[promptIndex + 1];
+            if (trailingAssistant?.role === 'assistant') {
+                return {
+                    position: 'before',
+                    anchorIndex: promptIndex + 1,
+                };
+            }
+
+            return {
+                position: 'after',
+                anchorIndex: promptIndex,
+            };
+        }
+
+        return {
+            position: 'after',
+            anchorIndex: history.length - 1,
+        };
+    }
+
+    function pushAnchoredMessage(
+        collections: {
+            leading: SessionMessage[];
+            beforeByIndex: Map<number, SessionMessage[]>;
+            afterByIndex: Map<number, SessionMessage[]>;
+        },
+        message: SessionMessage,
+        position: 'before' | 'after',
+        anchorIndex: number
+    ): void {
+        if (anchorIndex < 0) {
+            collections.leading.push(message);
+            return;
+        }
+
+        const targetCollection =
+            position === 'before' ? collections.beforeByIndex : collections.afterByIndex;
+        const anchoredMessages = targetCollection.get(anchorIndex) ?? [];
+        anchoredMessages.push(message);
+        targetCollection.set(anchorIndex, anchoredMessages);
+    }
+
+    function injectDerivedRequestStatuses(
+        buildResult: SessionHistoryBuildResult,
+        turns: SessionTurnHistoryRow[],
+        attempts: SessionTurnAttemptHistoryRow[]
+    ): SessionMessage[] {
+        const attemptsByTurnId = new Map<number, SessionTurnAttemptHistoryRow[]>();
+        for (const attempt of attempts) {
+            const currentAttempts = attemptsByTurnId.get(attempt.turn_id) ?? [];
+            currentAttempts.push(attempt);
+            attemptsByTurnId.set(attempt.turn_id, currentAttempts);
+        }
+
+        const turnsWithDerivedStatuses = turns.filter((turn) => {
+            const turnAttempts = attemptsByTurnId.get(turn.id) ?? [];
+            return (
+                turnAttempts.length > 1 ||
+                (turn.status === 'failed' && !!turn.error_message?.trim()) ||
+                turn.status === 'cancelled'
+            );
+        });
+
+        if (turnsWithDerivedStatuses.length === 0) {
+            return buildResult.history;
+        }
+
+        const collections = {
+            leading: [] as SessionMessage[],
+            beforeByIndex: new Map<number, SessionMessage[]>(),
+            afterByIndex: new Map<number, SessionMessage[]>(),
+        };
+
+        for (const turn of turnsWithDerivedStatuses) {
+            const turnAttempts = attemptsByTurnId.get(turn.id) ?? [];
+            const retryAnchor = resolveRetryAnchor(
+                turn,
+                buildResult.history,
+                buildResult.historyIndexByPersistedMessageId
+            );
+            turnAttempts.slice(0, -1).forEach((attempt) => {
+                pushAnchoredMessage(
+                    collections,
+                    createDerivedRetryMessage(turn.id, attempt),
+                    retryAnchor.position,
+                    retryAnchor.anchorIndex
+                );
+            });
+
+            if (turn.status === 'failed' && turn.error_message?.trim()) {
+                const anchorIndex = resolveFailedRequestAnchorIndex(
+                    turn,
+                    buildResult.history,
+                    buildResult.historyIndexByPersistedMessageId
+                );
+                const anchorMessage = buildResult.history[anchorIndex];
+                if (
+                    anchorMessage &&
+                    attachStatusText(
+                        anchorMessage,
+                        tt('请求失败: {error}', {
+                            error: messages.displayError(turn.error_message),
+                        })
+                    )
+                ) {
+                    continue;
+                }
+
+                pushAnchoredMessage(
+                    collections,
+                    createDerivedErrorMessage(turn),
+                    'after',
+                    anchorIndex
+                );
+            }
+
+            if (turn.status === 'cancelled') {
+                const anchorIndex = resolveFailedRequestAnchorIndex(
+                    turn,
+                    buildResult.history,
+                    buildResult.historyIndexByPersistedMessageId
+                );
+                const anchorMessage = buildResult.history[anchorIndex];
+                if (anchorMessage) {
+                    markToolCallsCancelled(anchorMessage);
+                }
+                if (anchorMessage && attachStatusText(anchorMessage, tt('请求已取消'))) {
+                    continue;
+                }
+
+                pushAnchoredMessage(
+                    collections,
+                    createDerivedCancelledMessage(turn),
+                    'after',
+                    anchorIndex
+                );
+            }
+        }
+
+        const history: SessionMessage[] = [...collections.leading];
+        buildResult.history.forEach((message, index) => {
+            const beforeMessages = collections.beforeByIndex.get(index);
+            if (beforeMessages?.length) {
+                history.push(...beforeMessages);
+            }
+
+            history.push(message);
+
+            const afterMessages = collections.afterByIndex.get(index);
+            if (afterMessages?.length) {
+                history.push(...afterMessages);
+            }
+        });
+
+        return history;
+    }
+
+    /**
+     * 将持久化消息行恢复成 SearchView 可直接消费的对话历史。
+     *
+     * @param options 构建选项
+     * @param options.messages 已排序的数据库消息行
+     * @param options.turns 会话轮次历史
+     * @param options.attempts 会话轮次尝试历史
+     * @param options.resolveServerName 通过 serverId 解析 MCP 服务器名称
+     * @returns 重建后的对话历史
+     */
+    async function buildSessionHistory(
+        options: BuildSessionHistoryOptions
+    ): Promise<SessionMessage[]> {
+        const { messages, turns, attempts, resolveServerName } = options;
+        const promptSnapshotsByMessageId = new Map<number, PromptSnapshot>();
+        for (const turn of turns) {
+            if (turn.prompt_message_id === null) {
+                continue;
+            }
+
+            try {
+                const promptSnapshot = JSON.parse(turn.prompt_snapshot_json) as PromptSnapshot;
+                promptSnapshotsByMessageId.set(turn.prompt_message_id, promptSnapshot);
+            } catch (error) {
+                log.error('[SessionHistory] Failed to parse prompt snapshot JSON:', error);
+            }
+        }
+
+        const buildResult = convertEntriesToSessionHistory(
+            await buildPersistedEntries(messages, resolveServerName),
+            promptSnapshotsByMessageId
+        );
+        return injectDerivedRequestStatuses(buildResult, turns, attempts);
+    }
+
+    return Object.freeze({ build: buildSessionHistory });
+}
+
+export type SessionHistory = ReturnType<typeof createSessionHistory>;

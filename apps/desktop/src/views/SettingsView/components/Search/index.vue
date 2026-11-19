@@ -4,8 +4,10 @@
     import SettingsRow from '@components/SettingsRow.vue';
     import { Input } from '@components/ui/input';
     import { Switch } from '@components/ui/switch';
-    import { findBuiltInToolByToolId, updateBuiltInTool } from '@database/queries';
-    import { log } from '@services/ObservabilityService';
+    import { storeToRefs } from 'pinia';
+    import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+
+    import { log } from '@/app/api/diagnostics';
     import {
         parseSearchSettingsConfig,
         SEARCH_PROVIDER_API_KEY_REQUIREMENTS,
@@ -16,21 +18,20 @@
         type SearchRouteIntent,
         type SearchSettingsConfig,
         serializeSearchSettingsConfig,
-    } from '@services/SettingsService/domain';
-    import { storeToRefs } from 'pinia';
-    import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-
+    } from '@/app/api/settings/tools';
+    import { useToolsAdministrationApi } from '@/app/api/tools/administration';
     import { type MessageKey, t } from '@/i18n';
-    import { useSettingsStore } from '@/stores/settings';
+    import { useToolSettingsStore } from '@/stores/toolSettings';
 
     import { hasSettingsDraftChanges, mergeSettingsDraft } from '../../settingsDraftSync';
 
     defineOptions({ name: 'SettingsSearchSection' });
 
-    const settingsStore = useSettingsStore();
-    const { settings } = storeToRefs(settingsStore);
-    const draft = ref<SearchSettingsConfig>(cloneConfig(settings.value.searchSettings));
-    let syncedConfig = cloneConfig(settings.value.searchSettings);
+    const settingsStore = useToolSettingsStore();
+    const tools = useToolsAdministrationApi();
+    const { searchSettings } = storeToRefs(settingsStore);
+    const draft = ref<SearchSettingsConfig>(cloneConfig(searchSettings.value));
+    let syncedConfig = cloneConfig(searchSettings.value);
     const toolRowId = ref<number | null>(null);
     const toolEnabled = ref(true);
     const savingToolEnabled = ref(false);
@@ -38,6 +39,7 @@
     const invalidProviderIds = ref<Set<SearchProviderId>>(new Set());
     let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
     let isSyncingFromStore = false;
+    let disposed = false;
 
     const providerMessages: Record<
         SearchProviderId,
@@ -223,7 +225,7 @@
     const canSave = computed(() => saveState.value !== 'saving');
 
     watch(
-        () => settings.value.searchSettings,
+        () => searchSettings.value,
         (config) => {
             const incoming = cloneConfig(config);
             isSyncingFromStore = true;
@@ -239,10 +241,14 @@
     watch(draft, scheduleAutoSave, { deep: true });
 
     onMounted(() => {
+        void settingsStore
+            .initialize()
+            .catch((error) => log.error('[SearchSettings] Failed to initialize settings:', error));
         void loadToolState();
     });
 
     onBeforeUnmount(() => {
+        disposed = true;
         if (autoSaveTimer) {
             clearTimeout(autoSaveTimer);
             autoSaveTimer = null;
@@ -254,7 +260,7 @@
     }
 
     function scheduleAutoSave() {
-        if (isSyncingFromStore || !canSave.value) return;
+        if (disposed || isSyncingFromStore || !canSave.value) return;
         if (autoSaveTimer) {
             clearTimeout(autoSaveTimer);
         }
@@ -266,53 +272,55 @@
 
     async function loadToolState() {
         try {
-            const tool = await findBuiltInToolByToolId('web_search');
+            const tool = (await tools.findAllBuiltInTools()).find(
+                (tool) => tool.tool_id === 'web_search'
+            );
+            if (disposed) return;
             toolRowId.value = tool?.id ?? null;
-            toolEnabled.value = tool ? tool.enabled === 1 : true;
+            if (tool) toolEnabled.value = tool.enabled === 1;
         } catch (error) {
             log.error('[SearchSettings] Failed to load web_search tool state:', error);
         }
     }
 
     async function toggleToolEnabled() {
-        if (savingToolEnabled.value) return;
+        if (disposed || savingToolEnabled.value || toolRowId.value === null) return;
         const nextEnabled = !toolEnabled.value;
-        if (toolRowId.value === null) {
-            toolEnabled.value = nextEnabled;
-            return;
-        }
 
         savingToolEnabled.value = true;
         try {
-            const updated = await updateBuiltInTool(toolRowId.value, {
+            const updated = await tools.updateBuiltInTool(toolRowId.value, {
                 enabled: nextEnabled ? 1 : 0,
             });
-            toolEnabled.value = updated ? updated.enabled === 1 : nextEnabled;
+            if (disposed) return;
+            if (updated) toolEnabled.value = updated.enabled === 1;
+            else toolRowId.value = null;
         } catch (error) {
             log.error('[SearchSettings] Failed to toggle web_search:', error);
         } finally {
-            savingToolEnabled.value = false;
+            if (!disposed) savingToolEnabled.value = false;
         }
     }
 
     async function saveSettings() {
-        if (!canSave.value) return;
+        if (disposed || !canSave.value) return;
         saveState.value = 'saving';
         try {
             const submitted = cloneConfig(draft.value);
-            const incoming = cloneConfig(settings.value.searchSettings);
+            const incoming = cloneConfig(searchSettings.value);
             await settingsStore.updateSearchSettings(
                 mergeSettingsDraft(syncedConfig, submitted, incoming)
             );
             await nextTick();
+            if (disposed) return;
             saveState.value = 'saved';
-            syncedConfig = cloneConfig(settings.value.searchSettings);
+            syncedConfig = cloneConfig(searchSettings.value);
             if (hasSettingsDraftChanges(syncedConfig, cloneConfig(draft.value))) {
                 scheduleAutoSave();
             }
         } catch (error) {
             log.error('[SearchSettings] Failed to save search settings:', error);
-            saveState.value = 'error';
+            if (!disposed) saveState.value = 'error';
         }
     }
 
@@ -450,7 +458,7 @@
                     data-testid="search-enabled-toggle"
                     :aria-label="t('settings.search.title')"
                     :model-value="toolEnabled"
-                    :disabled="savingToolEnabled"
+                    :disabled="savingToolEnabled || toolRowId === null"
                     @update:model-value="toggleToolEnabled"
                 />
             </header>

@@ -11,15 +11,20 @@
     import { Button } from '@components/ui/button';
     import { Input } from '@components/ui/input';
     import { useAlert } from '@composables/useAlert';
-    import type { NewProvider, Provider, ProviderDriver } from '@database/schema';
     import { computed, ref, watch } from 'vue';
 
-    import { t } from '@/i18n';
-    import { aiService } from '@/services/AgentService';
+    import type {
+        NewProvider,
+        Provider,
+        ProviderDriver,
+        ProviderPatch,
+    } from '@/app/api/models/administration';
     import {
         getProviderDriverDefinition,
+        previewProviderEndpoints,
         providerDriverDefinitions,
-    } from '@/services/AgentService/infrastructure/providers/driverCatalog';
+    } from '@/app/api/models/catalog';
+    import { t } from '@/i18n';
 
     /*
      * 新增与编辑服务商的表单原本是两个文件，名称 / 类型 / 基址预览三段
@@ -46,7 +51,7 @@
 
     const emit = defineEmits<{
         create: [data: NewProvider];
-        update: [data: Partial<Provider>];
+        update: [data: ProviderPatch];
         cancel: [];
         closed: [];
     }>();
@@ -77,22 +82,22 @@
         api_endpoint: string;
         api_key: string;
         config_json: string | null;
-        enabled: number;
+        enabled: 0 | 1;
     }
 
     const formFromProvider = (provider: Provider): ProviderForm => ({
         name: provider.name,
-        driver: provider.driver as ProviderDriver,
+        driver: provider.driver,
         logo: provider.logo,
         api_endpoint: provider.api_endpoint,
         api_key: provider.api_key ?? '',
         config_json: provider.config_json ?? null,
-        enabled: provider.enabled,
+        enabled: provider.enabled === 1 ? 1 : 0,
     });
 
     const emptyForm = (): ProviderForm => ({
         name: '',
-        driver: 'openai' as ProviderDriver,
+        driver: 'openai',
         api_endpoint: '',
         api_key: '',
         config_json: null,
@@ -139,11 +144,6 @@
             ? props.provider.api_endpoint
             : trimmedApiEndpoint.value
     );
-    const previewApiKey = computed(() =>
-        props.mode === 'edit' && props.provider
-            ? (props.provider.api_key ?? undefined)
-            : form.value.api_key || undefined
-    );
     const previewConfigJson = computed(() =>
         props.mode === 'edit' && props.provider
             ? props.provider.config_json
@@ -151,14 +151,11 @@
     );
 
     const apiTargets = computed(() =>
-        aiService
-            .createProviderInstance(
-                form.value.driver || 'openai',
-                previewEndpoint.value,
-                previewApiKey.value,
-                previewConfigJson.value
-            )
-            .getApiTargets()
+        previewProviderEndpoints(
+            form.value.driver || 'openai',
+            previewEndpoint.value,
+            previewConfigJson.value
+        )
     );
 
     const generationApiPreview = computed(() => apiTargets.value.generationTarget);

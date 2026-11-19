@@ -1,6 +1,8 @@
 {
     "extends": "./tsconfig.json",
     "compilerOptions": {
+        /* Vitest callers run on Node 22+, including Promise.withResolvers. */
+        "lib": ["ES2022", "ES2024.Promise", "DOM", "DOM.Iterable"],
         "types": ["vitest/globals", "node"]
     },
     "include": [

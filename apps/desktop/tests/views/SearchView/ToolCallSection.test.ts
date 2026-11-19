@@ -1,7 +1,7 @@
 import { mount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
 
-import type { ToolCallInfo } from '@/types/session';
+import type { ToolCallInfo } from '@/app/api/agent/history';
 import ToolCallSection from '@/views/SearchView/components/ConversationPanel/components/ToolCallSection.vue';
 
 /**

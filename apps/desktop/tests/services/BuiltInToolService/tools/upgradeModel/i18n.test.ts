@@ -1,106 +1,44 @@
-import type { ModelWithProvider } from '@database/queries/models';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { toolMessages } from '@tests/utils/toolMessages';
+import { createToolsHostFixture } from '@tests/utils/toolsHost';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import { setLocale } from '@/i18n';
-import {
-    buildUpgradeModelApprovalRequest,
-    executeUpgradeModelTool,
-} from '@/services/BuiltInToolService/tools/upgradeModel';
-import {
-    normalizeUpgradeModelChain,
-    normalizeUpgradeModelChainEntry,
-} from '@/services/BuiltInToolService/tools/upgradeModel/chain';
-import type { BaseBuiltInToolExecutionContext } from '@/services/BuiltInToolService/types';
+import { createUpgradeModelConfiguration, createUpgradeModelTools } from '@/modules/tools';
 
-const { findModelByProviderAndModelIdMock } = vi.hoisted(() => ({
-    findModelByProviderAndModelIdMock: vi.fn(),
-}));
+afterEach(() => setLocale('zh-CN'));
 
-vi.mock('@database/queries', () => ({
-    findModelByProviderAndModelId: findModelByProviderAndModelIdMock,
-}));
-
-function createModel(overrides: Partial<ModelWithProvider>): ModelWithProvider {
-    return {
-        id: 1,
-        created_at: '2026-01-01T00:00:00.000Z',
-        updated_at: '2026-01-01T00:00:00.000Z',
-        provider_id: 1,
-        model_id: 'model-a',
-        name: 'Model A',
-        is_default: 0,
-        last_used_at: null,
-        attachment: 0,
-        modalities: null,
-        open_weights: 0,
-        reasoning: 0,
-        reasoning_options: null,
-        release_date: null,
-        temperature: 1,
-        tool_call: 1,
-        knowledge: null,
-        context_limit: null,
-        output_limit: null,
-        is_custom_metadata: 0,
-        upstream_metadata: null,
-        provider_name: 'Provider',
-        provider_driver: 'openai',
-        api_endpoint: 'https://example.test',
-        api_key: null,
-        provider_config_json: null,
-        provider_enabled: 1,
-        provider_logo: '',
-        ...overrides,
-    };
-}
-
-function createContext(currentModel?: ModelWithProvider): BaseBuiltInToolExecutionContext {
-    return {
-        callId: 'upgrade-call',
-        iteration: 1,
-        currentModel,
-    };
-}
-
-describe('user is offered a stronger model when the current one runs out', () => {
-    beforeEach(() => {
-        setLocale('zh-CN');
-        vi.clearAllMocks();
+async function prepared(chain: { providerId: number; modelId: string }[]) {
+    const fixture = await createToolsHostFixture();
+    const config = { chain };
+    const descriptor = createUpgradeModelTools({
+        messages: toolMessages,
+        models: {
+            resolve: fixture.bindings.resolveTarget,
+            isAvailable: fixture.bindings.isAvailable,
+        },
+    })[0]!;
+    const tool = await descriptor.prepareForTurn(config, {
+        taskId: fixture.taskId,
+        currentModel: fixture.currentModel,
     });
+    return { ...fixture, config, tool, context: { callId: 'upgrade-call', iteration: 1 } };
+}
 
-    it('user reads the upgrade approval request in English for the resolved target model', async () => {
+describe('given a saved current model and upgrade chain', () => {
+    it('user reads the approval in English when a configured target is available', async () => {
         setLocale('en-US');
-        const currentModel = createModel({
-            id: 10,
-            provider_id: 1,
-            model_id: 'model-a',
-            name: 'Model A',
-            provider_name: 'Provider A',
-        });
-        const targetModel = createModel({
-            id: 20,
-            provider_id: 2,
-            model_id: 'model-b',
-            name: 'Model B',
-            provider_name: 'Provider B',
-        });
-        findModelByProviderAndModelIdMock
-            .mockResolvedValueOnce(currentModel)
-            .mockResolvedValueOnce(targetModel);
-
-        const approval = await buildUpgradeModelApprovalRequest(
-            {},
-            {
-                chain: [
-                    { providerId: 1, modelId: 'model-a' },
-                    { providerId: 2, modelId: 'model-b' },
-                ],
-            },
-            'builtin:upgrade_model',
-            createContext(currentModel)
-        );
-
-        expect(approval).toMatchObject({
+        const input = await prepared([
+            { providerId: 1, modelId: 'model-a' },
+            { providerId: 2, modelId: 'model-b' },
+        ]);
+        expect(
+            await input.tool.buildApprovalRequest(
+                {},
+                input.config,
+                'builtin__upgrade_model',
+                input.context
+            )
+        ).toMatchObject({
             title: 'Confirm model switch',
             description: 'Allow switching from Provider A / Model A to Provider B / Model B',
             command: 'Provider A / Model A -> Provider B / Model B',
@@ -110,31 +48,16 @@ describe('user is offered a stronger model when the current one runs out', () =>
         });
     });
 
-    it('user reads the upgrade result in English while the model switch signal is returned', async () => {
+    it('user reads the successful result in English with the captured model switch', async () => {
         setLocale('en-US');
-        const targetModel = createModel({
-            id: 20,
-            provider_id: 2,
-            model_id: 'model-b',
-            name: 'Model B',
-            provider_name: 'Provider B',
-        });
-        findModelByProviderAndModelIdMock.mockResolvedValueOnce(targetModel);
-
-        const result = await executeUpgradeModelTool(
-            {},
-            {
-                chain: [{ providerId: 2, modelId: 'model-b' }],
-            },
-            createContext()
-        );
-
+        const input = await prepared([{ providerId: 2, modelId: 'model-b' }]);
+        const result = await input.tool.execute({}, input.config, input.context);
         expect(result).toMatchObject({
             isError: false,
             status: 'success',
             controlSignal: {
                 type: 'upgrade_model',
-                targetModel,
+                targetModel: { id: 20, provider_id: 2, model_id: 'model-b' },
                 restartCurrentRequest: false,
             },
         });
@@ -145,43 +68,40 @@ describe('user is offered a stronger model when the current one runs out', () =>
         );
     });
 
-    it('user reads the upgrade error in English when no target is available', async () => {
+    it('user reads an English failure and retains the current model when no target is configured', async () => {
         setLocale('en-US');
-
-        const result = await executeUpgradeModelTool({}, { chain: [] }, createContext());
-
+        const input = await prepared([]);
+        const result = await input.tool.execute({}, input.config, input.context);
         expect(result).toMatchObject({
             isError: true,
             status: 'error',
             errorMessage: 'Configure the model upgrade chain in UpgradeModel settings first.',
         });
         expect(result.result).toContain('Model upgrade failed');
-        expect(result.result).toContain('Current model: Unknown');
+        expect(result.result).toContain('Current model: Provider A / Model A');
         expect(result.result).toContain('Upgrade chain: Not configured');
-        expect(result.result).toContain(
-            'Reason: Configure the model upgrade chain in UpgradeModel settings first.'
-        );
+        expect(result.controlSignal).toBeUndefined();
+        expect(input.database.prepare('SELECT id FROM models WHERE is_default = 1').all()).toEqual([
+            { id: 10 },
+        ]);
     });
 
-    it('user reads upgrade chain validation errors in English', () => {
+    it('user reads English validation errors when the saved upgrade chain is malformed', () => {
         setLocale('en-US');
-
-        expect(() =>
-            normalizeUpgradeModelChainEntry({
-                providerId: 1,
-                modelId: '',
-            })
-        ).toThrow('Each model upgrade chain item must include providerId and a non-empty modelId.');
-        expect(() => normalizeUpgradeModelChain('not-json')).toThrow(
-            'The model upgrade chain must be an array or a JSON string that parses to an array.'
+        const configuration = createUpgradeModelConfiguration(toolMessages);
+        expect(() => configuration.normalizeEntry({ providerId: 1, modelId: '' })).toThrow(
+            'Each model upgrade chain item must include providerId and a non-empty modelId.'
         );
-        expect(() => normalizeUpgradeModelChain('{"providerId":1,"modelId":"model-a"}')).toThrow(
-            'The model upgrade chain must be an array or a JSON string that parses to an array.'
-        );
-        expect(() => normalizeUpgradeModelChain({ providerId: 1, modelId: 'model-a' })).toThrow(
-            'The model upgrade chain must be an array or a JSON string that parses to an array.'
-        );
-        expect(() => normalizeUpgradeModelChain([{ providerId: 1, modelId: '' }])).toThrow(
+        for (const value of [
+            'not-json',
+            '{"providerId":1,"modelId":"model-a"}',
+            { providerId: 1, modelId: 'model-a' },
+        ]) {
+            expect(() => configuration.normalizeChain(value)).toThrow(
+                'The model upgrade chain must be an array or a JSON string that parses to an array.'
+            );
+        }
+        expect(() => configuration.normalizeChain([{ providerId: 1, modelId: '' }])).toThrow(
             'Each model upgrade chain item must include providerId and a non-empty modelId.'
         );
     });

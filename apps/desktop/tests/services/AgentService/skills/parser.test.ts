@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseSkillMarkdown } from '@/services/AgentService/skills';
+import { parseSkillMarkdown } from '@/modules/skills';
 
 describe('parseSkillMarkdown', () => {
     it('user parses required name and description frontmatter', () => {

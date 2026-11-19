@@ -2,7 +2,7 @@ import { createRequire } from 'node:module';
 
 import { afterEach, vi } from 'vitest';
 
-import { createWidgetRenderer as createRenderer } from '@/services/BuiltInToolService/tools/widgetTool/showWidget/runtime';
+import { createWidgetRenderer as createRenderer } from '@/components/widgets';
 
 const { JSDOM, VirtualConsole } = createRequire(import.meta.url)('jsdom') as typeof import('jsdom');
 const frames = new Map<HTMLElement, InstanceType<typeof JSDOM>>();

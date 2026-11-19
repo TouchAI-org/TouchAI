@@ -3,8 +3,8 @@
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
     import { Button } from '@components/ui/button';
-    import type { Provider } from '@database/schema';
 
+    import type { Provider } from '@/app/api/models/administration';
     import { t } from '@/i18n';
 
     import { useSettingsResizablePanel } from '../../../composables/useSettingsResizablePanel';

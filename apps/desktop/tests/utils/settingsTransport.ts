@@ -1,11 +1,8 @@
 // In-memory settings transport for tests: one bus, many simulated windows. It models the
 // Tauri event boundary so owner/client ordering, focus, drops and owner restart are
 // deterministic in a single process.
-import {
-    assertDeliverableSend,
-    type SettingsTransport,
-} from '@/services/SettingsService/transport';
-import type { SettingsWireMessage } from '@/services/SettingsService/wire';
+import type { SettingsWireMessage } from '@/modules/settings';
+import { assertDeliverableSend, type SettingsTransport } from '@/modules/settings';
 
 export interface SettingsSentRecord {
     from: string;

@@ -124,7 +124,6 @@ export default defineConfig({
       '@components': resolve(__dirname, './src/components'),
       '@composables': resolve(__dirname, './src/composables'),
       '@database': resolve(__dirname, './src/database'),
-      '@services': resolve(__dirname, './src/services'),
       '@styles': resolve(__dirname, './src/styles'),
       '@types': resolve(__dirname, './src/types'),
       '@utils': resolve(__dirname, './src/utils'),

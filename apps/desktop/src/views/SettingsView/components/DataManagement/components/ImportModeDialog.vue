@@ -1,8 +1,8 @@
 <script setup lang="ts">
     import DialogShell from '@components/DialogShell.vue';
     import { Button } from '@components/ui/button';
-    import { type ImportMode } from '@database/backup';
 
+    import type { ImportMode } from '@/app/api/settings/dataManagement';
     import { t } from '@/i18n';
     const props = withDefaults(
         defineProps<{

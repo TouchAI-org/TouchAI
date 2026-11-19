@@ -2,7 +2,7 @@ import { mount } from '@vue/test-utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { nextTick } from 'vue';
 
-import type { ToolCallInfo } from '@/types/session';
+import type { ToolCallInfo } from '@/app/api/agent/history';
 import BuiltInBashToolCallItem from '@/views/SearchView/components/ConversationPanel/components/BuiltInBashToolCallItem.vue';
 
 function createBashResult(output: string, duration = '500ms') {

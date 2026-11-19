@@ -2,13 +2,9 @@
  * Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
  */
 
+import type { ReasoningEncodingHints, ReasoningResolution } from '@touchai/models';
+import { encodeReasoning } from '@touchai/models';
 import { describe, expect, it } from 'vitest';
-
-import { encodeReasoning } from '@/services/AgentService/infrastructure/providers/reasoning/formats';
-import type {
-    ReasoningEncodingHints,
-    ReasoningResolution,
-} from '@/services/AgentService/infrastructure/providers/reasoning/types';
 
 /**
  * Complements reasoning-encoders.test.ts with the "turned off" and "model cannot take an

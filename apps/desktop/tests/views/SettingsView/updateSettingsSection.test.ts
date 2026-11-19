@@ -1,13 +1,16 @@
+import { createUpdateClientBoundary } from '@tests/utils/updateClient';
+import { createTestWindowPresentation } from '@tests/utils/windowPresentation';
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
+import { beforeEach as beforePresentation } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { setLocale } from '@/i18n';
 import type {
     AppUpdateChannelLatest,
     AppUpdateInfo,
     AppUpdateRequirement,
     AppUpdateState,
-} from '@services/AppUpdateService/types';
-import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-import { setLocale } from '@/i18n';
+} from '@/modules/updates/types';
 import UpdateSettingsSection from '@/views/SettingsView/components/General/UpdateSettingsSection.vue';
 
 /*
@@ -17,46 +20,7 @@ import UpdateSettingsSection from '@/views/SettingsView/components/General/Updat
  * call the button makes — not the component's computed properties.
  */
 
-const appUpdateServiceMock = vi.hoisted(() => {
-    const listeners = new Set<(state: AppUpdateState) => void>();
-    const createState = (): AppUpdateState => ({
-        status: 'not_available',
-        channel: 'stable',
-        autoCheckEnabled: true,
-        currentVersion: '0.1.0',
-        availableUpdate: null,
-        downloadedUpdate: null,
-        latestUpdate: null,
-        updateRequirement: null,
-        downloadProgress: null,
-        lastCheckedAt: '2026-05-22T10:00:00.000Z',
-        error: null,
-        unsupportedReason: null,
-    });
-
-    return {
-        createState,
-        listeners,
-        state: createState(),
-        publishState: (patch: Partial<AppUpdateState>) => {
-            appUpdateServiceMock.state = { ...appUpdateServiceMock.state, ...patch };
-            listeners.forEach((listener) => listener(appUpdateServiceMock.state));
-        },
-        getState: vi.fn(() => appUpdateServiceMock.state),
-        subscribe: vi.fn((listener: (state: AppUpdateState) => void) => {
-            listeners.add(listener);
-            return () => listeners.delete(listener);
-        }),
-        initialize: vi.fn(async () => undefined),
-        checkNow: vi.fn(async () => true),
-        setChannel: vi.fn(async () => undefined),
-        setAutoCheckEnabled: vi.fn(async () => undefined),
-        download: vi.fn(async () => undefined),
-        install: vi.fn(async () => undefined),
-    };
-});
-
-vi.mock('@services/AppUpdateService', () => ({ appUpdateService: appUpdateServiceMock }));
+let updatesBoundary: Awaited<ReturnType<typeof createUpdateClientBoundary>>;
 
 const { openUrlMock, getVersionMock } = vi.hoisted(() => ({
     openUrlMock: vi.fn(async () => undefined),
@@ -155,12 +119,11 @@ vi.mock('@/views/SettingsView/components/General/UpdateDetailsDialog.vue', () =>
 enableAutoUnmount(afterEach);
 // The service mock is module state shared with every other settings file, so it is
 // fully reset here instead of relying on each test to tidy up after itself.
-afterEach(() => {
+afterEach(async () => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
-    appUpdateServiceMock.listeners.clear();
-    appUpdateServiceMock.state = appUpdateServiceMock.createState();
+    await updatesBoundary.dispose();
     document.body.innerHTML = '';
 });
 
@@ -208,31 +171,31 @@ function requirement(overrides: Partial<AppUpdateRequirement> = {}): AppUpdateRe
     };
 }
 
-function mountSection(patch: Partial<AppUpdateState> = {}) {
-    appUpdateServiceMock.state = { ...appUpdateServiceMock.createState(), ...patch };
-    return mount(UpdateSettingsSection);
+async function mountSection(patch: Partial<AppUpdateState> = {}) {
+    updatesBoundary.state = { ...updatesBoundary.createState(), ...patch };
+    await updatesBoundary.synchronize();
+    return mount(UpdateSettingsSection, updatesBoundary.viewOptions);
 }
 
-function statusTitle(wrapper: ReturnType<typeof mountSection>) {
+function statusTitle(wrapper: Awaited<ReturnType<typeof mountSection>>) {
     return wrapper.get('[data-testid="settings-update-status-title"]').text();
 }
 
-function primaryAction(wrapper: ReturnType<typeof mountSection>) {
+function primaryAction(wrapper: Awaited<ReturnType<typeof mountSection>>) {
     return wrapper.get('[data-testid="settings-update-primary-action"]');
 }
 
-function dialog(wrapper: ReturnType<typeof mountSection>) {
+function dialog(wrapper: Awaited<ReturnType<typeof mountSection>>) {
     return wrapper.find('[data-testid="update-details-dialog"]');
 }
 
-function dialogExists(wrapper: ReturnType<typeof mountSection>) {
+function dialogExists(wrapper: Awaited<ReturnType<typeof mountSection>>) {
     return wrapper.find('[data-testid="update-details-dialog"]').exists();
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+    updatesBoundary = await createUpdateClientBoundary();
     setLocale('zh-CN');
-    appUpdateServiceMock.listeners.clear();
-    appUpdateServiceMock.state = appUpdateServiceMock.createState();
     for (const key of [
         'checkNow',
         'setChannel',
@@ -241,91 +204,91 @@ beforeEach(() => {
         'install',
         'initialize',
     ] as const) {
-        appUpdateServiceMock[key].mockClear();
+        updatesBoundary[key].mockClear();
     }
-    appUpdateServiceMock.checkNow.mockResolvedValue(true);
+    updatesBoundary.checkNow.mockResolvedValue(true);
     getVersionMock.mockResolvedValue('0.1.0');
     openUrlMock.mockClear();
 });
 
 describe('user reads what the updater is doing', () => {
-    it('user sees the current version when nothing has been found', () => {
-        const wrapper = mountSection({ status: 'idle' });
+    it('user sees the current version when nothing has been found', async () => {
+        const wrapper = await mountSection({ status: 'idle' });
 
         expect(statusTitle(wrapper)).toContain('0.1.0');
     });
 
-    it('user sees that a check is running', () => {
-        const wrapper = mountSection({ status: 'checking' });
+    it('user sees that a check is running', async () => {
+        const wrapper = await mountSection({ status: 'checking' });
 
         expect(statusTitle(wrapper)).toContain('检查');
     });
 
-    it('user sees the download progress while it downloads', () => {
-        const wrapper = mountSection({ status: 'downloading', downloadProgress: 42 });
+    it('user sees the download progress while it downloads', async () => {
+        const wrapper = await mountSection({ status: 'downloading', downloadProgress: 42 });
 
         expect(statusTitle(wrapper)).toContain('42');
     });
 
-    it('user sees the download progress default to zero when none was reported', () => {
-        const wrapper = mountSection({ status: 'downloading', downloadProgress: null });
+    it('user sees the download progress default to zero when none was reported', async () => {
+        const wrapper = await mountSection({ status: 'downloading', downloadProgress: null });
 
         expect(statusTitle(wrapper)).toContain('0');
     });
 
-    it('user sees that the update is installing', () => {
-        const wrapper = mountSection({ status: 'installing' });
+    it('user sees that the update is installing', async () => {
+        const wrapper = await mountSection({ status: 'installing' });
 
         expect(statusTitle(wrapper)).toContain('安装');
     });
 
-    it('user sees the version waiting to be installed', () => {
-        const wrapper = mountSection({ status: 'downloaded', downloadedUpdate: update() });
+    it('user sees the version waiting to be installed', async () => {
+        const wrapper = await mountSection({ status: 'downloaded', downloadedUpdate: update() });
 
         expect(statusTitle(wrapper)).toContain('0.2.0');
     });
 
-    it('user sees the version offered when an update is available', () => {
-        const wrapper = mountSection({ status: 'available', availableUpdate: update() });
+    it('user sees the version offered when an update is available', async () => {
+        const wrapper = await mountSection({ status: 'available', availableUpdate: update() });
 
         expect(statusTitle(wrapper)).toContain('0.2.0');
     });
 
-    it('user sees that they are already on the latest version', () => {
-        const wrapper = mountSection({ status: 'not_available', currentVersion: '0.1.0' });
+    it('user sees that they are already on the latest version', async () => {
+        const wrapper = await mountSection({ status: 'not_available', currentVersion: '0.1.0' });
 
         expect(statusTitle(wrapper)).toContain('最新');
         expect(statusTitle(wrapper)).toContain('0.1.0');
     });
 
-    it('user sees that the last check failed', () => {
-        const wrapper = mountSection({ status: 'failed', error: 'network down' });
+    it('user sees that the last check failed', async () => {
+        const wrapper = await mountSection({ status: 'failed', error: 'network down' });
 
         expect(statusTitle(wrapper)).toContain('失败');
         expect(wrapper.text()).toContain('network down');
     });
 
-    it('user is told the platform cannot update itself', () => {
-        const wrapper = mountSection({ status: 'unsupported' });
+    it('user is told the platform cannot update itself', async () => {
+        const wrapper = await mountSection({ status: 'unsupported' });
 
         expect(statusTitle(wrapper)).toContain('不支持');
     });
 
-    it('user sees when the last check happened', () => {
-        const wrapper = mountSection({ lastCheckedAt: '2026-05-22T10:00:00.000Z' });
+    it('user sees when the last check happened', async () => {
+        const wrapper = await mountSection({ lastCheckedAt: '2026-05-22T10:00:00.000Z' });
 
         expect(wrapper.text()).toContain('上次检查');
     });
 
-    it('user sees no check time before the first check has run', () => {
-        const wrapper = mountSection({ lastCheckedAt: null });
+    it('user sees no check time before the first check has run', async () => {
+        const wrapper = await mountSection({ lastCheckedAt: null });
 
         expect(wrapper.text()).not.toContain('上次检查');
     });
 
     it('user sees the installed version read from the app rather than the state', async () => {
         getVersionMock.mockResolvedValue('0.3.1');
-        const wrapper = mountSection({ currentVersion: null, status: 'idle' });
+        const wrapper = await mountSection({ currentVersion: null, status: 'idle' });
 
         await flushPromises();
 
@@ -335,7 +298,7 @@ describe('user reads what the updater is doing', () => {
     it('user still sees the bundled version when the app cannot report one', async () => {
         const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
         getVersionMock.mockRejectedValue(new Error('no tauri'));
-        const wrapper = mountSection({ currentVersion: null, status: 'idle' });
+        const wrapper = await mountSection({ currentVersion: null, status: 'idle' });
 
         await flushPromises();
 
@@ -344,8 +307,8 @@ describe('user reads what the updater is doing', () => {
         consoleError.mockRestore();
     });
 
-    it('user sees the version from the requirement when no release was fetched', () => {
-        const wrapper = mountSection({
+    it('user sees the version from the requirement when no release was fetched', async () => {
+        const wrapper = await mountSection({
             status: 'available',
             updateRequirement: requirement({ minimumSupportedVersion: '0.2.5' }),
         });
@@ -356,7 +319,7 @@ describe('user reads what the updater is doing', () => {
 
 describe('user checks for updates', () => {
     it('user reopens a background download without another check or transfer', async () => {
-        const wrapper = mountSection({
+        const wrapper = await mountSection({
             status: 'downloading',
             availableUpdate: update(),
             downloadProgress: 35,
@@ -365,12 +328,12 @@ describe('user checks for updates', () => {
         await flushPromises();
         expect(dialogExists(wrapper)).toBe(true);
         expect(dialog(wrapper).attributes('data-progress')).toBe('35');
-        expect(appUpdateServiceMock.checkNow).not.toHaveBeenCalled();
-        expect(appUpdateServiceMock.download).not.toHaveBeenCalled();
+        expect(updatesBoundary.checkNow).not.toHaveBeenCalled();
+        expect(updatesBoundary.download).not.toHaveBeenCalled();
     });
 
     it('user opens the installed version’s notes without a network check or upgrade action', async () => {
-        const wrapper = mountSection({
+        const wrapper = await mountSection({
             status: 'not_available',
             currentVersion: '0.2.0',
             latestUpdate: channelLatest({ releaseNotesByLocale: { 'zh-CN': '本版本更新内容' } }),
@@ -385,22 +348,22 @@ describe('user checks for updates', () => {
         await flushPromises();
         expect(dialog(wrapper).attributes('data-has-update')).toBe('false');
         expect(dialog(wrapper).attributes('data-notes')).toBe('本版本更新内容');
-        expect(appUpdateServiceMock.checkNow).not.toHaveBeenCalled();
+        expect(updatesBoundary.checkNow).not.toHaveBeenCalled();
     });
 
     it('user gets a check started when they press the action', async () => {
-        const wrapper = mountSection({ status: 'idle' });
+        const wrapper = await mountSection({ status: 'idle' });
 
         await primaryAction(wrapper).trigger('click');
         await flushPromises();
 
-        expect(appUpdateServiceMock.checkNow).toHaveBeenCalledWith('manual');
+        expect(updatesBoundary.checkNow).toHaveBeenCalledWith('manual');
     });
 
     it('user gets the details opened when a newer release is found', async () => {
-        const wrapper = mountSection({ status: 'idle' });
-        appUpdateServiceMock.checkNow.mockImplementation(async () => {
-            appUpdateServiceMock.publishState({
+        const wrapper = await mountSection({ status: 'idle' });
+        updatesBoundary.checkNow.mockImplementation(async () => {
+            updatesBoundary.publishState({
                 status: 'available',
                 availableUpdate: update() as never,
             });
@@ -414,16 +377,15 @@ describe('user checks for updates', () => {
     });
 
     it('user gets the details opened after an unsupported result', async () => {
-        const wrapper = mountSection({ status: 'idle' });
-        appUpdateServiceMock.checkNow.mockImplementation(async () => {
-            appUpdateServiceMock.publishState({
+        const wrapper = await mountSection({ status: 'idle' });
+        updatesBoundary.checkNow.mockImplementation(async () => {
+            updatesBoundary.publishState({
                 status: 'unsupported',
-                latestUpdate: {
-                    version: '0.2.0',
+                latestUpdate: channelLatest({
                     releaseNotes: 'Notes',
                     publishedAt: null,
                     downloads: [],
-                } as never,
+                }),
             });
             return false;
         });
@@ -436,9 +398,9 @@ describe('user checks for updates', () => {
     });
 
     it('user gets no details when the check found nothing', async () => {
-        const wrapper = mountSection({ status: 'idle' });
-        appUpdateServiceMock.checkNow.mockResolvedValue(false);
-        appUpdateServiceMock.state = { ...appUpdateServiceMock.createState(), status: 'idle' };
+        const wrapper = await mountSection({ status: 'idle' });
+        updatesBoundary.checkNow.mockResolvedValue(false);
+        updatesBoundary.state = { ...updatesBoundary.createState(), status: 'idle' };
 
         await primaryAction(wrapper).trigger('click');
         await flushPromises();
@@ -447,12 +409,12 @@ describe('user checks for updates', () => {
     });
 
     it('user can reopen a failed installation without losing the downloaded update', async () => {
-        const wrapper = mountSection({
+        const wrapper = await mountSection({
             status: 'failed',
             downloadedUpdate: update(),
             error: 'file in use',
         });
-        appUpdateServiceMock.checkNow.mockResolvedValue(false);
+        updatesBoundary.checkNow.mockResolvedValue(false);
 
         await primaryAction(wrapper).trigger('click');
         await flushPromises();
@@ -462,16 +424,16 @@ describe('user checks for updates', () => {
         expect(dialog(wrapper).attributes('data-action')).toContain('重启');
     });
 
-    it('user gets the action unavailable while a check is already running', () => {
-        const wrapper = mountSection({ status: 'checking' });
+    it('user gets the action unavailable while a check is already running', async () => {
+        const wrapper = await mountSection({ status: 'checking' });
 
         expect(primaryAction(wrapper).attributes('disabled')).toBeDefined();
     });
 });
 
 describe('user changes the update channel', () => {
-    it('user sees every channel offered with a description', () => {
-        const wrapper = mountSection();
+    it('user sees every channel offered with a description', async () => {
+        const wrapper = await mountSection();
 
         expect(wrapper.get('[data-testid="channel-labels"]').text().length).toBeGreaterThan(0);
         expect(wrapper.get('[data-testid="channel-descriptions"]').text().length).toBeGreaterThan(
@@ -480,62 +442,62 @@ describe('user changes the update channel', () => {
     });
 
     it('user gets the new channel saved and a check started', async () => {
-        const wrapper = mountSection({ channel: 'stable' });
+        const wrapper = await mountSection({ channel: 'stable' });
 
         wrapper.findComponent({ name: 'CustomSelect' }).vm.$emit('update:modelValue', 'beta');
         await flushPromises();
 
-        expect(appUpdateServiceMock.setChannel).toHaveBeenCalledWith('beta');
-        expect(appUpdateServiceMock.checkNow).toHaveBeenCalledWith('settings-open');
+        expect(updatesBoundary.setChannel).toHaveBeenCalledWith('beta');
+        expect(updatesBoundary.checkNow).toHaveBeenCalledWith('settings-open');
     });
 
     it('user gets nothing saved when they re-pick the channel already set', async () => {
-        const wrapper = mountSection({ channel: 'stable' });
+        const wrapper = await mountSection({ channel: 'stable' });
 
         wrapper.findComponent({ name: 'CustomSelect' }).vm.$emit('update:modelValue', 'stable');
         await flushPromises();
 
-        expect(appUpdateServiceMock.setChannel).not.toHaveBeenCalled();
+        expect(updatesBoundary.setChannel).not.toHaveBeenCalled();
     });
 
-    it('user gets the channel locked while an update is running', () => {
-        const wrapper = mountSection({ status: 'downloading' });
+    it('user gets the channel locked while an update is running', async () => {
+        const wrapper = await mountSection({ status: 'downloading' });
 
         expect(wrapper.find('[data-testid="update-channel-select"]').exists()).toBe(true);
         expect(wrapper.findComponent({ name: 'CustomSelect' }).props('disabled')).toBe(true);
     });
 
     it('user gets nothing saved when they change the channel mid-download', async () => {
-        const wrapper = mountSection({ status: 'downloading', channel: 'stable' });
+        const wrapper = await mountSection({ status: 'downloading', channel: 'stable' });
 
         wrapper.findComponent({ name: 'CustomSelect' }).vm.$emit('update:modelValue', 'beta');
         await flushPromises();
 
-        expect(appUpdateServiceMock.setChannel).not.toHaveBeenCalled();
+        expect(updatesBoundary.setChannel).not.toHaveBeenCalled();
     });
 });
 
 describe('user turns automatic checks on or off', () => {
     it('user gets automatic checks turned off', async () => {
-        const wrapper = mountSection({ autoCheckEnabled: true });
+        const wrapper = await mountSection({ autoCheckEnabled: true });
 
         await wrapper.get('[data-testid="settings-update-auto-check-toggle"]').trigger('click');
         await flushPromises();
 
-        expect(appUpdateServiceMock.setAutoCheckEnabled).toHaveBeenCalledWith(false);
+        expect(updatesBoundary.setAutoCheckEnabled).toHaveBeenCalledWith(false);
     });
 
     it('user gets automatic checks turned back on', async () => {
-        const wrapper = mountSection({ autoCheckEnabled: false });
+        const wrapper = await mountSection({ autoCheckEnabled: false });
 
         await wrapper.get('[data-testid="settings-update-auto-check-toggle"]').trigger('click');
         await flushPromises();
 
-        expect(appUpdateServiceMock.setAutoCheckEnabled).toHaveBeenCalledWith(true);
+        expect(updatesBoundary.setAutoCheckEnabled).toHaveBeenCalledWith(true);
     });
 
-    it('user gets the switch locked while an update is running', () => {
-        const wrapper = mountSection({ status: 'installing' });
+    it('user gets the switch locked while an update is running', async () => {
+        const wrapper = await mountSection({ status: 'installing' });
 
         expect(
             wrapper.get('[data-testid="settings-update-auto-check-toggle"]').attributes('disabled')
@@ -543,20 +505,20 @@ describe('user turns automatic checks on or off', () => {
     });
 
     it('user gets nothing changed when they toggle mid-download', async () => {
-        const wrapper = mountSection({ status: 'downloading', autoCheckEnabled: true });
+        const wrapper = await mountSection({ status: 'downloading', autoCheckEnabled: true });
 
         await wrapper.get('[data-testid="settings-update-auto-check-toggle"]').trigger('click');
         await flushPromises();
 
-        expect(appUpdateServiceMock.setAutoCheckEnabled).not.toHaveBeenCalled();
+        expect(updatesBoundary.setAutoCheckEnabled).not.toHaveBeenCalled();
     });
 });
 
 describe('user acts on the update from the details dialog', () => {
     async function openDialog(patch: Partial<AppUpdateState>) {
-        const wrapper = mountSection({ status: 'idle' });
-        appUpdateServiceMock.checkNow.mockImplementation(async () => {
-            appUpdateServiceMock.publishState(patch);
+        const wrapper = await mountSection({ status: 'idle' });
+        updatesBoundary.checkNow.mockImplementation(async () => {
+            updatesBoundary.publishState(patch);
             return true;
         });
         await primaryAction(wrapper).trigger('click');
@@ -573,7 +535,7 @@ describe('user acts on the update from the details dialog', () => {
         await wrapper.get('[data-testid="dialog-action"]').trigger('click');
         await flushPromises();
 
-        expect(appUpdateServiceMock.install).toHaveBeenCalled();
+        expect(updatesBoundary.install).toHaveBeenCalled();
     });
 
     it('user gets the download started for an update they can take in the app', async () => {
@@ -585,7 +547,7 @@ describe('user acts on the update from the details dialog', () => {
         await wrapper.get('[data-testid="dialog-action"]').trigger('click');
         await flushPromises();
 
-        expect(appUpdateServiceMock.download).toHaveBeenCalled();
+        expect(updatesBoundary.download).toHaveBeenCalled();
         expect(openUrlMock).not.toHaveBeenCalled();
     });
 
@@ -599,8 +561,8 @@ describe('user acts on the update from the details dialog', () => {
         await wrapper.get('[data-testid="dialog-action"]').trigger('click');
         await flushPromises();
 
-        expect(appUpdateServiceMock.download).toHaveBeenCalledOnce();
-        expect(appUpdateServiceMock.install).not.toHaveBeenCalled();
+        expect(updatesBoundary.download).toHaveBeenCalledOnce();
+        expect(updatesBoundary.install).not.toHaveBeenCalled();
         expect(openUrlMock).not.toHaveBeenCalled();
     });
 
@@ -615,8 +577,8 @@ describe('user acts on the update from the details dialog', () => {
         await wrapper.get('[data-testid="dialog-action"]').trigger('click');
         await flushPromises();
 
-        expect(appUpdateServiceMock.install).toHaveBeenCalledOnce();
-        expect(appUpdateServiceMock.download).not.toHaveBeenCalled();
+        expect(updatesBoundary.install).toHaveBeenCalledOnce();
+        expect(updatesBoundary.download).not.toHaveBeenCalled();
         expect(openUrlMock).not.toHaveBeenCalled();
     });
 
@@ -636,7 +598,7 @@ describe('user acts on the update from the details dialog', () => {
         expect(openUrlMock).toHaveBeenCalledTimes(1);
         const opened = String((openUrlMock.mock.calls as unknown as string[][])[0]?.[0] ?? '');
         expect(['https://example.com/setup.exe', 'https://example.com/release']).toContain(opened);
-        expect(appUpdateServiceMock.download).not.toHaveBeenCalled();
+        expect(updatesBoundary.download).not.toHaveBeenCalled();
     });
 
     it('user gets the release page when the release offers no direct download', async () => {
@@ -658,13 +620,13 @@ describe('user acts on the update from the details dialog', () => {
             status: 'downloaded',
             downloadedUpdate: update() as never,
         });
-        appUpdateServiceMock.publishState({ status: 'installing' });
+        updatesBoundary.publishState({ status: 'installing' });
         await flushPromises();
 
         await wrapper.get('[data-testid="dialog-action"]').trigger('click');
         await flushPromises();
 
-        expect(appUpdateServiceMock.install).not.toHaveBeenCalled();
+        expect(updatesBoundary.install).not.toHaveBeenCalled();
         expect(openUrlMock).not.toHaveBeenCalled();
     });
 
@@ -683,9 +645,9 @@ describe('user acts on the update from the details dialog', () => {
 
 describe('user reads the details dialog content', () => {
     async function openDialog(patch: Partial<AppUpdateState>) {
-        const wrapper = mountSection({ status: 'idle' });
-        appUpdateServiceMock.checkNow.mockImplementation(async () => {
-            appUpdateServiceMock.publishState(patch);
+        const wrapper = await mountSection({ status: 'idle' });
+        updatesBoundary.checkNow.mockImplementation(async () => {
+            updatesBoundary.publishState(patch);
             return true;
         });
         await primaryAction(wrapper).trigger('click');
@@ -761,7 +723,7 @@ describe('user reads the details dialog content', () => {
             status: 'available',
             availableUpdate: update() as never,
         });
-        appUpdateServiceMock.publishState({ status: 'downloading', downloadProgress: 15 });
+        updatesBoundary.publishState({ status: 'downloading', downloadProgress: 15 });
         await flushPromises();
 
         expect(dialog(wrapper).attributes('data-action')).toContain('15');
@@ -774,7 +736,7 @@ describe('user reads the details dialog content', () => {
             status: 'available',
             availableUpdate: update() as never,
         });
-        appUpdateServiceMock.publishState({ status: 'installing' });
+        updatesBoundary.publishState({ status: 'installing' });
         await flushPromises();
 
         expect(dialog(wrapper).attributes('data-action')).toContain('安装');
@@ -790,7 +752,7 @@ describe('user reads the details dialog content', () => {
     });
 
     it('user gets the "no version" title when nothing newer exists', async () => {
-        const wrapper = mountSection({ status: 'not_available', currentVersion: '0.1.0' });
+        const wrapper = await mountSection({ status: 'not_available', currentVersion: '0.1.0' });
         // The dialog only opens when a check reports something, so drive the
         // exposed method the app itself uses from the sidebar.
         await (
@@ -856,4 +818,8 @@ describe('user reads the details dialog content', () => {
 
         expect(dialog(wrapper).attributes('data-error')).toBe('this build has no updater');
     });
+});
+
+beforePresentation(async () => {
+    (await createTestWindowPresentation('settings')).install();
 });

@@ -1,5 +1,7 @@
-import { mount } from '@vue/test-utils';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createToolPart } from '@database/queries/toolParts';
+import { createSettingsPanelFixture } from '@tests/utils/settingsPanel';
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { nextTick } from 'vue';
 
 import { setLocale } from '@/i18n';
@@ -22,202 +24,15 @@ import {
 } from '@/views/SettingsView/components/common/toolLogStatus';
 import ToolLogStatusBadge from '@/views/SettingsView/components/common/ToolLogStatusBadge.vue';
 
-const {
-    findBuiltInToolLogByIdMock,
-    findBuiltInToolLogsByToolIdMock,
-    findModelsWithProviderMock,
-    dialogOpenMock,
-} = vi.hoisted(() => ({
-    findBuiltInToolLogByIdMock: vi.fn(),
-    findBuiltInToolLogsByToolIdMock: vi.fn(),
-    findModelsWithProviderMock: vi.fn(),
-    dialogOpenMock: vi.fn(),
-}));
-
-vi.mock('@/i18n/textMap', () => {
-    const zhToEnTextMap: Record<string, string> = {
-        执行终端命令: 'Execute terminal commands',
-        搜索本机文件: 'Search local files',
-        '读取本地文件或目录，支持图片与 PDF':
-            'Read local files or folders, including images and PDFs',
-        读取和修改应用设置: 'Read and modify application settings',
-        抓取网页并提取易读文本: 'Fetch web pages and extract readable text',
-        升级当前请求模型: 'Upgrade the current request model',
-        聊天内联可交互可视化: 'Inline interactive visualization in chat',
-        '读取 ShowWidget 规范': 'Read the ShowWidget specification',
-        暂无描述: 'No description',
-        尚未调用: 'Not called yet',
-        成功: 'Success',
-        错误: 'Error',
-        超时: 'Timed out',
-        待审批: 'Pending',
-        已批准: 'Approved',
-        已拒绝: 'Rejected',
-        已取消: 'Cancelled',
-        待处理: 'Pending',
-        进行中: 'In progress',
-        暂无可配置的内置工具: 'No configurable built-in tools yet',
-        网关注册完成后会自动展示在这里:
-            'Tools will appear here after gateway registration completes',
-        '启用/禁用': 'Enable/disable',
-        自动: 'Automatic',
-        每次询问: 'Ask every time',
-        完全访问: 'Full access',
-        执行与审批: 'Execution and approval',
-        默认工作目录: 'Default working directory',
-        允许工作目录: 'Allowed working directories',
-        未设置时运行时默认桌面: 'Defaults to Desktop at runtime when unset',
-        未设置时运行时允许全部路径: 'Allows all paths at runtime when unset',
-        选择目录: 'Choose folder',
-        '超时上限（毫秒）': 'Timeout limit (ms)',
-        '输出上限（字符）': 'Output limit (characters)',
-        全部: 'All',
-        '搜索日志...': 'Search logs...',
-        未找到匹配的日志: 'No matching logs',
-        暂无日志: 'No logs yet',
-        尝试其他搜索关键词: 'Try another search keyword',
-        迭代: 'Iteration',
-        加载更多: 'Load more',
-        '加载中...': 'Loading...',
-        '调用 ID：': 'Call ID:',
-        会话: 'Session:',
-        '会话：': 'Session:',
-        '消息：': 'Message:',
-        '审批：': 'Approval:',
-        模型升级链: 'Model upgrade chain',
-        服务商: 'Provider',
-        搜索服务商: 'Search providers',
-        没有可选服务商: 'No available providers',
-        '{count} 个可选模型': '{count} available models',
-    };
-
-    return {
-        zhToEnTextMap,
-        hasTextTranslation: (text: string) =>
-            Object.prototype.hasOwnProperty.call(zhToEnTextMap, text),
-    };
+let fixture: Awaited<ReturnType<typeof createSettingsPanelFixture>>;
+enableAutoUnmount(afterEach);
+afterEach(async () => {
+    await fixture.dispose();
 });
-
-vi.mock('@database/queries', () => ({
-    findBuiltInToolLogsByToolId: findBuiltInToolLogsByToolIdMock,
-    findBuiltInToolLogSummariesByToolId: findBuiltInToolLogsByToolIdMock,
-    findBuiltInToolLogById: findBuiltInToolLogByIdMock,
-    findModelsWithProvider: findModelsWithProviderMock,
-}));
-
-vi.mock('@tauri-apps/plugin-dialog', () => ({
-    open: dialogOpenMock,
-}));
-
-vi.mock('@/services/BuiltInToolService/tools/bash', () => ({
-    DEFAULT_BASH_TOOL_CONFIG: {
-        approvalMode: 'high_risk',
-        defaultWorkingDirectory: '',
-        allowedWorkingDirectories: [],
-        timeoutMs: 30000,
-        maxOutputChars: 20000,
-    },
-    parseBashToolConfig: vi.fn(() => ({
-        approvalMode: 'high_risk',
-        defaultWorkingDirectory: '',
-        allowedWorkingDirectories: [],
-        timeoutMs: 30000,
-        maxOutputChars: 20000,
-    })),
-}));
-
-vi.mock('@/services/BuiltInToolService/tools/upgradeModel/config', () => ({
-    parseUpgradeModelToolConfig: vi.fn(() => ({
-        chain: [],
-    })),
-    serializeUpgradeModelToolConfig: vi.fn((config: { chain: unknown[] }) =>
-        JSON.stringify(config)
-    ),
-}));
-
-vi.mock('@services/EventService', () => ({
-    AppEvent: {
-        AI_MODELS_UPDATED: 'ai_models_updated',
-    },
-    eventService: {
-        on: vi.fn(async () => vi.fn()),
-    },
-}));
-
-vi.mock('@components/AppIcon.vue', () => ({
-    default: {
-        name: 'AppIcon',
-        props: ['name'],
-        template: '<span data-testid="app-icon" />',
-    },
-}));
-
-vi.mock('@components/ToolLogContent.vue', () => ({
-    default: {
-        name: 'ToolLogContent',
-        props: ['input', 'output', 'error', 'isError'],
-        template:
-            '<div data-testid="tool-log-content"><span>{{ input }}</span><span>{{ output }}</span><span>{{ error }}</span></div>',
-    },
-}));
-
-vi.mock('@components/ModelLogo.vue', () => ({
-    default: {
-        name: 'ModelLogo',
-        props: ['modelId', 'name'],
-        template: '<span data-testid="model-logo">{{ name }}</span>',
-    },
-}));
-
-vi.mock('@components/ModelCapabilityTags.vue', () => ({
-    default: {
-        name: 'ModelCapabilityTags',
-        template: '<span data-testid="capability-tags" />',
-    },
-}));
-
-vi.mock('@components/SearchableSelect.vue', async () => {
-    const { t } = await import('@/i18n');
-
-    return {
-        default: {
-            name: 'SearchableSelect',
-            props: [
-                'modelValue',
-                'options',
-                'disabled',
-                'placeholder',
-                'placeholderKey',
-                'searchPlaceholder',
-                'searchPlaceholderKey',
-                'emptyText',
-                'emptyTextKey',
-            ],
-            methods: {
-                resolveText(key?: string, fallback?: string) {
-                    return key ? t(key as never) : (fallback ?? '');
-                },
-            },
-            template:
-                '<div data-testid="searchable-select"><span>{{ resolveText(placeholderKey, placeholder) }}</span><span>{{ resolveText(searchPlaceholderKey, searchPlaceholder) }}</span><span>{{ resolveText(emptyTextKey, emptyText) }}</span><slot name="selected" :option="options?.[0] ?? null" /><slot name="option" v-for="option in options" :option="option" /></div>',
-        },
-    };
-});
-
-vi.mock('vue-draggable-plus', () => ({
-    VueDraggable: {
-        name: 'VueDraggable',
-        props: ['modelValue'],
-        template: '<div><slot /></div>',
-    },
-}));
 
 async function flushMountedPromises() {
-    for (let index = 0; index < 8; index += 1) {
-        await Promise.resolve();
-        await new Promise((resolve) => setTimeout(resolve, 0));
-        await nextTick();
-    }
+    await flushPromises();
+    await nextTick();
 }
 
 function createTool(patch: Partial<BuiltInToolEntity> = {}): BuiltInToolEntity {
@@ -241,8 +56,8 @@ function createLog(patch: Partial<BuiltInToolLogEntity> = {}): BuiltInToolLogEnt
         id: 1,
         tool_id: 'bash',
         tool_call_id: 'call_very_long_identifier_without_breaks_abcdefghijklmnopqrstuvwxyz',
-        session_id: 123456789,
-        message_id: 987654321,
+        session_id: 1,
+        message_id: 1,
         iteration: 2,
         input: 'E:\\very\\long\\workspace\\path\\without\\natural\\line\\breaks\\command.txt',
         output: 'done',
@@ -256,36 +71,21 @@ function createLog(patch: Partial<BuiltInToolLogEntity> = {}): BuiltInToolLogEnt
     };
 }
 
-/** 列表走摘要投影，展开时才按 id 取完整正文。 */
-function setToolLogs(logs: BuiltInToolLogEntity[]) {
-    findBuiltInToolLogsByToolIdMock.mockResolvedValue(
-        logs.map((log) => ({
-            id: log.id,
-            tool_call_id: log.tool_call_id,
-            tool_name: log.tool_id,
-            session_id: log.session_id,
-            message_id: log.message_id ?? 0,
-            created_at: log.created_at,
-            status: log.status,
-            duration_ms: log.duration_ms,
-            input_preview: log.input,
-            output_length: log.output?.length ?? 0,
-        }))
+async function setToolLogs(logs: BuiltInToolLogEntity[]) {
+    fixture.database.exec(
+        "INSERT INTO sessions (id, session_id, title, model) VALUES (1, 'tool-history', 'Tool history', 'fixture-model'); INSERT INTO messages (id, session_id, role) VALUES (1, 1, 'tool_call')"
     );
-    findBuiltInToolLogByIdMock.mockImplementation(async (id: number) =>
-        logs.find((log) => log.id === id)
-    );
+    for (const entry of logs) await createToolPart('builtin', { ...entry });
 }
 
-describe('built-in tools settings i18n', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
+describe('given built-in settings use the current owners and active locale', () => {
+    beforeEach(async () => {
+        document.body.innerHTML = '';
+        fixture = await createSettingsPanelFixture();
         setLocale('zh-CN');
-        setToolLogs([]);
-        findModelsWithProviderMock.mockResolvedValue([]);
     });
 
-    it('localizes built-in tool descriptions for the active locale', () => {
+    it('user reads built-in descriptions in the active locale', () => {
         setLocale('en-US');
 
         expect(getBuiltInToolSummary('bash')).toBe('Execute terminal commands');
@@ -298,13 +98,14 @@ describe('built-in tools settings i18n', () => {
         expect(getBuiltInToolSummary('unknown_tool', null)).toBe('No description');
     });
 
-    it('shows the ask-user tool as an empty-config built-in tool', () => {
+    it('user configures the ask-user tool without an unnecessary configuration form', () => {
         expect(isBuiltInToolVisibleInSettings('ask_user_question')).toBe(true);
         expect(usesBuiltInToolEmptyConfig('ask_user_question')).toBe(true);
     });
 
     it('user given a computer control entry when changing locale then keeps its stable name and localized summary', async () => {
         const wrapper = mount(BuiltInToolList, {
+            ...fixture.viewOptions,
             props: {
                 tools: [
                     createTool({
@@ -332,7 +133,7 @@ describe('built-in tools settings i18n', () => {
         expect(formatToolLastUsed(null)).toBe('Not called yet');
     });
 
-    it('localizes tool log status labels for filter chips and badges', () => {
+    it('user reads log filters and approval badges in the active locale', () => {
         setLocale('en-US');
 
         expect(getToolLogStatusText('success')).toBe('Success');
@@ -346,10 +147,11 @@ describe('built-in tools settings i18n', () => {
         expect(getBuiltInToolApprovalStateText('none')).toBeNull();
     });
 
-    it('renders built-in tool list text and toggle title in English without squeezing long summaries', () => {
+    it('user reads English tool summaries and toggle titles without squeezing long text', () => {
         setLocale('en-US');
 
         const wrapper = mount(BuiltInToolList, {
+            ...fixture.viewOptions,
             props: {
                 tools: [createTool()],
                 selectedToolId: 'bash',
@@ -363,10 +165,11 @@ describe('built-in tools settings i18n', () => {
         expect(wrapper.get('p').classes()).toContain('break-words');
     });
 
-    it('does not let the global DOM localizer rewrite dynamic built-in tool names', () => {
+    it('user keeps dynamic tool names unchanged when the DOM localizer runs', () => {
         setLocale('en-US');
 
         const wrapper = mount(BuiltInToolList, {
+            ...fixture.viewOptions,
             props: {
                 tools: [
                     createTool({
@@ -392,10 +195,11 @@ describe('built-in tools settings i18n', () => {
         wrapper.unmount();
     });
 
-    it('renders bash configuration labels, placeholders, titles, and aria labels in English', () => {
+    it('user configures Bash and reads English labels, placeholders and accessible folder actions', () => {
         setLocale('en-US');
 
         const wrapper = mount(BashToolConfig, {
+            ...fixture.viewOptions,
             props: {
                 modelValue: {
                     approvalMode: 'high_risk',
@@ -422,15 +226,16 @@ describe('built-in tools settings i18n', () => {
         expect(folderButtons[0]?.attributes('title')).toBe('Choose folder');
     });
 
-    it('renders log dates and content without internal metadata or tool descriptions', async () => {
+    it('user opens a persisted log and reads its date and content without internal metadata', async () => {
         setLocale('en-US');
-        setToolLogs([
+        await setToolLogs([
             createLog({
                 approval_state: 'approved',
             }),
         ]);
 
         const wrapper = mount(BuiltInToolLogViewer, {
+            ...fixture.viewOptions,
             props: {
                 tool: createTool({ description: 'Detailed tool description' }),
             },
@@ -462,9 +267,9 @@ describe('built-in tools settings i18n', () => {
         expect(wrapper.text()).not.toContain('Detailed tool description');
     });
 
-    it('keeps dynamic tool names unchanged after expanding a log', async () => {
+    it('user expands a persisted log and keeps its dynamic tool name unchanged', async () => {
         setLocale('en-US');
-        setToolLogs([
+        await setToolLogs([
             createLog({
                 tool_call_id: '设置',
                 approval_state: 'approved',
@@ -472,6 +277,7 @@ describe('built-in tools settings i18n', () => {
         ]);
 
         const wrapper = mount(BuiltInToolLogViewer, {
+            ...fixture.viewOptions,
             props: {
                 tool: createTool({
                     display_name: '工具',
@@ -501,11 +307,12 @@ describe('built-in tools settings i18n', () => {
         wrapper.unmount();
     });
 
-    it('renders empty tool logs in English after filtering', async () => {
+    it('user filters out every persisted log and receives an English empty state', async () => {
         setLocale('en-US');
-        setToolLogs([createLog({ input: 'alpha' })]);
+        await setToolLogs([createLog({ input: 'alpha' })]);
 
         const wrapper = mount(BuiltInToolLogViewer, {
+            ...fixture.viewOptions,
             props: {
                 tool: createTool(),
             },
@@ -520,15 +327,16 @@ describe('built-in tools settings i18n', () => {
         expect(wrapper.text()).not.toContain('未找到匹配的日志');
     });
 
-    it('does not render the default none approval state in log details', async () => {
+    it('user opens an unapproved log without seeing internal default approval metadata', async () => {
         setLocale('en-US');
-        setToolLogs([
+        await setToolLogs([
             createLog({
                 approval_state: 'none',
             }),
         ]);
 
         const wrapper = mount(BuiltInToolLogViewer, {
+            ...fixture.viewOptions,
             props: {
                 tool: createTool(),
             },
@@ -544,32 +352,19 @@ describe('built-in tools settings i18n', () => {
         expect(wrapper.text()).not.toContain('none');
     });
 
-    it('renders upgrade model configuration text in English and allows long model names to shrink', async () => {
+    it('user opens an upgrade provider dropdown and reads English labels while long names can shrink', async () => {
         setLocale('en-US');
-        findModelsWithProviderMock.mockResolvedValue([
-            {
-                id: 1,
-                provider_id: 10,
-                provider_name: 'Very Long Provider Name',
-                provider_driver: 'openai',
-                provider_enabled: 1,
-                provider_logo: null,
-                model_id: 'provider/model-with-a-very-long-id-that-needs-truncation',
-                name: 'Model With A Very Long Display Name That Should Not Squeeze The Row',
-                attachment: 0,
-                modalities: null,
-                open_weights: 0,
-                reasoning: 1,
-                tool_call: 1,
-            },
-        ]);
+        fixture.database.exec(`UPDATE providers SET name='Very Long Provider Name' WHERE id=1;
+            UPDATE models SET name='Model With A Very Long Display Name That Should Not Squeeze The Row',
+            model_id='provider/model-with-a-very-long-id-that-needs-truncation' WHERE id=1;`);
 
         const wrapper = mount(UpgradeModelToolConfig, {
+            ...fixture.viewOptions,
             props: {
                 modelValue: {
                     chain: [
                         {
-                            providerId: 10,
+                            providerId: 1,
                             modelId: 'provider/model-with-a-very-long-id-that-needs-truncation',
                         },
                     ],
@@ -579,19 +374,32 @@ describe('built-in tools settings i18n', () => {
         await flushMountedPromises();
 
         expect(wrapper.text()).toContain('Model upgrade chain');
-        expect(wrapper.text()).toContain('Provider');
-        expect(wrapper.text()).toContain('Search providers');
-        expect(wrapper.text()).toContain('No available providers');
-        expect(wrapper.text()).toContain('1 available models');
+        const provider = wrapper.get('.upgrade-model-chain-card button[aria-expanded]');
+        await provider.trigger('click');
+        const options = wrapper.findAll('button[aria-selected]');
+        expect(document.body.querySelector('input[placeholder="Search providers"]')).not.toBeNull();
+        expect(options.map((option) => option.text()).join(' ')).toContain('1 available models');
+        expect(wrapper.text()).toContain('Very Long Provider Name');
+        expect(wrapper.text()).toContain('Model With A Very Long Display Name');
+        await provider.trigger('click');
+        await provider.trigger('click');
+        const search = document.body.querySelector<HTMLInputElement>(
+            'input[placeholder="Search providers"]'
+        )!;
+        search.value = 'missing-provider';
+        search.dispatchEvent(new Event('input', { bubbles: true }));
+        await nextTick();
+        expect(document.body.textContent).toContain('No available providers');
         expect(wrapper.text()).not.toContain('模型升级链');
         expect(wrapper.text()).not.toContain('1 个可选模型');
         expect(wrapper.get('.upgrade-model-chain-card > div').classes()).toContain('min-w-0');
     });
 
-    it('renders status badge text as a non-wrapping English label', () => {
+    it('user reads the pending status as one non-wrapping English label', () => {
         setLocale('en-US');
 
         const wrapper = mount(ToolLogStatusBadge, {
+            ...fixture.viewOptions,
             props: {
                 status: 'awaiting_approval',
             },

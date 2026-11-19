@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
+import { previewNotificationText, summarizeNotificationText } from '@/app/api/agent/reminders';
 import { setLocale } from '@/i18n';
-import { previewNotificationText, summarizeNotificationText } from '@/utils/reminderText';
 
 describe('user previews a reminder', () => {
     beforeEach(() => {

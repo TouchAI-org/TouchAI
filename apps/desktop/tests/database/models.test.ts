@@ -1,13 +1,49 @@
 import { recordUpstreamModelMetadata, setDefaultModel } from '@database/queries/models';
 import type { InvokeArgs } from '@tauri-apps/api/core';
 import { getTauriInvokeCalls, interceptTauriInvoke } from '@tests/utils/tauri';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+
+import { closeTestDatabases, openMigratedDatabase, routeQueriesTo } from './sqliteHarness';
+
+afterEach(closeTestDatabases);
 
 function getRequest(payload: InvokeArgs | undefined) {
     return (payload as { request?: { sql: string; params?: unknown[]; method: string } })?.request;
 }
 
 describe('when the app changes which model is in use', () => {
+    it('user given a disabled provider when selecting its default directly then receives a stable refusal and retains the saved default', async () => {
+        const database = openMigratedDatabase();
+        routeQueriesTo(database);
+        database.exec(`INSERT INTO providers (id, name, driver, api_endpoint, logo, enabled)
+            VALUES (1, 'Enabled', 'openai', 'https://enabled.invalid', 'openai', 1),
+                (2, 'Disabled', 'openai', 'https://disabled.invalid', 'openai', 0);
+            INSERT INTO models (id, provider_id, name, model_id, is_default)
+            VALUES (1, 1, 'Current', 'current', 1), (2, 2, 'Other', 'other', 0);`);
+        await expect(setDefaultModel({ modelId: 2 })).rejects.toMatchObject({
+            code: 'PROVIDER_DISABLED',
+        });
+        expect(database.prepare('SELECT id FROM models WHERE is_default = 1').all()).toEqual([
+            { id: 1 },
+        ]);
+        database.exec('UPDATE providers SET enabled = 1 WHERE id = 2');
+        await setDefaultModel({ modelId: 2 });
+        expect(database.prepare('SELECT id FROM models WHERE is_default = 1').all()).toEqual([
+            { id: 2 },
+        ]);
+    });
+
+    it('user given an unknown model when selecting it as default then receives a stable missing model refusal without clearing saved flags', async () => {
+        const database = openMigratedDatabase();
+        routeQueriesTo(database);
+        await expect(setDefaultModel({ modelId: 123 })).rejects.toMatchObject({
+            code: 'MODEL_NOT_FOUND',
+        });
+        expect(database.prepare('SELECT count(*) AS count FROM models').get()).toEqual({
+            count: 0,
+        });
+    });
+
     it('user gets exactly one default model after switching', async () => {
         interceptTauriInvoke((call) => {
             if (call.cmd === 'database_tx_begin') {

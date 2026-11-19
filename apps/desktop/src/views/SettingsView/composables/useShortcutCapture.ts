@@ -1,8 +1,12 @@
-import { AppEvent, eventService, type ShortcutCaptureSystemKeyEvent } from '@services/EventService';
-import type { UnlistenFn } from '@tauri-apps/api/event';
 import { useStateMachine } from 'reka-ui';
 import { onMounted, onUnmounted, type Ref, watch } from 'vue';
 
+import {
+    AppEvent,
+    eventService,
+    type ShortcutCaptureSystemKeyEvent,
+} from '@/app/api/settings/events';
+import type { StopWindowListener } from '@/app/api/windows/presentation';
 import { isMacPlatform, normalizeLocalShortcutString } from '@/utils/shortcuts';
 
 /**
@@ -39,7 +43,7 @@ export function useSystemKeyCaptureSubscription(
         failed: { dispose: 'disposed' },
         disposed: {},
     } as const);
-    let unlisten: UnlistenFn | null = null;
+    let unlisten: StopWindowListener | null = null;
 
     onMounted(async () => {
         try {

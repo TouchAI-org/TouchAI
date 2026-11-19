@@ -1,17 +1,15 @@
+import { createWebFetchToolsFixture } from '@tests/utils/webFetchTools';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
-import { executeWebFetchTool } from '@/services/BuiltInToolService/tools/webFetch';
-import { MAX_WEB_FETCH_REDIRECTS } from '@/services/BuiltInToolService/tools/webFetch/constants';
+const { execute: executeWebFetchTool } = createWebFetchToolsFixture();
+import { MAX_WEB_FETCH_REDIRECTS } from '@/modules/tools/builtin/web-fetch/constants';
 
 const { tauriFetchMock } = vi.hoisted(() => ({
     tauriFetchMock: vi.fn(),
 }));
 
-vi.mock('@/services/HttpService', () => ({
-    createTauriFetch: () => tauriFetchMock,
-    cancelResponseBody: vi.fn(async () => {}),
-}));
+vi.mock('@tauri-apps/plugin-http', () => ({ fetch: tauriFetchMock }));
 
 describe('user reads a web page through the fetch tool', () => {
     beforeEach(() => {

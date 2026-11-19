@@ -5,8 +5,8 @@
     import ModelLogo from '@components/ModelLogo.vue';
     import { useAlert } from '@composables/useAlert';
     import { useConfirm } from '@composables/useConfirm';
-    import type { Model } from '@database/schema';
 
+    import type { Model, ModelPatch } from '@/app/api/models/administration';
     import { t } from '@/i18n';
 
     import ModelCardActions from './ModelCardActions.vue';
@@ -16,7 +16,7 @@
     }
 
     interface Emits {
-        (e: 'update', data: Partial<Model>): void;
+        (e: 'update', data: ModelPatch): void;
         (e: 'delete'): void;
         (e: 'set-default'): void;
         (e: 'edit'): void;

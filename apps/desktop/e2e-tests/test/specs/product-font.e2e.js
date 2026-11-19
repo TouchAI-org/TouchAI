@@ -1,7 +1,7 @@
 /**
  * User flow: the app loads its own interface font.
  *
- * The product ships no font file. `src/utils/font.ts` downloads Source Han Serif
+ * The product ships no font file. `src/platform/windows/font.ts` loads Source Han Serif
  * into `<app root>/assets/font/` and injects `@font-face` pointing at the Tauri
  * asset protocol, which resolves to `http://asset.localhost` on Windows.
  *
@@ -26,6 +26,9 @@ describe('user sees the interface rendered in the product typeface', () => {
     it('user sees the app load the product font through the asset protocol', async () => {
         await waitForE2eBridge();
         await waitForTestIdDisplayed('search-view');
+        // Let the product finish its WOFF2-to-TTF fallback and verify painted glyphs
+        // before probing the final asset source. fonts.check() alone is insufficient.
+        await useProductFont();
 
         // WebdriverIO 10 removed `executeAsync`; `execute` awaits an async script and
         // resolves with its return value, so the callback form is no longer needed. A
@@ -77,12 +80,5 @@ describe('user sees the interface rendered in the product typeface', () => {
                 `The product font " ${PRODUCT_FAMILY} " is declared but does not resolve, so the interface is rendering a fallback face.`
             );
         }
-
-        // `document.fonts.check()` is not enough on its own: it answers true for a family
-        // that exists nowhere, and it answers true here even when the engine declined to
-        // paint the face. The painted-glyph check is what proves the interface is really
-        // rendering the shipped typeface rather than a fallback that happens to share the
-        // declared name.
-        await useProductFont();
     });
 });

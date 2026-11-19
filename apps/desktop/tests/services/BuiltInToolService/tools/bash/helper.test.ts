@@ -1,15 +1,20 @@
-import type { BuiltInBashExecutionResponse } from '@services/NativeService';
+import { createBashToolsFixture } from '@tests/utils/bashTools';
+import { toolMessages } from '@tests/utils/toolMessages';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
-import { DEFAULT_BASH_TOOL_CONFIG } from '@/services/BuiltInToolService/tools/bash/constants';
-import {
-    formatBashToolResult,
-    parseBashToolConfig,
-    parseBashToolResult,
-    resolveCommandContext,
-    truncateOutput,
-} from '@/services/BuiltInToolService/tools/bash/helper';
+import { createBashOperations } from '@/modules/tools';
+import { DEFAULT_BASH_TOOL_CONFIG } from '@/modules/tools/builtin/bash/constants';
+import type { BuiltInBashExecutionResponse } from '@/platform/native';
+
+const {
+    operations: {
+        formatBashToolResult,
+        parseBashToolConfig,
+        parseBashToolResult,
+        resolveCommandContext,
+    },
+} = createBashToolsFixture();
 
 const desktopDirMock = vi.hoisted(() => vi.fn());
 
@@ -18,12 +23,11 @@ vi.mock('@tauri-apps/api/path', () => ({
 }));
 
 async function loadBashHelper() {
-    vi.resetModules();
-    return await import('@/services/BuiltInToolService/tools/bash/helper');
+    return createBashOperations(toolMessages);
 }
 
 async function loadBashConstants() {
-    return await import('@/services/BuiltInToolService/tools/bash/constants');
+    return await import('@/modules/tools/builtin/bash/constants');
 }
 
 afterEach(() => {
@@ -196,21 +200,35 @@ describe('user sees shell commands resolve a working directory', () => {
     });
 });
 
-describe('user sees long command output shortened', () => {
-    it('user sees short output kept unchanged', () => {
-        expect(truncateOutput('short', 100)).toBe('short');
-    });
-
-    it('user sees output over the limit truncated', () => {
-        const result = truncateOutput('a'.repeat(150), 100);
-        expect(result).toContain('a'.repeat(100));
-        expect(result).toContain('150');
-    });
-
-    it('user sees output exactly at the limit kept unchanged', () => {
-        const output = 'a'.repeat(100);
-        expect(truncateOutput(output, 100)).toBe(output);
-    });
+describe('given shell output exceeds the presentation limit', () => {
+    it.each([
+        ['short', 100, false],
+        ['a'.repeat(150), 100, true],
+        ['a'.repeat(100), 100, false],
+    ])(
+        'user sees the permitted output and an accurate truncation notice for %s',
+        (output, limit, truncated) => {
+            const text = formatBashToolResult(
+                {
+                    command: 'dir',
+                    shell: 'powershell',
+                    workingDirectory: 'D:/project',
+                    exitCode: 0,
+                    success: true,
+                    timedOut: false,
+                    cancelled: false,
+                    durationMs: 1,
+                    stdout: String(output),
+                    stderr: '',
+                    combinedOutput: String(output),
+                },
+                { command: 'dir', workingDirectory: 'D:/project', rawOutput: false },
+                Number(limit)
+            );
+            expect(text).toContain(String(output).slice(0, Number(limit)));
+            expect(text.includes('150')).toBe(Boolean(truncated));
+        }
+    );
 });
 
 describe('user reads the result of a shell command', () => {

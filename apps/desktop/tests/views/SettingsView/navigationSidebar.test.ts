@@ -1,7 +1,9 @@
-import { log } from '@services/ObservabilityService';
+import { createTestWindowPresentation } from '@tests/utils/windowPresentation';
 import { enableAutoUnmount, mount } from '@vue/test-utils';
+import { beforeEach as beforePresentation } from 'vitest';
 import { afterEach, beforeEach, vi } from 'vitest';
 
+import { log } from '@/platform/diagnostics';
 import NavigationSidebar from '@/views/SettingsView/components/NavigationSidebar.vue';
 import {
     SETTINGS_DETAIL_PANEL_MIN_WIDTH,
@@ -476,4 +478,8 @@ describe('user navigates the settings sections', () => {
         await resizer.trigger('keydown', { key: 'ArrowLeft' });
         expect(sidebar.attributes('style')).toContain(`width: ${SETTINGS_SIDEBAR_MIN_WIDTH}px`);
     });
+});
+
+beforePresentation(async () => {
+    (await createTestWindowPresentation('settings')).install();
 });

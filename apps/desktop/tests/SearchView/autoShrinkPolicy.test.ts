@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { SessionMessage } from '@/types/session';
+import type { SessionMessage } from '@/app/api/agent/history';
 import {
     buildLatestCompletedMessageMarker,
     isSessionHistorySettled,

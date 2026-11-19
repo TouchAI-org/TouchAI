@@ -1,4 +1,5 @@
 import { mountComposable } from '@tests/utils/composables';
+import { createTestSearchHost } from '@tests/utils/searchHost';
 import { installSkillCommands, skillFile } from '@tests/utils/skills';
 import { mockTauriCommand } from '@tests/utils/tauri';
 import { flushPromises, mount } from '@vue/test-utils';
@@ -6,8 +7,9 @@ import { createPinia } from 'pinia';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { computed, defineComponent, h, ref } from 'vue';
 
+import type { PendingToolApproval, SessionMessage } from '@/app/api/agent/history';
+import { searchApiKey } from '@/app/api/search/queries';
 import { createDefaultSearchKeybindings } from '@/config/searchKeybindings';
-import type { PendingToolApproval, SessionMessage } from '@/types/session';
 import SearchBar from '@/views/SearchView/components/SearchBar/index.vue';
 import type { UseSearchKeyboardOptions } from '@/views/SearchView/composables/searchInteraction';
 import {
@@ -444,7 +446,10 @@ describe('given a skill picker owns the editor result slot', () => {
             });
             const wrapper = mount(component, {
                 attachTo: document.body,
-                global: { plugins: [createPinia()] },
+                global: {
+                    plugins: [createPinia()],
+                    provide: { [searchApiKey as symbol]: createTestSearchHost().api },
+                },
             });
             const focusConversation = vi.spyOn(options.controller, 'focusConversation');
             const openFile = vi.spyOn(options.controller, 'openHighlightedQuickSearchItem');

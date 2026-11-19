@@ -3,21 +3,25 @@
 
     import { useMotion } from '@composables/useMotion';
     import { useSessionStatus } from '@composables/useSessionStatus';
-    import { AppEvent, eventService } from '@services/EventService';
-    import type {
-        SearchSurfaceCommandEvent,
-        SessionStatusReminderActionEvent,
-    } from '@services/EventService/types';
-    import type { QuickShortcutItem } from '@services/NativeService';
-    import { native } from '@services/NativeService';
-    import { notify } from '@services/NotificationService';
-    import { log } from '@services/ObservabilityService';
-    import { resolvePastedPathAttachment } from '@services/SearchService/pastedPath';
-    import { getCurrentWindow } from '@tauri-apps/api/window';
     import { storeToRefs } from 'pinia';
     import { useStateMachine } from 'reka-ui';
     import { computed, nextTick, onMounted, onUnmounted, reactive, ref, toRef, watch } from 'vue';
 
+    import type { SessionTaskStatus } from '@/app/api/agent/contracts';
+    import type { ClipboardPayload } from '@/app/api/attachments/drafts';
+    import { useClipboardDraftApi } from '@/app/api/attachments/drafts';
+    import { log } from '@/app/api/diagnostics';
+    import type {
+        SearchSurfaceCommandEvent,
+        SessionStatusReminderActionEvent,
+    } from '@/app/api/search/events';
+    import { AppEvent, eventService } from '@/app/api/search/events';
+    import type { QuickShortcutItem } from '@/app/api/search/queries';
+    import { resolvePastedPathAttachment } from '@/app/api/search/references';
+    import type { ToolApprovalDecisionRequest } from '@/app/api/tools/decisions';
+    import { useMainToolsStartupApi } from '@/app/api/tools/startup';
+    import { notify } from '@/app/api/windows/notifications';
+    import { useSearchWindowApi } from '@/app/api/windows/presentation';
     import type { SearchKeybindingActionId } from '@/config/searchKeybindings';
     import {
         SEARCH_SURFACE_EASING,
@@ -25,26 +29,20 @@
         SEARCH_SURFACE_REVEAL_EASING,
     } from '@/config/searchWindow';
     import { type AppLocale, t } from '@/i18n';
-    import type { ToolApprovalDecisionRequest } from '@/services/AgentService/contracts/tooling';
-    import { mcpManager } from '@/services/AgentService/infrastructure/mcp';
-    import type { SessionTaskStatus } from '@/services/AgentService/task/types';
-    import { clipboardService } from '@/services/ClipboardService';
-    import type {
-        ClipboardPayload,
-        SearchSurfacePreparation,
-        SearchWindowState,
-    } from '@/services/NativeService/types';
-    import type { SearchActionOutcome, SearchActivationContext } from '@/services/SearchService';
-    import { type AskUserConfirmOptions, useAskUserStore } from '@/stores/askUser';
-    import { useMcpStore } from '@/stores/mcp';
-    import { useSettingsStore } from '@/stores/settings';
+    const searchWindow = useSearchWindowApi();
+    const clipboardService = useClipboardDraftApi();
     import {
         createInputHistorySnapshot,
         getInputHistorySnapshotKey,
         type InputHistorySnapshot,
         type SessionMessage,
-    } from '@/types/session';
-    import { isE2eTestMode } from '@/utils/runtimeMode';
+    } from '@/app/api/agent/history';
+    import type { SearchActionOutcome, SearchActivationContext } from '@/app/api/search/queries';
+    import type { SearchSurfacePreparation, SearchWindowState } from '@/app/api/windows/contracts';
+    import { isE2eTestMode } from '@/app/api/windows/runtime';
+    import { type AskUserConfirmOptions, useAskUserStore } from '@/stores/askUser';
+    import { useMcpStore } from '@/stores/mcp';
+    import { useSettingsStore } from '@/stores/settings';
 
     import {
         buildLatestCompletedMessageMarker,
@@ -329,7 +327,7 @@
                     preparation: SearchSurfacePreparation | undefined
                 ) => {
                     try {
-                        const update = await native.window.setSearchWindowRegions(
+                        const update = await searchWindow.setSearchWindowRegions(
                             regions,
                             generation,
                             preparation
@@ -358,6 +356,7 @@
     const suppressInputHistoryBrowseReset = ref(false);
     const inputHistoryRestoreVersion = ref(0);
     const mcpStore = useMcpStore();
+    const toolsStartup = useMainToolsStartupApi();
     const settingsStore = useSettingsStore();
     const { searchWindowDefaultSize, searchKeybindings } = storeToRefs(settingsStore);
     const { sessionStatuses, refreshAllStatuses: refreshSessionStatuses } = useSessionStatus();
@@ -373,7 +372,7 @@
             setSearchQuery: (text: string) => void;
             sendPrompt: (text: string) => Promise<void>;
             getSearchWindowState: () => Promise<SearchWindowState>;
-            resizeWindowHeight: typeof native.window.resizeWindowHeight;
+            resizeWindowHeight: typeof searchWindow.resizeWindowHeight;
             resetSearchWindowBounds: () => Promise<void>;
             setSearchFixture: (query: string, results: QuickShortcutItem[]) => void;
             setConversation: (messages: SessionMessage[]) => void;
@@ -411,7 +410,7 @@
     function handleRegionSyncFailure(error: unknown) {
         log.error('[SearchView] Failed to prepare search window region:', error);
         surfaceHiding.value = true;
-        void native.window.hideSearchWindow().catch((hideError) => {
+        void searchWindow.hideSearchWindow().catch((hideError) => {
             log.error('[SearchView] Failed to hide unsafe search window region:', hideError);
         });
     }
@@ -1033,7 +1032,7 @@
                 await handleToggleMaximize();
                 return;
             case 'search.settings.open':
-                await native.window.openSettingsWindow();
+                await searchWindow.openSettingsWindow();
                 return;
             default: {
                 const exhaustiveActionId: never = actionId;
@@ -1075,13 +1074,13 @@
         handleAiModelsUpdated,
         handleShortcutAutoPaste: tryShortcutAutoPaste,
     });
-    const searchHostWindow = getCurrentWindow();
+    const searchHostWindow = useSearchWindowApi();
     const searchSurfacePreparationController = createSearchSurfacePreparationController({
         listenPrepare: (handler) => eventService.on(AppEvent.SEARCH_SURFACE_PREPARE, handler),
         listenShown: (handler) => eventService.on(AppEvent.SEARCH_SURFACE_SHOWN, handler),
         listenHidden: (handler) => eventService.on(AppEvent.SEARCH_SURFACE_HIDDEN, handler),
-        getRendererEpoch: () => native.window.getSearchWindowRendererEpoch(),
-        markRendererReady: (rendererEpoch) => native.window.markSearchWindowReady(rendererEpoch),
+        getRendererEpoch: () => searchWindow.getSearchWindowRendererEpoch(),
+        markRendererReady: (rendererEpoch) => searchWindow.markSearchWindowReady(rendererEpoch),
         getViewport: async () => {
             const [position, size, scaleFactor] = await Promise.all([
                 searchHostWindow.outerPosition(),
@@ -1118,7 +1117,7 @@
                 cardWidth: card?.width ?? 0,
                 cardHeight: card?.height ?? 0,
             });
-            void native.window.hideSearchWindow().catch((hideError) => {
+            void searchWindow.hideSearchWindow().catch((hideError) => {
                 log.error('[SearchView] Failed to hide unsafe prepared surface:', hideError);
             });
         },
@@ -2333,7 +2332,7 @@
 
         widgetBridgeWindow.__TOUCHAI_E2E__ = {
             async openSettingsWindow() {
-                await native.window.openSettingsWindow();
+                await searchWindow.openSettingsWindow();
             },
             setSearchQuery(text: string) {
                 applyE2eSearchQuery(text);
@@ -2356,9 +2355,9 @@
                     ? fixture.results.map((item) => ({ ...item }))
                     : [];
             },
-            getSearchWindowState: native.window.getSearchWindowState,
-            resizeWindowHeight: native.window.resizeWindowHeight,
-            resetSearchWindowBounds: native.window.resetSearchWindowBounds,
+            getSearchWindowState: searchWindow.getSearchWindowState,
+            resizeWindowHeight: searchWindow.resizeWindowHeight,
+            resetSearchWindowBounds: searchWindow.resetSearchWindowBounds,
             setSearchFixture(query: string, results: QuickShortcutItem[]) {
                 e2eSearchFixture.value = { query, results };
             },
@@ -2441,7 +2440,7 @@
             syncSearchWindowState,
             isE2eTestMode,
             autoConnectMcp: async () => {
-                await mcpManager.autoConnect();
+                await toolsStartup.autoConnectMcp();
             },
             onReady: (ready) => {
                 viewReady.value = ready;

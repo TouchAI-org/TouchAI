@@ -1,5 +1,4 @@
 import type { AppIconName } from '@components/appIconMap';
-import { JSON_SETTINGS_SECTIONS } from '@services/SettingsService/domain';
 
 import { type MessageKey, t } from '@/i18n';
 
@@ -40,17 +39,6 @@ interface SettingsNavigationGroupDefinition {
     items: SettingsNavigationItemDefinition[];
 }
 
-const jsonSettingsNavigationDefinitions: SettingsNavigationItemDefinition[] = [
-    ...JSON_SETTINGS_SECTIONS,
-]
-    .sort((left, right) => left.ui.navigationOrder - right.ui.navigationOrder)
-    .map((section) => ({
-        id: section.ui.sectionId,
-        icon: section.ui.icon,
-        labelKey: section.ui.labelKey,
-        descriptionKey: section.ui.descriptionKey,
-    }));
-
 const settingsNavigationDefinitions: SettingsNavigationGroupDefinition[] = [
     {
         labelKey: 'settings.nav.group.basicExperience',
@@ -90,7 +78,18 @@ const settingsNavigationDefinitions: SettingsNavigationGroupDefinition[] = [
                 labelKey: 'settings.nav.builtInTools.label',
                 descriptionKey: 'settings.nav.builtInTools.description',
             },
-            ...jsonSettingsNavigationDefinitions,
+            {
+                id: 'search',
+                icon: 'search',
+                labelKey: 'settings.nav.search.label',
+                descriptionKey: 'settings.nav.search.description',
+            },
+            {
+                id: 'browser',
+                icon: 'globe',
+                labelKey: 'settings.nav.browser.label',
+                descriptionKey: 'settings.nav.browser.description',
+            },
             {
                 id: 'computer-use',
                 icon: 'cursor',

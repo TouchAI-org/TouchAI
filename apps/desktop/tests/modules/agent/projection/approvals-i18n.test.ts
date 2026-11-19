@@ -1,0 +1,146 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import type { SessionMessage } from '@/app/api/agent/history';
+import { setLocale } from '@/i18n';
+import {
+    ProjectionUserPrompts,
+    resolveApprovalResolutionText,
+} from '@/modules/agent/projection/userPrompts';
+
+function createAssistantMessage(): SessionMessage {
+    return {
+        id: 'message-1',
+        role: 'assistant',
+        content: '',
+        parts: [],
+        timestamp: 1,
+    };
+}
+
+describe('user answers an approval prompt in their own language', () => {
+    beforeEach(() => {
+        setLocale('zh-CN');
+        vi.spyOn(crypto, 'randomUUID').mockReturnValue('00000000-0000-4000-8000-000000000001');
+    });
+
+    it('user sees default approval fields as source text in English', () => {
+        setLocale('en-US');
+        const approvals = new ProjectionUserPrompts();
+        const history = [createAssistantMessage()];
+
+        const approval = approvals.presentApproval(history, 'message-1', {
+            callId: 'call-1',
+            description: '',
+            command: 'Remove-Item file.txt',
+            riskLabel: '',
+            reason: '',
+            commandLabel: '',
+            approveLabel: '',
+            rejectLabel: '',
+            enterHint: '',
+            escHint: '',
+            title: undefined as never,
+        });
+
+        expect(approval).toMatchObject({
+            title: '命令执行需要确认',
+            description: '',
+            riskLabel: '',
+            reason: '',
+            commandLabel: '',
+            approveLabel: '',
+            rejectLabel: '',
+            enterHint: '',
+            escHint: '',
+        });
+    });
+
+    it('user sees omitted default approval labels rendered in the live locale', () => {
+        setLocale('en-US');
+        const approvals = new ProjectionUserPrompts();
+        const history = [createAssistantMessage()];
+
+        const approval = approvals.presentApproval(history, 'message-1', {
+            callId: 'call-1',
+            command: 'Remove-Item file.txt',
+        } as never);
+
+        expect(approval).toMatchObject({
+            title: '命令执行需要确认',
+            description: '这是一个高风险命令，请确认后再继续执行。',
+            riskLabel: '高风险',
+            reason: '命令可能修改文件或系统状态。',
+            commandLabel: '命令预览',
+            approveLabel: '批准执行',
+            rejectLabel: '拒绝执行',
+            enterHint: 'Enter 批准',
+            escHint: 'Esc 拒绝',
+        });
+        expect(history[0]?.parts).toMatchObject([{ type: 'approval', callId: 'call-1' }]);
+    });
+
+    it('user sees translated app-owned payload labels resolved back to source text', () => {
+        setLocale('en-US');
+        const approvals = new ProjectionUserPrompts();
+        const history = [createAssistantMessage()];
+
+        const approval = approvals.presentApproval(history, 'message-1', {
+            callId: 'call-1',
+            title: 'Confirm command execution',
+            description: '',
+            command: 'Remove-Item file.txt',
+            riskLabel: '',
+            reason: 'The command may delete files or directories.',
+            commandLabel: '',
+            approveLabel: 'Approve',
+            rejectLabel: 'Reject',
+            enterHint: 'Enter',
+            escHint: 'Esc',
+        });
+
+        expect(approval).toMatchObject({
+            title: '命令执行确认',
+            reason: '命令可能删除文件或目录。',
+            approveLabel: '批准',
+            rejectLabel: '拒绝',
+            enterHint: 'Enter',
+            escHint: 'Esc',
+        });
+    });
+
+    it('user sees translated setting approval text resolved back to source text', () => {
+        setLocale('en-US');
+        const approvals = new ProjectionUserPrompts();
+        const history = [createAssistantMessage()];
+
+        const approval = approvals.presentApproval(history, 'message-1', {
+            callId: 'call-1',
+            title: 'Confirm setting change',
+            description: 'Update language to English',
+            command: 'Language: zh-CN -> en-US',
+            riskLabel: '',
+            reason: 'This operation changes TouchAI application settings and affects future behavior immediately.',
+            commandLabel: '',
+            approveLabel: 'Approve',
+            rejectLabel: 'Reject',
+            enterHint: 'Enter',
+            escHint: 'Esc',
+        });
+
+        expect(approval).toMatchObject({
+            title: '设置修改确认',
+            description: 'Update language to English',
+            reason: '此操作会修改 TouchAI 的应用设置，并立即影响后续行为。',
+            approveLabel: '批准',
+            rejectLabel: '拒绝',
+        });
+    });
+
+    it('user sees an approval settled with source-key default text', () => {
+        setLocale('en-US');
+
+        expect(resolveApprovalResolutionText(true)).toBe('已批准执行此命令');
+        expect(resolveApprovalResolutionText(false)).toBe('已拒绝执行此命令');
+        expect(resolveApprovalResolutionText(false, 'Request cancelled')).toBe('请求已取消');
+    });
+});

@@ -1,8 +1,9 @@
 import type { SQLInputValue } from 'node:sqlite';
 
-import { canUseUsageArchive, getUsageTrendFromArchive } from '@database/queries/usageStats';
 import { interceptTauriInvoke } from '@tests/utils/tauri';
 import { afterEach, describe, expect, it } from 'vitest';
+
+import { canUseUsageArchive, getUsageTrendFromArchive } from '@/app/api/usage/queries';
 
 import { openMigratedDatabase } from './sqliteHarness';
 

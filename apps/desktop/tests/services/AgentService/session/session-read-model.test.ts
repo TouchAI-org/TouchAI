@@ -5,11 +5,11 @@
 } from '@tests/database/sqliteHarness';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { createSessionReadModel } from '@/services/AgentService/session/readModel';
 import {
     findUnsupportedSessionAttachmentTypes,
     loadSessionTransportMessages,
-} from '@/services/AgentService/session/transport';
+} from '@/app/workflows/agent/historyTransport';
+import { createSessionReadModel } from '@/modules/agent/history/read.io';
 
 describe('given a conversation being read for a new request', () => {
     let database: ReturnType<typeof openMigratedDatabase>;

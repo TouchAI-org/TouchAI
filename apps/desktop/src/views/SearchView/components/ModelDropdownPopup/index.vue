@@ -124,10 +124,10 @@
     import EmptyState from '@components/EmptyState.vue';
     import ModelCapabilityTags from '@components/ModelCapabilityTags.vue';
     import ModelLogo from '@components/ModelLogo.vue';
-    import { native } from '@services/NativeService';
-    import { log } from '@services/ObservabilityService';
     import { computed, nextTick, ref, watch } from 'vue';
 
+    import { log } from '@/app/api/diagnostics';
+    import { useSearchWindowApi } from '@/app/api/windows/presentation';
     import { t } from '@/i18n';
     import { matchShortcut } from '@/utils/shortcuts';
 
@@ -143,6 +143,7 @@
         onSearchQueryChange?: (query: string) => void | Promise<void>;
     }
 
+    const searchWindow = useSearchWindowApi();
     const props = defineProps<Props>();
 
     const emit = defineEmits<{
@@ -198,7 +199,7 @@
 
     async function openSettingsFromEmptyState() {
         try {
-            await native.window.openSettingsWindow();
+            await searchWindow.openSettingsWindow();
             emit('close');
         } catch (error) {
             log.error('[SearchView] Failed to open settings from model dropdown:', error);

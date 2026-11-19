@@ -1,46 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+    createScheduler,
+    releaseBackgroundTasks,
+    schedulerNetwork,
+    waitForScheduledIdle,
+} from '@tests/utils/schedulerHost';
+import { describe, expect, it, vi } from 'vitest';
 import { reactive } from 'vue';
 
-import type { IntervalTrigger, ScheduledTask } from '@/services/SchedulerService';
-import { TaskScheduler } from '@/services/SchedulerService';
-
-const { startBackgroundTaskMock } = vi.hoisted(() => ({ startBackgroundTaskMock: vi.fn() }));
-
-vi.mock('@/services/AgentService', () => ({
-    sessionTaskCenter: { startBackgroundTask: startBackgroundTaskMock },
-}));
-
-let pendingCompletions: Array<() => void> = [];
-
-function backgroundTask() {
-    return {
-        completion: new Promise<void>((resolveCompletion) => {
-            pendingCompletions.push(() => resolveCompletion());
-        }),
-    };
-}
-
-function releaseBackgroundTasks() {
-    for (const release of pendingCompletions) {
-        release();
-    }
-    pendingCompletions = [];
-}
-
-function createScheduler() {
-    return new TaskScheduler();
-}
-
-beforeEach(() => {
-    vi.clearAllMocks();
-    pendingCompletions = [];
-    startBackgroundTaskMock.mockImplementation(async () => backgroundTask());
-    vi.useFakeTimers();
-});
-
-afterEach(() => {
-    vi.useRealTimers();
-});
+import type { IntervalTrigger, ScheduledTask } from '@/modules/scheduler';
 
 describe('user schedules a repeating task', () => {
     it('user sees the task run on its interval with the saved prompt and model', async () => {
@@ -48,23 +15,25 @@ describe('user schedules a repeating task', () => {
         const task = await scheduler.addTask({
             name: 'Daily digest',
             prompt: 'Summarize recent work',
-            modelId: 'model-1',
-            providerId: 3,
+            modelId: 'fixture-model',
+            providerId: 1,
             trigger: { type: 'interval', milliseconds: 1_000 },
         });
 
-        expect(startBackgroundTaskMock).not.toHaveBeenCalled();
+        expect(schedulerNetwork.requests).toHaveLength(0);
 
         await vi.advanceTimersByTimeAsync(1_000);
 
-        expect(startBackgroundTaskMock).toHaveBeenCalledWith({
-            prompt: 'Summarize recent work',
-            modelId: 'model-1',
-            providerId: 3,
+        await vi.waitFor(() => expect(schedulerNetwork.requests).toHaveLength(1));
+        expect(schedulerNetwork.requests[0]).toMatchObject({
+            model: 'fixture-model',
+            messages: expect.arrayContaining([
+                expect.objectContaining({ role: 'user', content: 'Summarize recent work' }),
+            ]),
         });
         expect(scheduler.getTask(task.id)?.lastRunAt).not.toBeNull();
 
-        releaseBackgroundTasks();
+        await releaseBackgroundTasks();
         await scheduler.removeTask(task.id);
     });
 
@@ -90,15 +59,15 @@ describe('user schedules a repeating task', () => {
         });
 
         await vi.advanceTimersByTimeAsync(3_000);
-        expect(startBackgroundTaskMock).not.toHaveBeenCalled();
+        expect(schedulerNetwork.requests).toHaveLength(0);
         expect(scheduler.getTask(task.id)?.nextRunAt).toBeNull();
 
         await scheduler.updateTask(task.id, { enabled: true });
         await vi.advanceTimersByTimeAsync(1_000);
 
-        expect(startBackgroundTaskMock).toHaveBeenCalledTimes(1);
+        await vi.waitFor(() => expect(schedulerNetwork.requests).toHaveLength(1));
 
-        releaseBackgroundTasks();
+        await releaseBackgroundTasks();
         await scheduler.removeTask(task.id);
     });
 
@@ -111,17 +80,17 @@ describe('user schedules a repeating task', () => {
         });
 
         await vi.advanceTimersByTimeAsync(1_000);
-        expect(startBackgroundTaskMock).toHaveBeenCalledTimes(1);
+        await vi.waitFor(() => expect(schedulerNetwork.requests).toHaveLength(1));
 
         // The first run has not finished yet, so the next tick must be skipped.
         await vi.advanceTimersByTimeAsync(1_000);
-        expect(startBackgroundTaskMock).toHaveBeenCalledTimes(1);
+        await vi.waitFor(() => expect(schedulerNetwork.requests).toHaveLength(1));
 
-        releaseBackgroundTasks();
+        await releaseBackgroundTasks();
         await vi.advanceTimersByTimeAsync(1_000);
-        expect(startBackgroundTaskMock).toHaveBeenCalledTimes(2);
+        await vi.waitFor(() => expect(schedulerNetwork.requests).toHaveLength(2));
 
-        releaseBackgroundTasks();
+        await releaseBackgroundTasks();
         await scheduler.removeTask(task.id);
     });
 
@@ -138,12 +107,12 @@ describe('user schedules a repeating task', () => {
         });
         await vi.advanceTimersByTimeAsync(1_000);
 
-        expect(startBackgroundTaskMock).not.toHaveBeenCalled();
+        expect(schedulerNetwork.requests).toHaveLength(0);
 
         await vi.advanceTimersByTimeAsync(9_000);
-        expect(startBackgroundTaskMock).toHaveBeenCalledTimes(1);
+        await vi.waitFor(() => expect(schedulerNetwork.requests).toHaveLength(1));
 
-        releaseBackgroundTasks();
+        await releaseBackgroundTasks();
         await scheduler.removeTask(task.id);
     });
 
@@ -158,7 +127,7 @@ describe('user schedules a repeating task', () => {
         await expect(scheduler.removeTask(task.id)).resolves.toBe(true);
         await vi.advanceTimersByTimeAsync(5_000);
 
-        expect(startBackgroundTaskMock).not.toHaveBeenCalled();
+        expect(schedulerNetwork.requests).toHaveLength(0);
         expect(scheduler.getTask(task.id)).toBeUndefined();
     });
 
@@ -171,16 +140,16 @@ describe('user schedules a repeating task', () => {
         });
 
         await vi.advanceTimersByTimeAsync(1_000);
-        expect(startBackgroundTaskMock).toHaveBeenCalledTimes(1);
+        await vi.waitFor(() => expect(schedulerNetwork.requests).toHaveLength(1));
 
-        releaseBackgroundTasks();
+        await releaseBackgroundTasks();
         await vi.advanceTimersByTimeAsync(0);
 
         expect(scheduler.getTask(task.id)?.enabled).toBe(false);
         expect(scheduler.getTask(task.id)?.nextRunAt).toBeNull();
 
         await vi.advanceTimersByTimeAsync(10_000);
-        expect(startBackgroundTaskMock).toHaveBeenCalledTimes(1);
+        await vi.waitFor(() => expect(schedulerNetwork.requests).toHaveLength(1));
     });
 
     it('user sees a scheduled task still work after the run fails', async () => {
@@ -190,15 +159,19 @@ describe('user schedules a repeating task', () => {
             prompt: 'Summarize',
             trigger: { type: 'interval', milliseconds: 1_000 },
         });
-        startBackgroundTaskMock.mockRejectedValueOnce(new Error('model unavailable'));
+        schedulerNetwork.replies.push(new Response('{}', { status: 401 }));
+        const ordinaryResponse = schedulerNetwork.respondToGeneration;
+        schedulerNetwork.respondToGeneration = async (url, init) =>
+            schedulerNetwork.replies.shift() ?? ordinaryResponse!(url, init);
 
         await vi.advanceTimersByTimeAsync(1_000);
-        expect(startBackgroundTaskMock).toHaveBeenCalledTimes(1);
+        await vi.waitFor(() => expect(schedulerNetwork.requests).toHaveLength(1));
 
+        await waitForScheduledIdle();
         await vi.advanceTimersByTimeAsync(1_000);
-        expect(startBackgroundTaskMock).toHaveBeenCalledTimes(2);
+        await vi.waitFor(() => expect(schedulerNetwork.requests).toHaveLength(2));
 
-        releaseBackgroundTasks();
+        await releaseBackgroundTasks();
         await scheduler.removeTask(task.id);
     });
 

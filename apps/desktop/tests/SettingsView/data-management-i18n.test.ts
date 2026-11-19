@@ -1,190 +1,82 @@
-import { mount } from '@vue/test-utils';
-import { createPinia } from 'pinia';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createSettingsPanelFixture } from '@tests/utils/settingsPanel';
+import { getTauriInvokeCalls, mockTauriCommand } from '@tests/utils/tauri';
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { MetaKey } from '@/database/schema';
+import { StatisticKey } from '@/database/schema';
 import { setLocale } from '@/i18n';
 import BadgedLogo from '@/views/SettingsView/components/AiServices/components/BadgedLogo.vue';
 import ImportModeDialog from '@/views/SettingsView/components/DataManagement/components/ImportModeDialog.vue';
 import ProgressDialog from '@/views/SettingsView/components/DataManagement/components/ProgressDialog.vue';
 import DataManagement from '@/views/SettingsView/components/DataManagement/index.vue';
 
-const {
-    countMessagesMock,
-    countSessionsMock,
-    countSessionTurnsMock,
-    getStatisticMock,
-    importDatabaseMock,
-    relaunchMock,
-    setMetaMock,
-} = vi.hoisted(() => ({
-    countMessagesMock: vi.fn(),
-    countSessionsMock: vi.fn(),
-    countSessionTurnsMock: vi.fn(),
-    getStatisticMock: vi.fn(),
-    importDatabaseMock: vi.fn(),
-    relaunchMock: vi.fn(),
-    setMetaMock: vi.fn(),
-}));
-
-vi.mock('@database/queries', () => ({
-    countMessages: countMessagesMock,
-    countSessions: countSessionsMock,
-    countSessionTurns: countSessionTurnsMock,
-    deleteAllMessages: vi.fn(),
-    deleteAllSessions: vi.fn(),
-    deleteAllSessionTurns: vi.fn(),
-    getStatistic: getStatisticMock,
-}));
-
-vi.mock('@database/queries/touchaiMeta', () => ({
-    setMeta: setMetaMock,
-}));
-
-vi.mock('@database/backup', () => ({
-    databaseBackup: {
-        exportDatabase: vi.fn(),
-        importDatabase: importDatabaseMock,
-    },
-    isDatabaseBackupCancelledError: (error: unknown) =>
-        typeof error === 'object' &&
-        error !== null &&
-        (error as { code?: unknown }).code === 'DATABASE_BACKUP_CANCELLED',
-}));
-
-vi.mock('@composables/useAlert', () => ({
-    useAlert: () => ({
-        error: vi.fn(),
-        success: vi.fn(),
-    }),
-}));
-
-vi.mock('@composables/useConfirm', () => ({
-    useConfirm: () => ({
-        confirm: vi.fn(),
-    }),
-}));
-
-vi.mock('@tauri-apps/plugin-process', () => ({
-    relaunch: relaunchMock,
-}));
-
-vi.mock('@/services/AgentService/infrastructure/modelMetadata', () => ({
-    updateModelMetadata: vi.fn(),
-}));
-
-vi.mock('@components/AppIcon.vue', () => ({
-    default: {
-        name: 'AppIcon',
-        props: ['name'],
-        template: '<span data-testid="app-icon" />',
-    },
-}));
-
-vi.mock('@components/DialogShell.vue', () => ({
-    default: {
-        name: 'DialogShell',
-        props: ['maxWidthClass', 'contentClass'],
-        template:
-            '<section data-testid="dialog-shell" :class="[maxWidthClass, contentClass]"><slot /></section>',
-    },
-}));
-
-vi.mock('@components/ui/button', () => ({
-    Button: {
-        name: 'Button',
-        props: ['variant', 'size'],
-        template: '<button><slot /></button>',
-    },
-}));
-
-vi.mock('@/views/SettingsView/components/DataManagement/components/DiagnosticsSection.vue', () => ({
-    default: {
-        name: 'SettingsDiagnosticsSection',
-        template:
-            '<section data-testid="settings-diagnostics-section">Diagnostics and support</section>',
-    },
-}));
-
-vi.mock('@/views/SettingsView/components/DataManagement/components/AnalyticsSection.vue', () => ({
-    default: {
-        name: 'SettingsAnalyticsSection',
-        template:
-            '<section data-testid="settings-analytics-section">Privacy and product analytics</section>',
-    },
-}));
-
-async function flushMountedPromises() {
-    for (let index = 0; index < 4; index += 1) {
-        await Promise.resolve();
-    }
-}
-
-describe('user manages the app data', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
-        setLocale('zh-CN');
-        countSessionsMock.mockResolvedValue(1);
-        countMessagesMock.mockResolvedValue(2);
-        countSessionTurnsMock.mockResolvedValue(3);
-        getStatisticMock.mockResolvedValue('2026-05-20T12:34:00Z');
-        importDatabaseMock.mockResolvedValue(true);
-
-        setMetaMock.mockResolvedValue(undefined);
+let fixture: Awaited<ReturnType<typeof createSettingsPanelFixture>>;
+const wrappers: VueWrapper[] = [];
+beforeEach(async () => {
+    fixture = await createSettingsPanelFixture();
+    setLocale('en-US');
+    vi.stubGlobal('CSS', { escape: (value: string) => value });
+    mockTauriCommand('analytics_get_state', {
+        status: 'disabled',
+        consentEpoch: 0,
+        queueDepth: 0,
+        pendingBytes: 0,
+        buildEligible: false,
+        transportReady: false,
     });
+    mockTauriCommand('obs_diagnostic_mode_status', { enabled: false, expiresAtMs: 0 });
+    mockTauriCommand('obs_preview_bundle', { files: [], totalBytes: 0, truncated: false });
+});
+afterEach(async () => {
+    for (const wrapper of wrappers.splice(0)) wrapper.unmount();
+    await fixture?.dispose();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    setLocale('zh-CN');
+});
 
-    it('user sees model metadata last-updated text in English with localized date formatting', async () => {
-        setLocale('en-US');
-
-        const wrapper = mount(DataManagement, {
-            global: {
-                plugins: [createPinia()],
-                stubs: {
-                    ImportModeDialog: true,
-                    ProgressDialog: true,
-                },
-            },
-        });
-
-        await flushMountedPromises();
-
-        expect(wrapper.text()).toContain('Data & privacy');
-        expect(wrapper.text()).toContain('Data statistics');
-        expect(wrapper.text()).toContain('Conversation sessions');
-        expect(wrapper.text()).toContain('Clear all conversation history');
-        expect(wrapper.text()).toContain('Data updates');
-        expect(wrapper.text()).toContain('Model database');
-        expect(wrapper.text()).toContain('Last updated:');
-        expect(wrapper.text()).toContain('Data backup & restore');
-        expect(wrapper.text()).toContain('Export backup');
-        expect(wrapper.text()).toContain('Import backup');
-        expect(wrapper.text()).toContain('Diagnostics and support');
-        expect(wrapper.text()).toContain('Privacy and product analytics');
+describe('given the actual settings data panel in English', () => {
+    it('user when opening data management then sees translated sections and the saved metadata freshness', async () => {
+        fixture.database
+            .prepare('INSERT INTO statistics (key, value) VALUES (?, ?)')
+            .run(StatisticKey.MODEL_METADATA_LAST_UPDATED_AT, '2026-05-20T12:34:00Z');
+        const wrapper = mount(DataManagement, fixture.viewOptions);
+        wrappers.push(wrapper);
+        await flushPromises();
+        for (const text of [
+            'Data & privacy',
+            'Data statistics',
+            'Conversation sessions',
+            'Clear all conversation history',
+            'Data updates',
+            'Model database',
+            'Last updated:',
+            'Data backup & restore',
+            'Export backup',
+            'Import backup',
+            'Diagnostics and support',
+            'Privacy and product analytics',
+            'Clear',
+            'Update',
+            'Export',
+            'Import',
+        ]) {
+            expect(wrapper.text()).toContain(text);
+        }
         expect(wrapper.text().indexOf('Diagnostics and support')).toBeLessThan(
             wrapper.text().indexOf('Privacy and product analytics')
         );
-        expect(wrapper.text()).toContain('Clear');
-        expect(wrapper.text()).toContain('Update');
-        expect(wrapper.text()).toContain('Export');
-        expect(wrapper.text()).toContain('Import');
         expect(wrapper.text()).toMatch(/May|5/);
         expect(wrapper.text()).not.toContain('最近更新');
         expect(wrapper.text()).not.toContain('数据与隐私');
     });
 
-    it('user keeps the built-in provider badge localized without truncating longer labels', () => {
-        setLocale('en-US');
-
+    it('user when viewing a built-in provider then sees an untruncated localized badge', () => {
         const wrapper = mount(BadgedLogo, {
-            props: {
-                logo: 'missing-provider.svg',
-                name: 'Built In Provider',
-                showBadge: true,
-            },
+            props: { logo: 'missing-provider.svg', name: 'Built In Provider', showBadge: true },
         });
-
+        wrappers.push(wrapper);
         const badge = wrapper.get('[data-testid="provider-built-in-badge"]');
-
         expect(badge.text()).toBe('Built-in');
         expect(badge.classes()).toContain('whitespace-nowrap');
         expect(badge.classes()).toContain('min-w-max');
@@ -192,80 +84,68 @@ describe('user manages the app data', () => {
         expect(badge.classes()).not.toContain('max-w-[4.5rem]');
     });
 
-    it('user sees import mode dialog in English with wrapping-safe option buttons', () => {
-        setLocale('en-US');
-
+    it('user when opening import choices then sees translated wrapping-safe option buttons', async () => {
         const wrapper = mount(ImportModeDialog, {
-            props: {
-                isLoading: false,
-            },
+            props: { isLoading: false },
+            attachTo: document.body,
         });
-
-        expect(wrapper.text()).toContain('Choose import mode');
-        expect(wrapper.text()).toContain('Import conversation data only');
-        expect(wrapper.text()).toContain('Overwrite settings and import conversations');
-        expect(wrapper.text()).not.toContain('选择导入模式');
-
-        const modeButtons = wrapper.findAll('button').slice(0, 2);
-        expect(modeButtons[0]?.classes()).toContain('whitespace-normal');
-        expect(modeButtons[1]?.classes()).toContain('whitespace-normal');
+        wrappers.push(wrapper);
+        await flushPromises();
+        const dialog = document.querySelector('[role=dialog]')!;
+        expect(dialog.textContent).toContain('Choose import mode');
+        expect(dialog.textContent).toContain('Import conversation data only');
+        expect(dialog.textContent).toContain('Overwrite settings and import conversations');
+        expect(dialog.textContent).not.toContain('选择导入模式');
+        for (const button of [...dialog.querySelectorAll('button')].slice(0, 2))
+            expect(button.classList.contains('whitespace-normal')).toBe(true);
     });
 
-    it('user allows long progress messages and paths to break in the progress dialog', () => {
+    it('user when reading long progress paths then sees wrapping and the completed percentage', async () => {
         const wrapper = mount(ProgressDialog, {
             props: {
                 title: 'Database exported',
                 message:
-                    'E:\\very\\long\\backup\\path\\with\\many\\segments\\touchai-settings-backup-2026-05-22.db',
+                    'E:/very/long/backup/path/with/many/segments/touchai-settings-backup-2026-05-22.db',
                 progress: 42,
                 status: 'success',
                 dismissible: true,
             },
+            attachTo: document.body,
         });
-
-        const message = wrapper.get('[data-testid="progress-message"]');
-
-        expect(message.classes()).toContain('break-words');
-        expect(message.classes()).toContain('whitespace-normal');
-        expect(message.classes()).toContain('[overflow-wrap:anywhere]');
-        expect(wrapper.text()).toContain('42%');
+        wrappers.push(wrapper);
+        await flushPromises();
+        const message = document.querySelector('[data-testid="progress-message"]')!;
+        expect(message.classList.contains('break-words')).toBe(true);
+        expect(message.classList.contains('whitespace-normal')).toBe(true);
+        expect(message.classList.contains('[overflow-wrap:anywhere]')).toBe(true);
+        expect(document.querySelector('[role=dialog]')?.textContent).toContain('42%');
     });
 
-    it('user persists import-success startup notification as a source payload instead of translated text', async () => {
-        setLocale('en-US');
+    it('user when importing from the panel then persists source restart-notice bytes and relaunches only after the countdown', async () => {
+        mockTauriCommand('plugin:dialog|open', '/fixture/import.db');
+        const wrapper = mount(DataManagement, fixture.viewOptions);
+        wrappers.push(wrapper);
+        await flushPromises();
         vi.useFakeTimers();
-
-        try {
-            const wrapper = mount(DataManagement, {
-                global: {
-                    stubs: {
-                        ProgressDialog: true,
-                    },
-                },
-            });
-            await flushMountedPromises();
-
-            const buttons = wrapper.findAll('button');
-            await buttons[buttons.length - 1]?.trigger('click');
-            await wrapper.getComponent(ImportModeDialog).vm.$emit('select', 'full');
-            await flushMountedPromises();
-
-            expect(setMetaMock).toHaveBeenCalledWith({
-                key: MetaKey.IMPORT_SUCCESS,
-                value: JSON.stringify({
-                    type: 'import-success',
-                    version: 1,
-                    importMode: 'full',
-                }),
-            });
-            expect(JSON.stringify(setMetaMock.mock.calls)).not.toContain(
-                'Data imported successfully'
-            );
-
-            vi.clearAllTimers();
-            wrapper.unmount();
-        } finally {
-            vi.useRealTimers();
-        }
+        await wrapper
+            .get('[data-settings-search-target="import-settings"] button')
+            .trigger('click');
+        await flushPromises();
+        const option = [
+            ...document.querySelectorAll<HTMLButtonElement>('[role=dialog] button'),
+        ].find((button) => button.textContent?.includes('Overwrite settings'))!;
+        option.click();
+        await flushPromises();
+        expect(
+            fixture.database
+                .prepare('SELECT value FROM touchai_meta WHERE key = ?')
+                .get('import_success')?.value
+        ).toBe(JSON.stringify({ type: 'import-success', version: 1, importMode: 'full' }));
+        expect(document.querySelector('[data-testid="progress-message"]')?.textContent).toContain(
+            '3'
+        );
+        expect(getTauriInvokeCalls('plugin:process|restart')).toEqual([]);
+        await vi.advanceTimersByTimeAsync(4_000);
+        expect(getTauriInvokeCalls('plugin:process|restart')).toHaveLength(1);
     });
 });

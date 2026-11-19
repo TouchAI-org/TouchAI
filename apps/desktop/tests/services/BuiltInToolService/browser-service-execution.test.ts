@@ -1,395 +1,234 @@
-import type { ModelWithProvider } from '@database/queries/models';
-import { getLastTauriInvokeCall, mockTauriCommand } from '@tests/utils/tauri';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { routeQueriesTo } from '@tests/database/sqliteHarness';
+import { createAuditedToolsFixture } from '@tests/utils/auditedTools';
+import { getTauriInvokeCalls, mockTauriCommand } from '@tests/utils/tauri';
+import { describe, expect, it } from 'vitest';
 
-import { AiErrorCode } from '@/services/AgentService/contracts/errors';
-import { builtInToolService } from '@/services/BuiltInToolService/service';
+const navigate = (url = 'https://example.test/docs') => ({
+    id: 'browser-call',
+    name: 'builtin__browser',
+    arguments: JSON.stringify({ operation: 'navigate', url, description: 'Open documentation' }),
+});
+const session = {
+    id: '127.0.0.1:9222',
+    label: 'Chrome - example.test',
+    endpoint: 'http://127.0.0.1:9222',
+    browserName: 'Chrome',
+    currentUrl: 'https://example.test',
+    title: 'Example',
+    tabs: [],
+};
 
-const {
-    createBuiltInToolLogMock,
-    findBuiltInToolByToolIdMock,
-    findEnabledBuiltInToolsMock,
-    readEffectiveSettingValueMock,
-    touchBuiltInToolLastUsedMock,
-    updateBuiltInToolLogByIdMock,
-} = vi.hoisted(() => ({
-    createBuiltInToolLogMock: vi.fn(),
-    findBuiltInToolByToolIdMock: vi.fn(),
-    findEnabledBuiltInToolsMock: vi.fn(),
-    readEffectiveSettingValueMock: vi.fn(),
-    touchBuiltInToolLastUsedMock: vi.fn(),
-    updateBuiltInToolLogByIdMock: vi.fn(),
-}));
-
-vi.mock('@database/queries', () => ({
-    createBuiltInToolLog: createBuiltInToolLogMock,
-    findBuiltInToolByToolId: findBuiltInToolByToolIdMock,
-    findEnabledBuiltInTools: findEnabledBuiltInToolsMock,
-    touchBuiltInToolLastUsed: touchBuiltInToolLastUsedMock,
-    updateBuiltInToolLogById: updateBuiltInToolLogByIdMock,
-}));
-
-vi.mock('@/services/BuiltInToolService/settingsReader', () => ({
-    readEffectiveSettingValue: readEffectiveSettingValueMock,
-}));
-
-const currentModel = {
-    id: 1,
-    model_id: 'gpt-4o',
-    name: 'GPT-4o',
-    provider_id: 1,
-    provider_name: 'OpenAI',
-} as ModelWithProvider;
-
-function createBrowserRow() {
-    return {
-        id: 21,
-        tool_id: 'browser',
-        display_name: 'Browser',
-        description: null,
-        enabled: 1,
-        risk_level: 'medium',
-        config_json: null,
-        last_used_at: null,
-        created_at: '2026-05-24T00:00:00.000Z',
-        updated_at: '2026-05-24T00:00:00.000Z',
-    };
-}
-
-describe('user runs a browser tool', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
-        createBuiltInToolLogMock.mockResolvedValue({ id: 11 });
-        updateBuiltInToolLogByIdMock.mockResolvedValue(undefined);
-        touchBuiltInToolLastUsedMock.mockResolvedValue(undefined);
-        findBuiltInToolByToolIdMock.mockResolvedValue(createBrowserRow());
-        findEnabledBuiltInToolsMock.mockResolvedValue([{ tool_id: 'browser' }]);
-        readEffectiveSettingValueMock.mockResolvedValue(null);
-    });
-
-    it('user sees a missing browser operation refused without approval or browser access', async () => {
-        const emitToolEvent = vi.fn();
-        const requestToolApproval = vi.fn();
-        mockTauriCommand('browser_act', { ok: true, action: 'click' });
-
-        const result = await builtInToolService.executeTool({
-            toolCall: {
-                id: 'tool-call-1',
+describe('given browser calls use production descriptors and durable tool receipts', () => {
+    it('user receives a recorded invalid operation without approval or native browser access', async () => {
+        const input = await createAuditedToolsFixture();
+        const approvals: unknown[] = [];
+        const outcome = await (
+            await input.snapshot()
+        ).execute(
+            {
+                id: 'invalid',
                 name: 'builtin__browser',
-                arguments: '{}',
+                arguments: '{"ref":"submit-button","navigationToken":"obs-1"}',
             },
-            toolArgs: { ref: 'submit-button', navigationToken: 'obs-1' },
-            iteration: 1,
-            currentModel,
-
-            sessionId: 1,
-            toolCallMessageId: 2,
-            requestToolApproval,
-            emitToolEvent,
-        });
-
-        expect(result).toMatchObject({
-            builtInToolId: 'browser',
+            {
+                ...input.scope,
+                requestApproval: async (_id, approval) => {
+                    approvals.push(approval);
+                    return true;
+                },
+            }
+        );
+        expect(outcome).toMatchObject({
             isError: true,
+            sideEffect: 'none',
+            failureCode: 'invalid_arguments',
         });
-        expect(result?.result).toContain('Missing required browser operation');
-        expect(requestToolApproval).not.toHaveBeenCalled();
-        expect(getLastTauriInvokeCall('browser_act')).toBeUndefined();
-        expect(emitToolEvent).not.toHaveBeenCalledWith(
-            expect.objectContaining({ type: 'approval_required' })
-        );
+        expect(approvals).toEqual([]);
+        expect(getTauriInvokeCalls('browser_act')).toEqual([]);
+        expect(input.saved()).toEqual([expect.objectContaining({ status: 'error' })]);
     });
 
-    it('user approves a browser action once and it runs without a second question', async () => {
-        mockTauriCommand('browser_navigate', { ok: true });
-        const emitToolEvent = vi.fn();
-        const requestToolApproval = vi.fn(async () => true);
-        const requestUserQuestions = vi.fn();
-
-        const result = await builtInToolService.executeTool({
-            toolCall: {
-                id: 'tool-call-2',
-                name: 'builtin__browser',
-                arguments: '{}',
-            },
-            toolArgs: {
-                operation: 'navigate',
-                url: 'https://example.test/docs',
-                description: '打开官方文档',
-            },
-            iteration: 1,
-            currentModel,
-            sessionId: 1,
-            toolCallMessageId: 2,
-            requestToolApproval,
-            requestUserQuestions,
-            emitToolEvent,
-        });
-
-        expect(result).toMatchObject({
-            builtInToolId: 'browser',
-            isError: false,
-        });
-        expect(requestToolApproval).toHaveBeenCalledTimes(1);
-        expect(requestUserQuestions).not.toHaveBeenCalled();
-        expect(getLastTauriInvokeCall('browser_navigate')?.payload).toEqual({
-            request: { url: 'https://example.test/docs' },
-        });
-        expect(
-            emitToolEvent.mock.calls.filter(([event]) => event.type === 'approval_required')
-        ).toHaveLength(1);
-    });
-
-    it('user rejects a browser action once and it never reaches the native browser', async () => {
-        mockTauriCommand('browser_navigate', { ok: true });
-        const requestToolApproval = vi.fn(async () => false);
-        const requestUserQuestions = vi.fn();
-
-        const result = await builtInToolService.executeTool({
-            toolCall: {
-                id: 'tool-call-3',
-                name: 'builtin__browser',
-                arguments: '{}',
-            },
-            toolArgs: {
-                operation: 'navigate',
-                url: 'https://example.test/private',
-                description: '打开私有页面',
-            },
-            iteration: 1,
-            currentModel,
-            sessionId: 1,
-            toolCallMessageId: 2,
-            requestToolApproval,
-            requestUserQuestions,
-            emitToolEvent: vi.fn(),
-        });
-
-        expect(result).toMatchObject({ isError: true });
-        expect(requestToolApproval).toHaveBeenCalledTimes(1);
-        expect(requestUserQuestions).not.toHaveBeenCalled();
-        expect(getLastTauriInvokeCall('browser_navigate')).toBeUndefined();
-    });
-
-    it('user sees an approved browser action stop when cancelled while approval is persisted', async () => {
-        mockTauriCommand('browser_navigate', { ok: true });
-        const controller = new AbortController();
-        updateBuiltInToolLogByIdMock.mockImplementation(
-            async (_id: number, patch: { status?: string }) => {
-                if (patch.status === 'approved') {
-                    controller.abort();
-                }
-            }
-        );
-
-        await expect(
-            builtInToolService.executeTool({
-                toolCall: {
-                    id: 'tool-call-3',
-                    name: 'builtin__browser',
-                    arguments: '{}',
-                },
-                toolArgs: {
-                    operation: 'navigate',
-                    url: 'https://example.test/cancelled',
-                    description: '打开已取消页面',
-                },
-                iteration: 1,
-                currentModel,
-                signal: controller.signal,
-                sessionId: 1,
-                toolCallMessageId: 2,
-                requestToolApproval: vi.fn(async () => true),
-                emitToolEvent: vi.fn(),
-            })
-        ).rejects.toMatchObject({ code: AiErrorCode.REQUEST_CANCELLED });
-
-        expect(getLastTauriInvokeCall('browser_navigate')).toBeUndefined();
-        expect(updateBuiltInToolLogByIdMock).toHaveBeenCalledWith(
-            11,
-            expect.objectContaining({ status: 'cancelled' })
-        );
-    });
-
-    it('user sees an approved browser action stop when cancelled during browser settings loading', async () => {
-        mockTauriCommand('browser_navigate', { ok: true });
-        const controller = new AbortController();
-        let settingReads = 0;
-        readEffectiveSettingValueMock.mockImplementation(async () => {
-            settingReads += 1;
-            if (settingReads === 2) {
-                controller.abort();
-            }
+    it('user approves once and sees one native navigation and one committed success', async () => {
+        const input = await createAuditedToolsFixture();
+        const approvals: string[] = [];
+        const questions: unknown[] = [];
+        input.scope.task!.ask = async (_id, value) => {
+            questions.push(value);
             return null;
-        });
-
-        await expect(
-            builtInToolService.executeTool({
-                toolCall: {
-                    id: 'tool-call-4',
-                    name: 'builtin__browser',
-                    arguments: '{}',
-                },
-                toolArgs: {
-                    operation: 'navigate',
-                    url: 'https://example.test/cancelled-during-settings',
-                    description: '打开取消时正在读取设置的页面',
-                },
-                iteration: 1,
-                currentModel,
-                signal: controller.signal,
-                sessionId: 1,
-                toolCallMessageId: 2,
-                requestToolApproval: vi.fn(async () => true),
-                emitToolEvent: vi.fn(),
-            })
-        ).rejects.toMatchObject({ code: AiErrorCode.REQUEST_CANCELLED });
-
-        expect(getLastTauriInvokeCall('browser_navigate')).toBeUndefined();
-    });
-
-    it('user sees no approval when browser settings already allow the action', async () => {
-        readEffectiveSettingValueMock.mockResolvedValue(
-            JSON.stringify({
-                permissions: {
-                    navigate: 'allow',
-                },
-            })
-        );
+        };
         mockTauriCommand('browser_navigate', { ok: true });
-        const requestToolApproval = vi.fn(async () => true);
-        const requestUserQuestions = vi.fn();
-
-        const result = await builtInToolService.executeTool({
-            toolCall: {
-                id: 'tool-call-4',
-                name: 'builtin__browser',
-                arguments: '{}',
+        const outcome = await (
+            await input.snapshot()
+        ).execute(navigate(), {
+            ...input.scope,
+            requestApproval: async (_id, approval) => {
+                approvals.push(approval.command);
+                return true;
             },
-            toolArgs: {
-                operation: 'navigate',
-                url: 'https://example.test/allowed',
-                description: '打开允许的页面',
-            },
-            iteration: 1,
-            currentModel,
-            sessionId: 1,
-            toolCallMessageId: 2,
-            requestToolApproval,
-            requestUserQuestions,
-            emitToolEvent: vi.fn(),
         });
-
-        expect(result).toMatchObject({ isError: false });
-        expect(requestToolApproval).not.toHaveBeenCalled();
-        expect(requestUserQuestions).not.toHaveBeenCalled();
-        expect(getLastTauriInvokeCall('browser_navigate')?.payload).toEqual({
-            request: { url: 'https://example.test/allowed' },
-        });
+        expect(outcome.isError).toBe(false);
+        expect(approvals).toEqual(['Open documentation']);
+        expect(questions).toEqual([]);
+        expect(getTauriInvokeCalls('browser_navigate').map(({ payload }) => payload)).toEqual([
+            { request: { url: 'https://example.test/docs' } },
+        ]);
+        expect(input.saved()).toEqual([
+            expect.objectContaining({ status: 'success', approval_state: 'approved' }),
+        ]);
+        expect(input.events.filter((event) => event.type === 'approval_required')).toHaveLength(1);
     });
 
-    it('user chooses an existing browser session once without a separate approval', async () => {
-        mockTauriCommand('browser_discover_existing', [
-            {
-                id: '127.0.0.1:9222',
-                label: 'Chrome - example.test',
-                endpoint: 'http://127.0.0.1:9222',
-                browserName: 'Google Chrome',
-                currentUrl: 'https://example.test',
-                title: 'Example',
-                tabs: [],
+    it('user rejects once and receives a committed rejection without a native effect', async () => {
+        const input = await createAuditedToolsFixture();
+        const approvals: string[] = [];
+        const outcome = await (
+            await input.snapshot()
+        ).execute(navigate(), {
+            ...input.scope,
+            requestApproval: async (_id, approval) => {
+                approvals.push(approval.command);
+                return false;
             },
+        });
+        expect(outcome).toMatchObject({
+            isError: true,
+            failureCode: 'approval_rejected',
+            sideEffect: 'none',
+        });
+        expect(approvals).toHaveLength(1);
+        expect(getTauriInvokeCalls('browser_navigate')).toEqual([]);
+        expect(input.saved()).toEqual([
+            expect.objectContaining({ status: 'rejected', approval_state: 'rejected' }),
         ]);
-        mockTauriCommand('browser_connect_existing', {
-            status: { status: 'connected', managed: false },
-            session: { label: 'Chrome - example.test' },
-        });
-        const requestToolApproval = vi.fn(async () => true);
-        const requestUserQuestions = vi.fn(async () => [
-            {
-                questionIndex: 0,
-                selectedLabels: ['1. Chrome - example.test'],
-                skipped: false,
-            },
-        ]);
-
-        const result = await builtInToolService.executeTool({
-            toolCall: {
-                id: 'tool-call-5',
-                name: 'builtin__browser',
-                arguments: '{}',
-            },
-            toolArgs: {
-                operation: 'connect_existing',
-                description: '连接已有浏览器',
-            },
-            iteration: 1,
-            currentModel,
-            sessionId: 1,
-            toolCallMessageId: 2,
-            requestToolApproval,
-            requestUserQuestions,
-            emitToolEvent: vi.fn(),
-        });
-
-        expect(result).toMatchObject({ builtInToolId: 'browser', isError: false });
-        expect(requestToolApproval).not.toHaveBeenCalled();
-        expect(requestUserQuestions).toHaveBeenCalledTimes(1);
-        expect(getLastTauriInvokeCall('browser_connect_existing')?.payload).toEqual({
-            request: { endpoint: 'http://127.0.0.1:9222' },
-        });
     });
 
-    it('user cancels the existing-session chooser and gets a cancelled call instead of an error result', async () => {
-        mockTauriCommand('browser_discover_existing', [
-            {
-                id: '127.0.0.1:9222',
-                label: 'Chrome - example.test',
-                endpoint: 'http://127.0.0.1:9222',
-                browserName: 'Google Chrome',
-                currentUrl: 'https://example.test',
-                title: 'Example',
-                tabs: [],
+    it('user cancels while approval is saved and the recorded cancellation precedes any browser effect', async () => {
+        const input = await createAuditedToolsFixture();
+        routeQueriesTo(input.database, {
+            afterQuery: ({ sql }) => {
+                if (
+                    sql.startsWith('update "message_parts"') &&
+                    input.saved().some((part) => part.status === 'approved')
+                )
+                    input.controller.abort();
             },
-        ]);
-        mockTauriCommand('browser_connect_existing', {
-            status: { status: 'connected', managed: false },
         });
-        const controller = new AbortController();
-        const emitToolEvent = vi.fn();
+        const outcome = await (
+            await input.snapshot()
+        ).execute(navigate(), { ...input.scope, requestApproval: async () => true });
+        expect(outcome).toMatchObject({ failureCode: 'request_cancelled', sideEffect: 'none' });
+        expect(getTauriInvokeCalls('browser_navigate')).toEqual([]);
+        expect(input.saved()).toEqual([expect.objectContaining({ status: 'cancelled' })]);
+    });
 
-        await expect(
-            builtInToolService.executeTool({
-                toolCall: {
-                    id: 'tool-call-6',
-                    name: 'builtin__browser',
-                    arguments: '{}',
+    it('user cancels while live browser permissions load and no navigation begins afterwards', async () => {
+        const input = await createAuditedToolsFixture();
+        let approved = false;
+        routeQueriesTo(input.database, {
+            afterQuery: ({ sql, params }) => {
+                if (
+                    approved &&
+                    sql.startsWith('select') &&
+                    sql.includes('from "settings"') &&
+                    params.includes('browser_settings')
+                )
+                    input.controller.abort();
+            },
+        });
+        const outcome = await (
+            await input.snapshot()
+        ).execute(navigate(), {
+            ...input.scope,
+            requestApproval: async () => {
+                approved = true;
+                return true;
+            },
+        });
+        expect(outcome).toMatchObject({ failureCode: 'request_cancelled' });
+        expect(getTauriInvokeCalls('browser_navigate')).toEqual([]);
+    });
+
+    it('user performs a permitted navigation without an approval or duplicate question', async () => {
+        const input = await createAuditedToolsFixture();
+        input.database
+            .prepare('INSERT INTO settings (key, value) VALUES (?, ?)')
+            .run('browser_settings', JSON.stringify({ permissions: { navigate: 'allow' } }));
+        mockTauriCommand('browser_navigate', { ok: true });
+        const approvals: unknown[] = [];
+        expect(
+            await (
+                await input.snapshot()
+            ).execute(navigate(), {
+                ...input.scope,
+                requestApproval: async (_id, approval) => {
+                    approvals.push(approval);
+                    return true;
                 },
-                toolArgs: {
-                    operation: 'connect_existing',
-                    description: '连接已有浏览器',
-                },
-                iteration: 1,
-                currentModel,
-                signal: controller.signal,
-                sessionId: 1,
-                toolCallMessageId: 2,
-                requestToolApproval: vi.fn(async () => true),
-                requestUserQuestions: vi.fn(async () => {
-                    controller.abort();
-                    return null;
-                }),
-                emitToolEvent,
             })
-        ).rejects.toMatchObject({ code: AiErrorCode.REQUEST_CANCELLED });
+        ).toMatchObject({ isError: false });
+        expect(approvals).toEqual([]);
+        expect(getTauriInvokeCalls('browser_navigate')).toHaveLength(1);
+    });
 
-        expect(getLastTauriInvokeCall('browser_connect_existing')).toBeUndefined();
-        expect(updateBuiltInToolLogByIdMock).toHaveBeenCalledWith(
-            11,
-            expect.objectContaining({ status: 'cancelled' })
-        );
-        expect(emitToolEvent).not.toHaveBeenCalledWith(
-            expect.objectContaining({ type: 'call_end', finalStatus: 'error' })
-        );
+    it('user chooses an existing browser once without a separate approval', async () => {
+        const input = await createAuditedToolsFixture();
+        mockTauriCommand('browser_discover_existing', [session]);
+        mockTauriCommand('browser_connect_existing', { status: { status: 'connected' } });
+        const questions: unknown[] = [];
+        const approvals: unknown[] = [];
+        input.scope.task!.ask = async (_id, value) => {
+            questions.push(value);
+            return [
+                { questionIndex: 0, selectedLabels: ['1. Chrome - example.test'], skipped: false },
+            ];
+        };
+        expect(
+            await (
+                await input.snapshot()
+            ).execute(
+                {
+                    id: 'connect',
+                    name: 'builtin__browser',
+                    arguments:
+                        '{"operation":"connect_existing","description":"Connect existing browser"}',
+                },
+                {
+                    ...input.scope,
+                    requestApproval: async (_id, approval) => {
+                        approvals.push(approval);
+                        return true;
+                    },
+                }
+            )
+        ).toMatchObject({ isError: false });
+        expect(questions).toHaveLength(1);
+        expect(approvals).toEqual([]);
+        expect(
+            getTauriInvokeCalls('browser_connect_existing').map(({ payload }) => payload)
+        ).toEqual([{ request: { endpoint: session.endpoint } }]);
+    });
+
+    it('user cancels the existing-session chooser and no late native connection or error completion appears', async () => {
+        const input = await createAuditedToolsFixture();
+        mockTauriCommand('browser_discover_existing', [session]);
+        input.scope.task!.ask = async () => {
+            input.controller.abort();
+            return null;
+        };
+        expect(
+            await (
+                await input.snapshot()
+            ).execute(
+                {
+                    id: 'connect',
+                    name: 'builtin__browser',
+                    arguments:
+                        '{"operation":"connect_existing","description":"Connect existing browser"}',
+                },
+                input.scope
+            )
+        ).toMatchObject({ failureCode: 'request_cancelled' });
+        expect(getTauriInvokeCalls('browser_connect_existing')).toEqual([]);
+        expect(input.saved()).toEqual([expect.objectContaining({ status: 'cancelled' })]);
     });
 });

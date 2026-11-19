@@ -1,10 +1,6 @@
+import { createAiSdkStreamProcessor, normalizeAiUsage } from '@touchai/models';
 import type { TextStreamPart, ToolSet } from 'ai';
 import { describe, expect, it } from 'vitest';
-
-import {
-    createAiSdkStreamProcessor,
-    normalizeAiUsage,
-} from '@/services/AgentService/infrastructure/providers/ai-sdk/stream';
 
 /**
  * The stream processor is the seam between a provider's raw event stream and the app's chunk

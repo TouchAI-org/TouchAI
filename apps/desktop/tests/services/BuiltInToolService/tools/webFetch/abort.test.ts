@@ -1,9 +1,9 @@
+import { createWebFetchToolsFixture } from '@tests/utils/webFetchTools';
 import { describe, expect, it, vi } from 'vitest';
-
-import { extractHtmlContent } from '@/services/BuiltInToolService/tools/webFetch/helper';
+const { extractHtmlContent } = createWebFetchToolsFixture().operations;
 
 describe('extractHtmlContent cancellation', () => {
-    it('stays synchronous and side-effect free so callers can guard cancellation', () => {
+    it('user receives parsed page content without a network side effect', () => {
         const request = {
             url: new URL('https://example.com/article'),
             mode: 'page_text',
@@ -22,9 +22,8 @@ describe('extractHtmlContent cancellation', () => {
 });
 
 describe('web fetch abort guard', () => {
-    it('returns an aborted request without parsing when the signal is already aborted', async () => {
-        const { executeWebFetchTool } =
-            await import('@/services/BuiltInToolService/tools/webFetch');
+    it('user receives a cancellation failure when reading with an already aborted request', async () => {
+        const executeWebFetchTool = createWebFetchToolsFixture().execute;
         const { interceptTauriInvoke } = await import('@tests/utils/tauri');
         interceptTauriInvoke(() => undefined);
 

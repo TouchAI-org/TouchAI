@@ -1,7 +1,7 @@
+import { createWebFetchToolsFixture } from '@tests/utils/webFetchTools';
 import { describe, expect, it } from 'vitest';
 
-import { TOUCHAI_BUILTIN_SYSTEM_PROMPT } from '@/services/AgentService/prompt/builtin';
-import { webFetchTool } from '@/services/BuiltInToolService/tools/webFetch';
+import { TOUCHAI_BUILTIN_SYSTEM_PROMPT } from '@/app/workflows/agent/instructions';
 
 describe('user gets real web search instead of scraped search pages', () => {
     it('user sees the model told to call web search for discovery instead of fetching result pages', () => {
@@ -18,6 +18,7 @@ describe('user gets real web search instead of scraped search pages', () => {
     });
 
     it('user sees page reading described as reading known URLs, not discovery', () => {
+        const { tool: webFetchTool } = createWebFetchToolsFixture();
         expect(webFetchTool.description).toContain('known public web pages');
         expect(webFetchTool.description).toContain('builtin__web_search for discovery');
         expect(JSON.stringify(webFetchTool.inputSchema)).toContain(

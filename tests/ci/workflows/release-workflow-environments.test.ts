@@ -28,7 +28,7 @@ describe('release workflow deployment environments', () => {
         expect(workflow).toContain('workflow_dispatch:');
     });
 
-    it('formats Release Please generated files before pushing the release PR branch', async () => {
+    it('user receives the refreshed model catalog when release files are staged for the release PR', async () => {
         const workflow = await readWorkflow('release-please.yml');
 
         expect(workflow).toContain('Read release PR branch');
@@ -44,9 +44,18 @@ describe('release workflow deployment environments', () => {
         expect(workflow).toContain('.release-please-manifest.json');
         expect(workflow).toContain('apps/desktop/src-tauri/Cargo.lock');
         expect(workflow).toContain('apps/desktop/src-tauri/tauri.conf.json');
-        expect(workflow).toContain(
-            'apps/desktop/src/services/AgentService/infrastructure/modelMetadata/snapshot.json'
+        const metadataGenerator = await readFile(
+            resolve(repositoryRoot, 'apps/desktop/scripts/update-model-metadata.mjs'),
+            'utf8'
         );
+        const snapshotPath = metadataGenerator.match(
+            /export const MODEL_METADATA_SNAPSHOT_PATH = '([^']+)'/
+        )?.[1];
+        expect(snapshotPath).toBeDefined();
+        const stageCommand = workflow
+            .split('\n')
+            .find((line) => line.trim().startsWith('git add '));
+        expect(stageCommand?.trim().split(/\s+/)).toContain(`apps/desktop/${snapshotPath}`);
         expect(workflow).toContain('git commit --no-verify -m "chore: sync release please files"');
         expect(workflow).toContain('git push origin HEAD:"$RELEASE_PR_BRANCH"');
     });

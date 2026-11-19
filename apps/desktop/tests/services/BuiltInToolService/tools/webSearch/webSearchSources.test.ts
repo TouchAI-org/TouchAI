@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-    webSearchHostname,
-    webSearchSiteName,
-} from '@/services/BuiltInToolService/tools/webSearch/sources';
+import { webSearchHostname, webSearchSiteName } from '@/modules/tools/builtin/web-search/sources';
 import {
     isExternalHttpUrl,
     normalizeCitationUrl,

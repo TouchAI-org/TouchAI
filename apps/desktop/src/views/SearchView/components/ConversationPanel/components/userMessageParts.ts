@@ -1,6 +1,6 @@
 import type { JSONContent } from '@tiptap/core';
 
-import type { InputHistorySnapshot } from '@/types/session';
+import type { InputHistorySnapshot } from '@/app/api/agent/history';
 
 export type UserMessageInlinePart =
     | {

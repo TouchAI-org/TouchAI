@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
     normalizeOutputParts,
     type PersistedOutputPart,
-} from '@/services/AgentService/contracts/protocol';
+} from '@/modules/agent/contracts/persistence';
 
 describe('a saved answer keeps its parts and timings', () => {
     it('user sees a durable reasoning-start marker without empty text', () => {

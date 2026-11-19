@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { reportedPointer } from '@/services/ComputerUseService/pointer';
+import { reportedPointer } from '@/modules/tools/builtin/computer-control/pointer';
 
 describe('computer operation pointer coordinates', () => {
     it('user given a batch of pointer actions when it finishes then sees the last reported position', () => {

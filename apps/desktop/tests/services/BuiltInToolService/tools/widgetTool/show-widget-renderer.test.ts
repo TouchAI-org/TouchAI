@@ -1,13 +1,10 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
-
 import { createWidgetRenderer, widgetDocument, widgetWindow } from '@tests/utils/widgetFrame';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import {
-    SHOW_WIDGET_DRAFT_MIN_INTERVAL_MS,
-    SHOW_WIDGET_THEME_FALLBACKS,
-} from '@/services/BuiltInToolService/tools/widgetTool/showWidget/runtimeConstants';
-import { log } from '@/services/ObservabilityService';
+import { SHOW_WIDGET_DRAFT_MIN_INTERVAL_MS } from '@/app/api/tools/widgets';
+import { SHOW_WIDGET_THEME_FALLBACKS } from '@/components/widgets/runtimeConstants';
+import { log } from '@/platform/diagnostics';
 
 /**
  * The renderer is what turns the model's HTML into something the user can look at and click.

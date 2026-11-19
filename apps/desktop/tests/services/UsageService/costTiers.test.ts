@@ -1,8 +1,9 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
 import type { ModelPricing } from '@database/queries/llmMetadata';
-import { addCostBreakdown, computeCost, microsToAmount } from '@services/UsageService/cost';
 import { describe, expect, it } from 'vitest';
+
+import { addCostBreakdown, computeCost, microsToAmount } from '@/modules/usage/cost';
 
 function pricing(partial: Partial<ModelPricing> = {}): ModelPricing {
     return {

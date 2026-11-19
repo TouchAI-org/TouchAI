@@ -1,14 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { computed } from 'vue';
 
+import { createUpdateNotificationBody } from '@/app/api/updates/notificationText';
+import { appUpdateReleaseNotes, appUpdateReleaseSections } from '@/app/api/updates/releaseNotes';
 import { getLocale, setLocale } from '@/i18n';
-import { createUpdateNotificationBody } from '@/services/AppUpdateService/notificationText';
-import {
-    appUpdateReleaseNotes,
-    appUpdateReleaseSections,
-} from '@/services/AppUpdateService/releaseNotes';
-import { createInitialAppUpdateState } from '@/services/AppUpdateService/state';
-import type { AppUpdateChannelLatest } from '@/services/AppUpdateService/types';
+import { createInitialAppUpdateState } from '@/modules/updates/state';
+import type { AppUpdateChannelLatest } from '@/modules/updates/types';
 
 function state() {
     return {

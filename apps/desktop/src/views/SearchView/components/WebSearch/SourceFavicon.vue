@@ -22,7 +22,7 @@
 <script setup lang="ts">
     import { computed, ref, watch } from 'vue';
 
-    import { webSearchSiteName } from '@/services/BuiltInToolService/tools/webSearch/sources';
+    import { webSearchSiteName } from '@/app/api/tools/results';
 
     import { buildFaviconCandidates, faviconHost, rememberFavicon } from './favicon';
 

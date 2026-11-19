@@ -1,0 +1,69 @@
+// Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
+
+import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
+
+import { toModelInfo } from '../catalog/modelList';
+import type { ReasoningProtocol } from '../contracts/reasoning';
+import { z } from '../encoding/json';
+import { AiSdkProviderBase } from './base';
+
+const openAiCompatibleModelsSchema = z.object({
+    data: z.array(
+        z
+            .object({
+                id: z.string(),
+            })
+            .loose()
+    ),
+});
+
+/**
+ * OpenAI-compatible 适配器。
+ *
+ * 使用 @ai-sdk/openai-compatible SDK，默认不发送 stream_options，
+ * 兼容不支持该参数的第三方 provider（如 MiMo）。
+ *
+ * 中转站的 reasoning 语义不可信：默认 auto 不发参数；确认支持思考时在
+ * provider config 里设置 `reasoning.mode = 'passthrough'`（或指定 protocol）。
+ */
+export class OpenAICompatibleProviderAdapter extends AiSdkProviderBase {
+    readonly name = 'OpenAI 兼容';
+    readonly driver = 'openai-compatible' as const;
+
+    private sdkProvider = createOpenAICompatible({
+        name: 'openai-compatible',
+        apiKey: this.apiKey || '',
+        baseURL: this.getApiTargets().sdkBaseUrl || '',
+        headers: this.getCustomHeaders(),
+        fetch: this.fetch,
+        includeUsage: false,
+    });
+
+    protected createLanguageModel(modelId: string) {
+        return this.sdkProvider.chatModel(modelId);
+    }
+
+    protected getDiscoveryHeaders(): Record<string, string> {
+        return {
+            ...(this.apiKey
+                ? {
+                      Authorization: `Bearer ${this.apiKey}`,
+                  }
+                : {}),
+            ...this.getCustomHeaders(),
+        };
+    }
+
+    protected parseModelList(payload: unknown) {
+        const parsed = openAiCompatibleModelsSchema.parse(payload);
+        return parsed.data.map((model) => toModelInfo(model, { id: model.id }));
+    }
+
+    protected override getReasoningProtocol(): ReasoningProtocol {
+        return 'openai';
+    }
+
+    protected override getReasoningProviderOptionsKey(): string {
+        return 'openaiCompatible';
+    }
+}

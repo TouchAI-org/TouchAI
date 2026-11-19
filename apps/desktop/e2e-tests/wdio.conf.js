@@ -6,6 +6,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 import { provisionFontForAppRoot } from './e2e-font.js';
+import { createAgentFixture } from './test/support/agent-fixture.js';
 import { SKILL_FIXTURE_CONTENT, SKILL_FIXTURE_NAME } from './test/support/fixtures.js';
 import { resolveE2eAppBinaryPath, resolveTauriBuildArgs } from './wdio.paths.js';
 import { withE2eWebView2Env } from './webview2-env.js';
@@ -13,7 +14,9 @@ import { withE2eWebView2Env } from './webview2-env.js';
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const desktopRoot = path.resolve(__dirname, '..');
 const repoRoot = path.resolve(desktopRoot, '..', '..');
-const runtimeRoot = path.resolve(repoRoot, '.e2e-runtime');
+const runtimeRoot = process.env.TOUCHAI_E2E_RUNTIME_ROOT
+    ? path.resolve(process.env.TOUCHAI_E2E_RUNTIME_ROOT)
+    : path.resolve(repoRoot, '.e2e-runtime');
 const visualBaselineRoot = path.resolve(__dirname, '__snapshots__');
 const visualRuntimeRoot = path.resolve(runtimeRoot, 'visual');
 const updateVisualBaselines = process.env.UPDATE_VISUAL_BASELINE === '1';
@@ -21,6 +24,7 @@ const updateVisualBaselines = process.env.UPDATE_VISUAL_BASELINE === '1';
 let tauriDriver;
 let exitRequested = false;
 let sessionRuntimePath;
+let agentFixture;
 
 function resolveCargoTargetDirectory() {
     if (process.env.TOUCHAI_CARGO_TARGET_DIR) {
@@ -193,6 +197,9 @@ export const config = {
             path.join(__dirname, 'test/specs/clipboard-paste.e2e.js'),
             path.join(__dirname, 'test/specs/path-reference.e2e.js'),
         ],
+        path.join(__dirname, 'test/specs/agent-core.e2e.js'),
+        path.join(__dirname, 'test/specs/agent-tools.e2e.js'),
+        path.join(__dirname, 'test/specs/data-management.e2e.js'),
     ],
     bail: 1,
     maxInstances: 1,
@@ -289,14 +296,20 @@ export const config = {
 
         assertBuiltAppExists();
     },
-    beforeSession: async () => {
+    beforeSession: async (_config, _capabilities, specs) => {
         assertBuiltAppExists();
+        exitRequested = false;
 
         const tauriDriverPath = resolveTauriDriverPath();
         const nativeDriverPath = resolveNativeDriverPath();
 
         sessionRuntimePath = path.resolve(runtimeRoot, `session-${Date.now()}`);
         fs.mkdirSync(sessionRuntimePath, { recursive: true });
+        if (
+            specs.some((spec) => /(?:agent-core|agent-tools|data-management)\.e2e\.js$/.test(spec))
+        ) {
+            agentFixture = await createAgentFixture(sessionRuntimePath);
+        }
         const userHome = path.join(sessionRuntimePath, 'user-home');
         const appData = path.join(userHome, 'AppData', 'Roaming');
         const localAppData = path.join(userHome, 'AppData', 'Local');
@@ -359,7 +372,9 @@ export const config = {
 
         await waitForDriverServer(4444);
     },
-    afterSession: () => {
+    afterSession: async () => {
         closeTauriDriver();
+        await agentFixture?.close();
+        agentFixture = undefined;
     },
 };

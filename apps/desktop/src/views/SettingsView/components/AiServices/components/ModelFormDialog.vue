@@ -10,9 +10,9 @@
     import { Button } from '@components/ui/button';
     import { Input } from '@components/ui/input';
     import { useAlert } from '@composables/useAlert';
-    import type { Model, NewModel } from '@database/schema';
     import { computed, ref, watch } from 'vue';
 
+    import type { Model, ModelPatch, NewModel } from '@/app/api/models/administration';
     import { t } from '@/i18n';
     import { parseModelModalities, supportsImageModality } from '@/utils/modelSchemas';
 
@@ -40,7 +40,7 @@
 
     type Emits =
         | { (e: 'create', data: NewModel): void; (e: 'cancel'): void; (e: 'closed'): void }
-        | { (e: 'update', data: Partial<Model>): void; (e: 'cancel'): void; (e: 'closed'): void };
+        | { (e: 'update', data: ModelPatch): void; (e: 'cancel'): void; (e: 'closed'): void };
 
     const props = withDefaults(defineProps<Props>(), {
         providerId: undefined,
@@ -183,7 +183,7 @@
                 return;
             }
 
-            const updateData: Partial<Model> = {
+            const updateData: ModelPatch = {
                 name: form.value.name,
                 model_id: form.value.model_id,
             };
@@ -195,7 +195,7 @@
                 updateData.modalities = JSON.stringify(modalities);
                 updateData.is_custom_metadata = 1;
             }
-            (emit as (e: 'update', data: Partial<Model>) => void)('update', updateData);
+            (emit as (e: 'update', data: ModelPatch) => void)('update', updateData);
         } catch (err) {
             const fallback =
                 props.mode === 'create'

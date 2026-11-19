@@ -32,7 +32,7 @@ vi.mock('@tauri-apps/api/window', () => ({
     getCurrentWindow: () => windowApiMock.currentWindow,
 }));
 
-vi.mock('@services/ObservabilityService', () => ({
+vi.mock('@/platform/diagnostics', () => ({
     log: observabilityMock,
 }));
 
@@ -304,6 +304,7 @@ describe('when the window is transitioning between maximized and restored', () =
 describe('when the app restores the window from maximized', () => {
     it('user gets an immediate confirmation when the window is already restored', async () => {
         const window = {
+            onResized: windowApiMock.currentWindow.onResized,
             isMaximized: vi.fn().mockResolvedValue(false),
             maximize: vi.fn(),
             unmaximize: vi.fn(),
@@ -318,6 +319,7 @@ describe('when the app restores the window from maximized', () => {
     it('user gets the restore confirmed only after the window animation settles', async () => {
         vi.useFakeTimers();
         const window = {
+            onResized: windowApiMock.currentWindow.onResized,
             isMaximized: vi.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false),
             maximize: vi.fn(),
             unmaximize: vi.fn().mockResolvedValue(undefined),
@@ -343,6 +345,7 @@ describe('when the app restores the window from maximized', () => {
     it('user gets the maximize reported as failed when the window never settles', async () => {
         vi.useFakeTimers();
         const window = {
+            onResized: windowApiMock.currentWindow.onResized,
             isMaximized: vi.fn().mockResolvedValue(false),
             maximize: vi.fn().mockResolvedValue(undefined),
             unmaximize: vi.fn(),

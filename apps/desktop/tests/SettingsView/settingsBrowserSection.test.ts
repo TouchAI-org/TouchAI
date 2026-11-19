@@ -1,549 +1,470 @@
-import { DEFAULT_BROWSER_SETTINGS } from '@services/SettingsService/domain';
+import {
+    chooseSettingsOption,
+    createSettingsPanelFixture,
+    openSettingsSelect,
+} from '@tests/utils/settingsPanel';
 import { getTauriInvokeCalls, mockTauriCommand } from '@tests/utils/tauri';
-import { flushPromises, mount } from '@vue/test-utils';
-import { createPinia, setActivePinia } from 'pinia';
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
+import { createPinia, disposePinia } from 'pinia';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { nextTick } from 'vue';
 
+import {
+    type BrowserSettingsConfig,
+    DEFAULT_BROWSER_SETTINGS,
+    parseBrowserSettingsConfig,
+} from '@/app/api/settings/tools';
 import { setLocale } from '@/i18n';
 import BrowserSettingsView from '@/views/SettingsView/components/Browser/index.vue';
-import { resetBrowserRuntimeCacheForTests } from '@/views/SettingsView/components/Browser/runtimeCache';
 import { searchSettings } from '@/views/SettingsView/settingsSearch';
 
-const updateBrowserSettingsMock = vi.hoisted(() =>
-    vi.fn<(config: Record<string, unknown>) => Promise<void>>(async () => undefined)
-);
-const browserSettingsPatch = vi.hoisted(() => ({
-    value: {} as Record<string, unknown>,
-}));
-const settingsRefHolder = vi.hoisted(() => ({
-    current: null as null | { value: { browserSettings: Record<string, unknown> } },
-}));
-const DEFAULT_BROWSER_DATA_PATH = 'C:/Users/test/AppData/Roaming/TouchAI/browser-data';
+const chrome = {
+    id: 'chrome',
+    name: 'Google Chrome',
+    path: 'C:/Program Files/Google/Chrome/Application/chrome.exe',
+};
+const edge = {
+    id: 'edge',
+    name: 'Microsoft Edge',
+    path: 'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
+};
+const defaultDataPath = 'C:/Users/test/AppData/Roaming/TouchAI/browser-data';
+let fixture: Awaited<ReturnType<typeof createSettingsPanelFixture>> | undefined;
+let wrapper: VueWrapper | undefined;
+let pauseWrite: (() => Promise<void>) | undefined;
 
-vi.mock('@/stores/settings', async () => {
-    const { DEFAULT_BROWSER_SETTINGS } = await import('@services/SettingsService/domain');
-    const { ref } = await import('vue');
-
-    return {
-        useSettingsStore: () => {
-            const settingsRef = ref({
-                browserSettings: {
-                    ...DEFAULT_BROWSER_SETTINGS,
-                    defaultHomepage: 'https://example.test/home',
-                    browserExecutablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe',
-                    browserDataPath: 'D:/TouchAI/BrowserData',
-                    ...browserSettingsPatch.value,
-                },
-            });
-            settingsRefHolder.current = settingsRef as unknown as {
-                value: { browserSettings: Record<string, unknown> };
-            };
-
-            return {
-                settings: settingsRef,
-                updateBrowserSettings: updateBrowserSettingsMock,
-            };
-        },
-    };
+beforeEach(() => {
+    vi.useFakeTimers();
+    setLocale('en-US');
+    pauseWrite = undefined;
+    vi.stubGlobal(
+        'ResizeObserver',
+        class {
+            observe() {}
+            unobserve() {}
+            disconnect() {}
+        }
+    );
+    mockTauriCommand('browser_discover_installed', [chrome, edge]);
+    mockTauriCommand('browser_default_data_path', defaultDataPath);
 });
 
-function updateStoredBrowserSettings(patch: Record<string, unknown>) {
-    const holder = settingsRefHolder.current;
-    if (!holder) {
-        throw new Error('settings store was not initialized');
-    }
-    holder.value = {
-        browserSettings: {
-            ...holder.value.browserSettings,
-            ...patch,
+afterEach(async () => {
+    wrapper?.unmount();
+    wrapper = undefined;
+    await fixture?.dispose();
+    fixture = undefined;
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    document.body.innerHTML = '';
+});
+
+async function openPanel(patch: Partial<BrowserSettingsConfig> = {}, language = 'en-US') {
+    fixture = await createSettingsPanelFixture({
+        values: {
+            language,
+            browser_settings: JSON.stringify({
+                ...DEFAULT_BROWSER_SETTINGS,
+                defaultHomepage: 'https://example.test/home',
+                browserExecutablePath: chrome.path,
+                browserDataPath: 'D:/TouchAI/BrowserData',
+                ...patch,
+            }),
         },
-    };
+        query: {
+            async beforeQuery({ sql, params }) {
+                if (sql.startsWith('insert') && params[0] === 'browser_settings')
+                    await pauseWrite?.();
+            },
+        },
+    });
+    wrapper = mount(BrowserSettingsView, fixture.viewOptions);
+    await flushPromises();
+    return wrapper;
+}
+const persisted = () => fixture!.saved('browser_settings');
+const saved = () => parseBrowserSettingsConfig(persisted() ?? null);
+async function settleSave() {
+    await vi.advanceTimersByTimeAsync(300);
+    await flushPromises();
 }
 
-vi.mock('@components/CustomSelect.vue', () => ({
-    default: {
-        name: 'CustomSelect',
-        props: ['modelValue', 'options', 'disabled'],
-        emits: ['update:modelValue', 'update:open'],
-        template:
-            '<select data-testid="custom-select" :disabled="disabled" :value="modelValue" @focus="$emit(\'update:open\', true)" @blur="$emit(\'update:open\', false)" @change="$emit(\'update:modelValue\', $event.target.value)"><option v-for="option in options" :key="option.value" :value="option.value">{{ option.label }}{{ option.description ? "|" + option.description : "" }}</option></select>',
-    },
-}));
+function select(panel: VueWrapper, target: string) {
+    return panel.get(`[data-settings-search-target="browser-${target}"] [role="combobox"]`);
+}
 
-describe('user edits the browser settings', () => {
-    beforeEach(() => {
-        setActivePinia(createPinia());
-        setLocale('zh-CN');
-        vi.useFakeTimers();
-        resetBrowserRuntimeCacheForTests();
-        updateBrowserSettingsMock.mockClear();
-        updateBrowserSettingsMock.mockImplementation(async (config: Record<string, unknown>) => {
-            updateStoredBrowserSettings(config);
-        });
-        browserSettingsPatch.value = {};
-        if (settingsRefHolder.current) {
-            settingsRefHolder.current.value = {
-                browserSettings: {
-                    ...DEFAULT_BROWSER_SETTINGS,
-                    defaultHomepage: 'https://example.test/home',
-                    browserExecutablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe',
-                    browserDataPath: 'D:/TouchAI/BrowserData',
-                },
-            };
-        }
-        mockTauriCommand('browser_discover_installed', [
-            {
-                id: 'chrome',
-                name: 'Google Chrome',
-                path: 'C:/Program Files/Google/Chrome/Application/chrome.exe',
-            },
-            {
-                id: 'edge',
-                name: 'Microsoft Edge',
-                path: 'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
-            },
-        ]);
-        mockTauriCommand('browser_default_data_path', DEFAULT_BROWSER_DATA_PATH);
-    });
-
-    afterEach(() => {
-        vi.useRealTimers();
-    });
-
-    it('user sees dedicated browser controls and auto-saves edits through settings store', async () => {
-        const wrapper = mount(BrowserSettingsView);
-
-        expect(wrapper.get('[data-testid="browser-settings-title"]').text()).toContain(
-            '浏览器控制'
+describe('given browser configuration is edited through production main and a settings client', () => {
+    it('user sees browser controls and autosaves a mode and homepage through the main writer', async () => {
+        const panel = await openPanel();
+        expect(panel.get('[data-testid="browser-settings-title"]').text()).toContain(
+            'Browser Control'
         );
-        expect(wrapper.get('[data-testid="browser-enabled-toggle"]')).toBeTruthy();
-        expect(wrapper.text()).toContain('管理 TouchAI 控制浏览器的行为。');
-        expect(wrapper.text()).not.toContain('可在本页设置默认主页');
-        expect(wrapper.get('[data-testid="browser-data-path-input"]').element).toMatchObject({
+        expect(panel.text()).toContain('Manage how TouchAI controls browser behavior.');
+        expect(panel.get('[data-testid="browser-data-path-input"]').element).toMatchObject({
             value: 'D:/TouchAI/BrowserData',
         });
-        expect(wrapper.text()).toContain('留空时使用 TouchAI 数据目录');
-        expect(
-            wrapper.get('[data-testid="browser-data-path-input"]').attributes('placeholder')
-        ).toBe('browser-data');
-        await vi.runOnlyPendingTimersAsync();
-        expect(wrapper.get('[data-testid="browser-executable-select"]').element).toMatchObject({
-            value: 'C:/Program Files/Google/Chrome/Application/chrome.exe',
+        expect(panel.get('[data-testid="browser-data-path-input"]').attributes('placeholder')).toBe(
+            'browser-data'
+        );
+        expect(select(panel, 'executable').text()).toContain('Google Chrome');
+        expect(panel.find('[data-testid="browser-executable-path-input"]').exists()).toBe(false);
+        expect(panel.get('[data-testid="browser-default-homepage-input"]').element).toMatchObject({
+            value: 'https://example.test/home',
         });
-        expect(wrapper.get('[data-testid="browser-executable-select"]').text()).toContain(
-            'Google Chrome|C:/Program Files/Google/Chrome/Application/chrome.exe'
-        );
-        expect(wrapper.get('[data-testid="browser-executable-select"]').text()).toContain(
-            'Microsoft Edge'
-        );
-        expect(wrapper.find('[data-testid="browser-executable-path-input"]').exists()).toBe(false);
-        expect(wrapper.get('[data-testid="browser-default-homepage-input"]').element).toMatchObject(
-            {
-                value: 'https://example.test/home',
-            }
-        );
         expect(
-            wrapper.get('[data-testid="browser-default-homepage-input"]').attributes('placeholder')
+            panel.get('[data-testid="browser-default-homepage-input"]').attributes('placeholder')
         ).toBe('https://touch-ai.org');
-        expect(wrapper.text()).toContain('连接已有会话');
-        expect(wrapper.text()).toContain('询问');
-        expect(wrapper.text()).toContain('权限模式');
-        expect(wrapper.text()).toContain('始终允许');
-        expect(wrapper.text()).toContain('自动');
-        expect(wrapper.text()).toContain('拒绝');
-        expect(wrapper.text()).not.toContain('启用功能');
-        expect(wrapper.text()).toContain('权限');
-        expect(wrapper.text()).toContain('白名单域名');
-        expect(wrapper.text()).toContain('黑名单域名');
-        expect(wrapper.text()).toContain('高级');
-        expect(wrapper.text()).toContain('指纹模拟');
-        expect(wrapper.text()).toContain('基础');
-        expect(wrapper.text()).toContain('增强');
-        expect(wrapper.text()).not.toContain('指纹兼容');
-        expect(wrapper.text()).not.toContain('兼容模式');
-        expect(wrapper.text()).not.toContain('增强指纹处理');
-        expect(wrapper.text()).toContain('User-Agent 是浏览器告诉网站的身份信息');
-        expect(wrapper.text()).toContain('窗口大小，如 1366,768');
-        expect(wrapper.get('[data-testid="browser-window-width-input"]').element).toMatchObject({
-            value: '1366',
-        });
-        expect(wrapper.get('[data-testid="browser-window-height-input"]').element).toMatchObject({
-            value: '768',
-        });
-        expect(wrapper.get('[data-testid="browser-fingerprint-profile-row"]').classes()).toContain(
+        expect(panel.find('[data-testid="browser-save-button"]').exists()).toBe(false);
+        expect(panel.text()).toContain('Permissions');
+        expect(panel.text()).toContain('Allowlist domains');
+        expect(panel.text()).toContain('Blocklist domains');
+        expect(panel.text()).toContain('Advanced');
+        expect(panel.get('[data-testid="browser-fingerprint-profile-row"]').classes()).toContain(
             'sm:grid-cols-[minmax(0,1fr)_320px]'
         );
-        expect(wrapper.text().indexOf('权限')).toBeLessThan(wrapper.text().indexOf('黑名单域名'));
-        expect(wrapper.text().indexOf('白名单域名')).toBeLessThan(wrapper.text().indexOf('高级'));
-        expect(wrapper.text()).not.toContain('TouchAI 绝不会打开这些网站');
-        expect(wrapper.text()).not.toContain('无需询问即可打开的域名');
-        expect(wrapper.find('[data-testid="browser-save-button"]').exists()).toBe(false);
-        expect(wrapper.get('[data-testid="browser-default-mode-select"]')).toBeTruthy();
-
-        await wrapper.get('[data-testid="browser-default-mode-select"]').setValue('headless');
-        await vi.advanceTimersByTimeAsync(300);
-
-        expect(updateBrowserSettingsMock).toHaveBeenCalledWith(
-            expect.objectContaining({ headless: true })
-        );
-
-        await wrapper
+        await chooseSettingsOption(select(panel, 'mode'), 'Headless mode');
+        await settleSave();
+        expect(saved().headless).toBe(true);
+        await panel
             .get('[data-testid="browser-default-homepage-input"]')
             .setValue('https://example.test/next');
-        await vi.advanceTimersByTimeAsync(300);
-
-        expect(updateBrowserSettingsMock).toHaveBeenCalledWith(
-            expect.objectContaining({ defaultHomepage: 'https://example.test/next' })
+        await settleSave();
+        expect(saved()).toMatchObject({
+            headless: true,
+            defaultHomepage: 'https://example.test/next',
+        });
+        expect(JSON.stringify(fixture!.client.settings.getSnapshot())).not.toContain(
+            'browserSettings'
         );
     });
 
-    it('user edits browser window size as separate width and height fields', async () => {
-        const wrapper = mount(BrowserSettingsView);
-
-        await wrapper.get('[data-testid="browser-window-width-input"]').setValue('1440');
-        await wrapper.get('[data-testid="browser-window-height-input"]').setValue('900');
-        await vi.advanceTimersByTimeAsync(300);
-
-        expect(updateBrowserSettingsMock).toHaveBeenCalledWith(
-            expect.objectContaining({ fingerprintWindowSize: '1440,900' })
-        );
+    it('user edits separate window dimensions and main retains the existing serialized pair', async () => {
+        const panel = await openPanel();
+        expect(panel.get('[data-testid="browser-window-width-input"]').element).toMatchObject({
+            value: '1366',
+        });
+        expect(panel.get('[data-testid="browser-window-height-input"]').element).toMatchObject({
+            value: '768',
+        });
+        await panel.get('[data-testid="browser-window-width-input"]').setValue('1440');
+        await panel.get('[data-testid="browser-window-height-input"]').setValue('900');
+        await settleSave();
+        expect(saved().fingerprintWindowSize).toBe('1440,900');
     });
 
-    it('user keeps a pending edit without reverting another window browser change', async () => {
-        const wrapper = mount(BrowserSettingsView);
-
-        await wrapper
+    it('user keeps a pending homepage while incorporating another window mode change', async () => {
+        const panel = await openPanel();
+        await panel
             .get('[data-testid="browser-default-homepage-input"]')
             .setValue('https://example.test/pending');
-        updateStoredBrowserSettings({
+        const incoming = fixture!.window.toolSettings!.getBrowserSettings();
+        await fixture!.window.toolSettings!.updateBrowserSettings({
+            ...incoming,
             defaultHomepage: 'https://example.test/other-window',
             headless: true,
         });
-        await nextTick();
-
-        await vi.advanceTimersByTimeAsync(300);
-
-        expect(updateBrowserSettingsMock).toHaveBeenCalledWith(
-            expect.objectContaining({
-                defaultHomepage: 'https://example.test/pending',
-                headless: true,
-            })
-        );
+        await flushPromises();
+        await settleSave();
+        expect(saved()).toMatchObject({
+            defaultHomepage: 'https://example.test/pending',
+            headless: true,
+        });
     });
 
-    it('user navigates browser search results to their matching controls', () => {
-        const wrapper = mount(BrowserSettingsView);
-        const windowSizeResult = searchSettings('窗口尺寸').find(
+    it('user navigates translated browser search results to their matching controls', async () => {
+        const panel = await openPanel({}, 'zh-CN');
+        const sizeResult = searchSettings('窗口尺寸').find(
             (result) => result.section === 'browser'
         );
-        expect(windowSizeResult?.targetId).toBe('browser-window-size');
-        const windowSizeRow = wrapper.get(
-            `[data-settings-search-target="${windowSizeResult!.targetId}"]`
-        );
-        expect(windowSizeRow.find('[data-testid="browser-window-width-input"]').exists()).toBe(
-            true
-        );
-        expect(windowSizeRow.find('[data-testid="browser-window-height-input"]').exists()).toBe(
-            true
-        );
-
-        const userAgentResult = searchSettings('User-Agent').find(
+        expect(sizeResult?.targetId).toBe('browser-window-size');
+        const sizeRow = panel.get(`[data-settings-search-target="${sizeResult!.targetId}"]`);
+        expect(sizeRow.find('[data-testid="browser-window-width-input"]').exists()).toBe(true);
+        expect(sizeRow.find('[data-testid="browser-window-height-input"]').exists()).toBe(true);
+        const agentResult = searchSettings('User-Agent').find(
             (result) => result.section === 'browser'
         );
-        expect(userAgentResult?.targetId).toBe('browser-user-agent');
+        expect(agentResult?.targetId).toBe('browser-user-agent');
         expect(
-            wrapper
-                .get(`[data-settings-search-target="${userAgentResult!.targetId}"] input`)
+            panel
+                .get(`[data-settings-search-target="${agentResult!.targetId}"] input`)
                 .attributes('placeholder')
         ).toBe('Mozilla/5.0 ...');
     });
 
-    it('user sees localized homepage validation text', async () => {
-        const wrapper = mount(BrowserSettingsView);
-
-        await wrapper
+    it('user receives localized homepage validation and an invalid URL is never persisted', async () => {
+        const panel = await openPanel({}, 'zh-CN');
+        const original = persisted();
+        await panel
             .get('[data-testid="browser-default-homepage-input"]')
             .setValue('ftp://example.test');
-        await vi.advanceTimersByTimeAsync(300);
-
-        expect(wrapper.text()).toContain('请输入有效的 http 或 https 地址');
-        expect(wrapper.text()).not.toContain('settings.browser.validation.invalidHomepage');
-        expect(updateBrowserSettingsMock).not.toHaveBeenCalledWith(
-            expect.objectContaining({ defaultHomepage: 'ftp://example.test' })
-        );
+        await settleSave();
+        expect(panel.text()).toContain('请输入有效的 http 或 https 地址');
+        expect(panel.text()).not.toContain('settings.browser.validation.invalidHomepage');
+        expect(persisted()).toBe(original);
+        await panel
+            .get('[data-testid="browser-default-homepage-input"]')
+            .setValue('https://example.test/recovered');
+        await settleSave();
+        expect(saved().defaultHomepage).toBe('https://example.test/recovered');
     });
 
-    it('user sees detailed permission rows only in automatic permission mode', async () => {
-        const wrapper = mount(BrowserSettingsView);
-        const permissionModeSelect = wrapper.get('[data-testid="browser-permission-mode-select"]');
-
-        expect(wrapper.text()).toContain('浏览/跳转');
-        expect(wrapper.text()).toContain('会话管理');
-
-        await permissionModeSelect.setValue('allow');
-
-        expect(wrapper.text()).not.toContain('浏览/跳转');
-        expect(wrapper.text()).not.toContain('会话管理');
-        await vi.advanceTimersByTimeAsync(300);
-        expect(updateBrowserSettingsMock).toHaveBeenLastCalledWith(
-            expect.objectContaining({ permissionMode: 'allow' })
-        );
+    it('user sees detailed permissions only in automatic mode and saves the chosen profile', async () => {
+        const panel = await openPanel();
+        expect(
+            panel.find('[data-settings-search-target="browser-permission-navigate"]').exists()
+        ).toBe(true);
+        expect(
+            panel
+                .find('[data-settings-search-target="browser-permission-connectExisting"]')
+                .exists()
+        ).toBe(true);
+        await chooseSettingsOption(select(panel, 'permission-mode'), 'Always allow');
+        await settleSave();
+        expect(saved().permissionMode).toBe('allow');
+        expect(
+            panel.find('[data-settings-search-target="browser-permission-navigate"]').exists()
+        ).toBe(false);
+        expect(
+            panel
+                .find('[data-settings-search-target="browser-permission-connectExisting"]')
+                .exists()
+        ).toBe(false);
     });
 
-    it('user disables browser settings controls when the feature is off', async () => {
-        const wrapper = mount(BrowserSettingsView);
-
-        await wrapper.get('[data-testid="browser-enabled-toggle"]').trigger('click');
-
+    it('user disables browser controls and that choice is committed by main', async () => {
+        const panel = await openPanel();
+        await panel.get('[data-testid="browser-enabled-toggle"]').trigger('click');
         expect(
-            wrapper.get('[data-testid="browser-data-path-input"]').attributes('disabled')
+            panel.get('[data-testid="browser-data-path-input"]').attributes('disabled')
         ).toBeDefined();
+        expect(select(panel, 'executable').attributes('disabled')).toBeDefined();
         expect(
-            wrapper.get('[data-testid="browser-executable-select"]').attributes('disabled')
+            panel.get('[data-testid="browser-default-homepage-input"]').attributes('disabled')
         ).toBeDefined();
-        expect(
-            wrapper.get('[data-testid="browser-default-homepage-input"]').attributes('disabled')
-        ).toBeDefined();
-        expect(wrapper.find('[data-testid="custom-select"]').attributes('disabled')).toBeDefined();
+        expect(select(panel, 'mode').attributes('disabled')).toBeDefined();
+        await settleSave();
+        expect(saved().enabled).toBe(false);
     });
 
     it.each(['blocked', 'allowed'] as const)(
-        'user hides the %s domain empty state while editing and closes a blank draft on blur',
+        'user closes a blank %s domain draft on blur without changing saved rules',
         async (kind) => {
-            const wrapper = mount(BrowserSettingsView);
-            const section = wrapper.get(`[data-settings-search-target="browser-${kind}-domains"]`);
-
+            const panel = await openPanel();
+            const original = persisted();
+            const section = panel.get(`[data-settings-search-target="browser-${kind}-domains"]`);
             await section.get('[data-testid="empty-state"] button').trigger('click');
-
             expect(section.find('[data-testid="empty-state"]').exists()).toBe(false);
-            expect(section.get('button[aria-label="取消"]').text()).toBe('');
-
+            expect(section.get('button[aria-label="Cancel"]').text()).toBe('');
             await section.get('input').setValue('   ');
             await section.get('input').trigger('blur');
-
             expect(section.find('input').exists()).toBe(false);
             expect(section.find('[data-testid="empty-state"]').exists()).toBe(true);
-            expect(updateBrowserSettingsMock).not.toHaveBeenCalled();
-            wrapper.unmount();
+            await settleSave();
+            expect(persisted()).toBe(original);
         }
     );
 
     it.each(['blocked', 'allowed'] as const)(
-        'user keeps an unsubmitted %s domain on blur until the cancel icon is clicked',
+        'user keeps an unsubmitted %s domain on blur until cancelling the draft',
         async (kind) => {
-            const wrapper = mount(BrowserSettingsView);
-            const section = wrapper.get(`[data-settings-search-target="browser-${kind}-domains"]`);
-
+            const panel = await openPanel();
+            const original = persisted();
+            const section = panel.get(`[data-settings-search-target="browser-${kind}-domains"]`);
             await section.get('button').trigger('click');
             await section.get('input').setValue('example.com');
             await section.get('input').trigger('blur');
-
             expect(section.get('input').element).toMatchObject({ value: 'example.com' });
             expect(section.find('[data-testid="empty-state"]').exists()).toBe(false);
-
-            await section.get('button[aria-label="取消"]').trigger('click');
-
+            await section.get('button[aria-label="Cancel"]').trigger('click');
             expect(section.find('input').exists()).toBe(false);
             expect(section.find('[data-testid="empty-state"]').exists()).toBe(true);
             await section.get('button').trigger('click');
             expect(section.get('input').element).toMatchObject({ value: '' });
-            expect(updateBrowserSettingsMock).not.toHaveBeenCalled();
-            wrapper.unmount();
+            await settleSave();
+            expect(persisted()).toBe(original);
         }
     );
 
     it.each(['blocked', 'allowed'] as const)(
-        'user saves a normalized %s domain on Enter with the cancel-only editor',
+        'user saves a normalized %s domain on Enter and can remove the committed rule',
         async (kind) => {
-            const wrapper = mount(BrowserSettingsView);
-            const section = wrapper.get(`[data-settings-search-target="browser-${kind}-domains"]`);
-
+            const panel = await openPanel();
+            const section = panel.get(`[data-settings-search-target="browser-${kind}-domains"]`);
             await section.get('button').trigger('click');
             await section.get('input').setValue(' EXAMPLE.com ');
             await section.get('input').trigger('keydown', { key: 'Enter' });
-            await vi.advanceTimersByTimeAsync(300);
-
-            expect(section.find('button[aria-label="取消"]').exists()).toBe(false);
+            await settleSave();
+            expect(section.find('button[aria-label="Cancel"]').exists()).toBe(false);
             expect(section.get('input[readonly]').element).toMatchObject({ value: 'example.com' });
-            expect(section.find('[data-testid="empty-state"]').exists()).toBe(false);
-            expect(updateBrowserSettingsMock).toHaveBeenLastCalledWith(
-                expect.objectContaining({ [`${kind}Domains`]: [{ domain: 'example.com' }] })
-            );
-            wrapper.unmount();
+            expect(saved()[`${kind}Domains`]).toEqual([{ domain: 'example.com' }]);
+            await section.findAll('button')[1]!.trigger('click');
+            await settleSave();
+            expect(saved()[`${kind}Domains`]).toEqual([]);
         }
     );
 
-    it('user sees browser settings copy in English when locale is English', () => {
-        setLocale('en-US');
-
-        const wrapper = mount(BrowserSettingsView);
-
-        expect(wrapper.get('[data-testid="browser-settings-title"]').text()).toContain(
-            'Browser Control'
-        );
-        expect(wrapper.text()).toContain('Manage how TouchAI controls browser behavior.');
-        expect(wrapper.text()).toContain('Basics');
-        expect(wrapper.text()).toContain('Default browser');
-        expect(wrapper.text()).toContain('Custom browser location');
-        expect(wrapper.text()).toContain('Permissions');
-        expect(wrapper.text()).toContain('Permission mode');
-        expect(wrapper.text()).toContain('Always allow');
-        expect(wrapper.text()).toContain('Ask');
-        expect(wrapper.text()).toContain('Blocklist domains');
-        expect(wrapper.text()).toContain('Allowlist domains');
-        expect(wrapper.text()).toContain('Advanced');
-        expect(wrapper.text()).toContain('Default mode');
-        expect(wrapper.text()).toContain('Headless mode');
-        expect(wrapper.text()).toContain('Fingerprint simulation');
-        expect(wrapper.text()).toContain(
-            'User-Agent is the identity information the browser sends to websites'
-        );
-        expect(wrapper.text()).not.toContain('浏览器控制');
-        expect(wrapper.text()).not.toContain('权限模式');
+    it('user sees Chinese browser copy and its localized permission choices', async () => {
+        const panel = await openPanel({}, 'zh-CN');
+        expect(panel.get('[data-testid="browser-settings-title"]').text()).toContain('浏览器控制');
+        expect(panel.text()).toContain('管理 TouchAI 控制浏览器的行为。');
+        expect(panel.text()).toContain('白名单域名');
+        expect(panel.text()).toContain('黑名单域名');
+        expect(panel.text()).toContain('高级');
+        expect(panel.text()).toContain('指纹模拟');
+        expect(panel.text()).not.toContain('Browser Control');
+        const options = await openSettingsSelect(select(panel, 'permission-mode'));
+        expect(options.map((option) => option.text())).toEqual(['始终允许', '自动', '拒绝']);
     });
 
-    it('user sees the runtime default browser when no executable path is configured', async () => {
-        browserSettingsPatch.value = { browserExecutablePath: '' };
-        const wrapper = mount(BrowserSettingsView);
-        await vi.runOnlyPendingTimersAsync();
-
-        expect(wrapper.get('[data-testid="browser-executable-select"]').element).toMatchObject({
-            value: 'default',
+    it('user sees runtime defaults without materializing them into saved configuration', async () => {
+        const panel = await openPanel({
+            browserExecutablePath: '',
+            browserDataPath: '',
+            defaultHomepage: '',
         });
-        expect(wrapper.get('[data-testid="browser-executable-select"]').text()).toContain(
-            'Google Chrome'
-        );
-        expect(wrapper.get('[data-testid="browser-executable-select"]').text()).toContain(
-            '默认浏览器|当前将使用 Google Chrome'
-        );
-        expect(wrapper.get('[data-testid="browser-executable-select"]').text()).not.toContain(
-            '当前将使用 Google Chrome - C:/Program Files/Google/Chrome/Application/chrome.exe'
-        );
-        expect(wrapper.find('[data-testid="browser-executable-path-input"]').exists()).toBe(false);
-        expect(updateBrowserSettingsMock).not.toHaveBeenCalled();
-    });
-
-    it('user sees the runtime default browser data path without saving it automatically', async () => {
-        browserSettingsPatch.value = { browserDataPath: '' };
-        const wrapper = mount(BrowserSettingsView);
-
-        await flushPromises();
-
-        expect(wrapper.get('[data-testid="browser-data-path-input"]').element).toMatchObject({
-            value: DEFAULT_BROWSER_DATA_PATH,
+        const original = persisted();
+        expect(select(panel, 'executable').text()).toContain('Default browser');
+        expect(panel.get('[data-testid="browser-data-path-input"]').element).toMatchObject({
+            value: defaultDataPath,
         });
-        expect(updateBrowserSettingsMock).not.toHaveBeenCalled();
-    });
-
-    it('user sees the default homepage as the field value without saving it automatically', () => {
-        browserSettingsPatch.value = { defaultHomepage: '' };
-        const wrapper = mount(BrowserSettingsView);
-
-        expect(wrapper.get('[data-testid="browser-default-homepage-input"]').element).toMatchObject(
-            {
-                value: 'https://touch-ai.org',
-            }
+        expect(panel.get('[data-testid="browser-default-homepage-input"]').element).toMatchObject({
+            value: 'https://touch-ai.org',
+        });
+        const options = await openSettingsSelect(select(panel, 'executable'));
+        expect(options.map((option) => option.text())).toEqual(
+            expect.arrayContaining([
+                expect.stringContaining('Currently uses Google Chrome'),
+                expect.stringContaining(edge.path),
+                'Custom browser location',
+            ])
         );
-        expect(updateBrowserSettingsMock).not.toHaveBeenCalled();
+        expect(options[0]!.text()).not.toContain(chrome.path);
+        expect(panel.find('[data-testid="browser-executable-path-input"]').exists()).toBe(false);
+        await settleSave();
+        expect(persisted()).toBe(original);
     });
 
-    it('user reuses installed browser discovery across remounts in the same app runtime', async () => {
-        const firstWrapper = mount(BrowserSettingsView);
+    it('user remounts a panel in the same window and retains its cached browser catalog', async () => {
+        const first = await openPanel();
+        expect(select(first, 'executable').text()).toContain('Google Chrome');
+        first.unmount();
+        mockTauriCommand('browser_discover_installed', [edge]);
+        wrapper = mount(BrowserSettingsView, fixture!.viewOptions);
         await flushPromises();
-
+        expect(select(wrapper, 'executable').text()).toContain('Google Chrome');
         expect(getTauriInvokeCalls('browser_discover_installed')).toHaveLength(1);
-
-        firstWrapper.unmount();
-
-        const secondWrapper = mount(BrowserSettingsView);
-        await flushPromises();
-
-        expect(getTauriInvokeCalls('browser_discover_installed')).toHaveLength(1);
-
-        secondWrapper.unmount();
     });
 
-    it('user refreshes installed browsers asynchronously when the browser selector opens', async () => {
-        const wrapper = mount(BrowserSettingsView);
-        await flushPromises();
+    it('user reopens the app projection and receives a fresh catalog rather than another window cache', async () => {
+        const first = await openPanel();
+        first.unmount();
+        disposePinia(fixture!.pinia);
+        mockTauriCommand('browser_discover_installed', [edge]);
+        const pinia = createPinia();
+        try {
+            wrapper = mount(BrowserSettingsView, {
+                ...fixture!.viewOptions,
+                global: { ...fixture!.viewOptions.global, plugins: [pinia] },
+            });
+            await flushPromises();
+            expect(wrapper.find('[data-testid="browser-executable-path-input"]').exists()).toBe(
+                true
+            );
+            const options = await openSettingsSelect(select(wrapper, 'executable'));
+            expect(
+                options
+                    .map((option) => option.text())
+                    .some((text) => text.includes('Microsoft Edge'))
+            ).toBe(true);
+            expect(
+                options.map((option) => option.text()).some((text) => text.includes(chrome.path))
+            ).toBe(false);
+        } finally {
+            wrapper?.unmount();
+            wrapper = undefined;
+            disposePinia(pinia);
+        }
+    });
 
-        expect(getTauriInvokeCalls('browser_discover_installed')).toHaveLength(1);
-
-        await wrapper.get('[data-testid="browser-executable-select"]').trigger('focus');
-        await flushPromises();
-
+    it('user opens the browser selector and sees newly discovered executables without a blocking reload', async () => {
+        const panel = await openPanel();
+        const firefox = { id: 'firefox', name: 'Firefox', path: 'D:/Browsers/Firefox/firefox.exe' };
+        mockTauriCommand('browser_discover_installed', [chrome, firefox]);
+        const options = await openSettingsSelect(select(panel, 'executable'));
+        expect(options.map((option) => option.text())).toEqual(
+            expect.arrayContaining([expect.stringContaining(firefox.path)])
+        );
         expect(getTauriInvokeCalls('browser_discover_installed')).toHaveLength(2);
     });
 
-    it('user sees and saves the existing browser session policy', async () => {
-        browserSettingsPatch.value = { existingSessionPolicy: 'ask' };
-        const wrapper = mount(BrowserSettingsView);
-
-        expect(wrapper.text()).toContain('已有会话连接');
-
-        await wrapper
-            .get('[data-testid="browser-existing-session-policy-select"]')
-            .setValue('deny');
-        await vi.advanceTimersByTimeAsync(300);
-
-        expect(updateBrowserSettingsMock).toHaveBeenCalledWith(
-            expect.objectContaining({ existingSessionPolicy: 'deny' })
-        );
+    it('user sees the existing-session policy and main saves a change to denial', async () => {
+        const panel = await openPanel({ existingSessionPolicy: 'ask' });
+        expect(select(panel, 'existing-session').text()).toContain('Ask');
+        await chooseSettingsOption(select(panel, 'existing-session'), 'Deny');
+        await settleSave();
+        expect(saved().existingSessionPolicy).toBe('deny');
     });
 
-    it('user switches to custom browser path editing without auto-saving a discovered path first', async () => {
-        browserSettingsPatch.value = { browserExecutablePath: '' };
-        const wrapper = mount(BrowserSettingsView);
-        await vi.runOnlyPendingTimersAsync();
-
-        await wrapper.get('[data-testid="browser-executable-select"]').setValue('custom');
-
-        expect(
-            (
-                wrapper.get('[data-testid="browser-executable-path-input"]')
-                    .element as HTMLInputElement
-            ).value
-        ).toBe('');
-        expect(updateBrowserSettingsMock).not.toHaveBeenCalled();
-
-        await wrapper
+    it('user switches to a custom path without writing a discovered default and then saves the entered path', async () => {
+        const panel = await openPanel({ browserExecutablePath: '' });
+        const original = persisted();
+        await chooseSettingsOption(select(panel, 'executable'), 'Custom browser location');
+        expect(panel.get('[data-testid="browser-executable-path-input"]').element).toMatchObject({
+            value: '',
+        });
+        await settleSave();
+        expect(persisted()).toBe(original);
+        await panel
             .get('[data-testid="browser-executable-path-input"]')
             .setValue('D:/Browsers/Chrome/chrome.exe');
-        await vi.advanceTimersByTimeAsync(300);
-
-        expect(updateBrowserSettingsMock).toHaveBeenCalledWith(
-            expect.objectContaining({ browserExecutablePath: 'D:/Browsers/Chrome/chrome.exe' })
-        );
+        await settleSave();
+        expect(saved().browserExecutablePath).toBe('D:/Browsers/Chrome/chrome.exe');
     });
 
-    it('user saves a discovered browser path when selecting a concrete browser', async () => {
-        browserSettingsPatch.value = { browserExecutablePath: '' };
-        const wrapper = mount(BrowserSettingsView);
-        await vi.runOnlyPendingTimersAsync();
-
-        await wrapper
-            .get('[data-testid="browser-executable-select"]')
-            .setValue('C:/Program Files/Microsoft/Edge/Application/msedge.exe');
-        await vi.advanceTimersByTimeAsync(300);
-
-        expect(wrapper.find('[data-testid="browser-executable-path-input"]').exists()).toBe(false);
-        expect(updateBrowserSettingsMock).toHaveBeenCalledWith(
-            expect.objectContaining({
-                browserExecutablePath: 'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
-            })
-        );
+    it('user chooses a discovered executable and main saves that exact path', async () => {
+        const panel = await openPanel({ browserExecutablePath: '' });
+        await chooseSettingsOption(select(panel, 'executable'), 'Microsoft Edge');
+        await settleSave();
+        expect(panel.find('[data-testid="browser-executable-path-input"]').exists()).toBe(false);
+        expect(saved().browserExecutablePath).toBe(edge.path);
     });
 
-    it('user clears the custom browser path when switching back to the default browser', async () => {
-        const wrapper = mount(BrowserSettingsView);
+    it('user returns to the default browser and main clears the saved custom override', async () => {
+        const panel = await openPanel({ browserExecutablePath: 'D:/Custom/chrome.exe' });
+        expect(panel.find('[data-testid="browser-executable-path-input"]').exists()).toBe(true);
+        await chooseSettingsOption(select(panel, 'executable'), 'Default browser');
+        await settleSave();
+        expect(panel.find('[data-testid="browser-executable-path-input"]').exists()).toBe(false);
+        expect(saved().browserExecutablePath).toBe('');
+    });
 
-        await wrapper.get('[data-testid="browser-executable-select"]').setValue('default');
+    it('user closes during a save and a later browser draft is not submitted by the detached panel', async () => {
+        const panel = await openPanel();
+        let entered!: () => void;
+        let release!: () => void;
+        const writing = new Promise<void>((resolve) => {
+            entered = resolve;
+        });
+        const barrier = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        pauseWrite = async () => {
+            entered();
+            await barrier;
+        };
+        await panel
+            .get('[data-testid="browser-default-homepage-input"]')
+            .setValue('https://example.test/authorized');
         await vi.advanceTimersByTimeAsync(300);
-
-        expect(wrapper.find('[data-testid="browser-executable-path-input"]').exists()).toBe(false);
-        expect(updateBrowserSettingsMock).toHaveBeenCalledWith(
-            expect.objectContaining({ browserExecutablePath: '' })
-        );
+        await writing;
+        await panel
+            .get('[data-testid="browser-default-homepage-input"]')
+            .setValue('https://example.test/detached');
+        panel.unmount();
+        wrapper = undefined;
+        pauseWrite = undefined;
+        release();
+        await flushPromises();
+        await settleSave();
+        expect(saved().defaultHomepage).toBe('https://example.test/authorized');
     });
 });

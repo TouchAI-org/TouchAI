@@ -1,5 +1,7 @@
 import type { Provider } from '@database/schema';
+import { createTestWindowPresentation } from '@tests/utils/windowPresentation';
 import { mount } from '@vue/test-utils';
+import { beforeEach as beforePresentation } from 'vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
@@ -517,4 +519,8 @@ describe('user refreshes the model list', () => {
 
         expect(wrapper.findAll('button')[0]!.attributes('disabled')).toBeDefined();
     });
+});
+
+beforePresentation(async () => {
+    (await createTestWindowPresentation('settings')).install();
 });

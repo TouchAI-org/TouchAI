@@ -1,351 +1,160 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createMcpHostFixture } from '@tests/utils/mcpHost';
+import { getTauriInvokeCalls, mockTauriCommand } from '@tests/utils/tauri';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
-import { MCP_TIMEOUT_GUARD_GRACE_MS } from '@/services/AgentService/infrastructure/mcp/utils';
+import { ToolExecutionError } from '@/modules/tools';
+import { MCP_TIMEOUT_GUARD_GRACE_MS } from '@/modules/tools/mcp/formatting';
 import { TOOL_TIMEOUT_MAX_MS } from '@/utils/timeouts';
 
-const { callToolMock, findEnabledMcpServersMock, findEnabledMcpToolsByServerIdMock } = vi.hoisted(
-    () => ({
-        callToolMock: vi.fn(),
-        findEnabledMcpServersMock: vi.fn(async (): Promise<unknown[]> => []),
-        findEnabledMcpToolsByServerIdMock: vi.fn(async (): Promise<unknown[]> => []),
-    })
-);
+afterEach(() => {
+    vi.useRealTimers();
+    setLocale('zh-CN');
+});
 
-vi.mock('@database', () => ({ db: {} }));
-vi.mock('@database/queries', () => ({
-    findEnabledMcpServers: findEnabledMcpServersMock,
-    findEnabledMcpToolsByServerId: findEnabledMcpToolsByServerIdMock,
-    findMcpServerById: vi.fn(),
-    findMcpToolByServerIdAndName: vi.fn(),
-    findMcpToolsByServerId: vi.fn(async () => []),
-    updateMcpServer: vi.fn(),
-}));
-
-vi.mock('@services/EventService', () => ({
-    AppEvent: { MCP_STATUS: 'mcp-status' },
-    eventService: { emit: vi.fn() },
-}));
-
-vi.mock('@services/NativeService', () => ({
-    mcp: { callTool: callToolMock },
-}));
-
-vi.mock('@/services/AgentService/infrastructure/attachments', () => ({
-    base64ToUint8Array: vi.fn(),
-    createPersistedAttachmentFromData: vi.fn(),
-}));
-
-const SUCCESS_RESPONSE = {
-    success: true,
-    content: [{ type: 'text', text: 'ok' }],
-    is_error: false,
-};
-
-const RESOLVED = { serverId: 1, originalName: 'search', toolTimeout: 30000 };
-
-function never<T>(): Promise<T> {
-    return new Promise<T>(() => undefined);
+async function prepared(timeout = 30000) {
+    const input = createMcpHostFixture({ timeout });
+    await input.connections.connect(1);
+    return { ...input, snapshot: await input.tools.snapshot() };
 }
+const call = (requested?: number) => ({
+    id: 'call',
+    name: 'mcp__1__read_file',
+    arguments: JSON.stringify(requested === undefined ? {} : { _meta: { timeoutMs: requested } }),
+});
 
-describe('user lets the model choose how long an MCP tool may run', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
-        vi.useFakeTimers();
-        setLocale('zh-CN');
-    });
-
-    afterEach(() => {
-        vi.useRealTimers();
-    });
-
-    async function manager() {
-        const { McpManager } =
-            await import('@/services/AgentService/infrastructure/mcp/McpManager');
-        return new McpManager();
-    }
-
-    it('user sees the server timeout used when the model asks for no change', async () => {
-        callToolMock.mockReturnValue(never());
-        const mcpManager = await manager();
-
-        const pending = mcpManager.executeTool('mcp__1__search', {}, { resolved: RESOLVED });
-        const settled = vi.fn();
-        void pending.then(settled, settled);
-
-        // The local guard fires one grace window after the effective deadline.
-        const guardDeadline = RESOLVED.toolTimeout + MCP_TIMEOUT_GUARD_GRACE_MS;
-        await vi.advanceTimersByTimeAsync(guardDeadline - 1);
-        expect(settled).not.toHaveBeenCalled();
-
-        const assertion = expect(pending).rejects.toThrow(`${RESOLVED.toolTimeout}ms`);
-        await vi.advanceTimersByTimeAsync(1);
-        await assertion;
-    });
-
-    it('user sees a shorter timeout end the call at exactly the requested deadline', async () => {
-        callToolMock.mockReturnValue(never());
-        const mcpManager = await manager();
-
-        const pending = mcpManager.executeTool(
-            'mcp__1__search',
-            {},
-            {
-                resolved: RESOLVED,
-                requestedTimeoutMs: 5000,
-            }
-        );
-        const settled = vi.fn();
-        void pending.then(settled, settled);
-
-        await vi.advanceTimersByTimeAsync(5000 + MCP_TIMEOUT_GUARD_GRACE_MS - 1);
-        expect(settled).not.toHaveBeenCalled();
-
-        const assertion = expect(pending).rejects.toThrow('5000ms');
-        await vi.advanceTimersByTimeAsync(1);
-        await assertion;
-    });
-
-    it('user never sees a model-requested timeout exceed the server ceiling', async () => {
-        callToolMock.mockReturnValue(never());
-        const mcpManager = await manager();
-
-        const pending = mcpManager.executeTool(
-            'mcp__1__search',
-            {},
-            {
-                resolved: RESOLVED,
-                requestedTimeoutMs: TOOL_TIMEOUT_MAX_MS * 10,
-            }
-        );
-        const settled = vi.fn();
-        void pending.then(settled, settled);
-
-        // The server configuration is a hard ceiling: the model may only tighten it.
-        const guardDeadline = RESOLVED.toolTimeout + MCP_TIMEOUT_GUARD_GRACE_MS;
-        await vi.advanceTimersByTimeAsync(guardDeadline - 1);
-        expect(settled).not.toHaveBeenCalled();
-
-        const assertion = expect(pending).rejects.toThrow(`${RESOLVED.toolTimeout}ms`);
-        await vi.advanceTimersByTimeAsync(1);
-        await assertion;
-
-        expect(callToolMock).toHaveBeenCalledWith(1, 'search', {}, RESOLVED.toolTimeout);
-    });
-
-    it('user sees a below-minimum request ignored instead of cutting the call short', async () => {
-        callToolMock.mockReturnValue(never());
-        const mcpManager = await manager();
-
-        const pending = mcpManager.executeTool(
-            'mcp__1__search',
-            {},
-            {
-                resolved: RESOLVED,
-                requestedTimeoutMs: -1,
-            }
-        );
-        const settled = vi.fn();
-        void pending.then(settled, settled);
-
-        // A suggestion below the 1s floor must not shorten the call to 1s; the
-        // configured timeout (RESOLVED.toolTimeout) stays in effect.
-        const guardDeadline = RESOLVED.toolTimeout + MCP_TIMEOUT_GUARD_GRACE_MS;
-        await vi.advanceTimersByTimeAsync(guardDeadline - 1);
-        expect(settled).not.toHaveBeenCalled();
-
-        const assertion = expect(pending).rejects.toThrow(`${RESOLVED.toolTimeout}ms`);
-        await vi.advanceTimersByTimeAsync(1);
-        await assertion;
-
-        expect(callToolMock).toHaveBeenCalledWith(1, 'search', {}, RESOLVED.toolTimeout);
-    });
-
-    it('user sees the effective timeout passed to the server so the call can be cancelled', async () => {
-        callToolMock.mockResolvedValue(SUCCESS_RESPONSE);
-        const mcpManager = await manager();
-
-        await mcpManager.executeTool(
-            'mcp__1__search',
-            {},
-            {
-                resolved: RESOLVED,
-                requestedTimeoutMs: 5000,
-            }
-        );
-
-        expect(callToolMock).toHaveBeenCalledWith(1, 'search', {}, 5000);
-    });
-
-    it('user sees the server timeout passed when the model asks for no change', async () => {
-        callToolMock.mockResolvedValue(SUCCESS_RESPONSE);
-        const mcpManager = await manager();
-
-        await mcpManager.executeTool('mcp__1__search', {}, { resolved: RESOLVED });
-
-        expect(callToolMock).toHaveBeenCalledWith(1, 'search', {}, RESOLVED.toolTimeout);
-    });
-
-    it('user gets the tool result when it arrives before the deadline', async () => {
-        callToolMock.mockResolvedValue(SUCCESS_RESPONSE);
-        const mcpManager = await manager();
-
-        await expect(
-            mcpManager.executeTool(
-                'mcp__1__search',
-                {},
-                {
-                    resolved: RESOLVED,
-                    requestedTimeoutMs: 5000,
-                }
-            )
-        ).resolves.toMatchObject({ isError: false });
-    });
-
-    it.each([0, -1])(
-        'user sees a timeout of %i treated as disabled and kept away from the native boundary',
-        async (toolTimeout) => {
-            callToolMock.mockResolvedValue(SUCCESS_RESPONSE);
-            const mcpManager = await manager();
-
-            await expect(
-                mcpManager.executeTool(
-                    'mcp__1__search',
-                    {},
-                    {
-                        resolved: { ...RESOLVED, toolTimeout },
-                    }
-                )
-            ).resolves.toMatchObject({ isError: false });
-
-            expect(callToolMock).toHaveBeenCalledWith(1, 'search', {}, undefined);
+describe('given a captured server timeout and model execution metadata', () => {
+    it.each([
+        [undefined, 30000],
+        [5000, 5000],
+        [TOOL_TIMEOUT_MAX_MS * 10, 30000],
+        [-1, 30000],
+    ] as const)(
+        'user requests %s milliseconds and waits exactly for the effective %s millisecond native guard',
+        async (requested, effective) => {
+            const input = await prepared();
+            vi.useFakeTimers();
+            mockTauriCommand('mcp_call_tool', () => new Promise(() => undefined));
+            const pending = input.snapshot
+                .execute(call(requested), { iteration: 0 })
+                .catch((error: unknown) => {
+                    expect(error).toBeInstanceOf(ToolExecutionError);
+                    return (error as ToolExecutionError).outcome;
+                });
+            let finished = false;
+            void pending.then(() => {
+                finished = true;
+            });
+            await vi.advanceTimersByTimeAsync(0);
+            expect(getTauriInvokeCalls('mcp_call_tool').map(({ payload }) => payload)).toEqual([
+                { serverId: 1, toolName: 'read_file', arguments: {}, timeoutMs: effective },
+            ]);
+            await vi.advanceTimersByTimeAsync(effective + MCP_TIMEOUT_GUARD_GRACE_MS - 1);
+            expect(finished).toBe(false);
+            await vi.advanceTimersByTimeAsync(1);
+            expect(await pending).toMatchObject({ isError: true, sideEffect: 'unknown' });
+            expect((await pending).result).toContain(`${effective}ms`);
         }
     );
 
-    it('user sees no model timeout honored when the server disables timeouts', async () => {
-        callToolMock.mockResolvedValue(SUCCESS_RESPONSE);
-        const mcpManager = await manager();
-
-        await mcpManager.executeTool(
-            'mcp__1__search',
-            {},
-            {
-                resolved: { ...RESOLVED, toolTimeout: 0 },
-                requestedTimeoutMs: TOOL_TIMEOUT_MAX_MS * 10,
-            }
-        );
-
-        expect(callToolMock).toHaveBeenCalledWith(1, 'search', {}, undefined);
-    });
-
-    it('user reads the timeout failure in their own language', async () => {
-        callToolMock.mockRejectedValue(new Error('Tool execution timed out (5000ms)'));
-        const mcpManager = await manager();
-
-        await expect(
-            mcpManager.executeTool(
-                'mcp__1__search',
-                {},
+    it.each([undefined, 5000])(
+        'user receives a completed result when the %s millisecond request finishes before its deadline',
+        async (requested) => {
+            const input = await prepared();
+            expect(await input.snapshot.execute(call(requested), { iteration: 0 })).toMatchObject({
+                isError: false,
+                result: 'ok',
+            });
+            expect(getTauriInvokeCalls('mcp_call_tool').map(({ payload }) => payload)).toEqual([
                 {
-                    resolved: RESOLVED,
-                    requestedTimeoutMs: 5000,
-                }
-            )
-        ).rejects.toThrow('工具执行超时（5000ms）');
+                    serverId: 1,
+                    toolName: 'read_file',
+                    arguments: {},
+                    timeoutMs: requested ?? 30000,
+                },
+            ]);
+        }
+    );
+
+    it.each([0, -1])(
+        'user sees the configured %s timeout disabled without a native deadline',
+        async (timeout) => {
+            const input = await prepared(timeout);
+            expect(input.snapshot.declarations[0]?.adaptiveTimeoutCeilingMs).toBeUndefined();
+            expect(await input.snapshot.execute(call(), { iteration: 0 })).toMatchObject({
+                isError: false,
+            });
+            expect(getTauriInvokeCalls('mcp_call_tool').map(({ payload }) => payload)).toEqual([
+                { serverId: 1, toolName: 'read_file', arguments: {}, timeoutMs: undefined },
+            ]);
+        }
+    );
+
+    it('user reads a native timeout in the current language with the captured deadline', async () => {
+        setLocale('zh-CN');
+        const input = await prepared();
+        mockTauriCommand('mcp_call_tool', () => {
+            throw new Error('Tool execution timed out (5000ms)');
+        });
+        const outcome = await input.snapshot
+            .execute(call(5000), { iteration: 0 })
+            .catch((error: unknown) => {
+                expect(error).toBeInstanceOf(ToolExecutionError);
+                return (error as ToolExecutionError).outcome;
+            });
+        expect(outcome.isError).toBe(true);
+        expect(outcome.result).toContain('工具执行超时（5000ms）');
     });
 
-    it('user sees an out-of-range timeout reported as a configuration error', async () => {
-        callToolMock.mockResolvedValue(SUCCESS_RESPONSE);
-        const mcpManager = await manager();
-
-        await expect(
-            mcpManager.executeTool(
-                'mcp__1__search',
-                {},
-                {
-                    resolved: { ...RESOLVED, toolTimeout: 1e20 },
-                }
-            )
-        ).rejects.toThrow('服务器工具超时配置无效');
-
-        expect(callToolMock).not.toHaveBeenCalled();
+    it('user receives an invalid timeout failure before any native effect and can use the next valid binding', async () => {
+        const input = await prepared(1e20);
+        const outcome = await input.snapshot
+            .execute(call(), { iteration: 0 })
+            .catch((error: unknown) => {
+                expect(error).toBeInstanceOf(ToolExecutionError);
+                return (error as ToolExecutionError).outcome;
+            });
+        expect(outcome.isError).toBe(true);
+        expect(outcome.result).toContain('服务器工具超时配置无效');
+        expect(getTauriInvokeCalls('mcp_call_tool')).toEqual([]);
+        input.database.exec('UPDATE mcp_servers SET tool_timeout = 30000');
+        expect(
+            await (await input.tools.snapshot()).execute(call(), { iteration: 0 })
+        ).toMatchObject({ isError: false });
     });
 
-    it('user is not cut off early by the local guard for a very long timeout', async () => {
-        // 2^31 ms overflows setTimeout: a naive timer would reject almost immediately.
-        callToolMock.mockReturnValue(never());
-        const mcpManager = await manager();
-
-        const pending = mcpManager.executeTool(
-            'mcp__1__search',
-            {},
-            {
-                resolved: { ...RESOLVED, toolTimeout: 2_147_483_648 },
-            }
-        );
-        const settled = vi.fn();
-        void pending.then(settled, settled);
-
-        await vi.advanceTimersByTimeAsync(2_147_483_647);
-        expect(settled).not.toHaveBeenCalled();
-    });
-});
-
-describe('user sees each MCP tool advertise its own timeout ceiling', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
-        findEnabledMcpToolsByServerIdMock.mockResolvedValue([
-            {
-                name: 'search',
-                description: 'search',
-                input_schema: JSON.stringify({ type: 'object', properties: {} }),
-            },
-        ]);
+    it('user is not cut off by a timer overflow for a long native deadline', async () => {
+        const input = await prepared(2147483648);
+        vi.useFakeTimers();
+        mockTauriCommand('mcp_call_tool', () => new Promise(() => undefined));
+        const cancellation = new AbortController();
+        const pending = input.snapshot.execute(call(), {
+            iteration: 0,
+            signal: cancellation.signal,
+        });
+        let finished = false;
+        void pending.then(() => {
+            finished = true;
+        });
+        await vi.advanceTimersByTimeAsync(2147483647);
+        expect(finished).toBe(false);
+        cancellation.abort();
+        expect(await pending).toMatchObject({
+            failureCode: 'request_cancelled',
+            sideEffect: 'unknown',
+        });
     });
 
-    function serverEntity(toolTimeout: number) {
-        return {
-            id: 1,
-            name: 'srv',
-            transport_type: 'stdio',
-            command: null,
-            args: null,
-            env: null,
-            cwd: null,
-            url: null,
-            headers: null,
-            enabled: 1,
-            tool_timeout: toolTimeout,
-            version: null,
-            last_error: null,
-            last_connected_at: null,
-            created_at: '',
-            updated_at: '',
-        };
-    }
-
-    async function ceilingFor(toolTimeout: number): Promise<number | undefined> {
-        findEnabledMcpServersMock.mockResolvedValue([serverEntity(toolTimeout)]);
-
-        const { McpManager } =
-            await import('@/services/AgentService/infrastructure/mcp/McpManager');
-        const mcpManager = new McpManager();
-        mcpManager.setStatusFromEvent(1, 'connected');
-
-        const definitions = await mcpManager.getEnabledToolDefinitions();
-        return definitions[0]?.adaptiveTimeoutCeilingMs;
-    }
-
-    it('user sees the server timeout advertised as the ceiling', async () => {
-        await expect(ceilingFor(30000)).resolves.toBe(30000);
-    });
-
-    it('user sees no timeout hint when the server disables timeouts', async () => {
-        await expect(ceilingFor(0)).resolves.toBeUndefined();
-    });
-
-    it('user sees no timeout hint when the configured timeout leaves no valid range', async () => {
-        // 500ms < 1s minimum: advertising [1s, 500ms] would be an invalid schema.
-        await expect(ceilingFor(500)).resolves.toBeUndefined();
-    });
+    it.each([
+        [30000, 30000],
+        [0, undefined],
+        [500, undefined],
+    ] as const)(
+        'user sees the saved %s millisecond server limit advertised as %s when preparing a turn',
+        async (timeout, ceiling) => {
+            expect(
+                (await prepared(timeout)).snapshot.declarations[0]?.adaptiveTimeoutCeilingMs
+            ).toBe(ceiling);
+        }
+    );
 });

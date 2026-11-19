@@ -54,13 +54,13 @@
 <script setup lang="ts">
     import searchLogo from '@assets/logo.svg';
     import ModelLogo from '@components/ModelLogo.vue';
-    import { log } from '@services/ObservabilityService';
     import { EditorContent } from '@tiptap/vue-3';
     import type { ComponentPublicInstance } from 'vue';
     import { computed, onMounted, onUnmounted, ref, toRefs, useId, watch } from 'vue';
 
-    import type { Index } from '@/services/AgentService/infrastructure/attachments';
-    import type { SelectedSkill, SkillMetadata } from '@/services/AgentService/skills';
+    import type { Index } from '@/app/api/attachments/presentation';
+    import { log } from '@/app/api/diagnostics';
+    import type { SelectedSkill, SkillMetadata } from '@/app/api/skills/catalog';
 
     import { type ModelCapabilities, useSearchInput } from './composables/useSearchLogic';
     import type { SkillPickerState } from './composables/useSkillAutocomplete';

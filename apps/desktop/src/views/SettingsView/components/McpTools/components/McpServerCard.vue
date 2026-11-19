@@ -3,11 +3,11 @@
 <script setup lang="ts">
     import { Switch } from '@components/ui/switch';
     import { useConfirm } from '@composables/useConfirm';
-    import type { McpServerEntity } from '@database/types';
     import { computed } from 'vue';
 
+    import type { McpServerEntity } from '@/app/api/tools/mcpAdministration';
     import { t } from '@/i18n';
-    import { useMcpStore } from '@/stores/mcp';
+    import { useMcpAdministrationStore as useMcpStore } from '@/stores/mcpAdministration';
     interface Props {
         server: McpServerEntity;
         selected: boolean;

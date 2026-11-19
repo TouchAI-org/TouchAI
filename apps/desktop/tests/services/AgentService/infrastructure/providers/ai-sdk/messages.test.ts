@@ -1,31 +1,17 @@
+import {
+    type AttachmentEncodingContext as ProviderAttachmentRequestContext,
+    encodeDesktopMessages as buildModelMessages,
+    encodeDesktopTools as buildToolSet,
+} from '@tests/utils/modelEncoding';
+import { getProviderApiTargets } from '@touchai/models/catalog';
 import type { ToolSet } from 'ai';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { DesktopModelMessage as AiMessage } from '@/adapters/models/input';
+import { composePromptSnapshot } from '@/app/workflows/agent/prompt';
 import { setLocale } from '@/i18n';
-import type { AiContentPart, AiMessage } from '@/services/AgentService/contracts/protocol';
-import type { AiToolDefinition } from '@/services/AgentService/contracts/tooling';
-import type { ProviderAttachmentRequestContext } from '@/services/AgentService/infrastructure/providers/ai-sdk/attachments';
-import {
-    buildModelMessages,
-    buildToolSet,
-} from '@/services/AgentService/infrastructure/providers/ai-sdk/messages';
-import { composePromptSnapshot } from '@/services/AgentService/prompt';
-
-const {
-    findAttachmentRemoteRefMock,
-    touchAttachmentRemoteRefLastUsedMock,
-    upsertAttachmentRemoteRefMock,
-} = vi.hoisted(() => ({
-    findAttachmentRemoteRefMock: vi.fn(),
-    touchAttachmentRemoteRefLastUsedMock: vi.fn(),
-    upsertAttachmentRemoteRefMock: vi.fn(),
-}));
-
-vi.mock('@database/queries', () => ({
-    findAttachmentRemoteRef: findAttachmentRemoteRefMock,
-    touchAttachmentRemoteRefLastUsed: touchAttachmentRemoteRefLastUsedMock,
-    upsertAttachmentRemoteRef: upsertAttachmentRemoteRefMock,
-}));
+import type { AttachmentContentPart as AiContentPart } from '@/modules/attachments';
+import type { AiToolDefinition } from '@/modules/tools';
 
 type ImagePart = Extract<AiContentPart, { type: 'image' }>;
 type FilePartInput = Extract<AiContentPart, { type: 'file' }>;
@@ -104,14 +90,26 @@ function attachmentContext(
 ): ProviderAttachmentRequestContext {
     return {
         driver: 'google',
-        providerId: 5,
         modelId: 'gemini-2.5-pro',
-        apiTargets: { sdkBaseUrl: 'https://generativelanguage.example.test/v1beta' },
+        apiTargets: getProviderApiTargets(
+            'google',
+            'https://generativelanguage.example.test/v1beta'
+        ),
         apiKey: 'secret',
         customHeaders: {},
         fetch: vi.fn(),
+        signal: new AbortController().signal,
+        uploadState: { disabled: false, loggedDisabled: false, loggedFallback: false },
+        host: {
+            fetch: globalThis.fetch,
+            remoteRefs: {
+                read: async () => null,
+                touch: async () => undefined,
+                write: async () => undefined,
+            },
+        },
         ...overrides,
-    } as ProviderAttachmentRequestContext;
+    };
 }
 
 function jsonResponse(payload: unknown, init: { status?: number } = {}): Response {
@@ -149,15 +147,6 @@ function toolMessage(
         tool_call_id: options.toolCallId ?? 'call-1',
         name: options.name ?? 'builtin__browser',
     };
-}
-
-function resetRemoteRefMocks(): void {
-    findAttachmentRemoteRefMock.mockReset();
-    touchAttachmentRemoteRefLastUsedMock.mockReset();
-    upsertAttachmentRemoteRefMock.mockReset();
-    findAttachmentRemoteRefMock.mockResolvedValue(undefined);
-    touchAttachmentRemoteRefLastUsedMock.mockResolvedValue(undefined);
-    upsertAttachmentRemoteRefMock.mockResolvedValue(undefined);
 }
 
 function createTool(description = 'Run a command.'): AiToolDefinition {
@@ -440,9 +429,7 @@ describe('earlier reasoning is replayed to the model', () => {
 });
 
 describe('user sends an attachment in the prompt', () => {
-    beforeEach(() => {
-        resetRemoteRefMocks();
-    });
+    beforeEach(() => {});
 
     it('user sees the image handed to the model as image data', async () => {
         const { messages, manifestRequest } = await buildModelMessages({
@@ -576,13 +563,14 @@ describe('user sends an attachment in the prompt', () => {
     });
 
     it('user still gets the PDF inline when the provider refuses the upload', async () => {
-        const requestContext = attachmentContext({ driver: 'openai', providerId: 41 });
+        const requestContext = attachmentContext({ driver: 'openai' });
         vi.mocked(requestContext.fetch).mockResolvedValue(
             jsonResponse({}, { status: 404 }) as unknown as Response
         );
 
         const { messages, manifestRequest } = await buildModelMessages({
             providerDriver: 'openai',
+            providerId: 41,
             modelId: 'gpt-4.1',
             attachmentContext: requestContext,
             messages: [userMessage([pdfPart()])],
@@ -622,9 +610,7 @@ describe('user sends an attachment in the prompt', () => {
 });
 
 describe("user's earlier turn used a tool that returned media", () => {
-    beforeEach(() => {
-        resetRemoteRefMocks();
-    });
+    beforeEach(() => {});
 
     it('user sees the tool image kept in the tool result when the model accepts media there', async () => {
         const { messages } = await buildModelMessages({
@@ -946,9 +932,7 @@ describe("user's earlier turn used a tool that returned media", () => {
 });
 
 describe("user's earlier turn is replayed to the model", () => {
-    beforeEach(() => {
-        resetRemoteRefMocks();
-    });
+    beforeEach(() => {});
 
     it('user sees the system prompt replayed as a system message', async () => {
         const { messages } = await buildModelMessages({

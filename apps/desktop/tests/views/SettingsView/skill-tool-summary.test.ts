@@ -1,4 +1,6 @@
+import { createTestWindowPresentation } from '@tests/utils/windowPresentation';
 import { mount } from '@vue/test-utils';
+import { beforeEach as beforePresentation } from 'vitest';
 import { describe, expect, it } from 'vitest';
 
 import { setLocale } from '@/i18n';
@@ -37,4 +39,8 @@ describe('given the skill tool has a detailed model-facing description', () => {
             wrapper.unmount();
         }
     );
+});
+
+beforePresentation(async () => {
+    (await createTestWindowPresentation('settings')).install();
 });

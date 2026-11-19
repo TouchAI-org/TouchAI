@@ -3,13 +3,17 @@
 <script setup lang="ts">
     import CustomSelect from '@components/CustomSelect.vue';
     import { Input } from '@components/ui/input';
-    import { createMcpServer, updateMcpServer } from '@database/queries';
-    import type { DbTransportType, McpServerCreateData, McpServerEntity } from '@database/types';
-    import { log } from '@services/ObservabilityService';
     import { computed, onUnmounted, ref, watch } from 'vue';
 
+    import { log } from '@/app/api/diagnostics';
+    import type {
+        DbTransportType,
+        McpServerCreateData,
+        McpServerEntity,
+    } from '@/app/api/tools/mcpAdministration';
+    import { useMcpAdministrationApi } from '@/app/api/tools/mcpAdministration';
     import { t } from '@/i18n';
-    import { useMcpStore } from '@/stores/mcp';
+    import { useMcpAdministrationStore as useMcpStore } from '@/stores/mcpAdministration';
     import {
         parseMcpServerArgsJson,
         parseMcpServerRecordJson,
@@ -31,6 +35,7 @@
     }
 
     const props = defineProps<Props>();
+    const { createMcpServer, updateMcpServer } = useMcpAdministrationApi();
     const emit = defineEmits<Emits>();
 
     const isNewServer = computed(() => props.server.id === -1);

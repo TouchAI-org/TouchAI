@@ -2,14 +2,19 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { createWidgetToolsFixture } from '@tests/utils/widgetTools';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { setLocale } from '@/i18n';
-import type { ShowWidgetEventPayload } from '@/services/AgentService/contracts/tooling';
-import { parseSkillMarkdown } from '@/services/AgentService/skills/parser';
-import { showWidgetTool } from '@/services/BuiltInToolService/tools/widgetTool/showWidget';
-import { buildShowWidgetSummary } from '@/services/BuiltInToolService/tools/widgetTool/showWidget/helper';
-import { buildShowWidgetDraftFromArgumentsBuffer } from '@/services/BuiltInToolService/tools/widgetTool/showWidget/runtime';
+import { parseSkillMarkdown } from '@/modules/skills/parser';
+import type { ShowWidgetEventPayload } from '@/modules/tools';
+
+const {
+    tool: showWidgetTool,
+    drafts,
+    summary: buildShowWidgetSummary,
+} = createWidgetToolsFixture();
+const buildShowWidgetDraftFromArgumentsBuffer = drafts.build;
 
 function readWidgetSkill(): string {
     const root = resolve(

@@ -44,7 +44,10 @@ afterEach(async () => {
 async function open(draft: string) {
     wrapper = mount(SearchInput, {
         attachTo: document.body,
-        global: { plugins: [createPinia()] },
+        global: {
+            plugins: [createPinia()],
+            provide: { [searchApiKey as symbol]: createTestSearchHost().api },
+        },
     });
     await flushPromises();
     const input = wrapper.getComponent(SearchBar);
@@ -143,3 +146,6 @@ describe('given an existing draft in the real search editor', () => {
         expect(input.vm.captureInputHistorySnapshot().text).toBe('Hello world!');
     });
 });
+import { createTestSearchHost } from '@tests/utils/searchHost';
+
+import { searchApiKey } from '@/app/api/search/queries';

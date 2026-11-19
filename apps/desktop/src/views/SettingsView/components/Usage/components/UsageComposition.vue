@@ -2,9 +2,9 @@
 
 <script setup lang="ts">
     import DonutChart from '@components/ui/donut-chart/DonutChart.vue';
-    import type { UsageComposition } from '@database/queries/usageStats';
     import { computed } from 'vue';
 
+    import type { UsageComposition } from '@/app/api/usage/queries';
     import { t } from '@/i18n';
 
     import { formatLongDuration, formatPercent, formatTokensCompact } from '../utils/format';

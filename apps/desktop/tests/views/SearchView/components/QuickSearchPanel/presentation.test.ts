@@ -1,16 +1,24 @@
+import { closeTestDatabases } from '@tests/database/sqliteHarness';
+import { createTestSearchHost } from '@tests/utils/searchHost';
+import { createSettingsWindowFixture } from '@tests/utils/settingsWindow';
 import { getTauriInvokeCalls, mockTauriCommand } from '@tests/utils/tauri';
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
 import { createPinia } from 'pinia';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { searchApiKey } from '@/app/api/search/queries';
+import { settingsApiKey } from '@/app/api/settings/preferences';
 import { setLocale } from '@/i18n';
-import { searchActions, searchProviders } from '@/services/SearchService';
 import { useSettingsStore } from '@/stores/settings';
 import QuickSearchPanel from '@/views/SearchView/components/QuickSearchPanel/index.vue';
 
 enableAutoUnmount(afterEach);
 
-beforeEach(() => {
+let preferences: ReturnType<typeof createSettingsWindowFixture>;
+
+beforeEach(async () => {
+    preferences = createSettingsWindowFixture();
+    await preferences.initialize();
     setLocale('en-US');
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
         queueMicrotask(() => callback(performance.now()));
@@ -37,12 +45,22 @@ beforeEach(() => {
     }));
 });
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+    preferences.dispose();
+    closeTestDatabases();
+    vi.unstubAllGlobals();
+});
 
-async function openFiles(pinia = createPinia()) {
+async function openFiles(pinia = createPinia(), host = createTestSearchHost()) {
     const wrapper = mount(QuickSearchPanel, {
         props: { open: true, searchQuery: 'file' },
-        global: { plugins: [pinia] },
+        global: {
+            plugins: [pinia],
+            provide: {
+                [searchApiKey as symbol]: host.api,
+                [settingsApiKey as symbol]: preferences.window.api,
+            },
+        },
         attachTo: document.body,
     });
     wrapper.vm.open();
@@ -56,7 +74,8 @@ async function openFiles(pinia = createPinia()) {
 describe('given files use the shared result surface', () => {
     it('user sees a non-file contribution in the same panel without file icons, Tab launch, or a file menu', async () => {
         let launched = 0;
-        const registration = searchProviders.registerProvider({
+        const host = createTestSearchHost();
+        const registration = host.registerProvider({
             id: 'test-app',
             intents: ['launcher'],
             async search() {
@@ -74,12 +93,12 @@ describe('given files use the shared result surface', () => {
                 };
             },
         });
-        const handler = searchActions.register('test.launch', () => {
+        const handler = host.registerAction('test.launch', () => {
             launched++;
             return { status: 'started' };
         });
         try {
-            const wrapper = await openFiles();
+            const wrapper = await openFiles(createPinia(), host);
             const rows = () => wrapper.findAll('[data-slot="result-item"]');
             expect(rows().map((row) => row.text())).toEqual([
                 'Planner',

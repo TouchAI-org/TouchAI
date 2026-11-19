@@ -1,16 +1,18 @@
-﻿// Copyright (c) 2026. 千诚. Licensed under GPL v3
+// Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { findSessionById } from '@database/queries/sessions';
-import { notify } from '@services/NotificationService';
-import { log } from '@services/ObservabilityService';
 import { computed, onUnmounted, ref } from 'vue';
 
+import type {
+    AskUserAnswer,
+    AttachmentReference as Index,
+    InputHistorySnapshot,
+    SessionInformation as LoadedSessionInfo,
+} from '@/app/api/agent';
+import { useAgentApi } from '@/app/api/agent';
+import { AiError, AiErrorCode } from '@/app/api/agent/errors';
+import { log } from '@/app/api/diagnostics';
+import { notify } from '@/app/api/windows/notifications';
 import { t } from '@/i18n';
-import { sessionTaskCenter } from '@/services/AgentService';
-import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
-import { type Index } from '@/services/AgentService/infrastructure/attachments';
-import { loadCompleteSessionHistory } from '@/services/AgentService/session';
-import type { InputHistorySnapshot, LoadedSessionInfo } from '@/types/session';
 
 import { useAgentState } from './useAgentState';
 
@@ -37,6 +39,7 @@ function isCancelledError(requestError: Error): boolean {
  * - 把任务视图层状态重新整理为页面可直接消费的接口
  */
 export function useAgent(options: UseAiRequestOptions = {}) {
+    const agent = useAgentApi();
     const isStartingTask = ref(false);
 
     const {
@@ -129,16 +132,16 @@ export function useAgent(options: UseAiRequestOptions = {}) {
      * 长会话的渲染开销由布界挂载（窗口化）控制，不会随消息数线性增长 DOM。
      */
     async function loadPersistedSession(sessionId: number): Promise<LoadedSessionInfo> {
-        const loaded = await loadCompleteSessionHistory(sessionId);
+        const loaded = await agent.loadSession(sessionId);
         sessionHistory.value = loaded.history;
-        currentSessionId.value = loaded.session.id;
+        currentSessionId.value = loaded.sessionId;
         resetTransientState();
 
         return {
-            sessionId: loaded.session.id,
-            title: loaded.session.title,
-            modelId: loaded.model?.model_id ?? loaded.session.model ?? null,
-            providerId: loaded.model?.provider_id ?? loaded.session.provider_id ?? null,
+            sessionId: loaded.sessionId,
+            title: loaded.title,
+            modelId: loaded.modelId,
+            providerId: loaded.providerId,
         };
     }
 
@@ -161,10 +164,10 @@ export function useAgent(options: UseAiRequestOptions = {}) {
     async function openSession(sessionId: number): Promise<LoadedSessionInfo> {
         invalidateRequestObservation();
 
-        const activeTask = sessionTaskCenter.attachSessionView(sessionId);
+        const activeTask = agent.attachSessionView(sessionId);
         if (activeTask) {
             attachTaskView(activeTask.taskId, activeTask.snapshot);
-            const session = await findSessionById(sessionId);
+            const session = await agent.getSession(sessionId);
             return {
                 sessionId,
                 title: session?.title ?? '',
@@ -206,7 +209,7 @@ export function useAgent(options: UseAiRequestOptions = {}) {
         markTaskStartPending(currentRequestId, startAbortController);
 
         try {
-            const startedTask = await sessionTaskCenter.startTask({
+            const startedTask = await agent.startTask({
                 prompt,
                 sessionId: currentSessionId.value ?? undefined,
                 modelId,
@@ -294,7 +297,7 @@ export function useAgent(options: UseAiRequestOptions = {}) {
             return;
         }
 
-        sessionTaskCenter.cancelTask(attachedTaskId.value);
+        agent.cancelTask(attachedTaskId.value);
     }
 
     /**
@@ -305,7 +308,7 @@ export function useAgent(options: UseAiRequestOptions = {}) {
             return false;
         }
 
-        return sessionTaskCenter.approveTaskToolCall(attachedTaskId.value, callId, decisionId);
+        return agent.approveTaskToolCall(attachedTaskId.value, callId, decisionId);
     }
 
     /**
@@ -316,23 +319,18 @@ export function useAgent(options: UseAiRequestOptions = {}) {
             return false;
         }
 
-        return sessionTaskCenter.rejectTaskToolCall(attachedTaskId.value, callId, decisionId);
+        return agent.rejectTaskToolCall(attachedTaskId.value, callId, decisionId);
     }
 
     function settleUserQuestion(
         callId: string,
-        answers: import('@/services/AgentService/contracts/tooling').AskUserAnswer[] | null,
+        answers: AskUserAnswer[] | null,
         decisionId?: string
     ): boolean {
         if (!attachedTaskId.value) {
             return false;
         }
-        return sessionTaskCenter.settleTaskUserQuestion(
-            attachedTaskId.value,
-            callId,
-            answers,
-            decisionId
-        );
+        return agent.settleTaskUserQuestion(attachedTaskId.value, callId, answers, decisionId);
     }
 
     onUnmounted(() => {

@@ -1,6 +1,6 @@
+import { createWebSearchToolsFixture, saveWebSearchSettings } from '@tests/utils/webSearchTools';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-
-import { executeWebSearchTool } from '@/services/BuiltInToolService/tools/webSearch';
+const { execute: executeWebSearchTool } = createWebSearchToolsFixture();
 
 /**
  * A provider rejection is turned into a retryable `WebSearchHttpError` without
@@ -8,13 +8,8 @@ import { executeWebSearchTool } from '@/services/BuiltInToolService/tools/webSea
  * cancelled explicitly, or the native reader stays open. The real
  * `createTauriFetch` runs against a controlled upstream stream.
  */
-const { readEffectiveSettingValueMock, pluginFetch } = vi.hoisted(() => ({
-    readEffectiveSettingValueMock: vi.fn<() => Promise<string | null>>(async () => null),
+const { pluginFetch } = vi.hoisted(() => ({
     pluginFetch: vi.fn(),
-}));
-
-vi.mock('@/services/BuiltInToolService/settingsReader', () => ({
-    readEffectiveSettingValue: readEffectiveSettingValueMock,
 }));
 
 vi.mock('@tauri-apps/plugin-http', () => ({ fetch: pluginFetch }));
@@ -63,7 +58,7 @@ function createExecutionContext(): Parameters<typeof executeWebSearchTool>[2] {
 describe('user searches the web and the provider rejects the request', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        readEffectiveSettingValueMock.mockResolvedValue(null);
+        saveWebSearchSettings(null);
     });
 
     it('user gets the provider error and the unread error body is released', async () => {

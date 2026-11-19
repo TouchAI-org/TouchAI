@@ -1,11 +1,12 @@
-import { DEFAULT_BROWSER_SETTINGS } from '@services/SettingsService/domain';
+import { describe, expect, it } from 'vitest';
+
+import { DEFAULT_BROWSER_SETTINGS } from '@/modules/tools/public';
 import {
     evaluateBrowserPermission,
     fixedBrowserDescription,
     normalizeBrowserDescription,
     requiresBrowserDescription,
-} from '@services/SettingsService/domain';
-import { describe, expect, it } from 'vitest';
+} from '@/modules/tools/public';
 
 describe('user reviews what the browser may do', () => {
     it('user uses fixed descriptions for passive status operations only', () => {

@@ -2,8 +2,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick, ref } from 'vue';
 
+import { createInputHistorySnapshot } from '@/app/api/agent/history';
 import { setLocale } from '@/i18n';
-import { createInputHistorySnapshot } from '@/types/session';
 
 /**
  * Second pass over useSearchInput: the attachment diff (changed metadata vs an
@@ -107,11 +107,6 @@ const {
 
 vi.mock('@/views/SearchView/components/SearchBar/tags', () => ({}));
 vi.mock('@tiptap/vue-3', () => ({ Editor: MockEditor }));
-vi.mock('@/services/AgentService/infrastructure/attachments', () => ({
-    buildAttachmentPromptMetas: vi.fn((attachments: Array<{ id: string }>) =>
-        attachments.map((attachment, index) => ({ alias: `A${index + 1}-${attachment.id}` }))
-    ),
-}));
 vi.mock('@/views/SearchView/components/SearchBar/tags/attachment', () => ({
     ATTACHMENT_TAG_NODE: 'attachment-tag',
     getAttachmentTags: getAttachmentTagsMock,
@@ -291,7 +286,7 @@ describe('when the page rewrites an attachment chip', () => {
         attachmentId: 'file-1',
         // Must match what the page computes for this attachment, or the chip is
         // legitimately rewritten because its alias changed.
-        alias: 'A1-file-1',
+        alias: 'A1',
         fileName: 'file-1.txt',
         fileType: 'file',
         supportStatus: 'supported',

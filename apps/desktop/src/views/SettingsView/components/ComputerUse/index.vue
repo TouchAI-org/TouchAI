@@ -11,25 +11,30 @@
     import { Switch } from '@components/ui/switch';
     import { useAlert } from '@composables/useAlert';
     import { useConfirm } from '@composables/useConfirm';
+    import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
+
     import {
         type ComputerUseApproval,
-        computerUseService,
+        type ComputerUseDriverId,
         type ComputerUseSettings,
         type ComputerUseStatus,
         DEFAULT_SETTINGS,
-    } from '@services/ComputerUseService';
+        useComputerAdministrationApi,
+    } from '@/app/api/tools/computer';
     import {
         COMPUTER_USE_GROUPS,
         type ComputerUseGroup,
         type ComputerUseGroups,
-    } from '@services/ComputerUseService/capabilities';
-    import type { ComputerUseDriverId } from '@services/NativeService/computerUse';
-    import { open } from '@tauri-apps/plugin-dialog';
-    import { computed, nextTick, onMounted, ref } from 'vue';
-
+    } from '@/app/api/tools/computer';
+    import { pickComputerDirectory } from '@/app/api/tools/computerDirectory';
     import { getLocale, t } from '@/i18n';
 
     defineOptions({ name: 'ComputerUseSettings' });
+    const computerUseService = useComputerAdministrationApi();
+    let disposed = false;
+    onUnmounted(() => {
+        disposed = true;
+    });
 
     const settings = ref<ComputerUseSettings>({ ...DEFAULT_SETTINGS });
     const selectedDriver = ref<ComputerUseDriverId>('cua-driver');
@@ -178,8 +183,10 @@
         await Promise.all(
             drivers.map(async (driver) => {
                 try {
-                    statuses.value[driver] = await computerUseService.status(driver);
+                    const result = await computerUseService.status(driver);
+                    if (!disposed) statuses.value[driver] = result;
                 } catch (error) {
+                    if (disposed) return;
                     statuses.value[driver] = {
                         installed: false,
                         abiVersion: null,
@@ -190,7 +197,9 @@
                 }
             })
         );
+        if (disposed) return;
         selectedDriver.value = await computerUseService.loadDriver();
+        if (disposed) return;
         if (settings.value.recordingEnabled) {
             recordingDirectory.value = await computerUseService.loadRecordingDirectory();
         }
@@ -202,10 +211,12 @@
         busy.value = true;
         try {
             await computerUseService.selectDriver(driver);
+            if (disposed) return;
             selectedDriver.value = driver;
             recordingDirectory.value = await computerUseService.loadRecordingDirectory();
             await refresh();
         } catch (error) {
+            if (disposed) return;
             alert.error(errorMessage(error));
         } finally {
             busy.value = false;
@@ -215,12 +226,17 @@
     onMounted(async () => {
         try {
             settings.value = await computerUseService.loadSettings();
+            if (disposed) return;
             selectedDriver.value = await computerUseService.loadDriver();
+            if (disposed) return;
             enabled.value = await computerUseService.isEnabled();
+            if (disposed) return;
             groups.value = await computerUseService.loadGroups();
+            if (disposed) return;
             driverDirectory.value = await computerUseService.loadDriverDirectory();
             await refresh();
         } catch (error) {
+            if (disposed) return;
             alert.error(errorMessage(error));
         }
     });
@@ -232,6 +248,7 @@
             await computerUseService.setEnabled(value);
             enabled.value = value;
         } catch (error) {
+            if (disposed) return;
             alert.error(errorMessage(error));
         } finally {
             saving.value.delete('enabled');
@@ -245,6 +262,7 @@
             await computerUseService.setGroupEnabled(group, value);
             groups.value = { ...groups.value, [group]: value };
         } catch (error) {
+            if (disposed) return;
             alert.error(errorMessage(error));
         } finally {
             savingGroups.value.delete(group);
@@ -257,15 +275,17 @@
         busyDriver.value = driver;
         try {
             const next = await computerUseService.prepare(driver);
+            if (disposed) return;
             statuses.value[driver] = next;
             if (next.installed && !next.error) {
                 if (!installed.value) {
                     await computerUseService.selectDriver(driver);
+                    if (disposed) return;
                     selectedDriver.value = driver;
                     recordingDirectory.value = await computerUseService.loadRecordingDirectory();
                 }
-                if (driver === selectedDriver.value)
-                    await computerUseService.applySettings(settings.value);
+                if (driver === selectedDriver.value) await computerUseService.applySettings();
+                if (disposed) return;
                 if (driver === selectedDriver.value && settings.value.recordingEnabled) {
                     await computerUseService.setRecording(true);
                 }
@@ -274,6 +294,7 @@
                 alert.error(next.error ?? t('settings.computerUse.status.missing'));
             }
         } catch (error) {
+            if (disposed) return;
             alert.error(errorMessage(error));
         } finally {
             busy.value = false;
@@ -289,17 +310,16 @@
         saving.value.add(key);
         try {
             const saved = await computerUseService.saveSettings({ [key]: value });
+            if (disposed) return;
             settings.value = { ...settings.value, [key]: saved[key] };
-            if (key === 'approval') {
-                computerUseService.clearSessionApprovals();
-            }
             if (key === 'maxImageDimension') {
-                const failures = await computerUseService.applySettings(settings.value);
+                const failures = await computerUseService.applySettings();
                 if (failures.length > 0) {
                     alert.warning(failures[0]!);
                 }
             }
         } catch (error) {
+            if (disposed) return;
             alert.error(errorMessage(error));
         } finally {
             saving.value.delete(key);
@@ -309,18 +329,14 @@
     async function setRecordingEnabled(value: boolean): Promise<void> {
         if (preferencesDisabled.value || saving.value.has('recordingEnabled')) return;
         saving.value.add('recordingEnabled');
-        const previous = settings.value.recordingEnabled;
         try {
             if (value) recordingDirectory.value = await computerUseService.loadRecordingDirectory();
-            await computerUseService.setRecording(value);
-            try {
-                const saved = await computerUseService.saveSettings({ recordingEnabled: value });
-                settings.value = { ...settings.value, recordingEnabled: saved.recordingEnabled };
-            } catch (error) {
-                await computerUseService.setRecording(previous);
-                throw error;
-            }
+            if (disposed) return;
+            const saved = await computerUseService.setRecordingEnabled(value);
+            if (disposed) return;
+            settings.value = { ...settings.value, recordingEnabled: saved.recordingEnabled };
         } catch (error) {
+            if (disposed) return;
             alert.error(errorMessage(error));
         } finally {
             saving.value.delete('recordingEnabled');
@@ -331,17 +347,17 @@
         if (driverDisabled.value) return;
         busy.value = true;
         try {
-            const picked = await open({
-                directory: true,
-                multiple: false,
+            const picked = await pickComputerDirectory({
                 defaultPath: driverDirectory.value || undefined,
                 title: t('settings.computerUse.action.pickDriverDirectory'),
             });
+            if (disposed) return;
             if (typeof picked === 'string' && picked !== driverDirectory.value) {
                 driverDirectory.value = await computerUseService.saveDriverDirectory(picked);
                 await refresh();
             }
         } catch (error) {
+            if (disposed) return;
             alert.error(errorMessage(error));
         } finally {
             busy.value = false;
@@ -357,16 +373,16 @@
             return;
         pickingRecordingDirectory.value = true;
         try {
-            const picked = await open({
-                directory: true,
-                multiple: false,
+            const picked = await pickComputerDirectory({
                 defaultPath: recordingDirectory.value || undefined,
                 title: t('settings.computerUse.action.pickRecordingDirectory'),
             });
+            if (disposed) return;
             if (typeof picked === 'string' && picked !== recordingDirectory.value) {
                 recordingDirectory.value = await computerUseService.saveRecordingDirectory(picked);
             }
         } catch (error) {
+            if (disposed) return;
             alert.error(errorMessage(error));
         } finally {
             pickingRecordingDirectory.value = false;
@@ -380,6 +396,7 @@
             driverDirectory.value = await computerUseService.saveDriverDirectory('');
             await refresh();
         } catch (error) {
+            if (disposed) return;
             alert.error(errorMessage(error));
         } finally {
             busy.value = false;
@@ -391,6 +408,7 @@
         updatingDriver.value = driver;
         try {
             const info = await computerUseService.checkUpdate(driver);
+            if (disposed) return;
             if (info.error) {
                 alert.error(info.error);
                 return;
@@ -411,8 +429,9 @@
                 title: `${t('settings.computerUse.field.update')} ${driver}`,
                 confirmText: t('settings.computerUse.update.confirmAction'),
             });
-            if (!agreed) return;
+            if (!agreed || disposed) return;
             const next = await computerUseService.installUpdate(driver, info.latest);
+            if (disposed) return;
             statuses.value[driver] = next;
             if (!next.installed || next.error) {
                 alert.error(next.error ?? t('settings.computerUse.status.missing'));
@@ -428,7 +447,8 @@
             }
             if (driver === selectedDriver.value) {
                 try {
-                    await computerUseService.applySettings(settings.value);
+                    await computerUseService.applySettings();
+                    if (disposed) return;
                     if (settings.value.recordingEnabled) {
                         await computerUseService.setRecording(true);
                     }
@@ -438,6 +458,7 @@
             }
             alert.success(t('settings.computerUse.update.installed', { version: info.latest }));
         } catch (error) {
+            if (disposed) return;
             alert.error(errorMessage(error));
         } finally {
             updatingDriver.value = null;
@@ -450,12 +471,13 @@
         driverOpen.value = false;
         try {
             await nextTick();
+            if (disposed) return;
             const agreed = await confirm({
                 message: t('settings.computerUse.confirm.remove', { driver }),
                 title: `${t('settings.computerUse.action.remove')} ${driver}`,
                 type: 'danger',
             });
-            if (!agreed) return;
+            if (!agreed || disposed) return;
             try {
                 await computerUseService.remove(driver);
                 alert.success(t('settings.computerUse.removed'));
@@ -464,6 +486,7 @@
             }
             await refresh();
         } catch (error) {
+            if (disposed) return;
             alert.error(errorMessage(error));
         } finally {
             busy.value = false;

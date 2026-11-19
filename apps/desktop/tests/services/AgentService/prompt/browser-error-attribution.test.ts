@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { TOUCHAI_BUILTIN_SYSTEM_PROMPT } from '@/services/AgentService/prompt/builtin';
+import { TOUCHAI_BUILTIN_SYSTEM_PROMPT } from '@/app/workflows/agent/instructions';
 
 describe('user gets accurate explanations when the assistant browses', () => {
     it('user is not told a local browser failure was a web fetch failure', () => {

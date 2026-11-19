@@ -1,7 +1,10 @@
+import { createWidgetToolsFixture } from '@tests/utils/widgetTools';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { BaseBuiltInToolExecutionContext } from '@/services/BuiltInToolService';
-import { executeShowWidgetTool } from '@/services/BuiltInToolService/tools/widgetTool/showWidget';
+import type { BaseBuiltInToolExecutionContext } from '@/modules/tools';
+
+const { tool } = createWidgetToolsFixture();
+const executeShowWidgetTool = tool.execute.bind(tool);
 
 function createContext(): BaseBuiltInToolExecutionContext {
     return {

@@ -4,7 +4,7 @@ const { getRuntimeInfoMock } = vi.hoisted(() => ({
     getRuntimeInfoMock: vi.fn(),
 }));
 
-vi.mock('@services/NativeService', () => ({
+vi.mock('@/platform/native', () => ({
     native: {
         runtime: {
             getRuntimeInfo: getRuntimeInfoMock,
@@ -20,14 +20,14 @@ describe('user gets the normal runtime unless the backend reports an e2e run', (
 
     it('user gets normal mode when the runtime information cannot be read', async () => {
         getRuntimeInfoMock.mockRejectedValue(new Error('ipc unavailable'));
-        const { isE2eTestMode } = await import('@/utils/runtimeMode');
+        const { isE2eTestMode } = await import('@/app/api/windows/runtime');
 
         await expect(isE2eTestMode()).resolves.toBe(false);
     });
 
     it('user gets e2e mode when the backend reports it', async () => {
         getRuntimeInfoMock.mockResolvedValue({ isE2eTestMode: true });
-        const { isE2eTestMode } = await import('@/utils/runtimeMode');
+        const { isE2eTestMode } = await import('@/app/api/windows/runtime');
 
         await expect(isE2eTestMode()).resolves.toBe(true);
     });

@@ -1,12 +1,12 @@
+import { describe, expect, it } from 'vitest';
+
 import {
     createUpdateNotificationBody,
     summarizeUpdateReleaseNotes,
-} from '@services/AppUpdateService/notificationText';
-import { createInitialAppUpdateState } from '@services/AppUpdateService/state';
-import type { AppUpdateState } from '@services/AppUpdateService/types';
-import { describe, expect, it } from 'vitest';
-
+} from '@/app/api/updates/notificationText';
 import { setLocale } from '@/i18n';
+import { createInitialAppUpdateState } from '@/modules/updates/state';
+import type { AppUpdateState } from '@/modules/updates/types';
 
 function createState(patch: Partial<AppUpdateState> = {}): AppUpdateState {
     return {

@@ -1,7 +1,8 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3.
-
 import type { UsageRankItem } from '@database/queries/usageStats';
+import { createTestWindowPresentation } from '@tests/utils/windowPresentation';
 import { mount } from '@vue/test-utils';
+import { beforeEach as beforePresentation } from 'vitest';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { setLocale } from '@/i18n';
@@ -150,4 +151,8 @@ describe('user reviews a usage ranking', () => {
         expect(row.attributes('title')).toContain('gpt-5');
         expect(row.text()).toContain('90.0s');
     });
+});
+
+beforePresentation(async () => {
+    (await createTestWindowPresentation('settings')).install();
 });

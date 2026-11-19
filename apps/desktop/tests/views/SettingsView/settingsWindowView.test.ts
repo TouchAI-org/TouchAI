@@ -1,8 +1,14 @@
+import { emit } from '@tauri-apps/api/event';
+import { createUpdateClientBoundary } from '@tests/utils/updateClient';
+import { createTestWindowPresentation } from '@tests/utils/windowPresentation';
+import { config } from '@vue/test-utils';
 import { flushPromises, mount, shallowMount } from '@vue/test-utils';
+import { beforeEach as beforePresentation } from 'vitest';
 import { afterEach, beforeEach, vi } from 'vitest';
 import { h, onMounted, ref } from 'vue';
 
-import { AppEvent, eventService } from '@/services/EventService';
+import { AppEvent } from '@/app/api/settings/events';
+import { updatesApiKey } from '@/app/api/updates';
 import SettingsWindowView from '@/views/SettingsView/index.vue';
 
 /*
@@ -28,6 +34,7 @@ vi.mock('@components/ui/tooltip', () => ({
 
 const windowApiMock = vi.hoisted(() => ({
     currentWindow: {
+        label: 'settings',
         close: vi.fn().mockResolvedValue(undefined),
         isMaximized: vi.fn().mockResolvedValue(false),
         maximize: vi.fn().mockResolvedValue(undefined),
@@ -45,10 +52,6 @@ const sectionMountMocks = vi.hoisted(() => ({
 const updateServiceMock = vi.hoisted(() => ({
     checkNow: vi.fn().mockResolvedValue(true),
     checkAndOpenUpdates: vi.fn().mockResolvedValue(undefined),
-}));
-
-vi.mock('@services/AppUpdateService', () => ({
-    appUpdateService: updateServiceMock,
 }));
 
 vi.mock('@composables/useScrollbarStabilizer', () => ({
@@ -206,10 +209,14 @@ const mountSettingsWindow = (suspenseTemplate = '<div><slot /></div>') =>
         },
     });
 
+let updatesBoundary: Awaited<ReturnType<typeof createUpdateClientBoundary>>;
+
 describe('user opens the settings window', () => {
-    beforeEach(() => {
+    beforeEach(async () => {
+        updatesBoundary = await createUpdateClientBoundary();
+        Reflect.set(config.global.provide, updatesApiKey, updatesBoundary.client.updates);
         vi.useFakeTimers();
-        updateServiceMock.checkNow.mockClear();
+        updatesBoundary.checkNow.mockClear();
         updateServiceMock.checkAndOpenUpdates.mockReset().mockResolvedValue(undefined);
         sectionMountMocks.revealAiServicesTarget = undefined;
         windowApiMock.currentWindow.close.mockClear();
@@ -223,7 +230,9 @@ describe('user opens the settings window', () => {
         windowApiMock.currentWindow.unmaximize.mockClear();
     });
 
-    afterEach(() => {
+    afterEach(async () => {
+        await updatesBoundary.dispose();
+        Reflect.deleteProperty(config.global.provide, updatesApiKey);
         vi.useRealTimers();
     });
 
@@ -231,24 +240,24 @@ describe('user opens the settings window', () => {
         const wrapper = mountSettingsWindow();
         await flushPromises();
 
-        expect(updateServiceMock.checkNow).toHaveBeenCalledWith('settings-open');
+        expect(updatesBoundary.checkNow).toHaveBeenCalledWith('settings-open');
         wrapper.unmount();
 
         const reopened = mountSettingsWindow();
         await flushPromises();
-        expect(updateServiceMock.checkNow).toHaveBeenCalledTimes(2);
+        expect(updatesBoundary.checkNow).toHaveBeenCalledTimes(2);
         reopened.unmount();
     });
 
     it('user checks again when an existing settings window is opened', async () => {
         const wrapper = mountSettingsWindow();
         await flushPromises();
-        updateServiceMock.checkNow.mockClear();
+        updatesBoundary.checkNow.mockClear();
 
-        await eventService.emit(AppEvent.SETTINGS_WINDOW_OPENED, null);
+        await emit(AppEvent.SETTINGS_WINDOW_OPENED, null);
         await flushPromises();
 
-        expect(updateServiceMock.checkNow).toHaveBeenCalledWith('settings-open');
+        expect(updatesBoundary.checkNow).toHaveBeenCalledWith('settings-open');
         wrapper.unmount();
     });
 
@@ -288,8 +297,10 @@ describe('user opens the settings window', () => {
         await flushPromises();
 
         expect(wrapper.text()).not.toContain('返回');
+        await flushPromises();
         await wrapper.get('[data-testid="settings-window-minimize"]').trigger('click');
         await wrapper.get('[data-testid="settings-window-maximize"]').trigger('click');
+        await flushPromises();
 
         expect(windowApiMock.currentWindow.minimize).toHaveBeenCalledTimes(1);
         expect(windowApiMock.currentWindow.maximize).toHaveBeenCalledTimes(1);
@@ -299,6 +310,7 @@ describe('user opens the settings window', () => {
 
         windowApiMock.currentWindow.isMaximized.mockResolvedValue(true);
         await wrapper.get('[data-testid="settings-window-maximize"]').trigger('click');
+        await flushPromises();
         await wrapper.get('[data-testid="settings-window-close"]').trigger('click');
 
         expect(windowApiMock.currentWindow.unmaximize).toHaveBeenCalledTimes(1);
@@ -527,7 +539,7 @@ describe('user opens the settings window', () => {
             wrapper.findComponent({ name: 'NavigationSidebar' }).vm.$emit('navigate', 'shortcuts');
             await flushPromises();
 
-            await eventService.emit(AppEvent.SETTINGS_SHOW_UPDATES, null);
+            await emit(AppEvent.SETTINGS_SHOW_UPDATES, null);
             await flushPromises();
             await vi.runOnlyPendingTimersAsync();
 
@@ -717,4 +729,8 @@ describe('user opens the settings window', () => {
             querySelectorSpy.mockRestore();
         }
     });
+});
+
+beforePresentation(async () => {
+    (await createTestWindowPresentation('settings')).install();
 });

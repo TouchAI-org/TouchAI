@@ -1,8 +1,16 @@
+import { config } from '@vue/test-utils';
 import { flushPromises } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ref, shallowRef } from 'vue';
 
-import { useSearchPanelResizing } from '@/views/SearchView/composables/useSearchPanelResizing';
+import { type SearchWindowApi, searchWindowApiKey } from '@/app/api/windows/presentation';
+import { useSearchPanelResizing as useProductionPanel } from '@/views/SearchView/composables/useSearchPanelResizing';
+
+const useSearchPanelResizing = (options: Parameters<typeof useProductionPanel>[0]) =>
+    useProductionPanel(
+        options,
+        Reflect.get(config.global.provide, searchWindowApiKey) as SearchWindowApi
+    );
 
 const { outerPosition, scaleFactor, currentMonitor } = vi.hoisted(() => ({
     outerPosition: vi.fn(),
@@ -11,7 +19,7 @@ const { outerPosition, scaleFactor, currentMonitor } = vi.hoisted(() => ({
 }));
 
 vi.mock('@tauri-apps/api/window', () => ({
-    getCurrentWindow: () => ({ outerPosition, scaleFactor }),
+    getCurrentWindow: () => ({ label: 'main', outerPosition, scaleFactor }),
     currentMonitor,
 }));
 

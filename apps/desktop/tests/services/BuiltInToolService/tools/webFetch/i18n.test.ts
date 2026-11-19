@@ -1,24 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
-import { executeWebFetchTool, webFetchTool } from '@/services/BuiltInToolService/tools/webFetch';
-import {
+const { execute: executeWebFetchTool, tool: webFetchTool } = createWebFetchToolsFixture();
+import { createWebFetchToolsFixture } from '@tests/utils/webFetchTools';
+const {
     buildPageMarkdown,
     createRequestSignal,
     formatFetchResult,
     formatUnsupportedResponse,
     parseWebFetchRequest,
     truncateContent,
-} from '@/services/BuiltInToolService/tools/webFetch/helper';
+} = createWebFetchToolsFixture().operations;
 
 const { tauriFetchMock } = vi.hoisted(() => ({
     tauriFetchMock: vi.fn(),
 }));
 
-vi.mock('@/services/HttpService', () => ({
-    createTauriFetch: () => tauriFetchMock,
-    cancelResponseBody: vi.fn(async () => {}),
-}));
+vi.mock('@tauri-apps/plugin-http', () => ({ fetch: tauriFetchMock }));
 
 describe('user reads fetched page reports in their own language', () => {
     beforeEach(() => {

@@ -103,23 +103,23 @@
     import MarkdownContent from '@components/MarkdownContent.vue';
     import StatusDivider from '@components/ui/status-divider/StatusDivider.vue';
     import { useMotion } from '@composables/useMotion';
-    import { notify } from '@services/NotificationService';
-    import { log } from '@services/ObservabilityService';
     import { computed, onMounted, onUnmounted, provide, ref, watch } from 'vue';
 
-    import { type MessageKey, t, tt } from '@/i18n';
-    import { runResultAction } from '@/services/AnalyticsService/productInteractions';
-    import type { WebSearchSource } from '@/services/BuiltInToolService/tools/webSearch/sources';
-    import { SHOW_WIDGET_TOOL_NAME } from '@/services/BuiltInToolService/tools/widgetTool';
-    import { clipboardService } from '@/services/ClipboardService';
-    import { useAskUserStore } from '@/stores/askUser';
     import type {
         ContextCompactionMessagePart,
         SessionMessage,
         ToolApprovalInfo,
         ToolCallInfo,
         WidgetInfo,
-    } from '@/types/session';
+    } from '@/app/api/agent/history';
+    import { useProductAnalyticsApi } from '@/app/api/analytics/product';
+    import { log } from '@/app/api/diagnostics';
+    import type { WebSearchSource } from '@/app/api/tools/results';
+    import { SHOW_WIDGET_TOOL_NAME } from '@/app/api/tools/widgets';
+    import { writeClipboardText } from '@/app/api/windows/clipboard';
+    import { notify } from '@/app/api/windows/notifications';
+    import { type MessageKey, t, tt } from '@/i18n';
+    import { useAskUserStore } from '@/stores/askUser';
     import {
         normalizeCitationUrl,
         normalizeWrappedCitations,
@@ -131,6 +131,7 @@
     import ToolApprovalHistoryCard from './ToolApprovalHistoryCard.vue';
     import ToolCallItem from './ToolCallItem.vue';
     import WidgetFrame from './WidgetFrame.vue';
+    const { runResultAction } = useProductAnalyticsApi();
 
     interface Props {
         message: SessionMessage;
@@ -398,9 +399,7 @@
 
     async function handleCopy() {
         try {
-            await runResultAction('copy_answer', () =>
-                clipboardService.writeText(props.message.content)
-            );
+            await runResultAction('copy_answer', () => writeClipboardText(props.message.content));
             notify({ title: 'TouchAI', body: t('notification.copy.copiedToClipboard') });
         } catch (error) {
             log.error('[AssistantMessage] Failed to copy:', error);

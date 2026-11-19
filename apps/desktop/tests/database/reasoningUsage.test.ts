@@ -4,11 +4,12 @@ import { resolve } from 'node:path';
 import type { DatabaseSync as SqliteDatabase, SQLInputValue } from 'node:sqlite';
 
 import { db } from '@database';
-import type { PersistedCall } from '@services/UsageService';
-import { sumUsage } from '@services/UsageService';
-import { insertLlmCallParts } from '@services/UsageService/insertLlmCallParts';
 import { interceptTauriInvoke } from '@tests/utils/tauri';
 import { afterEach, describe, expect, it } from 'vitest';
+
+import type { PersistedCall } from '@/modules/usage';
+import { sumUsage } from '@/modules/usage';
+import { insertLlmCallParts } from '@/modules/usage/insertLlmCallParts.io';
 
 const { DatabaseSync } = createRequire(import.meta.url)(
     'node:sqlite'

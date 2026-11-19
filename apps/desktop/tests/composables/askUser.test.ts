@@ -1,8 +1,7 @@
 import { createPinia, setActivePinia } from 'pinia';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { useAskUser } from '@/composables/useAskUser';
-import type { AskUserQuestion } from '@/services/AgentService/contracts/tooling';
+import type { AskUserQuestion } from '@/modules/tools';
 import { useAskUserStore } from '@/stores/askUser';
 
 function createApprovalPayload(callId: string, overrides: Record<string, unknown> = {}) {
@@ -245,64 +244,5 @@ describe('when the search window closes with prompts still waiting', () => {
 
         expect(store.current?.kind).toBe('confirm');
         expect(store.hasPending).toBe(true);
-    });
-});
-
-describe('when a tool call asks the user through the shared helper', () => {
-    beforeEach(() => {
-        setActivePinia(createPinia());
-    });
-
-    it('user gets the approval answer delivered as a resolved promise', async () => {
-        const { requestApproval } = useAskUser();
-        const store = useAskUserStore();
-
-        const answer = requestApproval(createApprovalPayload('call-1'));
-        expect(store.hasPending).toBe(true);
-
-        store.approveCurrentApproval();
-
-        await expect(answer).resolves.toBe(true);
-    });
-
-    it('user gets a rejection delivered as a resolved false instead of a thrown error', async () => {
-        const { requestApproval } = useAskUser();
-        const store = useAskUserStore();
-
-        const answer = requestApproval(createApprovalPayload('call-1'));
-        store.rejectCurrentApproval();
-
-        await expect(answer).resolves.toBe(false);
-    });
-
-    it('user gets the confirmation answer delivered as a resolved promise', async () => {
-        const { requestConfirm } = useAskUser();
-        const store = useAskUserStore();
-
-        const answer = requestConfirm({ message: 'Delete this conversation?' });
-        store.confirmCurrentConfirm();
-
-        await expect(answer).resolves.toBe(true);
-    });
-
-    it('user gets the picked answers delivered for a question', async () => {
-        const { requestQuestion } = useAskUser();
-        const store = useAskUserStore();
-        const answers = [{ questionIndex: 0, selectedLabels: ['Staging'], skipped: false }];
-
-        const answer = requestQuestion([question], { sourceCallId: 'call-q' });
-        store.answerCurrentQuestion(answers);
-
-        await expect(answer).resolves.toEqual(answers);
-    });
-
-    it('user gets a null answer when the question is cancelled', async () => {
-        const { requestQuestion } = useAskUser();
-        const store = useAskUserStore();
-
-        const answer = requestQuestion([question]);
-        store.cancelCurrentQuestion();
-
-        await expect(answer).resolves.toBeNull();
     });
 });

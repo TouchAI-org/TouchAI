@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { installEarlyErrors, resetEarlyErrorsForTests } from '@/platform/diagnostics/early-errors';
 
 /**
  * Errors raised before the structured logger is installed are buffered here. If this
@@ -6,7 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
  * can diagnose, so every branch below is about what the user's crash report contains.
  */
 async function loadEarlyErrors() {
-    return import('@/utils/early-errors');
+    return import('@/platform/diagnostics/early-errors');
 }
 
 function dispatchError(init: {
@@ -35,8 +37,11 @@ function dispatchRejection(reason: unknown) {
 
 describe('user gets startup errors captured before the logger exists', () => {
     beforeEach(() => {
-        vi.resetModules();
+        resetEarlyErrorsForTests();
+        installEarlyErrors();
     });
+
+    afterEach(resetEarlyErrorsForTests);
 
     it('user gets an early window error replayed once the logger is installed', async () => {
         const { attachEarlyErrorSink } = await loadEarlyErrors();

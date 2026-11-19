@@ -1,12 +1,9 @@
-﻿import { describe, expect, it, vi } from 'vitest';
+﻿import { createWebFetchToolsFixture } from '@tests/utils/webFetchTools';
+import { describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
-import {
-    buildPageMarkdown,
-    extractHtmlContent,
-    formatFetchResult,
-    parseWebFetchRequest,
-} from '@/services/BuiltInToolService/tools/webFetch/helper';
+const { buildPageMarkdown, extractHtmlContent, formatFetchResult, parseWebFetchRequest } =
+    createWebFetchToolsFixture().operations;
 
 describe('user asks the assistant to read a URL', () => {
     it('user sees non-http schemes rejected before fetching', () => {

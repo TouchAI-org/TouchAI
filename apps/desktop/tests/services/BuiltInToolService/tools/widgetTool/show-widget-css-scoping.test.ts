@@ -3,7 +3,7 @@
 import { createWidgetRenderer, widgetDocument, widgetWindow } from '@tests/utils/widgetFrame';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { log } from '@/services/ObservabilityService';
+import { log } from '@/platform/diagnostics';
 
 /**
  * Widget CSS and widget scripts come from a model, so both arrive in shapes a hand-written

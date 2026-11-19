@@ -5,8 +5,8 @@ import {
 } from '@tests/database/sqliteHarness';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import type { AttemptCheckpoint } from '@/services/AgentService/execution/executor';
-import { PersistenceProjector } from '@/services/AgentService/outputs/persistence';
+import { createTaskPersistence } from '@/app/workflows/agent/persistence';
+import type { PersistenceCheckpoint, PersistenceProjector } from '@/modules/agent';
 
 afterEach(closeTestDatabases);
 
@@ -39,7 +39,7 @@ async function startTurn() {
         INSERT INTO sessions (id, session_id, title, model, provider_id)
         VALUES (1, 'test-session', 'Test', 'test-model', 1);
     `);
-    const projector = new PersistenceProjector({
+    const projector = createTaskPersistence({
         sessionId: 1,
         model: { id: 1, provider_id: 1, model_id: 'test-model' },
         taskId: 'test-task',
@@ -58,13 +58,9 @@ async function startTurn() {
             modelLanguageContext: { locale: 'en-US', label: 'English' },
         },
     });
-    const checkpoint: AttemptCheckpoint = {
-        activeModel: {
-            id: 1,
-            provider_id: 1,
-            model_id: 'test-model',
-        } as AttemptCheckpoint['activeModel'],
-        messages: [{ role: 'user', content: 'hello' }],
+    const checkpoint: PersistenceCheckpoint = {
+        activeModel: { id: 1 },
+        messages: [{ role: 'user' }],
         response: '',
         reasoning: '',
         outputParts: [],

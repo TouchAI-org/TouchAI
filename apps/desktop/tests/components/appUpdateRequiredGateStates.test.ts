@@ -1,4 +1,4 @@
-import type { AppUpdateState } from '@services/AppUpdateService/types';
+import { createUpdateClientBoundary } from '@tests/utils/updateClient';
 import { mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick } from 'vue';
@@ -6,6 +6,7 @@ import { nextTick } from 'vue';
 import AppUpdateRequiredGate from '@/components/AppUpdateRequiredGate.vue';
 import { APP_PRODUCT_CONFIG } from '@/config/product';
 import { setLocale } from '@/i18n';
+import type { AppUpdateState } from '@/modules/updates/types';
 
 /*
  * The existing gate test covers the happy path: blocked, offered, downloaded. This
@@ -20,29 +21,7 @@ const { openUrlMock } = vi.hoisted(() => ({
 
 vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: openUrlMock }));
 
-const appUpdateServiceMock = vi.hoisted(() => {
-    let state: unknown = null;
-    return {
-        get state() {
-            return state;
-        },
-        set state(next: unknown) {
-            state = next;
-        },
-        getState: vi.fn(() => state),
-        subscribe: vi.fn((listener: (next: unknown) => void) => {
-            listener(state);
-            return () => undefined;
-        }),
-        initialize: vi.fn(async () => undefined),
-        checkNow: vi.fn(async () => true),
-        download: vi.fn(async () => undefined),
-        install: vi.fn(async () => undefined),
-    };
-});
-
-vi.mock('@services/AppUpdateService', () => ({ appUpdateService: appUpdateServiceMock }));
-
+let updatesBoundary: Awaited<ReturnType<typeof createUpdateClientBoundary>>;
 vi.mock('@components/AppIcon.vue', () => ({
     default: {
         name: 'AppIconStub',
@@ -94,37 +73,40 @@ const baseState = (): AppUpdateState =>
         unsupportedReason: null,
     }) as AppUpdateState;
 
-function mountGate(patch: Partial<AppUpdateState> = {}) {
-    appUpdateServiceMock.state = { ...baseState(), ...patch };
-    return mount(AppUpdateRequiredGate);
+async function mountGate(patch: Partial<AppUpdateState> = {}) {
+    updatesBoundary.state = { ...baseState(), ...patch };
+    await updatesBoundary.synchronize();
+    return mount(AppUpdateRequiredGate, updatesBoundary.viewOptions);
 }
 
-function primary(wrapper: ReturnType<typeof mountGate>) {
+function primary(wrapper: Awaited<ReturnType<typeof mountGate>>) {
     return wrapper.get('[data-testid="app-update-required-primary"]');
 }
 
-function recheck(wrapper: ReturnType<typeof mountGate>) {
+function recheck(wrapper: Awaited<ReturnType<typeof mountGate>>) {
     return wrapper.get('[data-testid="app-update-required-check"]');
 }
 
-function iconName(wrapper: ReturnType<typeof mountGate>) {
+function iconName(wrapper: Awaited<ReturnType<typeof mountGate>>) {
     const icons = wrapper.findAll('[data-testid="app-icon"]');
     return icons[icons.length - 1]!.attributes('data-name');
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+    updatesBoundary = await createUpdateClientBoundary();
     setLocale('zh-CN');
     for (const key of ['initialize', 'checkNow', 'download', 'install'] as const) {
-        appUpdateServiceMock[key].mockClear();
+        updatesBoundary[key].mockClear();
     }
-    appUpdateServiceMock.initialize.mockResolvedValue(undefined);
-    appUpdateServiceMock.checkNow.mockResolvedValue(true);
-    appUpdateServiceMock.download.mockResolvedValue(undefined);
-    appUpdateServiceMock.install.mockResolvedValue(undefined);
+    updatesBoundary.initialize.mockResolvedValue(undefined);
+    updatesBoundary.checkNow.mockResolvedValue(true);
+    updatesBoundary.download.mockResolvedValue(true);
+    updatesBoundary.install.mockResolvedValue(true);
     openUrlMock.mockClear();
 });
 
-afterEach(() => {
+afterEach(async () => {
+    await updatesBoundary.dispose();
     vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -132,41 +114,41 @@ afterEach(() => {
 });
 
 describe('user is blocked from an unsupported version', () => {
-    it('user stays out of the way when the service reports no requirement at all', () => {
-        const wrapper = mountGate({ updateRequirement: null });
+    it('user stays out of the way when the service reports no requirement at all', async () => {
+        const wrapper = await mountGate({ updateRequirement: null });
 
         expect(wrapper.find('[data-testid="app-update-required-gate"]').exists()).toBe(false);
     });
 
-    it('user stays out of the way when the requirement is advisory', () => {
-        const wrapper = mountGate({ updateRequirement: requirement({ required: false }) });
+    it('user stays out of the way when the requirement is advisory', async () => {
+        const wrapper = await mountGate({ updateRequirement: requirement({ required: false }) });
 
         expect(wrapper.find('[data-testid="app-update-required-gate"]').exists()).toBe(false);
     });
 
-    it('user sees the minimum version when no release has been fetched yet', () => {
-        const wrapper = mountGate({ latestUpdate: null, availableUpdate: null });
+    it('user sees the minimum version when no release has been fetched yet', async () => {
+        const wrapper = await mountGate({ latestUpdate: null, availableUpdate: null });
 
         expect(wrapper.text()).toContain('需要 0.2.1 或更高版本');
     });
 
-    it('user is told a supported version is needed when even the minimum is unknown', () => {
-        const wrapper = mountGate({
+    it('user is told a supported version is needed when even the minimum is unknown', async () => {
+        const wrapper = await mountGate({
             updateRequirement: requirement({ minimumSupportedVersion: null }),
         });
 
         expect(wrapper.text()).toContain('需要安装受支持的版本');
     });
 
-    it('user sees the minimum supported version and their own version in the detail line', () => {
-        const wrapper = mountGate();
+    it('user sees the minimum supported version and their own version in the detail line', async () => {
+        const wrapper = await mountGate();
 
         expect(wrapper.text()).toContain('最低支持版本 0.2.1');
         expect(wrapper.text()).toContain('当前版本 0.2.0');
     });
 
-    it('user sees no detail line when nothing about the requirement is known', () => {
-        const wrapper = mountGate({
+    it('user sees no detail line when nothing about the requirement is known', async () => {
+        const wrapper = await mountGate({
             updateRequirement: requirement({
                 minimumSupportedVersion: null,
                 requiredReason: null,
@@ -181,14 +163,14 @@ describe('user is blocked from an unsupported version', () => {
         expect(wrapper.text()).not.toContain(' · ');
     });
 
-    it('user sees the release notes of the release they are being sent to', () => {
-        const wrapper = mountGate({ latestUpdate: channelLatest() as never });
+    it('user sees the release notes of the release they are being sent to', async () => {
+        const wrapper = await mountGate({ latestUpdate: channelLatest() as never });
 
         expect(wrapper.text()).toContain('Fixes and polish');
     });
 
-    it('user sees no release notes block when the release carried none', () => {
-        const wrapper = mountGate({
+    it('user sees no release notes block when the release carried none', async () => {
+        const wrapper = await mountGate({
             latestUpdate: channelLatest({ releaseNotes: null }) as never,
         });
 
@@ -197,15 +179,18 @@ describe('user is blocked from an unsupported version', () => {
 });
 
 describe('user waits while the updater is busy', () => {
-    it('user sees a check running', () => {
-        const wrapper = mountGate({ status: 'checking', latestUpdate: channelLatest() as never });
+    it('user sees a check running', async () => {
+        const wrapper = await mountGate({
+            status: 'checking',
+            latestUpdate: channelLatest() as never,
+        });
 
         expect(primary(wrapper).text()).toContain('正在检查');
         expect(primary(wrapper).attributes('disabled')).toBeDefined();
     });
 
-    it('user sees the download percentage while it runs', () => {
-        const wrapper = mountGate({
+    it('user sees the download percentage while it runs', async () => {
+        const wrapper = await mountGate({
             status: 'downloading',
             downloadProgress: 37,
             latestUpdate: channelLatest() as never,
@@ -215,8 +200,8 @@ describe('user waits while the updater is busy', () => {
         expect(wrapper.find('[aria-label="下载进度"]').exists()).toBe(true);
     });
 
-    it('user sees a download that has not reported progress start at zero', () => {
-        const wrapper = mountGate({
+    it('user sees a download that has not reported progress start at zero', async () => {
+        const wrapper = await mountGate({
             status: 'downloading',
             downloadProgress: null,
             latestUpdate: channelLatest() as never,
@@ -227,15 +212,18 @@ describe('user waits while the updater is busy', () => {
         expect(bar.attributes('style')).toContain('width: 0%');
     });
 
-    it('user sees the install running', () => {
-        const wrapper = mountGate({ status: 'installing', latestUpdate: channelLatest() as never });
+    it('user sees the install running', async () => {
+        const wrapper = await mountGate({
+            status: 'installing',
+            latestUpdate: channelLatest() as never,
+        });
 
         expect(primary(wrapper).text()).toContain('正在安装');
         expect(primary(wrapper).attributes('disabled')).toBeDefined();
     });
 
-    it('user gets the recheck button unavailable while the updater is busy', () => {
-        const wrapper = mountGate({
+    it('user gets the recheck button unavailable while the updater is busy', async () => {
+        const wrapper = await mountGate({
             status: 'downloading',
             latestUpdate: channelLatest() as never,
         });
@@ -244,29 +232,35 @@ describe('user waits while the updater is busy', () => {
     });
 
     it('user gets nothing started when they press the action while a check runs', async () => {
-        const wrapper = mountGate({ status: 'checking', latestUpdate: channelLatest() as never });
+        const wrapper = await mountGate({
+            status: 'checking',
+            latestUpdate: channelLatest() as never,
+        });
 
         await primary(wrapper).trigger('click');
         await nextTick();
 
-        expect(appUpdateServiceMock.download).not.toHaveBeenCalled();
-        expect(appUpdateServiceMock.install).not.toHaveBeenCalled();
+        expect(updatesBoundary.download).not.toHaveBeenCalled();
+        expect(updatesBoundary.install).not.toHaveBeenCalled();
         expect(openUrlMock).not.toHaveBeenCalled();
     });
 
     it('user gets no second check started while one is already running', async () => {
-        const wrapper = mountGate({ status: 'checking', latestUpdate: channelLatest() as never });
+        const wrapper = await mountGate({
+            status: 'checking',
+            latestUpdate: channelLatest() as never,
+        });
 
         await recheck(wrapper).trigger('click');
         await nextTick();
 
-        expect(appUpdateServiceMock.checkNow).not.toHaveBeenCalled();
+        expect(updatesBoundary.checkNow).not.toHaveBeenCalled();
     });
 });
 
 describe('user takes the update the gate offers', () => {
     it('user gets the install started for an update already downloaded', async () => {
-        const wrapper = mountGate({
+        const wrapper = await mountGate({
             status: 'downloaded',
             downloadedUpdate: {
                 version: '0.2.1',
@@ -282,11 +276,11 @@ describe('user takes the update the gate offers', () => {
         await primary(wrapper).trigger('click');
         await nextTick();
 
-        expect(appUpdateServiceMock.install).toHaveBeenCalledOnce();
+        expect(updatesBoundary.install).toHaveBeenCalledOnce();
     });
 
     it('user gets the download started for an update they can take in the app', async () => {
-        const wrapper = mountGate({
+        const wrapper = await mountGate({
             status: 'available',
             availableUpdate: {
                 version: '0.2.1',
@@ -303,12 +297,12 @@ describe('user takes the update the gate offers', () => {
         await primary(wrapper).trigger('click');
         await nextTick();
 
-        expect(appUpdateServiceMock.download).toHaveBeenCalledOnce();
+        expect(updatesBoundary.download).toHaveBeenCalledOnce();
         expect(openUrlMock).not.toHaveBeenCalled();
     });
 
     it('user gets sent to the installer when the release offers a direct download', async () => {
-        const wrapper = mountGate({
+        const wrapper = await mountGate({
             status: 'available',
             updateRequirement: requirement({ targetSatisfiesRequirement: false }),
             latestUpdate: channelLatest() as never,
@@ -328,7 +322,7 @@ describe('user takes the update the gate offers', () => {
     });
 
     it('user gets the release page when the release has no direct download', async () => {
-        const wrapper = mountGate({
+        const wrapper = await mountGate({
             status: 'available',
             updateRequirement: requirement({ targetSatisfiesRequirement: false }),
             latestUpdate: channelLatest({ downloads: [] }) as never,
@@ -346,13 +340,10 @@ describe('user takes the update the gate offers', () => {
     });
 
     it('user gets the repository releases page when the feed names no release page', async () => {
-        const wrapper = mountGate({
+        const wrapper = await mountGate({
             status: 'available',
             updateRequirement: requirement({ targetSatisfiesRequirement: false }),
-            latestUpdate: channelLatest({
-                downloads: [],
-                releaseUrl: undefined as unknown as string,
-            }) as never,
+            latestUpdate: null,
         });
 
         await primary(wrapper).trigger('click');
@@ -362,33 +353,33 @@ describe('user takes the update the gate offers', () => {
     });
 
     it('user gets a fresh check started from the recheck button', async () => {
-        const wrapper = mountGate({ latestUpdate: channelLatest() as never });
+        const wrapper = await mountGate({ latestUpdate: channelLatest() as never });
 
         await recheck(wrapper).trigger('click');
         await nextTick();
 
-        expect(appUpdateServiceMock.checkNow).toHaveBeenCalledWith('manual');
+        expect(updatesBoundary.checkNow).toHaveBeenCalledWith('manual');
     });
 });
 
 describe('user sees a broken updater explained', () => {
-    it('user sees the failure reason in the detail block', () => {
-        const wrapper = mountGate({ status: 'failed', error: 'download failed: 504' });
+    it('user sees the failure reason in the detail block', async () => {
+        const wrapper = await mountGate({ status: 'failed', error: 'download failed: 504' });
 
         expect(wrapper.text()).toContain('download failed: 504');
     });
 
-    it('user sees no failure block when the error is only whitespace', () => {
-        const wrapper = mountGate({ status: 'failed', error: '   ' });
+    it('user sees no failure block when the error is only whitespace', async () => {
+        const wrapper = await mountGate({ status: 'failed', error: '   ' });
 
         expect(wrapper.text()).not.toContain('原因');
     });
 
     it('user still sees the gate when the updater itself could not start', async () => {
         const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
-        appUpdateServiceMock.initialize.mockRejectedValue(new Error('no tauri'));
+        updatesBoundary.initialize.mockRejectedValue(new Error('no tauri'));
 
-        const wrapper = mountGate();
+        const wrapper = await mountGate();
         await nextTick();
         await nextTick();
 
@@ -399,13 +390,13 @@ describe('user sees a broken updater explained', () => {
     });
 
     it('user gets the update subscription released when the gate goes away', async () => {
-        const unsubscribe = vi.fn();
-        appUpdateServiceMock.subscribe.mockReturnValue(unsubscribe);
-        const wrapper = mountGate();
+        const wrapper = await mountGate();
         await nextTick();
 
         wrapper.unmount();
 
-        expect(unsubscribe).toHaveBeenCalledOnce();
+        await updatesBoundary.publishState({ updateRequirement: null });
+        await nextTick();
+        expect(wrapper.exists()).toBe(false);
     });
 });

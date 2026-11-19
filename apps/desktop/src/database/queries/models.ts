@@ -2,8 +2,6 @@
 
 import { and, desc, eq, sql } from 'drizzle-orm';
 
-import { tt } from '@/i18n';
-
 import { type DatabaseExecutor, db } from '../index';
 import { models, providers } from '../schema';
 import type {
@@ -17,6 +15,13 @@ import type {
 } from '../types';
 
 export type { ModelWithProvider } from '../types';
+
+export class DefaultModelSelectionError extends Error {
+    constructor(readonly code: 'MODEL_NOT_FOUND' | 'PROVIDER_DISABLED') {
+        super(code);
+        this.name = 'DefaultModelSelectionError';
+    }
+}
 
 export const modelWithProviderSelection = {
     id: models.id,
@@ -165,15 +170,11 @@ export const setDefaultModel = async ({ modelId }: { modelId: number }): Promise
             .get();
 
         if (!modelWithProvider) {
-            throw new Error(tt('模型不存在'));
+            throw new DefaultModelSelectionError('MODEL_NOT_FOUND');
         }
 
         if (modelWithProvider.enabled === 0) {
-            throw new Error(
-                tt('无法设置默认模型：服务商 "{provider}" 未启用', {
-                    provider: modelWithProvider.provider_name,
-                })
-            );
+            throw new DefaultModelSelectionError('PROVIDER_DISABLED');
         }
 
         await tx.update(models).set({ is_default: 0 }).where(eq(models.is_default, 1)).run();

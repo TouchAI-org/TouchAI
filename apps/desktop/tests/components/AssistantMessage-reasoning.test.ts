@@ -3,13 +3,12 @@ import { mount, type VueWrapper } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick } from 'vue';
 
+import type { SessionMessage } from '@/app/api/agent/history';
 import { setLocale } from '@/i18n';
-import type { SessionMessage } from '@/types/session';
 import AssistantMessage from '@/views/SearchView/components/ConversationPanel/components/AssistantMessage.vue';
 
 vi.mock('@/stores/askUser', () => ({ useAskUserStore: () => ({ current: null }) }));
-vi.mock('@/services/NotificationService', () => ({ notify: vi.fn() }));
-vi.mock('@/services/ClipboardService', () => ({ clipboardService: { writeText: vi.fn() } }));
+vi.mock('@/app/api/windows/notifications', () => ({ notify: vi.fn() }));
 vi.mock('@/components/MarkdownContent.vue', () => ({
     default: {
         props: ['content', 'final', 'variant'],

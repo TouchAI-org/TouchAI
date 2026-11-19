@@ -5,6 +5,7 @@ import { nextTick, ref } from 'vue';
 
 const { currentWindowMock } = vi.hoisted(() => ({
     currentWindowMock: {
+        label: 'main',
         isVisible: vi.fn(),
         isAlwaysOnTop: vi.fn(),
         setAlwaysOnTop: vi.fn(),
@@ -15,7 +16,7 @@ vi.mock('@tauri-apps/api/window', () => ({
     getCurrentWindow: () => currentWindowMock,
 }));
 
-vi.mock('@services/NativeService', () => ({
+vi.mock('@/platform/native', () => ({
     native: {
         window: {
             hideSearchWindow: vi.fn().mockResolvedValue(undefined),

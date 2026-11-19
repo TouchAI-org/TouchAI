@@ -1,9 +1,12 @@
-import { AppEvent } from '@services/EventService';
-import type { SearchSurfaceShownEvent } from '@services/EventService/types';
-import { mountComposable } from '@tests/utils/composables';
+import { mountComposable as mountBaseComposable } from '@tests/utils/composables';
+import { createStartupNoticeFixture } from '@tests/utils/startupNotices';
+import { mockTauriCommand } from '@tests/utils/tauri';
+import { flushPromises } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick, ref } from 'vue';
 
+import type { SearchSurfaceShownEvent } from '@/app/api/search/events';
+import { AppEvent } from '@/app/api/search/events';
 import { createSearchInteractionContext } from '@/views/SearchView/composables/searchInteraction';
 import {
     useSearchPageController,
@@ -18,7 +21,6 @@ const {
     initNotificationPermissionMock,
     nativeMock,
     notifyMock,
-    runStartupTasksMock,
     settingsStoreMock,
     useAlertMock,
 } = vi.hoisted(() => {
@@ -26,6 +28,7 @@ const {
 
     return {
         currentWindowMock: {
+            label: 'main',
             isVisible: vi.fn(),
             isFocused: vi.fn(),
             isAlwaysOnTop: vi.fn(),
@@ -59,7 +62,6 @@ const {
                 setSearchSurfaceHideOnAppBlur: vi.fn(),
             },
         },
-        runStartupTasksMock: vi.fn(),
         settingsStoreMock: {
             initialize: vi.fn(),
             globalShortcut: 'Alt+Space',
@@ -72,26 +74,18 @@ vi.mock('@tauri-apps/api/window', () => ({
     getCurrentWindow: () => currentWindowMock,
 }));
 
-vi.mock('@services/EventService', async () => {
+vi.mock('@/app/api/search/events', async () => {
     const actual =
-        await vi.importActual<typeof import('@services/EventService')>('@services/EventService');
+        await vi.importActual<typeof import('@/app/api/search/events')>('@/app/api/search/events');
     return {
         ...actual,
         eventService: eventServiceMock,
     };
 });
 
-vi.mock('@services/NativeService', () => ({
-    native: nativeMock,
-}));
-
-vi.mock('@services/NotificationService', () => ({
+vi.mock('@/app/api/windows/notifications', () => ({
     initNotificationPermission: initNotificationPermissionMock,
     notify: notifyMock,
-}));
-
-vi.mock('@services/StartupService', () => ({
-    runStartupTasks: runStartupTasksMock,
 }));
 
 vi.mock('@composables/useAlert', () => ({
@@ -102,11 +96,19 @@ vi.mock('@/stores/settings', () => ({
     useSettingsStore: () => settingsStoreMock,
 }));
 
+let startupFixture: ReturnType<typeof createStartupNoticeFixture>;
+const mountComposable: typeof mountBaseComposable = (factory, configure) =>
+    mountBaseComposable(factory, (app) => {
+        startupFixture.provide(app);
+        configure?.(app);
+    });
+beforeEach(() => {
+    startupFixture = createStartupNoticeFixture();
+});
+
 async function flushLifecycle() {
-    for (let index = 0; index < 8; index += 1) {
-        await Promise.resolve();
-        await nextTick();
-    }
+    await flushPromises();
+    await nextTick();
 }
 
 function createController() {
@@ -248,7 +250,6 @@ describe('useSearchPageLifecycle', () => {
         settingsStoreMock.initialize.mockResolvedValue(undefined);
         settingsStoreMock.globalShortcut = 'Alt+Space';
         initNotificationPermissionMock.mockResolvedValue(undefined);
-        runStartupTasksMock.mockResolvedValue(undefined);
     });
 
     afterEach(() => {
@@ -278,8 +279,8 @@ describe('useSearchPageLifecycle', () => {
             })
         );
 
-        expect(nativeMock.window.setSearchSurfaceHideOnAppBlur).toHaveBeenCalledWith(true);
         await flushLifecycle();
+        expect(nativeMock.window.setSearchSurfaceHideOnAppBlur).toHaveBeenCalledWith(true);
 
         expect(settingsStoreMock.initialize).toHaveBeenCalledTimes(1);
         expect(nativeMock.shortcut.registerGlobalShortcut).toHaveBeenCalledWith('Alt+Space');
@@ -371,7 +372,7 @@ describe('useSearchPageLifecycle', () => {
         await flushLifecycle();
 
         expect(eventHandlers.size).toBe(0);
-        expect(runStartupTasksMock).not.toHaveBeenCalled();
+        expect(startupFixture.consumed).toBe(false);
     });
 
     it.each(['refocus', 'unmount'] as const)(
@@ -1189,4 +1190,35 @@ describe('useSearchPageLifecycle', () => {
 
         mounted.unmount();
     });
+});
+
+beforeEach(() => {
+    mockTauriCommand('get_runtime_info', () => nativeMock.runtime.getRuntimeInfo());
+    mockTauriCommand('register_global_shortcut', (payload) =>
+        nativeMock.shortcut.registerGlobalShortcut((payload as { shortcut: string }).shortcut)
+    );
+    mockTauriCommand('hide_search_window', (payload) => {
+        if ((payload as { ifUnfocused?: boolean } | undefined)?.ifUnfocused)
+            return nativeMock.window.reconcileSearchWindowBlur?.();
+        return nativeMock.window.hideSearchWindow();
+    });
+    mockTauriCommand('set_search_surface_hide_on_app_blur', (payload) =>
+        nativeMock.window.setSearchSurfaceHideOnAppBlur(
+            (payload as { shouldHide: boolean }).shouldHide
+        )
+    );
+    mockTauriCommand('set_tray_status_indicator', (payload) =>
+        nativeMock.window.setTrayStatusIndicator((payload as { status: unknown }).status)
+    );
+    mockTauriCommand('clear_tray_status_indicator', () =>
+        nativeMock.window.clearTrayStatusIndicator()
+    );
+    mockTauriCommand('show_session_status_reminder_notification', (payload) =>
+        nativeMock.window.showSessionStatusReminderNotification(
+            (payload as { payload: unknown }).payload
+        )
+    );
+    mockTauriCommand('clear_session_status_reminder_notifications', () =>
+        nativeMock.window.clearSessionStatusReminderNotifications()
+    );
 });

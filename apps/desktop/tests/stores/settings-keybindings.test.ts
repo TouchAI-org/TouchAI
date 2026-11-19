@@ -1,165 +1,78 @@
-import { createSettingsBus } from '@tests/utils/settingsTransport';
-import { createPinia, setActivePinia } from 'pinia';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { closeTestDatabases } from '@tests/database/sqliteHarness';
+import { createSettingsWindowFixture } from '@tests/utils/settingsWindow';
+import { afterEach, describe, expect, it } from 'vitest';
+
+let fixture: ReturnType<typeof createSettingsWindowFixture> | undefined;
+afterEach(() => {
+    fixture?.dispose();
+    fixture = undefined;
+    closeTestDatabases();
+});
 
 import { createDefaultSearchKeybindings } from '@/config/searchKeybindings';
-import { log } from '@/services/ObservabilityService';
-import { setActiveSettingsService } from '@/services/SettingsService';
-import { SettingsService } from '@/services/SettingsService/service';
 
-const { getSettingValueMock, getSettingValuesMock, setSettingMock } = vi.hoisted(() => ({
-    getSettingValueMock: vi.fn(),
-    getSettingValuesMock: vi.fn(),
-    setSettingMock: vi.fn(),
-}));
-
-vi.mock('@database/queries', () => ({
-    getSettingValue: getSettingValueMock,
-    getSettingValues: getSettingValuesMock,
-    setSetting: setSettingMock,
-}));
-
-vi.mock('@services/NativeService', () => ({
-    native: {
-        autostart: {
-            isAutostartEnabled: vi.fn(async () => false),
-            enableAutostart: vi.fn(async () => undefined),
-            disableAutostart: vi.fn(async () => undefined),
-        },
-        shortcut: {
-            registerGlobalShortcut: vi.fn(async () => undefined),
-        },
-        window: {
-            setSearchWindowDefaults: vi.fn(async () => undefined),
-        },
-    },
-}));
-
-function mockSettings(values: Record<string, string | null>) {
-    getSettingValueMock.mockImplementation(async ({ key }: { key: string }) => values[key] ?? null);
-    getSettingValuesMock.mockImplementation(async ({ keys }: { keys: string[] }) =>
-        Object.fromEntries(keys.map((key) => [key, values[key] ?? null]))
-    );
-    setSettingMock.mockImplementation(async ({ key, value }: { key: string; value: string }) => ({
-        id: 1,
-        key,
-        value,
-        created_at: '2026-06-03 00:00:00',
-        updated_at: '2026-06-03 00:00:00',
-    }));
-}
-
-describe('user changes the search shortcuts', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
-        setActivePinia(createPinia());
-    });
-
-    afterEach(() => {
-        setActiveSettingsService(null);
-    });
-
-    async function createStore() {
-        const bus = createSettingsBus();
-        setActiveSettingsService(new SettingsService({ transport: bus.transport('main') }));
-        const { useSettingsStore } = await import('@/stores/settings');
-        return useSettingsStore();
-    }
-
-    it('user persists default search keybindings when the row is missing', async () => {
-        mockSettings({});
-
-        const store = await createStore();
-
+describe('given the main writer owns saved search shortcuts', () => {
+    it('user opens preferences with no saved shortcuts and receives persisted defaults', async () => {
+        fixture = createSettingsWindowFixture();
+        const store = fixture.store();
         await store.initialize();
-
         expect(store.settings.searchKeybindings).toEqual(createDefaultSearchKeybindings());
         expect(store.settings.searchKeybindings['search.window.maximize']).toBe('F11');
         expect(store.settings.searchKeybindings['search.settings.open']).toBe('Mod+,');
-        expect(setSettingMock).toHaveBeenCalledWith({
-            key: 'search_keybindings',
-            value: JSON.stringify(createDefaultSearchKeybindings()),
-        });
+        expect(JSON.parse(fixture.values.get('search_keybindings')!)).toEqual(
+            createDefaultSearchKeybindings()
+        );
     });
 
-    it('user keeps initialization usable when default keybinding persistence fails', async () => {
-        mockSettings({});
-        const warnSpy = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
-        setSettingMock.mockImplementation(
-            async ({ key, value }: { key: string; value: string }) => {
-                if (key === 'search_keybindings') {
-                    throw new Error('database locked');
-                }
-
-                return {
-                    id: 1,
-                    key,
-                    value,
-                    created_at: '2026-06-03 00:00:00',
-                    updated_at: '2026-06-03 00:00:00',
-                };
-            }
-        );
-
-        const store = await createStore();
-
-        await expect(store.initialize()).resolves.toBeUndefined();
-
+    it('user keeps preferences usable after a default write fails and can save a later choice', async () => {
+        let fail = true;
+        fixture = createSettingsWindowFixture({
+            query: {
+                beforeQuery({ sql, params }) {
+                    if (fail && sql.startsWith('insert') && params[0] === 'search_keybindings')
+                        throw new Error('database locked');
+                },
+            },
+        });
+        const store = fixture.store();
+        await store.initialize();
         expect(store.initialized).toBe(true);
         expect(store.settings.searchKeybindings).toEqual(createDefaultSearchKeybindings());
-        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('search_keybindings'));
-    });
-
-    it('user loads persisted search keybindings and merges missing defaults', async () => {
-        mockSettings({
-            search_keybindings: JSON.stringify({
-                'search.history.open': 'Mod+Y',
-                'search.request.cancel': null,
-                'search.draft.clearAll': 'Mod+Backspace',
-            }),
-        });
-
-        const store = await createStore();
-
-        await store.initialize();
-
-        expect(store.settings.searchKeybindings['search.history.open']).toBe('Mod+Y');
-        expect(store.settings.searchKeybindings).toEqual({
-            ...createDefaultSearchKeybindings(),
-            'search.history.open': 'Mod+Y',
-        });
-        expect(store.settings.searchKeybindings['search.window.maximize']).toBe(
-            createDefaultSearchKeybindings()['search.window.maximize']
-        );
-        expect(setSettingMock).toHaveBeenCalledWith({
-            key: 'search_keybindings',
-            value: JSON.stringify({
-                ...createDefaultSearchKeybindings(),
-                'search.history.open': 'Mod+Y',
-            }),
-        });
-        expect(store.settings.searchKeybindings['search.input.focus']).toBe(
-            createDefaultSearchKeybindings()['search.input.focus']
-        );
-    });
-
-    it('user updates search keybindings, persists them, and sees the change applied', async () => {
-        mockSettings({});
-
-        const store = await createStore();
-        await store.initialize();
-
-        const nextKeybindings = {
-            ...createDefaultSearchKeybindings(),
+        expect(fixture.values.get('search_keybindings')).toBeUndefined();
+        fail = false;
+        await store.updateSearchKeybindings({
+            ...store.settings.searchKeybindings,
             'search.input.focus': 'Mod+K',
-        };
-
-        await store.updateSearchKeybindings(nextKeybindings);
-
-        expect(store.settings.searchKeybindings).toEqual(nextKeybindings);
-        expect(setSettingMock).toHaveBeenLastCalledWith({
-            key: 'search_keybindings',
-            value: JSON.stringify(nextKeybindings),
         });
+        expect(JSON.parse(fixture.values.get('search_keybindings')!)).toMatchObject({
+            'search.input.focus': 'Mod+K',
+        });
+    });
+
+    it('user opens legacy shortcuts and keeps their valid choice while missing defaults merge', async () => {
+        fixture = createSettingsWindowFixture({
+            values: {
+                search_keybindings: JSON.stringify({
+                    'search.history.open': 'Mod+Y',
+                    'search.request.cancel': null,
+                    'search.draft.clearAll': 'Mod+Backspace',
+                }),
+            },
+        });
+        const store = fixture.store();
+        await store.initialize();
+        const expected = { ...createDefaultSearchKeybindings(), 'search.history.open': 'Mod+Y' };
+        expect(store.settings.searchKeybindings).toEqual(expected);
+        expect(JSON.parse(fixture.values.get('search_keybindings')!)).toEqual(expected);
+    });
+
+    it('user changes a shortcut and receives the same committed value in preferences and storage', async () => {
+        fixture = createSettingsWindowFixture();
+        const store = fixture.store();
+        await store.initialize();
+        const next = { ...createDefaultSearchKeybindings(), 'search.input.focus': 'Mod+K' };
+        await store.updateSearchKeybindings(next);
+        expect(store.settings.searchKeybindings).toEqual(next);
+        expect(JSON.parse(fixture.values.get('search_keybindings')!)).toEqual(next);
     });
 });

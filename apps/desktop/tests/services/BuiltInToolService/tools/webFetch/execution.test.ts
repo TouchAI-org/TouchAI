@@ -1,16 +1,14 @@
+import { createWebFetchToolsFixture } from '@tests/utils/webFetchTools';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
-import { executeWebFetchTool } from '@/services/BuiltInToolService/tools/webFetch';
+const { execute: executeWebFetchTool } = createWebFetchToolsFixture();
 
 const { tauriFetchMock } = vi.hoisted(() => ({
     tauriFetchMock: vi.fn(),
 }));
 
-vi.mock('@/services/HttpService', () => ({
-    createTauriFetch: () => tauriFetchMock,
-    cancelResponseBody: vi.fn(async () => {}),
-}));
+vi.mock('@tauri-apps/plugin-http', () => ({ fetch: tauriFetchMock }));
 
 function createExecutionContext(): Parameters<typeof executeWebFetchTool>[2] {
     return {

@@ -1,11 +1,11 @@
-import type { QuickShortcutItem } from '@services/NativeService';
 import { flushPromises } from '@vue/test-utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
     loadFileReferenceSuggestions,
     recordAcceptedFileReference,
-} from '@/services/SearchService/fileReferenceHistory';
+} from '@/modules/search/fileReferenceHistory.io';
+import type { QuickShortcutItem } from '@/platform/native';
 
 import {
     closeTestDatabases,

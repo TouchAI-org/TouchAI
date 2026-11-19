@@ -1,10 +1,11 @@
+import { createTestWindowPresentation } from '@tests/utils/windowPresentation';
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3.
-
 /**
  * The resizable settings panel, tested through the component that hosts it:
  * what a user can drag or resize with the keyboard, not the composable's refs.
  */
 import { flushPromises, mount } from '@vue/test-utils';
+import { beforeEach as beforePresentation } from 'vitest';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { defineComponent, h } from 'vue';
 
@@ -220,4 +221,8 @@ describe('user resizes the settings side panel', () => {
 
         expect(panelWidth(wrapper)).toBeLessThanOrEqual(1000 - 300 - 360);
     });
+});
+
+beforePresentation(async () => {
+    (await createTestWindowPresentation('settings')).install();
 });

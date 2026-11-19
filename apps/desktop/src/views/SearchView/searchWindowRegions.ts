@@ -2,7 +2,7 @@ import type {
     SearchSurfacePreparation,
     SearchWindowRegion,
     SearchWindowRegionUpdate,
-} from '@services/NativeService/types';
+} from '@/app/api/windows/contracts';
 
 const SEARCH_SURFACE_CORNER_RADIUS = 8;
 const OVERLAY_CORNER_RADIUS = 8;

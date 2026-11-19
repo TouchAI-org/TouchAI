@@ -1,5 +1,6 @@
-import { getNextAppUpdateCheckAt, isWithinAppUpdateHours } from '@services/AppUpdateService/timing';
 import { describe, expect, it } from 'vitest';
+
+import { getNextAppUpdateCheckAt, isWithinAppUpdateHours } from '@/modules/updates/timing';
 
 function localTime(day: number, hour: number, minute = 0): number {
     return new Date(2026, 9, day, hour, minute).getTime();

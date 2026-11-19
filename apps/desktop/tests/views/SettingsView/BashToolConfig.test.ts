@@ -1,209 +1,218 @@
-import { log } from '@services/ObservabilityService';
-import { mount } from '@vue/test-utils';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createSettingsPanelFixture } from '@tests/utils/settingsPanel';
+import { createTestWindowPresentation } from '@tests/utils/windowPresentation';
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
+import { beforeEach as beforePresentation } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { BashToolConfig } from '@/app/api/tools/configuration';
+import { setLocale, t } from '@/i18n';
 import BashToolConfigPanel from '@/views/SettingsView/components/BuiltInTools/components/BashToolConfig.vue';
 
-/**
- * These settings decide what the built-in Bash tool is allowed to touch. A change that is not
- * emitted leaves the store holding the old value, so the user's next command runs under rules
- * they thought they had changed.
- */
 const { openMock } = vi.hoisted(() => ({ openMock: vi.fn() }));
-
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: openMock }));
 
-const baseConfig = {
-    approvalMode: 'high_risk' as const,
+const baseConfig: BashToolConfig = {
+    approvalMode: 'high_risk',
     defaultWorkingDirectory: '',
-    allowedWorkingDirectories: [] as string[],
+    allowedWorkingDirectories: [],
     timeoutMs: 120_000,
     maxOutputChars: 20_000,
     compactOutput: false,
 };
+let fixture: Awaited<ReturnType<typeof createSettingsPanelFixture>>;
+let wrapper: VueWrapper | undefined;
 
-function mountPanel(config = {}) {
-    return mount(BashToolConfigPanel, {
-        props: { modelValue: { ...baseConfig, ...config } },
-        global: {
-            stubs: {
-                AppIcon: { props: ['name'], template: '<i :data-icon="name" />' },
-                Input: {
-                    props: ['modelValue', 'type'],
-                    emits: ['update:modelValue', 'input'],
-                    template:
-                        '<input :type="type" :value="modelValue" @input="$emit(\'input\', $event)" />',
-                },
-                Switch: {
-                    props: ['checked'],
-                    emits: ['update:checked', 'change'],
-                    template:
-                        '<button role="switch" :aria-checked="checked" @click="$emit(\'change\', !checked)" />',
-                },
-            },
-        },
-    });
-}
-
-function lastConfig(wrapper: ReturnType<typeof mountPanel>) {
-    const events = wrapper.emitted('update:modelValue');
-    expect(events, 'no update was emitted').toBeTruthy();
-    const payload = events![events!.length - 1]![0];
-    // The parent replaces its whole config with this payload, so it must carry every field.
-    expect(Object.keys(payload as object).sort()).toEqual(Object.keys(baseConfig).sort());
-    return payload as typeof baseConfig;
-}
-
-/** The picker button for the default directory carries the folder-open icon. */
-function defaultDirectoryButton(wrapper: ReturnType<typeof mountPanel>) {
-    return wrapper
-        .findAll('button')
-        .find((button) => button.find('[data-icon="folder-open"]').exists())!;
-}
-
-beforeEach(() => {
-    vi.clearAllMocks();
+beforeEach(async () => {
+    openMock.mockReset();
+    fixture = await createSettingsPanelFixture();
+    setLocale('en-US');
+});
+afterEach(async () => {
+    wrapper?.unmount();
+    wrapper = undefined;
+    await fixture.dispose();
+    document.body.innerHTML = '';
 });
 
-describe('user configures the built-in bash tool', () => {
-    it('user changes the approval mode and the new mode is emitted', async () => {
-        const wrapper = mountPanel();
-        // Select by the label the user reads, not by position.
-        const option = wrapper.findAll('button').find((button) => button.text() === '完全访问');
-        expect(option, 'the full-access approval option should be rendered').toBeTruthy();
+function mountPanel(config: Partial<BashToolConfig> = {}, disabled = false) {
+    wrapper = mount(BashToolConfigPanel, {
+        ...fixture.viewOptions,
+        props: { modelValue: { ...baseConfig, ...config }, disabled },
+    });
+    return wrapper;
+}
+function lastConfig() {
+    const events = wrapper!.emitted('update:modelValue');
+    expect(events).toBeTruthy();
+    const value = events!.at(-1)![0] as BashToolConfig;
+    expect(Object.keys(value).sort()).toEqual(Object.keys(baseConfig).sort());
+    return value;
+}
+function picker(index = 0) {
+    return wrapper!
+        .findAll('button')
+        .filter(
+            (button) =>
+                button.attributes('aria-label') === t('settings.builtInTools.bash.chooseDirectory')
+        )[index]!;
+}
+function addDirectoryButton() {
+    return wrapper!.get(`button[aria-label="${t('settings.builtInTools.bash.addDirectory')}"]`);
+}
+function removeDirectoryButton(index: number) {
+    return wrapper!.findAll<HTMLButtonElement>(
+        `button[aria-label="${t('settings.builtInTools.bash.removeDirectory')}"]`
+    )[index]!.element;
+}
 
-        await option!.trigger('click');
-
-        expect(lastConfig(wrapper).approvalMode).toBe('never');
-        wrapper.unmount();
+describe('given the real builtin configuration controls and a settings-only native picker', () => {
+    it('user changes approval mode and receives a complete configuration without changing other fields', async () => {
+        mountPanel();
+        await wrapper!
+            .findAll('button')
+            .find((button) => button.text() === 'Full access')!
+            .trigger('click');
+        expect(lastConfig()).toEqual({ ...baseConfig, approvalMode: 'never' });
     });
 
-    it('user picks a default working directory and it is emitted', async () => {
+    it('user picks a default working directory and receives the selected path', async () => {
         openMock.mockResolvedValue('C:/work/project');
-        const wrapper = mountPanel();
-
-        await defaultDirectoryButton(wrapper).trigger('click');
-        await Promise.resolve();
-        await Promise.resolve();
-
-        expect(lastConfig(wrapper).defaultWorkingDirectory).toBe('C:/work/project');
-        wrapper.unmount();
+        mountPanel();
+        await picker().trigger('click');
+        await flushPromises();
+        expect(lastConfig().defaultWorkingDirectory).toBe('C:/work/project');
     });
 
-    it('user cancels the directory picker and nothing is emitted', async () => {
+    it('user cancels the native directory picker and keeps the existing configuration', async () => {
         openMock.mockResolvedValue(null);
-        const wrapper = mountPanel();
-
-        await defaultDirectoryButton(wrapper).trigger('click');
-        await Promise.resolve();
-        await Promise.resolve();
-
-        expect(wrapper.emitted('update:modelValue')).toBeUndefined();
-        wrapper.unmount();
+        mountPanel({ defaultWorkingDirectory: 'C:/existing' });
+        await picker().trigger('click');
+        await flushPromises();
+        expect(wrapper!.emitted('update:modelValue')).toBeUndefined();
+        expect(wrapper!.get<HTMLInputElement>('input[readonly]').element.value).toBe('C:/existing');
     });
 
-    it('user gets an error from the picker swallowed and nothing changed', async () => {
-        openMock.mockRejectedValue(new Error('dialog unavailable'));
-        const errorSpy = vi.spyOn(log, 'error').mockImplementation(() => undefined);
-        const wrapper = mountPanel();
-
-        await defaultDirectoryButton(wrapper).trigger('click');
-        await Promise.resolve();
-        await Promise.resolve();
-
-        expect(wrapper.emitted('update:modelValue')).toBeUndefined();
-        expect(errorSpy).toHaveBeenCalled();
-        errorSpy.mockRestore();
-        wrapper.unmount();
+    it('user keeps the directory after a picker failure and can choose it successfully afterward', async () => {
+        openMock.mockRejectedValueOnce(new Error('fixture dialog unavailable'));
+        mountPanel({ defaultWorkingDirectory: 'C:/existing' });
+        await picker().trigger('click');
+        await flushPromises();
+        expect(wrapper!.emitted('update:modelValue')).toBeUndefined();
+        openMock.mockResolvedValue('C:/following');
+        await picker().trigger('click');
+        await flushPromises();
+        expect(lastConfig().defaultWorkingDirectory).toBe('C:/following');
     });
 
-    it('user adds an allowed directory and it joins the list', async () => {
+    it('user adds an allowed directory without losing an existing entry', async () => {
         openMock.mockResolvedValue('C:/work/allowed');
-        const wrapper = mountPanel({ allowedWorkingDirectories: ['C:/work/first'] });
-
-        await wrapper
-            .find('[data-icon="plus"]')
-            .element.parentElement!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-        await Promise.resolve();
-        await Promise.resolve();
-
-        expect(lastConfig(wrapper).allowedWorkingDirectories).toEqual([
+        mountPanel({ allowedWorkingDirectories: ['C:/work/first'] });
+        await addDirectoryButton().trigger('click');
+        await flushPromises();
+        expect(lastConfig().allowedWorkingDirectories).toEqual([
             'C:/work/first',
             'C:/work/allowed',
         ]);
-        wrapper.unmount();
     });
 
-    it('user adds the same directory twice and it is not duplicated', async () => {
+    it('user picks an existing allowed directory without duplicating it', async () => {
         openMock.mockResolvedValue('C:/work/first');
-        const wrapper = mountPanel({ allowedWorkingDirectories: ['C:/work/first'] });
-
-        await wrapper
-            .find('[data-icon="plus"]')
-            .element.parentElement!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-        await Promise.resolve();
-        await Promise.resolve();
-
-        // A duplicate would make the list grow every time the user re-picks.
-        expect(lastConfig(wrapper).allowedWorkingDirectories).toEqual(['C:/work/first']);
-        wrapper.unmount();
+        mountPanel({ allowedWorkingDirectories: ['C:/work/first'] });
+        await addDirectoryButton().trigger('click');
+        await flushPromises();
+        expect(lastConfig().allowedWorkingDirectories).toEqual(['C:/work/first']);
     });
 
-    it('user removes an allowed directory and it leaves the list', async () => {
-        const wrapper = mountPanel({
-            allowedWorkingDirectories: ['C:/work/first', 'C:/work/second'],
-        });
-
-        const removeButtons = wrapper
-            .findAll('button')
-            .filter((button) => button.find('[data-icon="x"]').exists());
-        await removeButtons[0]!.trigger('click');
-
-        expect(lastConfig(wrapper).allowedWorkingDirectories).toEqual(['C:/work/second']);
-        wrapper.unmount();
+    it('user removes one allowed directory and keeps the other entry', async () => {
+        mountPanel({ allowedWorkingDirectories: ['C:/work/first', 'C:/work/second'] });
+        removeDirectoryButton(0).click();
+        await flushPromises();
+        expect(lastConfig().allowedWorkingDirectories).toEqual(['C:/work/second']);
     });
 
-    it('user picks a replacement for an allowed directory and the entry changes', async () => {
+    it('user replaces an allowed directory through the native picker', async () => {
         openMock.mockResolvedValue('C:/work/replacement');
-        const wrapper = mountPanel({ allowedWorkingDirectories: ['C:/work/first'] });
-
-        const pickButtons = wrapper
-            .findAll('button')
-            .filter((button) => button.find('[data-icon="folder-open"]').exists());
-        // The last folder button belongs to the allowed-directory row.
-        await pickButtons[pickButtons.length - 1]!.trigger('click');
-        await Promise.resolve();
-        await Promise.resolve();
-
-        expect(lastConfig(wrapper).allowedWorkingDirectories).toEqual(['C:/work/replacement']);
-        wrapper.unmount();
+        mountPanel({ allowedWorkingDirectories: ['C:/work/first'] });
+        await picker(1).trigger('click');
+        await flushPromises();
+        expect(lastConfig().allowedWorkingDirectories).toEqual(['C:/work/replacement']);
     });
 
-    it('user turns compact output on and the flag is emitted', async () => {
-        const wrapper = mountPanel();
-
-        await wrapper.find('[role="switch"]').trigger('click');
-
-        expect(lastConfig(wrapper).compactOutput).toBe(true);
-        wrapper.unmount();
+    it('user enables compact output through the actual switch', async () => {
+        mountPanel();
+        await wrapper!.get('[role="switch"]').trigger('click');
+        expect(lastConfig().compactOutput).toBe(true);
     });
 
-    it('user sees the directories and limits the tool is using', () => {
-        const wrapper = mountPanel({
+    it('user sees the configured directories and both current limits', () => {
+        mountPanel({
             defaultWorkingDirectory: 'C:/work/project',
             allowedWorkingDirectories: ['C:/work/allowed'],
         });
-
-        // The panel has to show the current values, or the user cannot tell what is set.
-        const values = wrapper.findAll('input').map((input) => input.element.value);
-        expect(values).toContain('C:/work/project');
-        expect(values).toContain('C:/work/allowed');
-        // The limits are shown, not just rendered as some inputs.
-        const shown = wrapper.findAll('input').map((input) => input.element.value);
-        expect(shown).toContain('120000');
-        expect(shown).toContain('20000');
-        expect(wrapper.findAll('input')).toHaveLength(4);
-        expect(wrapper.find('[role="switch"]').exists()).toBe(true);
-        wrapper.unmount();
+        expect(wrapper!.findAll('input').map((input) => input.element.value)).toEqual([
+            'C:/work/project',
+            'C:/work/allowed',
+            '120000',
+            '20000',
+        ]);
+        expect(wrapper!.get('[role="switch"]').attributes('aria-checked')).toBe('false');
     });
+
+    it('user clears a timeout field without unintentionally disabling the current timeout', async () => {
+        mountPanel();
+        await wrapper!.findAll('input[type="number"]')[0]!.setValue('');
+        expect(wrapper!.emitted('update:modelValue')).toBeUndefined();
+    });
+
+    it('user explicitly chooses no timeout or edits the output limit and other fields stay unchanged', async () => {
+        mountPanel();
+        await wrapper!.findAll('input[type="number"]')[0]!.setValue('0');
+        expect(lastConfig()).toEqual({ ...baseConfig, timeoutMs: 0 });
+        await wrapper!.findAll('input[type="number"]')[1]!.setValue('10000');
+        expect(lastConfig()).toEqual({ ...baseConfig, maxOutputChars: 10000 });
+    });
+
+    it('user cannot change a disabled configuration or open its directory picker', async () => {
+        mountPanel({}, true);
+        expect(wrapper!.findAll('button').every((button) => button.element.disabled)).toBe(true);
+        await picker().trigger('click');
+        expect(openMock).not.toHaveBeenCalled();
+        expect(wrapper!.emitted('update:modelValue')).toBeUndefined();
+    });
+
+    it('user closes the panel while a picker is open and its late path cannot edit a detached configuration', async () => {
+        let finish!: (path: string) => void;
+        openMock.mockImplementation(
+            () =>
+                new Promise<string>((resolve) => {
+                    finish = resolve;
+                })
+        );
+        mountPanel();
+        await picker().trigger('click');
+        wrapper!.unmount();
+        finish('C:/late');
+        await flushPromises();
+        expect(wrapper!.emitted('update:modelValue')).toBeUndefined();
+    });
+
+    it('user disables the panel while a picker is open and its late path cannot edit the disabled configuration', async () => {
+        let finish!: (path: string) => void;
+        openMock.mockImplementation(
+            () =>
+                new Promise<string>((resolve) => {
+                    finish = resolve;
+                })
+        );
+        mountPanel();
+        await picker().trigger('click');
+        await wrapper!.setProps({ disabled: true });
+        finish('C:/late');
+        await flushPromises();
+        expect(wrapper!.emitted('update:modelValue')).toBeUndefined();
+    });
+});
+
+beforePresentation(async () => {
+    (await createTestWindowPresentation('settings')).install();
 });

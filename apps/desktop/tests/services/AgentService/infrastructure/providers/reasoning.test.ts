@@ -1,6 +1,11 @@
-import { describe, expect, it } from 'vitest';
-
-import type { AiRequestOptions } from '@/services/AgentService/contracts/protocol';
+import { encodeReasoning, type ReasoningResolution, resolveReasoning } from '@touchai/models';
+import { getOpenAiReasoningLevelMap } from '@touchai/models/catalog';
+import type {
+    AiProvider,
+    AiProviderConfig,
+    AiRequestOptions,
+    ModelsHost,
+} from '@touchai/models/contracts';
 import {
     clampReasoningLevel,
     DEFAULT_REASONING_LEVEL,
@@ -9,15 +14,66 @@ import {
     normalizeReasoningOptions,
     type ReasoningOption,
     type SelectableReasoningLevel,
-} from '@/services/AgentService/contracts/reasoning';
-import { OpenAIProviderAdapter } from '@/services/AgentService/infrastructure/providers/adapters/openai';
-import { OpenAICompatibleProviderAdapter } from '@/services/AgentService/infrastructure/providers/adapters/openai-compatible';
-import {
-    encodeReasoning,
-    getOpenAiReasoningLevelMap,
-    type ReasoningResolution,
-    resolveReasoning,
-} from '@/services/AgentService/infrastructure/providers/reasoning';
+} from '@touchai/models/contracts';
+import { OpenAIProviderAdapter } from '@touchai/models/providers/openai';
+import { OpenAICompatibleProviderAdapter } from '@touchai/models/providers/openai-compatible';
+import { describe, expect, it } from 'vitest';
+
+function wire(
+    driver: 'openai' | 'openai-compatible',
+    config: AiProviderConfig = {
+        apiEndpoint: 'https://api.openai.com/v1',
+    }
+) {
+    const requests: { url: string; body: Record<string, unknown> }[] = [];
+    const host: ModelsHost = {
+        fetch: async (input, init) => {
+            requests.push({ url: String(input), body: JSON.parse(String(init?.body)) });
+            const event = String(input).endsWith('/responses')
+                ? {
+                      type: 'response.completed',
+                      response: {
+                          id: 'fixture',
+                          created_at: 1,
+                          model: 'gpt-6-sol',
+                          output: [],
+                          status: 'completed',
+                          usage: { input_tokens: 1, output_tokens: 0, total_tokens: 1 },
+                      },
+                  }
+                : {
+                      id: 'fixture',
+                      created: 1,
+                      model: 'fixture',
+                      choices: [{ index: 0, delta: { content: 'ok' }, finish_reason: 'stop' }],
+                  };
+            return new Response(`data: ${JSON.stringify(event)}\n\ndata: [DONE]\n\n`, {
+                headers: { 'content-type': 'text/event-stream' },
+            });
+        },
+        remoteRefs: {
+            read: async () => null,
+            touch: async () => undefined,
+            write: async () => undefined,
+        },
+    };
+    const adapter: AiProvider =
+        driver === 'openai'
+            ? new OpenAIProviderAdapter(config, host)
+            : new OpenAICompatibleProviderAdapter(config, host);
+    return async (options: Partial<AiRequestOptions> = {}) => {
+        await adapter.request({
+            model: 'gpt-6-sol',
+            messages: [{ role: 'user', content: 'hello' }],
+            reasoningLevel: 'max',
+            ...options,
+        });
+        return requests[requests.length - 1]!;
+    };
+}
+const tools: NonNullable<AiRequestOptions['tools']> = [
+    { name: 'test', description: 'test tool', input_schema: { type: 'object', properties: {} } },
+];
 
 describe('user picks how hard the model should think', () => {
     it('user sees only canonical reasoning levels accepted', () => {
@@ -118,138 +174,61 @@ describe('user sees the requested reasoning level clamped to what the model supp
         expect(getOpenAiReasoningLevelMap('unknown-model')).toEqual({});
     });
 
-    it('user sees the official driver default to stateless Responses', () => {
-        const adapter = new OpenAIProviderAdapter({ apiEndpoint: 'https://api.openai.com/v1' });
-        const probe = adapter as unknown as {
-            getStreamProviderOptions(options: AiRequestOptions): unknown;
-        };
-        const baseOptions: AiRequestOptions = {
-            model: 'gpt-6-sol',
-            messages: [{ role: 'user', content: 'hello' }],
-            reasoningLevel: 'max',
-        };
-
-        expect(probe.getStreamProviderOptions(baseOptions)).toEqual({
-            openai: {
+    it('user sees the official driver default to stateless Responses', async () => {
+        const request = wire('openai');
+        for (const declarations of [undefined, tools]) {
+            const sent = await request({ tools: declarations });
+            expect(sent.url).toBe('https://api.openai.com/v1/responses');
+            expect(sent.body).toMatchObject({
                 store: false,
-                forceReasoning: true,
-                reasoningEffort: 'max',
-                reasoningSummary: 'auto',
+                reasoning: { effort: 'max', summary: 'auto' },
                 include: ['reasoning.encrypted_content'],
-            },
-        });
-        expect(
-            probe.getStreamProviderOptions({
-                ...baseOptions,
-                tools: [
-                    {
-                        name: 'test',
-                        description: 'test tool',
-                        input_schema: { type: 'object', properties: {} },
-                    },
-                ],
-            })
-        ).toEqual({
-            openai: {
-                store: false,
-                forceReasoning: true,
-                reasoningEffort: 'max',
-                reasoningSummary: 'auto',
-                include: ['reasoning.encrypted_content'],
-            },
-        });
+            });
+        }
     });
 
-    it('user sees Chat Completions used when the transport is overridden', () => {
-        const adapter = new OpenAIProviderAdapter({
+    it('user sees Chat Completions used when the transport is overridden', async () => {
+        const request = wire('openai', {
             apiEndpoint: 'https://api.openai.com/v1',
             config: { reasoning: { format: 'deepseek' } },
         });
+        expect((await request()).url).toBe('https://api.openai.com/v1/chat/completions');
+    });
 
-        expect(adapter.getApiTargets().generationTarget).toBe(
-            'https://api.openai.com/v1/chat/completions'
+    it('user keeps the Chat Completions constraint when the transport is overridden', async () => {
+        const request = wire('openai', {
+            apiEndpoint: 'https://api.openai.com/v1',
+            config: { reasoning: { format: 'openai' } },
+        });
+        expect((await request({ tools })).body.reasoning_effort).toBe('none');
+        expect((await request()).body.reasoning_effort).toBe('max');
+    });
+
+    it('user sees no reasoning sent when metadata declares it unsupported', async () => {
+        const request = wire('openai', {
+            apiEndpoint: 'https://api.openai.com/v1',
+            config: { reasoning: { format: 'openai' } },
+        });
+        expect((await request()).body.reasoning_effort).toBe('max');
+        expect((await request({ supportsReasoning: false })).body).not.toHaveProperty(
+            'reasoning_effort'
         );
+        expect(
+            (
+                await request({
+                    supportsReasoning: false,
+                    reasoningOptions: [{ type: 'effort', values: ['low', 'high'] }],
+                })
+            ).body
+        ).not.toHaveProperty('reasoning_effort');
     });
 
-    it('user keeps the Chat Completions constraint when the transport is overridden', () => {
-        const adapter = new OpenAIProviderAdapter({
-            apiEndpoint: 'https://api.openai.com/v1',
-            config: { reasoning: { format: 'openai' } },
-        });
-        const probe = adapter as unknown as {
-            getStreamProviderOptions(options: AiRequestOptions): unknown;
-        };
-        const baseOptions: AiRequestOptions = {
-            model: 'gpt-6-sol',
-            messages: [{ role: 'user', content: 'hello' }],
-            reasoningLevel: 'max',
-        };
-
-        expect(
-            probe.getStreamProviderOptions({
-                ...baseOptions,
-                tools: [
-                    {
-                        name: 'test',
-                        description: 'test tool',
-                        input_schema: { type: 'object', properties: {} },
-                    },
-                ],
-            })
-        ).toEqual({ openai: { reasoningEffort: 'none' } });
-        expect(probe.getStreamProviderOptions(baseOptions)).toEqual({
-            openai: { reasoningEffort: 'max' },
-        });
-    });
-
-    it('user sees no reasoning sent when metadata declares it unsupported', () => {
-        const adapter = new OpenAIProviderAdapter({
-            apiEndpoint: 'https://api.openai.com/v1',
-            config: { reasoning: { format: 'openai' } },
-        });
-        const probe = adapter as unknown as {
-            getStreamProviderOptions(options: AiRequestOptions): unknown;
-        };
-        const baseOptions: AiRequestOptions = {
-            model: 'gpt-6-sol',
-            messages: [{ role: 'user', content: 'hello' }],
-            reasoningLevel: 'max',
-        };
-
-        // 未声明能力时保留硬编码兜底表。
-        expect(probe.getStreamProviderOptions(baseOptions)).toEqual({
-            openai: { reasoningEffort: 'max' },
-        });
-        // 显式 false 优先于兜底表和残留档位。
-        expect(
-            probe.getStreamProviderOptions({ ...baseOptions, supportsReasoning: false })
-        ).toBeUndefined();
-        expect(
-            probe.getStreamProviderOptions({
-                ...baseOptions,
-                supportsReasoning: false,
-                reasoningOptions: [{ type: 'effort', values: ['low', 'high'] }],
-            })
-        ).toBeUndefined();
-    });
-
-    it('user sees an explicit passthrough override an unsupported declaration', () => {
-        const adapter = new OpenAIProviderAdapter({
+    it('user sees an explicit passthrough override an unsupported declaration', async () => {
+        const request = wire('openai', {
             apiEndpoint: 'https://api.openai.com/v1',
             config: { reasoning: { format: 'openai', mode: 'passthrough' } },
         });
-        const probe = adapter as unknown as {
-            getStreamProviderOptions(options: AiRequestOptions): unknown;
-        };
-
-        expect(
-            probe.getStreamProviderOptions({
-                model: 'gpt-6-sol',
-                messages: [{ role: 'user', content: 'hello' }],
-                reasoningLevel: 'max',
-                supportsReasoning: false,
-            })
-        ).toEqual({ openai: { reasoningEffort: 'max' } });
+        expect((await request({ supportsReasoning: false })).body.reasoning_effort).toBe('max');
     });
 });
 
@@ -350,26 +329,14 @@ describe('user sees the requested level resolved against the model', () => {
 });
 
 describe('user sees reasoning options remapped for an OpenAI-compatible relay', () => {
-    it('user sees encoded options land in the OpenAI-compatible namespace', () => {
-        const adapter = new OpenAICompatibleProviderAdapter({
+    it('user sees encoded options land in the compatible wire body', async () => {
+        const request = wire('openai-compatible', {
             apiEndpoint: 'https://relay.example.com/v1',
             config: { reasoning: { format: 'deepseek', mode: 'passthrough' } },
         });
-        const probe = adapter as unknown as {
-            getStreamProviderOptions(options: AiRequestOptions): unknown;
-        };
-
-        expect(
-            probe.getStreamProviderOptions({
-                model: 'deepseek-v4.1-flash',
-                messages: [{ role: 'user', content: 'hello' }],
-                reasoningLevel: 'max',
-            })
-        ).toEqual({
-            openaiCompatible: {
-                reasoningEffort: 'max',
-                thinking: { type: 'enabled' },
-            },
+        expect((await request({ model: 'deepseek-v4.1-flash' })).body).toMatchObject({
+            reasoning_effort: 'max',
+            thinking: { type: 'enabled' },
         });
     });
 });

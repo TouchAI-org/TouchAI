@@ -1,214 +1,173 @@
+import {
+    createAgentWindowFixture,
+    network,
+    response,
+    streamingResponse,
+} from '@tests/utils/agentWindow';
 import { mountComposable } from '@tests/utils/composables';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
+import { agentApiKey } from '@/app/api/agent';
 import { useAgent } from '@/composables/agent/useAgent';
-import type { SessionTaskSnapshot } from '@/services/AgentService';
 
-const { findSessionByIdMock, notifyMock, sessionTaskCenterMock } = vi.hoisted(() => ({
-    findSessionByIdMock: vi.fn(),
-    notifyMock: vi.fn(),
-    sessionTaskCenterMock: {
-        attachSessionView: vi.fn(),
-        approveTaskToolCall: vi.fn(() => true),
-        cancelTask: vi.fn(() => true),
-        rejectTaskToolCall: vi.fn(() => true),
-        startTask: vi.fn(),
-        subscribeTask: vi.fn(),
-    },
+const notifications = vi.hoisted(() => vi.fn());
+vi.mock('@tauri-apps/plugin-notification', () => ({
+    sendNotification: notifications,
+    isPermissionGranted: async () => true,
+    requestPermission: async () => 'granted',
 }));
 
-vi.mock('@database/queries/sessions', () => ({
-    findSessionById: findSessionByIdMock,
-}));
-
-vi.mock('@services/NotificationService', () => ({
-    notify: notifyMock,
-}));
-
-vi.mock('@/services/AgentService', async () => {
-    const actual =
-        await vi.importActual<typeof import('@/services/AgentService')>('@/services/AgentService');
-    return {
-        ...actual,
-        sessionTaskCenter: sessionTaskCenterMock,
-    };
-});
-
-function createTaskSnapshot(
-    taskId: string,
-    overrides: Partial<SessionTaskSnapshot> = {}
-): SessionTaskSnapshot {
-    const snapshot: SessionTaskSnapshot = {
-        taskId,
-        sessionId: 1,
-        turnId: 1,
-        status: 'running' as const,
-        executionMode: 'foreground' as const,
-        sessionHistory: [],
-        pendingToolApproval: null,
-        pendingApprovals: [],
-        pendingUserQuestion: null,
-        error: null,
-        currentModel: null,
-        startedAt: 1,
-        updatedAt: 1,
-        modelSwitchCount: 0,
-    };
-
-    return Object.assign(snapshot, overrides);
-}
-
-function deferred<T>() {
-    let resolve!: (value: T) => void;
-    const promise = new Promise<T>((innerResolve) => {
-        resolve = innerResolve;
-    });
-
-    return { promise, resolve };
-}
-
-describe('when the user sends a prompt', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
-        findSessionByIdMock.mockResolvedValue({ id: 1, title: 'Active session' });
-        sessionTaskCenterMock.attachSessionView.mockReturnValue(null);
-        sessionTaskCenterMock.subscribeTask.mockImplementation((_taskId, listener) => {
-            listener(createTaskSnapshot('task-1'));
-            return () => undefined;
-        });
-    });
-
-    it('user gets the failure reported in the app without a second desktop notification', async () => {
-        sessionTaskCenterMock.startTask.mockResolvedValue({
-            taskId: 'task-1',
-            sessionId: 1,
-            completion: Promise.reject(new Error('task failed')),
-        });
-
-        const mounted = await mountComposable(() => useAgent());
-
-        await mounted.result.sendRequest('hello');
-
-        expect(mounted.result.error.value?.message).toBe('task failed');
-        expect(notifyMock).not.toHaveBeenCalled();
-
-        mounted.unmount();
-    });
-
-    it('user is told when the request could not even start', async () => {
-        sessionTaskCenterMock.startTask.mockRejectedValue(new Error('startup failed'));
-
-        const mounted = await mountComposable(() => useAgent());
-
-        await mounted.result.sendRequest('hello');
-
-        expect(notifyMock).toHaveBeenCalledWith({
-            title: 'TouchAI - 请求失败',
-            body: 'startup failed',
-        });
-
-        mounted.unmount();
-    });
-
-    it('user gets no orphan task subscription when the request is dropped before it starts', async () => {
-        for (const dropRequest of ['clearSession', 'cancel'] as const) {
-            vi.clearAllMocks();
-            const startTask = deferred<{
-                taskId: string;
-                sessionId: number;
-                completion: Promise<never>;
-            }>();
-            let startupSignal: AbortSignal | undefined;
-            sessionTaskCenterMock.startTask.mockImplementation((options) => {
-                startupSignal = options.signal;
-                return startTask.promise;
-            });
-
-            const mounted = await mountComposable(() => useAgent());
-            const sendPromise = mounted.result.sendRequest('hello');
-            expect(startupSignal?.aborted).toBe(false);
-
-            if (dropRequest === 'clearSession') {
-                mounted.result.clearSession();
-            } else {
-                mounted.result.cancel();
-            }
-
-            // The startup must be aborted and the spinner cleared right away.
-            expect(startupSignal?.aborted).toBe(true);
+describe('given a conversation uses the real main execution host', () => {
+    it('user sees a running request failure in the conversation without a duplicate desktop notification', async () => {
+        const fixture = createAgentWindowFixture();
+        fixture.database.exec('UPDATE models SET context_limit = 128');
+        const mounted = await mountComposable(
+            () => useAgent(),
+            (app) => app.provide(agentApiKey, fixture.window.api)
+        );
+        try {
+            await mounted.result.sendRequest('too large for the fixture context');
+            expect(mounted.result.error.value?.message).toBeTruthy();
             expect(mounted.result.isLoading.value).toBe(false);
+            expect(notifications).not.toHaveBeenCalled();
+            expect(network.requests).toEqual([]);
+        } finally {
+            mounted.unmount();
+            await fixture.window.dispose();
+        }
+    });
 
-            startTask.resolve({
-                taskId: 'task-1',
-                sessionId: 1,
-                completion: new Promise<never>(() => undefined),
-            });
-            await sendPromise;
-
-            expect(sessionTaskCenterMock.subscribeTask).not.toHaveBeenCalled();
-
+    it('user is notified when a closed main host cannot start a request', async () => {
+        const fixture = createAgentWindowFixture();
+        await fixture.window.dispose();
+        const mounted = await mountComposable(
+            () => useAgent(),
+            (app) => app.provide(agentApiKey, fixture.window.api)
+        );
+        try {
+            await mounted.result.sendRequest('hello');
+            expect(mounted.result.error.value?.message).toContain('AGENT_DISPOSED');
+            expect(notifications).toHaveBeenCalledWith(
+                expect.objectContaining({ body: expect.stringContaining('AGENT_DISPOSED') })
+            );
+            expect(network.requests).toEqual([]);
+        } finally {
             mounted.unmount();
         }
     });
-});
 
-describe('when the user reopens a conversation that switched models', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
-        findSessionByIdMock.mockResolvedValue({ id: 1, title: 'Active session' });
+    it.each(['clearSession', 'cancel'] as const)(
+        'user leaves no running task when choosing %s during history startup',
+        async (dropRequest) => {
+            let paused = false;
+            let waiting = false;
+            let release!: () => void;
+            const barrier = new Promise<void>((resolve) => {
+                release = resolve;
+            });
+            const fixture = createAgentWindowFixture('main', undefined, {
+                beforeQuery: ({ sql }) => {
+                    if (paused && sql.includes('from "sessions"')) {
+                        waiting = true;
+                        return barrier;
+                    }
+                },
+            });
+            fixture.database.exec(`INSERT INTO sessions (id, session_id, title, model, provider_id)
+            VALUES (7, 'startup-session', 'Previous request', 'fixture-model', 1);`);
+            const mounted = await mountComposable(
+                () => useAgent(),
+                (app) => app.provide(agentApiKey, fixture.window.api)
+            );
+            try {
+                await mounted.result.openSession(7);
+                paused = true;
+                const sending = mounted.result.sendRequest('cancel while reading history');
+                await expect.poll(() => waiting).toBe(true);
+                mounted.result[dropRequest]();
+                expect(mounted.result.isLoading.value).toBe(false);
+                paused = false;
+                release();
+                await sending;
+                expect(fixture.window.api.listActiveTasks()).toEqual([]);
+                expect(network.requests).toEqual([]);
+                expect(
+                    fixture.database.prepare('SELECT count(*) AS count FROM session_turns').get()
+                ).toEqual({ count: 0 });
+            } finally {
+                paused = false;
+                release();
+                mounted.unmount();
+                await fixture.window.dispose();
+            }
+        }
+    );
+
+    it('user reopens an active conversation with its upgraded model still selected', async () => {
+        const fixture = createAgentWindowFixture();
+        await fixture.window.ready;
+        await fixture.window.capabilities.waitForAgent();
+        fixture.database
+            .exec(`INSERT INTO models (id, provider_id, name, model_id, tool_call, context_limit, output_limit)
+            VALUES (2, 1, 'Upgraded fixture', 'upgraded-fixture', 1, 262144, 1024);
+            UPDATE built_in_tools SET config_json = '{"chain":[{"providerId":1,"modelId":"fixture-model"},{"providerId":1,"modelId":"upgraded-fixture"}]}'
+            WHERE tool_id = 'upgrade_model';`);
+        const channel = streamingResponse();
+        network.replies.push(
+            response('', false, { name: 'builtin__upgrade_model', arguments: '{}' }),
+            channel.response
+        );
+        const selected: unknown[] = [];
+        const mounted = await mountComposable(
+            () => useAgent({ onModelSelected: (target) => selected.push(target) }),
+            (app) => app.provide(agentApiKey, fixture.window.api)
+        );
+        try {
+            const started = await fixture.window.api.startTask({ prompt: 'upgrade this request' });
+            await expect
+                .poll(() => fixture.window.api.getTaskSnapshot(started.taskId)?.pendingToolApproval)
+                .toBeTruthy();
+            const decision = fixture.window.api.getTaskSnapshot(
+                started.taskId
+            )!.pendingToolApproval!;
+            fixture.window.api.approveTaskToolCall(
+                started.taskId,
+                decision.callId,
+                decision.decisionId
+            );
+            await expect
+                .poll(() => fixture.window.api.getTaskSnapshot(started.taskId)?.modelSwitchCount)
+                .toBe(1);
+            const sessionId = fixture.window.api.getTaskSnapshot(started.taskId)!.sessionId!;
+            expect(await mounted.result.openSession(sessionId)).toMatchObject({
+                modelId: 'upgraded-fixture',
+                providerId: 1,
+            });
+            expect(selected).toContainEqual({ modelId: 'upgraded-fixture', providerId: 1 });
+            channel.delta({ content: 'upgraded answer' });
+            channel.finish();
+            await started.completion;
+        } finally {
+            channel.finish();
+            mounted.unmount();
+            await fixture.window.dispose();
+        }
     });
 
-    it('user sees the upgraded model selected for the reopened conversation', async () => {
-        const switchedSnapshot = createTaskSnapshot('task-1', {
-            currentModel: {
-                modelDbId: 7,
-                providerId: 9,
-                providerName: 'Provider',
-                modelId: 'upgraded-model',
-                modelName: 'Upgraded Model',
-            },
-            modelSwitchCount: 1,
-        });
-        const onModelSelected = vi.fn();
-
-        sessionTaskCenterMock.attachSessionView.mockReturnValue({
-            taskId: 'task-1',
-            snapshot: switchedSnapshot,
-        });
-        sessionTaskCenterMock.subscribeTask.mockImplementation((_taskId, listener) => {
-            listener(switchedSnapshot);
-            return () => undefined;
-        });
-
-        const mounted = await mountComposable(() => useAgent({ onModelSelected }));
-
-        const loadedSession = await mounted.result.openSession(1);
-
-        expect(loadedSession).toMatchObject({
-            modelId: 'upgraded-model',
-            providerId: 9,
-        });
-        expect(onModelSelected).toHaveBeenCalledWith({
-            modelId: 'upgraded-model',
-            providerId: 9,
-        });
-
-        mounted.unmount();
-    });
-});
-
-describe('when the user answers a tool approval with nothing attached', () => {
-    it('user gets the answer refused rather than sent to a task that is gone', async () => {
-        const mounted = await mountComposable(() => useAgent());
-
-        // No task is attached, so every answer path has to decline instead of reaching the
-        // backend; the dialog stays open and the user is not told the click was accepted.
-        expect(mounted.result.approvePendingToolApproval('call-1')).toBe(false);
-        expect(mounted.result.rejectPendingToolApproval('call-1')).toBe(false);
-        expect(mounted.result.settleUserQuestion('call-1', null)).toBe(false);
-        expect(sessionTaskCenterMock.approveTaskToolCall).not.toHaveBeenCalled();
-        expect(sessionTaskCenterMock.rejectTaskToolCall).not.toHaveBeenCalled();
-
-        mounted.unmount();
+    it('user cannot answer a decision when no task is attached to the conversation', async () => {
+        const fixture = createAgentWindowFixture();
+        const mounted = await mountComposable(
+            () => useAgent(),
+            (app) => app.provide(agentApiKey, fixture.window.api)
+        );
+        try {
+            expect(mounted.result.approvePendingToolApproval('call-1')).toBe(false);
+            expect(mounted.result.rejectPendingToolApproval('call-1')).toBe(false);
+            expect(mounted.result.settleUserQuestion('call-1', null)).toBe(false);
+            expect(fixture.window.api.listActiveTasks()).toEqual([]);
+        } finally {
+            mounted.unmount();
+            await fixture.window.dispose();
+        }
     });
 });

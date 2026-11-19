@@ -4,18 +4,20 @@
     import { Switch } from '@components/ui/switch';
     import { useAlert } from '@composables/useAlert';
     import { useConfirm } from '@composables/useConfirm';
-    import { native } from '@services/NativeService';
-    import type { DiagnosticBundlePreview } from '@services/NativeService/types';
-    import { log } from '@services/ObservabilityService';
-    import { save } from '@tauri-apps/plugin-dialog';
     import { computed, onMounted, onUnmounted, ref } from 'vue';
 
+    import { log } from '@/app/api/diagnostics';
+    import {
+        type DiagnosticBundlePreview,
+        useDiagnosticsAdminApi,
+    } from '@/app/api/windows/presentation';
     import { t } from '@/i18n';
 
     defineOptions({
         name: 'SettingsDiagnosticsSection',
     });
 
+    const diagnostics = useDiagnosticsAdminApi();
     const alert = useAlert();
     const { confirm } = useConfirm();
     const enabled = ref(false);
@@ -36,12 +38,12 @@
     });
 
     async function refreshPreview() {
-        preview.value = await native.observability.previewBundle();
+        preview.value = await diagnostics.preview();
     }
 
     async function loadStatus() {
         try {
-            const status = await native.observability.diagnosticModeStatus();
+            const status = await diagnostics.readStatus();
             enabled.value = status.enabled;
             expiresAtMs.value = status.expiresAtMs;
             await refreshPreview();
@@ -53,7 +55,7 @@
     async function toggleDiagnosticMode(nextEnabled: boolean) {
         enabled.value = nextEnabled;
         try {
-            const status = await native.observability.setDiagnosticMode(nextEnabled);
+            const status = await diagnostics.setEnabled(nextEnabled);
             enabled.value = status.enabled;
             expiresAtMs.value = status.expiresAtMs;
             nowMs.value = Date.now();
@@ -67,7 +69,7 @@
     async function exportDiagnostics() {
         exporting.value = true;
         try {
-            const current = await native.observability.previewBundle();
+            const current = await diagnostics.preview();
             preview.value = current;
             const confirmed = await confirm({
                 title: t('settings.diagnostics.exportTitle'),
@@ -79,18 +81,7 @@
             });
             if (!confirmed) return;
 
-            const timestamp = new Date().toISOString().replace(/:/g, '-').slice(0, 19);
-            const destination = await save({
-                defaultPath: `TouchAI-diagnostics-${timestamp}.zip`,
-                filters: [
-                    {
-                        name: t('settings.diagnostics.dialogFilter'),
-                        extensions: ['zip'],
-                    },
-                ],
-            });
-            if (!destination) return;
-            await native.observability.exportBundle(destination);
+            if (!(await diagnostics.exportWithPicker())) return;
             alert.success(t('settings.diagnostics.exportSuccess'));
         } catch (error) {
             log.error('[Diagnostics] Failed to export bundle:', error);
@@ -102,7 +93,7 @@
 
     async function dismissCrashes() {
         try {
-            await native.observability.dismissCrashes();
+            await diagnostics.dismissCrashes();
             await refreshPreview();
         } catch (error) {
             log.error('[Diagnostics] Failed to dismiss crash records:', error);

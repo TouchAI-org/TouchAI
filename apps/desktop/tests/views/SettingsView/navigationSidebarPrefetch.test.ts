@@ -1,4 +1,6 @@
+import { createTestWindowPresentation } from '@tests/utils/windowPresentation';
 import { mount } from '@vue/test-utils';
+import { beforeEach as beforePresentation } from 'vitest';
 import { describe, expect, it } from 'vitest';
 
 import NavigationSidebar from '@/views/SettingsView/components/NavigationSidebar.vue';
@@ -31,4 +33,8 @@ describe('when the user points at a settings section', () => {
         expect(wrapper.emitted('prefetch-section')).toBeTruthy();
         wrapper.unmount();
     });
+});
+
+beforePresentation(async () => {
+    (await createTestWindowPresentation('settings')).install();
 });

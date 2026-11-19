@@ -1,39 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { convertFileSrc } from '@tauri-apps/api/core';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const {
-    readAttachmentAsBase64Mock,
-    readAttachmentAsTextMock,
-    readAttachmentImageForTransportMock,
-    inspectAttachmentsMock,
-    formatAttachmentNotInlinedMock,
-} = vi.hoisted(() => ({
-    readAttachmentAsBase64Mock: vi.fn(),
-    readAttachmentAsTextMock: vi.fn(),
-    readAttachmentImageForTransportMock: vi.fn(),
-    inspectAttachmentsMock: vi.fn(),
-    formatAttachmentNotInlinedMock: vi.fn(
-        (reason: string, path: string) => `[Not inlined: ${reason}. Local path: ${path}.]`
-    ),
-}));
+import { buildAttachmentParts } from '@/modules/attachments/materialize.io';
 
-vi.mock('@/services/AgentService/infrastructure/attachments/content', () => ({
-    readAttachmentAsBase64: readAttachmentAsBase64Mock,
-    readAttachmentAsText: readAttachmentAsTextMock,
-    readAttachmentImageForTransport: readAttachmentImageForTransportMock,
-    formatAttachmentNotInlined: formatAttachmentNotInlinedMock,
-    formatAttachmentAnchorText: vi.fn(() => 'anchor'),
-}));
-
-vi.mock('@/services/AgentService/infrastructure/attachments/inspect', () => ({
-    inspectAttachments: inspectAttachmentsMock,
-}));
-
-vi.mock('@/services/AgentService/infrastructure/attachments/support', () => ({
-    isAttachmentSupported: vi.fn(() => true),
-}));
-
-import { buildAttachmentParts } from '@/services/AgentService/infrastructure/attachments/materialize';
-
+const fetchFile = vi.fn<typeof fetch>();
 function createAttachment(id: string) {
     return {
         id,
@@ -45,86 +15,52 @@ function createAttachment(id: string) {
     };
 }
 
-describe('attachment materialization', () => {
-    beforeEach(() => {
-        readAttachmentAsBase64Mock.mockReset();
-        readAttachmentAsTextMock.mockReset();
-        readAttachmentImageForTransportMock.mockReset();
-        inspectAttachmentsMock.mockReset();
+beforeEach(() => {
+    fetchFile.mockReset();
+    fetchFile.mockImplementation(async (url) => {
+        const name = String(url) === convertFileSrc('D:/a.png') ? 'a' : 'b';
+        return new Response(name);
+    });
+    vi.stubGlobal('fetch', fetchFile);
+});
+afterEach(() => vi.unstubAllGlobals());
 
-        readAttachmentAsBase64Mock.mockResolvedValue({ data: 'base64', mimeType: 'image/png' });
-        readAttachmentAsTextMock.mockResolvedValue({
-            content: 'text',
-            isBinary: false,
-            truncated: false,
+describe('given image references in one model request', () => {
+    it('user references the same image twice and receives both parts from one source read', async () => {
+        const parts = await buildAttachmentParts([createAttachment('a'), createAttachment('a')], {
+            includeAnchorText: false,
         });
-        readAttachmentImageForTransportMock.mockResolvedValue({
-            data: 'base64',
-            mimeType: 'image/png',
-        });
-    });
 
-    it('reads each attachment source only once per materialization', async () => {
-        const attachments = [createAttachment('a'), createAttachment('a')];
-        inspectAttachmentsMock.mockResolvedValue(
-            attachments.map((attachment, index) => ({
-                attachment,
-                kind: 'image',
-                mimeType: 'image/png',
-                size: 10,
-                semanticIntent: 'visual-reference',
-                meta: { index },
-            }))
-        );
-
-        await buildAttachmentParts(attachments);
-
-        // 同一个源路径只解码一次，避免重复大文件读取。
-        expect(readAttachmentImageForTransportMock).toHaveBeenCalledTimes(1);
-        expect(readAttachmentImageForTransportMock).toHaveBeenCalledWith(
-            expect.objectContaining({ path: 'D:/a.png' })
-        );
-    });
-
-    it('still reads distinct attachments separately', async () => {
-        const attachments = [createAttachment('a'), createAttachment('b')];
-        inspectAttachmentsMock.mockResolvedValue(
-            attachments.map((attachment, index) => ({
-                attachment,
-                kind: 'image',
-                mimeType: 'image/png',
-                size: 10,
-                semanticIntent: 'visual-reference',
-                meta: { index },
-            }))
-        );
-
-        await buildAttachmentParts(attachments);
-
-        expect(readAttachmentImageForTransportMock).toHaveBeenCalledTimes(2);
-    });
-
-    it('user keeps readable attachments when one source cannot be read', async () => {
-        const attachments = [
-            createAttachment('missing'),
-            createAttachment('missing'),
-            createAttachment('ok'),
-        ];
-        inspectAttachmentsMock.mockResolvedValue(
-            attachments.map((attachment) => ({
-                attachment,
-                kind: 'image',
-                mimeType: 'image/png',
-                size: 10,
-                semanticIntent: 'visual-reference',
-                meta: {},
-            }))
-        );
-        readAttachmentImageForTransportMock.mockRejectedValueOnce(new Error('File unavailable'));
-        const parts = await buildAttachmentParts(attachments, { includeAnchorText: false });
         expect(parts).toEqual([
-            expect.objectContaining({ sourcePath: 'D:/ok.png', data: 'base64' }),
+            expect.objectContaining({ sourcePath: 'D:/a.png', data: btoa('a') }),
+            expect.objectContaining({ sourcePath: 'D:/a.png', data: btoa('a') }),
         ]);
-        expect(readAttachmentImageForTransportMock).toHaveBeenCalledTimes(2);
+        expect(fetchFile).toHaveBeenCalledTimes(1);
+        expect(fetchFile).toHaveBeenCalledWith(convertFileSrc('D:/a.png'), { signal: undefined });
+    });
+
+    it('user references distinct images and receives the content of each source', async () => {
+        const parts = await buildAttachmentParts([createAttachment('a'), createAttachment('b')], {
+            includeAnchorText: false,
+        });
+
+        expect(parts).toEqual([
+            expect.objectContaining({ sourcePath: 'D:/a.png', data: btoa('a') }),
+            expect.objectContaining({ sourcePath: 'D:/b.png', data: btoa('b') }),
+        ]);
+        expect(fetchFile).toHaveBeenCalledTimes(2);
+    });
+
+    it('user references an unavailable image twice and keeps the readable image without repeating the failed read', async () => {
+        fetchFile.mockRejectedValueOnce(new Error('File unavailable'));
+        const parts = await buildAttachmentParts(
+            [createAttachment('missing'), createAttachment('missing'), createAttachment('ok')],
+            { includeAnchorText: false }
+        );
+
+        expect(parts).toEqual([
+            expect.objectContaining({ sourcePath: 'D:/ok.png', data: btoa('b') }),
+        ]);
+        expect(fetchFile).toHaveBeenCalledTimes(2);
     });
 });

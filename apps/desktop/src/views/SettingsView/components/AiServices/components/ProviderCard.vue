@@ -2,9 +2,9 @@
 
 <script setup lang="ts">
     import { Switch } from '@components/ui/switch';
-    import type { Provider } from '@database/schema';
     import { computed } from 'vue';
 
+    import type { Provider } from '@/app/api/models/administration';
     import { t } from '@/i18n';
 
     import BadgedLogo from './BadgedLogo.vue';

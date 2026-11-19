@@ -1,30 +1,16 @@
-import { resetAnalyticsAdmissionForTests } from '@services/AnalyticsService/admission';
-import {
-    abandonProviderConfiguration,
-    beginProviderConfiguration,
-    beginProviderConfigurationAttempt,
-    beginResultAction,
-    beginSearchInteraction,
-    completeProviderConfiguration,
-    completeResultAction,
-    finishSearchInteraction,
-    mapSearchSurfaceSource,
-    resultCountBucket,
-    runProviderConfiguration,
-    runProviderConfigurationAttempt,
-    runResultAction,
-    selectSearchResult,
-    settleSearchInteraction,
-    trackFeatureExposed,
-    trackSearchFeatureExposed,
-    trackSurfaceOpened,
-} from '@services/AnalyticsService/productInteractions';
-import type { AnalyticsState } from '@services/AnalyticsService/types';
-import { native } from '@services/NativeService';
 import { deferred } from '@tests/utils/productAnalytics';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('@services/NativeService', () => ({
+import {
+    createAnalytics,
+    createAnalyticsAdmission,
+    createProductAnalytics,
+} from '@/modules/analytics';
+import { mapSearchSurfaceSource, resultCountBucket } from '@/modules/analytics/productInteractions';
+import type { AnalyticsState } from '@/modules/analytics/public';
+import { native } from '@/platform/native';
+
+vi.mock('@/platform/native', () => ({
     native: {
         analytics: {
             getState: vi.fn(),
@@ -39,10 +25,13 @@ vi.mock('@services/NativeService', () => ({
 }));
 
 const nativeAnalytics = vi.mocked(native.analytics);
+let observer: ReturnType<typeof createProductAnalytics>;
+beforeEach(() => {
+    observer = createProductAnalytics(createAnalyticsAdmission(createAnalytics(native.analytics)));
+});
 
 afterEach(() => {
     vi.useRealTimers();
-    resetAnalyticsAdmissionForTests();
 });
 
 function state(partial: Partial<AnalyticsState> = {}): AnalyticsState {
@@ -71,7 +60,7 @@ describe('user opens a product surface', () => {
     });
 
     it('user gets the entry surfaced when a real window entry opens', async () => {
-        await trackSurfaceOpened('shortcut');
+        await observer.trackSurfaceOpened('shortcut');
 
         expect(nativeAnalytics.track).toHaveBeenCalledWith(
             expect.objectContaining({
@@ -84,7 +73,7 @@ describe('user opens a product surface', () => {
     it('user gets the surface forwarded and lets the native runtime enforce consent', async () => {
         nativeAnalytics.track.mockResolvedValue({ status: 'disabled' });
 
-        await trackSurfaceOpened('tray');
+        await observer.trackSurfaceOpened('tray');
 
         expect(nativeAnalytics.track).toHaveBeenCalledWith(
             expect.objectContaining({
@@ -95,7 +84,7 @@ describe('user opens a product surface', () => {
     });
 
     it('user gets the exposure submitted and lets the native runtime bound it per session', async () => {
-        await trackFeatureExposed('quick_search');
+        await observer.trackFeatureExposed('quick_search');
 
         expect(nativeAnalytics.track).toHaveBeenCalledWith(
             expect.objectContaining({
@@ -121,7 +110,7 @@ describe('user opens a product surface', () => {
         vi.useFakeTimers();
         nativeAnalytics.track.mockReturnValue(new Promise(() => undefined));
 
-        const captures = Array.from({ length: 300 }, () => trackSurfaceOpened('main'));
+        const captures = Array.from({ length: 300 }, () => observer.trackSurfaceOpened('main'));
         await vi.advanceTimersByTimeAsync(100);
         await Promise.all(captures);
 
@@ -147,7 +136,7 @@ describe('user configures a provider', () => {
         nativeAnalytics.beginOperation.mockReturnValue(new Promise(() => undefined));
 
         const attempts = Array.from({ length: 300 }, () =>
-            beginProviderConfigurationAttempt({
+            observer.beginProviderConfigurationAttempt({
                 providerCategory: 'openai',
                 entry: 'settings',
             })
@@ -160,7 +149,7 @@ describe('user configures a provider', () => {
     });
 
     it('user gets a started event with a random configuration id when editing begins', async () => {
-        const attempt = await beginProviderConfiguration({
+        const attempt = await observer.beginProviderConfiguration({
             providerCategory: 'openai',
             entry: 'settings',
         });
@@ -179,12 +168,15 @@ describe('user configures a provider', () => {
     });
 
     it('user gets the completed event matched to the started operation', async () => {
-        const attempt = await beginProviderConfiguration({
+        const attempt = await observer.beginProviderConfiguration({
             providerCategory: 'anthropic',
             entry: 'settings',
         });
 
-        await completeProviderConfiguration(attempt, { stage: 'saved', result: 'success' });
+        await observer.completeProviderConfiguration(attempt, {
+            stage: 'saved',
+            result: 'success',
+        });
 
         expect(nativeAnalytics.track).toHaveBeenLastCalledWith(
             expect.objectContaining({
@@ -202,12 +194,12 @@ describe('user configures a provider', () => {
     });
 
     it('user gets a fixed error category when a validation fails', async () => {
-        const attempt = await beginProviderConfiguration({
+        const attempt = await observer.beginProviderConfiguration({
             providerCategory: 'openai',
             entry: 'test',
         });
 
-        await completeProviderConfiguration(attempt, {
+        await observer.completeProviderConfiguration(attempt, {
             stage: 'validated',
             result: 'failure',
             errorCategory: 'auth',
@@ -227,7 +219,10 @@ describe('user configures a provider', () => {
     it('user gets no completed event when a configuration attempt is abandoned', async () => {
         nativeAnalytics.track.mockClear();
 
-        await beginProviderConfiguration({ providerCategory: 'google', entry: 'onboarding' });
+        await observer.beginProviderConfiguration({
+            providerCategory: 'google',
+            entry: 'onboarding',
+        });
 
         const completedCalls = nativeAnalytics.track.mock.calls.filter(
             ([request]) => request.eventName === 'provider.configuration_completed'
@@ -236,7 +231,7 @@ describe('user configures a provider', () => {
     });
 
     it('user gets the saved outcome reported without delaying the save result', async () => {
-        const created = await runProviderConfiguration(
+        const created = await observer.runProviderConfiguration(
             { providerCategory: 'openai', entry: 'settings' },
             async () => 'created'
         );
@@ -255,7 +250,7 @@ describe('user configures a provider', () => {
 
     it('user still sees the save error when the configuration fails, with the failure reported', async () => {
         await expect(
-            runProviderConfiguration(
+            observer.runProviderConfiguration(
                 { providerCategory: 'anthropic', entry: 'settings' },
                 async () => {
                     throw new Error('save failed');
@@ -275,7 +270,7 @@ describe('user configures a provider', () => {
     });
 
     it('user gets an unfinished configuration and one released handle when an edit attempt is abandoned', async () => {
-        const attempt = beginProviderConfigurationAttempt({
+        const attempt = observer.beginProviderConfigurationAttempt({
             providerCategory: 'openai',
             entry: 'settings',
         });
@@ -295,48 +290,57 @@ describe('user configures a provider', () => {
     });
 
     it('user gets the abandoned handle released exactly once when close runs twice', async () => {
-        const attempt = await beginProviderConfiguration({
+        const attempt = await observer.beginProviderConfiguration({
             providerCategory: 'openai',
             entry: 'settings',
         });
 
-        await abandonProviderConfiguration(attempt);
-        await abandonProviderConfiguration(attempt);
+        await observer.abandonProviderConfiguration(attempt);
+        await observer.abandonProviderConfiguration(attempt);
 
         expect(nativeAnalytics.completeOperation).toHaveBeenCalledTimes(1);
     });
 
     it('user gets the save handle released once when a successful completion repeats', async () => {
-        const attempt = await beginProviderConfiguration({
+        const attempt = await observer.beginProviderConfiguration({
             providerCategory: 'openai',
             entry: 'settings',
         });
 
-        await completeProviderConfiguration(attempt, { stage: 'saved', result: 'success' });
-        await completeProviderConfiguration(attempt, { stage: 'saved', result: 'success' });
+        await observer.completeProviderConfiguration(attempt, {
+            stage: 'saved',
+            result: 'success',
+        });
+        await observer.completeProviderConfiguration(attempt, {
+            stage: 'saved',
+            result: 'success',
+        });
 
         expect(nativeAnalytics.completeOperation).toHaveBeenCalledTimes(1);
     });
 
     it('user gets the save handle released even when telemetry fails', async () => {
         nativeAnalytics.track.mockRejectedValue(new Error('ipc down'));
-        const attempt = await beginProviderConfiguration({
+        const attempt = await observer.beginProviderConfiguration({
             providerCategory: 'openai',
             entry: 'settings',
         });
 
-        await completeProviderConfiguration(attempt, { stage: 'saved', result: 'failure' });
+        await observer.completeProviderConfiguration(attempt, {
+            stage: 'saved',
+            result: 'failure',
+        });
 
         expect(nativeAnalytics.completeOperation).toHaveBeenCalledTimes(1);
     });
 
     it('user gets the saved outcome reported for the attempt opened at the edit start', async () => {
-        const attempt = beginProviderConfigurationAttempt({
+        const attempt = observer.beginProviderConfigurationAttempt({
             providerCategory: 'openai',
             entry: 'settings',
         });
 
-        const saved = await runProviderConfigurationAttempt(attempt, async () => 'saved');
+        const saved = await observer.runProviderConfigurationAttempt(attempt, async () => 'saved');
 
         expect(saved).toBe('saved');
         await vi.waitFor(() => {
@@ -350,13 +354,13 @@ describe('user configures a provider', () => {
     });
 
     it('user still sees the save error when an edit-start save fails, with the failure reported', async () => {
-        const attempt = beginProviderConfigurationAttempt({
+        const attempt = observer.beginProviderConfigurationAttempt({
             providerCategory: 'anthropic',
             entry: 'settings',
         });
 
         await expect(
-            runProviderConfigurationAttempt(attempt, async () => {
+            observer.runProviderConfigurationAttempt(attempt, async () => {
                 throw new Error('save failed');
             })
         ).rejects.toThrow('save failed');
@@ -373,12 +377,12 @@ describe('user configures a provider', () => {
     });
 
     it('user gets a single completed event even when the attempt settles twice', async () => {
-        const attempt = beginProviderConfigurationAttempt({
+        const attempt = observer.beginProviderConfigurationAttempt({
             providerCategory: 'google',
             entry: 'settings',
         });
 
-        await runProviderConfigurationAttempt(attempt, async () => 'saved');
+        await observer.runProviderConfigurationAttempt(attempt, async () => 'saved');
         await attempt.complete({ stage: 'saved', result: 'success' });
 
         await vi.waitFor(() => {
@@ -404,10 +408,10 @@ describe('user searches in a settled interaction', () => {
     });
 
     it('user gets exactly one settled search even when settle runs again after a selection', async () => {
-        const interaction = await beginSearchInteraction('quick');
+        const interaction = await observer.beginSearchInteraction('quick');
 
-        await settleSearchInteraction(interaction, { hasResults: true, resultCount: 3 });
-        await settleSearchInteraction(interaction, { hasResults: true, resultCount: 3 });
+        await observer.settleSearchInteraction(interaction, { hasResults: true, resultCount: 3 });
+        await observer.settleSearchInteraction(interaction, { hasResults: true, resultCount: 3 });
 
         const settled = nativeAnalytics.track.mock.calls.filter(
             ([request]) => request.eventName === 'search.completed'
@@ -423,9 +427,9 @@ describe('user searches in a settled interaction', () => {
     });
 
     it('user gets no result count bucket when the interaction has no results', async () => {
-        const interaction = await beginSearchInteraction('history');
+        const interaction = await observer.beginSearchInteraction('history');
 
-        await settleSearchInteraction(interaction, { hasResults: false, resultCount: 0 });
+        await observer.settleSearchInteraction(interaction, { hasResults: false, resultCount: 0 });
 
         const settled = nativeAnalytics.track.mock.calls.find(
             ([request]) => request.eventName === 'search.completed'
@@ -434,9 +438,9 @@ describe('user searches in a settled interaction', () => {
     });
 
     it('user gets the selected result tied to the same interaction id and the real open outcome', async () => {
-        const interaction = await beginSearchInteraction('quick');
+        const interaction = await observer.beginSearchInteraction('quick');
 
-        await selectSearchResult(interaction, { category: 'file', opened: false });
+        await observer.selectSearchResult(interaction, { category: 'file', opened: false });
 
         expect(nativeAnalytics.track).toHaveBeenCalledWith(
             expect.objectContaining({
@@ -451,7 +455,7 @@ describe('user searches in a settled interaction', () => {
     });
 
     it('user gets the final selection recorded before the search handle is released', async () => {
-        const interaction = await beginSearchInteraction('quick');
+        const interaction = await observer.beginSearchInteraction('quick');
         const order: string[] = [];
         nativeAnalytics.track.mockImplementation(async (request) => {
             order.push(`track:${request.eventName}`);
@@ -461,9 +465,9 @@ describe('user searches in a settled interaction', () => {
             order.push('complete');
         });
 
-        await settleSearchInteraction(interaction, { hasResults: true, resultCount: 1 });
-        await selectSearchResult(interaction, { category: 'file', opened: true });
-        await finishSearchInteraction(interaction);
+        await observer.settleSearchInteraction(interaction, { hasResults: true, resultCount: 1 });
+        await observer.selectSearchResult(interaction, { category: 'file', opened: true });
+        await observer.finishSearchInteraction(interaction);
 
         expect(order).toEqual([
             'track:search.completed',
@@ -475,11 +479,11 @@ describe('user searches in a settled interaction', () => {
     });
 
     it('user gets the search handle released once on a close without a selection', async () => {
-        const interaction = await beginSearchInteraction('quick');
+        const interaction = await observer.beginSearchInteraction('quick');
 
-        await settleSearchInteraction(interaction, { hasResults: false, resultCount: 0 });
-        await finishSearchInteraction(interaction);
-        await finishSearchInteraction(interaction);
+        await observer.settleSearchInteraction(interaction, { hasResults: false, resultCount: 0 });
+        await observer.finishSearchInteraction(interaction);
+        await observer.finishSearchInteraction(interaction);
 
         expect(nativeAnalytics.completeOperation).toHaveBeenCalledTimes(1);
         expect(
@@ -490,7 +494,7 @@ describe('user searches in a settled interaction', () => {
     });
 
     it('user gets a feature exposure queued before the search handle is released', async () => {
-        const interaction = await beginSearchInteraction('quick');
+        const interaction = await observer.beginSearchInteraction('quick');
         const order: string[] = [];
         nativeAnalytics.track.mockImplementation(async (request) => {
             order.push(request.eventName);
@@ -500,9 +504,9 @@ describe('user searches in a settled interaction', () => {
             order.push('release');
         });
 
-        const exposure = trackSearchFeatureExposed(interaction, 'quick_search');
-        await settleSearchInteraction(interaction, { hasResults: true, resultCount: 2 });
-        await finishSearchInteraction(interaction);
+        const exposure = observer.trackSearchFeatureExposed(interaction, 'quick_search');
+        await observer.settleSearchInteraction(interaction, { hasResults: true, resultCount: 2 });
+        await observer.finishSearchInteraction(interaction);
         await exposure;
 
         expect(order).toEqual(['product.feature_exposed', 'search.completed', 'release']);
@@ -510,13 +514,13 @@ describe('user searches in a settled interaction', () => {
 
     it('user gets a bounded search chain when 300 selections arrive while tracking hangs', async () => {
         vi.useFakeTimers();
-        const interaction = await beginSearchInteraction('quick');
+        const interaction = await observer.beginSearchInteraction('quick');
         nativeAnalytics.track.mockReturnValue(new Promise(() => undefined));
 
         const selections = Array.from({ length: 300 }, () =>
-            selectSearchResult(interaction, { category: 'file', opened: true })
+            observer.selectSearchResult(interaction, { category: 'file', opened: true })
         );
-        const release = finishSearchInteraction(interaction);
+        const release = observer.finishSearchInteraction(interaction);
         await vi.advanceTimersByTimeAsync(10_000);
         await Promise.all([...selections, release]);
 
@@ -540,9 +544,9 @@ describe('user completes an existing result action', () => {
     });
 
     it('user gets a copy action recorded after the copy resolves', async () => {
-        const action = await beginResultAction('copy_answer');
+        const action = await observer.beginResultAction('copy_answer');
 
-        await completeResultAction(action, 'success');
+        await observer.completeResultAction(action, 'success');
 
         expect(nativeAnalytics.track).toHaveBeenCalledWith(
             expect.objectContaining({
@@ -557,9 +561,9 @@ describe('user completes an existing result action', () => {
     });
 
     it('user gets a failure recorded when the action fails', async () => {
-        const action = await beginResultAction('open_external');
+        const action = await observer.beginResultAction('open_external');
 
-        await completeResultAction(action, 'failure');
+        await observer.completeResultAction(action, 'failure');
 
         expect(nativeAnalytics.track).toHaveBeenCalledWith(
             expect.objectContaining({
@@ -570,10 +574,10 @@ describe('user completes an existing result action', () => {
     });
 
     it('user gets the action handle released exactly once when completion repeats', async () => {
-        const action = await beginResultAction('copy_answer');
+        const action = await observer.beginResultAction('copy_answer');
 
-        await completeResultAction(action, 'success');
-        await completeResultAction(action, 'success');
+        await observer.completeResultAction(action, 'success');
+        await observer.completeResultAction(action, 'success');
 
         expect(nativeAnalytics.completeOperation).toHaveBeenCalledTimes(1);
     });
@@ -591,7 +595,7 @@ describe('user completes an existing result action', () => {
         );
         const run = vi.fn(async () => 'copied');
 
-        const actionPromise = runResultAction('copy_answer', run);
+        const actionPromise = observer.runResultAction('copy_answer', run);
         await Promise.resolve();
         expect(run).toHaveBeenCalledTimes(1);
         await expect(actionPromise).resolves.toBe('copied');
@@ -617,7 +621,7 @@ describe('user completes an existing result action', () => {
         );
         const run = vi.fn(async () => 'copied');
 
-        const actionPromise = runResultAction('copy_answer', run);
+        const actionPromise = observer.runResultAction('copy_answer', run);
         await Promise.resolve();
         expect(run).toHaveBeenCalledTimes(1);
         await expect(actionPromise).resolves.toBe('copied');
@@ -634,7 +638,9 @@ describe('user completes an existing result action', () => {
         const track = deferred<{ status: 'queued'; eventId: string }>();
         nativeAnalytics.track.mockReturnValue(track.promise);
 
-        await expect(runResultAction('copy_answer', async () => 'copied')).resolves.toBe('copied');
+        await expect(observer.runResultAction('copy_answer', async () => 'copied')).resolves.toBe(
+            'copied'
+        );
         expect(nativeAnalytics.completeOperation).not.toHaveBeenCalled();
 
         track.resolve({ status: 'queued', eventId: 'e-1' });
@@ -647,7 +653,7 @@ describe('user completes an existing result action', () => {
         nativeAnalytics.track.mockRejectedValue(new Error('telemetry down'));
 
         await expect(
-            runResultAction('copy_code', () => Promise.reject(new Error('clipboard busy')))
+            observer.runResultAction('copy_code', () => Promise.reject(new Error('clipboard busy')))
         ).rejects.toThrow('clipboard busy');
 
         await vi.waitFor(() => {
@@ -656,7 +662,7 @@ describe('user completes an existing result action', () => {
     });
 
     it('user gets the copy outcome recorded without changing the copy result', async () => {
-        const copied = await runResultAction('copy_answer', async () => 'copied');
+        const copied = await observer.runResultAction('copy_answer', async () => 'copied');
 
         expect(copied).toBe('copied');
         await vi.waitFor(() => {
@@ -674,7 +680,7 @@ describe('user completes an existing result action', () => {
 
     it('user still sees the copy error when the action fails, with the failure recorded', async () => {
         await expect(
-            runResultAction('copy_code', async () => {
+            observer.runResultAction('copy_code', async () => {
                 throw new Error('clipboard busy');
             })
         ).rejects.toThrow('clipboard busy');
@@ -694,7 +700,9 @@ describe('user completes an existing result action', () => {
         nativeAnalytics.beginOperation.mockReturnValue(new Promise(() => undefined));
         const run = vi.fn(async () => 'copied');
 
-        const actions = Array.from({ length: 300 }, () => runResultAction('copy_answer', run));
+        const actions = Array.from({ length: 300 }, () =>
+            observer.runResultAction('copy_answer', run)
+        );
         await vi.advanceTimersByTimeAsync(100);
         await Promise.all(actions);
 
@@ -714,7 +722,7 @@ describe('user completes an existing result action', () => {
         nativeAnalytics.track.mockReturnValue(new Promise(() => undefined));
 
         const actions = Array.from({ length: 300 }, () =>
-            runResultAction('copy_answer', async () => 'copied')
+            observer.runResultAction('copy_answer', async () => 'copied')
         );
         await vi.advanceTimersByTimeAsync(1_000);
         await Promise.all(actions);
@@ -736,7 +744,7 @@ describe('user completes an existing result action', () => {
         nativeAnalytics.completeOperation.mockReturnValue(new Promise(() => undefined));
 
         const actions = Array.from({ length: 300 }, () =>
-            runResultAction('copy_answer', async () => 'copied')
+            observer.runResultAction('copy_answer', async () => 'copied')
         );
         await vi.advanceTimersByTimeAsync(1_000);
         await Promise.all(actions);
@@ -745,7 +753,9 @@ describe('user completes an existing result action', () => {
         expect(nativeAnalytics.track.mock.calls.length).toBe(16);
         expect(nativeAnalytics.completeOperation.mock.calls.length).toBe(16);
 
-        await expect(runResultAction('copy_answer', async () => 'copied')).resolves.toBe('copied');
+        await expect(observer.runResultAction('copy_answer', async () => 'copied')).resolves.toBe(
+            'copied'
+        );
         expect(nativeAnalytics.beginOperation.mock.calls.length).toBe(16);
     });
 
@@ -757,7 +767,7 @@ describe('user completes an existing result action', () => {
         });
 
         const firstWave = Array.from({ length: 16 }, () =>
-            runResultAction('copy_answer', async () => 'copied')
+            observer.runResultAction('copy_answer', async () => 'copied')
         );
         await Promise.all(firstWave);
         await vi.waitFor(() => {
@@ -766,7 +776,7 @@ describe('user completes an existing result action', () => {
         });
 
         const secondWave = Array.from({ length: 16 }, () =>
-            runResultAction('copy_answer', async () => 'copied')
+            observer.runResultAction('copy_answer', async () => 'copied')
         );
         await Promise.all(secondWave);
         await vi.waitFor(() => {

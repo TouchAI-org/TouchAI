@@ -1,13 +1,13 @@
-import { mount } from '@vue/test-utils';
+import { createSettingsPanelFixture } from '@tests/utils/settingsPanel';
+import { createTestWindowPresentation } from '@tests/utils/windowPresentation';
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
+import { beforeEach as beforePresentation } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { BuiltInToolEntity } from '@/app/api/tools/administration';
+import { setLocale, t } from '@/i18n';
 import BuiltInToolConfig from '@/views/SettingsView/components/BuiltInTools/components/BuiltInToolConfig.vue';
-import type { BuiltInToolEntity } from '@/views/SettingsView/components/BuiltInTools/types';
 
-/**
- * The panel saves by itself 450 ms after the last edit. A timer that fires with stale config
- * overwrites what the user just typed; a timer that never fires loses the edit entirely.
- */
 const bashConfig = {
     approvalMode: 'high_risk',
     defaultWorkingDirectory: '',
@@ -16,7 +16,6 @@ const bashConfig = {
     maxOutputChars: 20_000,
     compactOutput: false,
 };
-
 function tool(overrides: Partial<BuiltInToolEntity> = {}): BuiltInToolEntity {
     return {
         id: 1,
@@ -27,155 +26,105 @@ function tool(overrides: Partial<BuiltInToolEntity> = {}): BuiltInToolEntity {
         risk_level: 'medium',
         config_json: JSON.stringify(bashConfig),
         last_used_at: null,
-        created_at: '2026-01-01T00:00:00Z',
-        updated_at: '2026-01-01T00:00:00Z',
+        created_at: '',
+        updated_at: '',
         ...overrides,
     };
 }
-
-function mountPanel(props: { tool?: BuiltInToolEntity; saving?: boolean } = {}) {
-    return mount(BuiltInToolConfig, {
-        props: { tool: tool(), ...props },
-        global: {
-            stubs: {
-                BashToolConfig: {
-                    name: 'BashToolConfig',
-                    props: ['modelValue'],
-                    emits: ['update:modelValue'],
-                    template: '<div data-config="bash" />',
-                },
-                UpgradeModelToolConfig: {
-                    name: 'UpgradeModelToolConfig',
-                    props: ['modelValue'],
-                    emits: ['update:modelValue'],
-                    template: '<div data-config="upgrade-model" />',
-                },
-                EmptyState: {
-                    props: ['title'],
-                    template: '<div data-empty="true">{{ title }}</div>',
-                },
-            },
-        },
-    });
-}
-
-beforeEach(() => {
+let fixture: Awaited<ReturnType<typeof createSettingsPanelFixture>>;
+let wrapper: VueWrapper | undefined;
+beforeEach(async () => {
+    fixture = await createSettingsPanelFixture();
+    setLocale('en-US');
     vi.useFakeTimers();
 });
-
-afterEach(() => {
+afterEach(async () => {
+    wrapper?.unmount();
+    wrapper = undefined;
     vi.useRealTimers();
+    await fixture.dispose();
+    document.body.innerHTML = '';
+});
+function mountPanel(value = tool()) {
+    wrapper = mount(BuiltInToolConfig, { ...fixture.viewOptions, props: { tool: value } });
+    return wrapper;
+}
+async function timeout(value: string) {
+    await wrapper!.get<HTMLInputElement>('input[type="number"][min="0"]').setValue(value);
+}
+function savedTimeout() {
+    const patch = wrapper!.emitted('save')?.at(-1)?.[0] as { config_json: string };
+    return JSON.parse(patch.config_json).timeoutMs;
+}
+
+describe('given actual builtin configuration forms and their public save contract', () => {
+    it('user edits the timeout and receives its save only after the debounce', async () => {
+        mountPanel();
+        await timeout('60000');
+        expect(wrapper!.emitted('save')).toBeUndefined();
+        await vi.advanceTimersByTimeAsync(450);
+        expect(savedTimeout()).toBe(60_000);
+    });
+
+    it('user edits twice quickly and only the latest complete configuration is saved', async () => {
+        mountPanel();
+        await timeout('60000');
+        await vi.advanceTimersByTimeAsync(200);
+        await timeout('30000');
+        await vi.advanceTimersByTimeAsync(450);
+        expect(wrapper!.emitted('save')).toHaveLength(1);
+        expect(savedTimeout()).toBe(30_000);
+    });
+
+    it('user restores the original value before saving and no redundant write is requested', async () => {
+        mountPanel();
+        await timeout('60000');
+        await timeout('120000');
+        await vi.advanceTimersByTimeAsync(450);
+        expect(wrapper!.emitted('save')).toBeUndefined();
+    });
+
+    it('user switches tools before saving and a stale timeout cannot overwrite the new tool', async () => {
+        mountPanel();
+        await timeout('60000');
+        await wrapper!.setProps({ tool: tool({ tool_id: 'web_fetch' }) });
+        await vi.advanceTimersByTimeAsync(450);
+        expect(wrapper!.emitted('save')).toBeUndefined();
+    });
+
+    it('user closes before saving and no detached autosave is requested', async () => {
+        mountPanel();
+        await timeout('60000');
+        wrapper!.unmount();
+        await vi.advanceTimersByTimeAsync(450);
+        expect(wrapper!.emitted('save')).toBeUndefined();
+    });
+
+    it('user opens an unconfigured tool and sees that no form is required', () => {
+        mountPanel(tool({ tool_id: 'web_fetch' }));
+        expect(wrapper!.text()).toContain(t('settings.builtInTools.noConfig'));
+    });
+
+    it('user opens an unsupported form and receives the existing coming-soon state', () => {
+        mountPanel(tool({ tool_id: 'future-tool' }));
+        expect(wrapper!.text()).toContain(t('settings.builtInTools.configComingSoon'));
+    });
+
+    it('user opens shell configuration and sees the actual saved timeout control', () => {
+        mountPanel();
+        expect(wrapper!.get<HTMLInputElement>('input[type="number"][min="0"]').element.value).toBe(
+            '120000'
+        );
+    });
+
+    it('user opens model upgrade configuration and gets its own empty chain rather than shell controls', async () => {
+        mountPanel(tool({ tool_id: 'upgrade_model', config_json: '{"chain":[]}' }));
+        await flushPromises();
+        expect(wrapper!.text()).toContain(t('settings.builtInTools.upgradeModel.emptyChain'));
+        expect(wrapper!.find('input[type="number"]').exists()).toBe(false);
+    });
 });
 
-describe('user edits a built-in tool setting', () => {
-    it('user edits the bash config and the change is saved after the debounce', async () => {
-        const wrapper = mountPanel();
-
-        wrapper
-            .findComponent({ name: 'BashToolConfig' })
-            .vm.$emit('update:modelValue', { ...bashConfig, timeoutMs: 60_000 });
-        await wrapper.vm.$nextTick();
-
-        // Nothing is written while the user is still typing.
-        expect(wrapper.emitted('save')).toBeUndefined();
-
-        vi.advanceTimersByTime(450);
-
-        expect(wrapper.emitted('save')).toHaveLength(1);
-        expect((wrapper.emitted('save')![0]![0] as { config_json: string }).config_json).toContain(
-            '60000'
-        );
-        wrapper.unmount();
-    });
-
-    it('user edits twice quickly and only the last value is saved', async () => {
-        const wrapper = mountPanel();
-        const panel = wrapper.findComponent({ name: 'BashToolConfig' });
-
-        panel.vm.$emit('update:modelValue', { ...bashConfig, timeoutMs: 60_000 });
-        await wrapper.vm.$nextTick();
-        vi.advanceTimersByTime(200);
-        panel.vm.$emit('update:modelValue', { ...bashConfig, timeoutMs: 30_000 });
-        await wrapper.vm.$nextTick();
-        vi.advanceTimersByTime(450);
-
-        // A save per keystroke would write stale config over the newer value.
-        expect(wrapper.emitted('save')).toHaveLength(1);
-        expect((wrapper.emitted('save')![0]![0] as { config_json: string }).config_json).toContain(
-            '30000'
-        );
-        wrapper.unmount();
-    });
-
-    it('user gets no save when the config ends up unchanged', async () => {
-        const wrapper = mountPanel();
-
-        // Emitting the same value back must not look like an edit.
-        wrapper.findComponent({ name: 'BashToolConfig' }).vm.$emit('update:modelValue', bashConfig);
-        await wrapper.vm.$nextTick();
-        vi.advanceTimersByTime(450);
-
-        expect(wrapper.emitted('save')).toBeUndefined();
-        wrapper.unmount();
-    });
-
-    it('user switches to another tool and no stale save fires', async () => {
-        const wrapper = mountPanel();
-        wrapper
-            .findComponent({ name: 'BashToolConfig' })
-            .vm.$emit('update:modelValue', { ...bashConfig, timeoutMs: 60_000 });
-        await wrapper.vm.$nextTick();
-
-        await wrapper.setProps({ tool: tool({ tool_id: 'web_fetch' }) });
-        vi.advanceTimersByTime(450);
-
-        // A save from the previous tool would write bash config onto another tool.
-        expect(wrapper.emitted('save')).toBeUndefined();
-        wrapper.unmount();
-    });
-
-    it('user closes the panel before the debounce and nothing is saved', async () => {
-        const wrapper = mountPanel();
-        wrapper
-            .findComponent({ name: 'BashToolConfig' })
-            .vm.$emit('update:modelValue', { ...bashConfig, timeoutMs: 60_000 });
-        await wrapper.vm.$nextTick();
-
-        wrapper.unmount();
-        vi.advanceTimersByTime(450);
-
-        // A timer surviving unmount writes to a component that no longer exists.
-        expect(wrapper.emitted('save')).toBeUndefined();
-    });
-
-    it('user opens a tool with no config and sees the no-config message', () => {
-        const wrapper = mountPanel({ tool: tool({ tool_id: 'web_fetch' }) });
-
-        // The two empty states say different things, so the message itself is asserted.
-        expect(wrapper.find('[data-empty="true"]').text()).toBe('该工具无需在此配置');
-        wrapper.unmount();
-    });
-
-    it('user opens a tool whose config is not built yet and sees that message', () => {
-        const wrapper = mountPanel({ tool: tool({ tool_id: 'some_future_tool' }) });
-
-        expect(wrapper.find('[data-empty="true"]').text()).toBe(
-            '该工具的配置表单将在后续批次接入。'
-        );
-        wrapper.unmount();
-    });
-
-    it('user opens the bash tool and gets the bash panel', () => {
-        const wrapper = mountPanel();
-
-        expect(wrapper.find('[data-config="bash"]').exists()).toBe(true);
-        wrapper.unmount();
-    });
-
-    it('user opens the upgrade-model tool and gets its own panel', () => {
-        const wrapper = mountPanel({ tool: tool({ tool_id: 'upgrade_model' }) });
-
-        expect(wrapper.find('[data-config="upgrade-model"]').exists()).toBe(true);
-        wrapper.unmount();
-    });
+beforePresentation(async () => {
+    (await createTestWindowPresentation('settings')).install();
 });

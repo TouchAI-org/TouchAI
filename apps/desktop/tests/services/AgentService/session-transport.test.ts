@@ -7,7 +7,7 @@ import {
 import { createMessagePart, createMessageRow } from '@tests/utils/messages';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { loadSessionTransportMessages } from '@/services/AgentService/session/transport';
+import { loadSessionTransportMessages } from '@/app/workflows/agent/historyTransport';
 
 let database: ReturnType<typeof openMigratedDatabase>;
 

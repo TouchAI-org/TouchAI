@@ -2,11 +2,11 @@ import { mountComposable } from '@tests/utils/composables';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { nextTick, ref } from 'vue';
 
+import { createInputHistorySnapshot, type SessionMessage } from '@/app/api/agent/history';
 import {
     createDefaultSearchKeybindings,
     SEARCH_KEYBINDING_DEFINITIONS,
 } from '@/config/searchKeybindings';
-import { createInputHistorySnapshot, type SessionMessage } from '@/types/session';
 import {
     createSearchEntryPolicy,
     createSearchKeyboardRouter,

@@ -1,3 +1,5 @@
+import { createTestWindowPresentation } from '@tests/utils/windowPresentation';
+import { beforeEach as beforePresentation } from 'vitest';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -51,4 +53,8 @@ describe('user edits browser settings while another window refreshes', () => {
             defaultMode: 'headless',
         });
     });
+});
+
+beforePresentation(async () => {
+    (await createTestWindowPresentation('settings')).install();
 });

@@ -28,7 +28,7 @@ vi.mock('@components/ModelCapabilityTags.vue', () => ({
     },
 }));
 
-vi.mock('@services/NativeService', () => ({
+vi.mock('@/platform/native', () => ({
     native: {
         window: {
             openSettingsWindow: vi.fn(),

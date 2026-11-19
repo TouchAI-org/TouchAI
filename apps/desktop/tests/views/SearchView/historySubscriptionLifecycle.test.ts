@@ -1,11 +1,13 @@
-import { AppEvent, eventService } from '@services/EventService';
-import { getTauriInvokeCalls, interceptTauriInvoke, mockTauriCommand } from '@tests/utils/tauri';
+import { createAgentWindowFixture } from '@tests/utils/agentWindow';
+import { getTauriInvokeCalls, interceptTauriInvoke } from '@tests/utils/tauri';
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import { createPinia, disposePinia } from 'pinia';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { defineComponent, h, ref } from 'vue';
 
-import { createInputHistorySnapshot } from '@/types/session';
+import { agentApiKey } from '@/app/api/agent';
+import { createInputHistorySnapshot } from '@/app/api/agent/history';
+import { AppEvent, eventService } from '@/app/workflows/windows/events';
 import { useSearchRequestFlow } from '@/views/SearchView/composables/useSearchRequest';
 
 function deferred() {
@@ -18,10 +20,13 @@ function deferred() {
 
 let wrapper: VueWrapper | undefined;
 let pinia: ReturnType<typeof createPinia>;
+let fixture: ReturnType<typeof createAgentWindowFixture>;
 
-beforeEach(() => {
+beforeEach(async () => {
     pinia = createPinia();
-    mockTauriCommand('database_query', { rows: [], rowsAffected: 0, lastInsertId: null });
+    fixture = createAgentWindowFixture();
+    await fixture.window.ready;
+    await fixture.window.capabilities.waitForAgent();
 });
 
 afterEach(async () => {
@@ -29,6 +34,7 @@ afterEach(async () => {
     wrapper = undefined;
     disposePinia(pinia);
     await flushPromises();
+    await fixture.window.dispose();
 });
 
 function mountHistory() {
@@ -48,7 +54,12 @@ function mountHistory() {
                     h('span', history.sessionList.value.map((session) => session.title).join(','));
             },
         }),
-        { global: { plugins: [pinia] } }
+        {
+            global: {
+                plugins: [pinia],
+                provide: { [agentApiKey as symbol]: fixture.window.api },
+            },
+        }
     );
     return history;
 }

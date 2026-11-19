@@ -1,7 +1,9 @@
 import type { InvokeArgs } from '@tauri-apps/api/core';
 import { installSkillCommands, skillFile, widgetSkillFile } from '@tests/utils/skills';
 import { getTauriInvokeCalls, interceptTauriInvoke, mockTauriCommand } from '@tests/utils/tauri';
+import { createTestWindowPresentation } from '@tests/utils/windowPresentation';
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
+import { beforeEach as beforePresentation } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { setLocale } from '@/i18n';
@@ -659,4 +661,8 @@ describe('given the skills folder is empty or temporarily unavailable', () => {
         await clickText('Retry');
         expect(wrapper.text()).toContain('summary');
     });
+});
+
+beforePresentation(async () => {
+    (await createTestWindowPresentation('settings')).install();
 });

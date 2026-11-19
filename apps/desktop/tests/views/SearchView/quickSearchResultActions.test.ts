@@ -1,8 +1,10 @@
-import type { QuickSearchResult, QuickShortcutItem } from '@services/NativeService';
 import { mountComposable } from '@tests/utils/composables';
+import { withTestSearch } from '@tests/utils/searchHost';
+import { mockTauriCommand } from '@tests/utils/tauri';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick, ref } from 'vue';
 
+import type { QuickSearchResult, QuickShortcutItem } from '@/platform/native';
 import { useQuickSearchLogic } from '@/views/SearchView/components/QuickSearchPanel/composables/useQuickSearchLogic';
 
 /**
@@ -90,10 +92,6 @@ vi.mock('@tauri-apps/plugin-opener', () => ({
     revealItemInDir: revealItemInDirMock,
 }));
 
-vi.mock('@services/ClipboardService', () => ({
-    clipboardService: clipboardMock,
-}));
-
 function createShortcut(name: string, path = `D:/${name}.lnk`): QuickShortcutItem {
     return { name, path, source: 'desktop_user' };
 }
@@ -162,7 +160,7 @@ async function mountQuickSearch(deps: ReturnType<typeof createDeps>, enabled = r
                     open.value = value;
                 },
             },
-            deps
+            withTestSearch(deps)
         )
     );
 
@@ -193,6 +191,9 @@ async function mountWithResults(
 }
 
 beforeEach(() => {
+    mockTauriCommand('write_clipboard_text', (payload) =>
+        clipboardMock.writeText((payload as { text: string }).text)
+    );
     vi.clearAllMocks();
     vi.useFakeTimers();
     contextMenuState.closeHandler = null;
@@ -490,7 +491,7 @@ describe('when quick search is not available on this machine', () => {
         const mounted = await mountComposable(() =>
             useQuickSearchLogic(
                 { open, searchQuery, enabled, emitOpenUpdate: (value) => (open.value = value) },
-                deps
+                withTestSearch(deps)
             )
         );
 
@@ -522,7 +523,7 @@ describe('when quick search is not available on this machine', () => {
                         else closeRequested.value = true;
                     },
                 },
-                deps
+                withTestSearch(deps)
             )
         );
         result.open();
@@ -556,7 +557,7 @@ describe('when quick search is not available on this machine', () => {
         const mounted = await mountComposable(() =>
             useQuickSearchLogic(
                 { open, searchQuery, enabled: ref(true), emitOpenUpdate: (v) => (open.value = v) },
-                deps
+                withTestSearch(deps)
             )
         );
         await flushAsyncWork();

@@ -1,4 +1,4 @@
-import type { AppLocale } from './locales';
+import type { AppLocale } from '../config/locales';
 import { skillsMessagesEnUS, skillsMessagesZhCN } from './skillsMessages';
 import { usageMessagesEnUS, usageMessagesZhCN } from './usageMessages';
 

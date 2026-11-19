@@ -1,5 +1,5 @@
+import type { AppLocale } from '../config/locales';
 import { getLocale } from '.';
-import type { AppLocale } from './locales';
 
 type DateInput = Date | string | number | null | undefined;
 

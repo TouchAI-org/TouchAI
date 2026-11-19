@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { SearchProviderRegistry } from '@/services/SearchService';
-import { createSkillSearchProvider, skillSearchItem } from '@/services/SearchService/skills';
+import { SearchProviderRegistry } from '@/modules/search';
+import { createSkillSearchProvider, skillSearchItem } from '@/modules/search/skills';
 
 describe('given the skills catalog contributes metadata to search', () => {
     it('user finds fuzzy skill names and receives only a metadata reference action', async () => {

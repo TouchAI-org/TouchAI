@@ -2,7 +2,7 @@ import { createRequire } from 'node:module';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { createWidgetSandboxDocument } from '@/services/BuiltInToolService/tools/widgetTool/showWidget/sandbox';
+import { createWidgetSandboxDocument } from '@/components/widgets/sandbox';
 
 const { JSDOM, VirtualConsole } = createRequire(import.meta.url)('jsdom') as typeof import('jsdom');
 const frames: InstanceType<typeof JSDOM>[] = [];

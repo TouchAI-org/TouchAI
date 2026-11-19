@@ -19,10 +19,10 @@ import { measurePatchCoverage } from '../../scripts/ci/coverage/patch-coverage.m
 const sourcePath = 'apps/desktop/src/feature.ts';
 const changed = new Map([[sourcePath, new Set([2])]]);
 
-function coverageFor(hits = 1) {
+function coverageFor(hits = 1, line = 2) {
     return {
         statementMap: {
-            0: { start: { line: 2, column: 0 }, end: { line: 2, column: 23 } },
+            0: { start: { line, column: 0 }, end: { line, column: 23 } },
         },
         s: { 0: hits },
         branchMap: {},
@@ -142,13 +142,15 @@ describe('user measures covered changes with absolute report paths', () => {
 
 describe('user runs the patch coverage command in a checkout', () => {
     it.each([
-        ['.', 1, 0, '1/1 changed lines covered (100.00%)'],
-        ['apps/desktop', 1, 0, '1/1 changed lines covered (100.00%)'],
-        ['.', 0, 1, '0/1 changed lines covered (0.00%)'],
-        ['apps/desktop', 0, 1, '0/1 changed lines covered (0.00%)'],
+        ['.', 1, true, 0, '3/3 changed lines covered (100.00%)'],
+        ['apps/desktop', 1, true, 0, '3/3 changed lines covered (100.00%)'],
+        ['.', 0, true, 1, '2/3 changed lines covered (66.67%)'],
+        ['apps/desktop', 0, true, 1, '2/3 changed lines covered (66.67%)'],
+        ['.', 1, false, 1, '1/3 changed lines covered (33.33%)'],
+        ['apps/desktop', 1, false, 1, '1/3 changed lines covered (33.33%)'],
     ] as const)(
-        'user gets a measured coverage gate from %s when the changed statement has %i hits',
-        (directory, hits, expectedStatus, expectedSummary) => {
+        'user runs patch coverage from %s with %i tracked hits and new package coverage %s, then receives status %i',
+        (directory, hits, packagesCovered, expectedStatus, expectedSummary) => {
             const cli = resolve('scripts/ci/coverage/patch-coverage-cli.mjs');
             const checkout = mkdtempSync(join(tmpdir(), 'patch-coverage-paths-'));
             const git = (...args: string[]) =>
@@ -171,8 +173,28 @@ describe('user runs the patch coverage command in a checkout', () => {
                 );
                 const base = git('rev-parse', 'HEAD').trim();
                 writeFileSync(source, 'export const initial = 1;\nexport const added = 2;\n');
+                const entries = { [source]: coverageFor(hits) };
+                const newSources = ['agent-core', 'models'].map((name) => {
+                    const directory = `packages/${name}/src`;
+                    mkdirSync(join(checkout, directory), { recursive: true });
+                    const path = `${directory}/new source.ts`;
+                    const file = join(checkout, path);
+                    writeFileSync(
+                        file,
+                        `export const value = 2;${name === 'models' ? '\r\n' : ''}`
+                    );
+                    if (packagesCovered) entries[file] = coverageFor(1, 1);
+                    return path;
+                });
+                writeFileSync(join(checkout, 'packages/.gitignore'), 'ignored.ts\n');
+                writeFileSync(
+                    join(checkout, 'packages/models/src/ignored.ts'),
+                    'export const ignored = 3;\n'
+                );
                 const report = join(checkout, 'coverage-final.json');
-                writeFileSync(report, JSON.stringify({ [source]: coverageFor(hits) }));
+                writeFileSync(report, JSON.stringify(entries));
+                const status = () => git('status', '--porcelain=v1', '--untracked-files=all');
+                const before = status();
 
                 const result = spawnSync(
                     process.execPath,
@@ -182,6 +204,9 @@ describe('user runs the patch coverage command in a checkout', () => {
 
                 expect(result.status, result.stderr).toBe(expectedStatus);
                 expect(result.stdout).toContain(expectedSummary);
+                for (const file of newSources) expect(result.stdout).toContain(file);
+                expect(result.stdout).not.toContain('ignored.ts');
+                expect(status()).toBe(before);
             } finally {
                 rmSync(checkout, { recursive: true, force: true });
             }

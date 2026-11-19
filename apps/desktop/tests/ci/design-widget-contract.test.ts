@@ -23,11 +23,12 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { describe, expect, it } from 'vitest';
+
 import {
     SHOW_WIDGET_COLOR_RAMPS,
     SHOW_WIDGET_THEME_FALLBACKS,
-} from '@services/BuiltInToolService/tools/widgetTool/showWidget/runtimeConstants';
-import { describe, expect, it } from 'vitest';
+} from '@/components/widgets/runtimeConstants';
 
 const testDirectory = dirname(fileURLToPath(import.meta.url));
 const stylesDirectory = resolve(testDirectory, '../../src/styles');

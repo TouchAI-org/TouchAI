@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
     import CustomSelect from '@components/CustomSelect.vue';
     import EmptyState from '@components/EmptyState.vue';
@@ -6,7 +6,11 @@
     import { Button } from '@components/ui/button';
     import { Input } from '@components/ui/input';
     import { Switch } from '@components/ui/switch';
-    import { log } from '@services/ObservabilityService';
+    import { storeToRefs } from 'pinia';
+    import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+
+    import { log } from '@/app/api/diagnostics';
+    import type { InstalledBrowser } from '@/app/api/settings/browser';
     import {
         type BrowserFingerprintProfile,
         type BrowserPermissionMode,
@@ -17,26 +21,19 @@
         parseBrowserSettingsConfig,
         type ScreenshotAttachmentMode,
         serializeBrowserSettingsConfig,
-    } from '@services/SettingsService/domain';
-    import { open } from '@tauri-apps/plugin-dialog';
-    import { storeToRefs } from 'pinia';
-    import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-
+    } from '@/app/api/settings/tools';
     import { type MessageKey, t } from '@/i18n';
-    import { native } from '@/services/NativeService';
-    import type { BrowserInstalledBrowser } from '@/services/NativeService/types';
-    import { useSettingsStore } from '@/stores/settings';
+    import { useToolSettingsStore } from '@/stores/toolSettings';
 
     import { hasSettingsDraftChanges, mergeSettingsDraft } from '../../settingsDraftSync';
     import DomainRuleInput from './components/DomainRuleInput.vue';
-    import { loadCachedDefaultBrowserDataPath, loadCachedInstalledBrowsers } from './runtimeCache';
 
     defineOptions({ name: 'SettingsBrowserSection' });
 
-    const settingsStore = useSettingsStore();
-    const { settings } = storeToRefs(settingsStore);
-    const draft = ref<BrowserSettingsConfig>(cloneConfig(settings.value.browserSettings));
-    let syncedConfig = cloneConfig(settings.value.browserSettings);
+    const settingsStore = useToolSettingsStore();
+    const { browserSettings } = storeToRefs(settingsStore);
+    const draft = ref<BrowserSettingsConfig>(cloneConfig(browserSettings.value));
+    let syncedConfig = cloneConfig(browserSettings.value);
     const saveState = ref<'idle' | 'saving' | 'saved' | 'error'>('idle');
     let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
     let isSyncingFromStore = false;
@@ -45,7 +42,7 @@
     const addingAllowedDomain = ref(false);
     const addingBlockedDomain = ref(false);
     const isEditingCustomBrowserExecutable = ref(false);
-    const installedBrowsers = ref<BrowserInstalledBrowser[]>([]);
+    const installedBrowsers = ref<InstalledBrowser[]>([]);
     const browserDiscoveryError = ref<string | null>(null);
     const defaultBrowserDataPath = ref('');
     const isDiscoveringInstalledBrowsers = ref(false);
@@ -263,7 +260,7 @@
     });
 
     watch(
-        () => settings.value.browserSettings,
+        () => browserSettings.value,
         (config) => {
             const incoming = cloneConfig(config);
             isSyncingFromStore = true;
@@ -289,10 +286,7 @@
         isDiscoveringInstalledBrowsers.value = true;
         try {
             browserDiscoveryError.value = null;
-            const browsers = await loadCachedInstalledBrowsers(
-                () => native.browser.discoverInstalled(),
-                options
-            );
+            const browsers = await settingsStore.loadInstalledBrowsers(options);
             if (isUnmounted) {
                 return;
             }
@@ -318,9 +312,7 @@
 
     async function loadDefaultBrowserDataPath() {
         try {
-            const path = await loadCachedDefaultBrowserDataPath(() =>
-                native.browser.defaultDataPath()
-            );
+            const path = await settingsStore.loadDefaultBrowserDataPath();
             if (isUnmounted) {
                 return;
             }
@@ -335,7 +327,7 @@
     }
 
     function handleBrowserExecutableDropdownOpen(open: boolean) {
-        if (!open || isDiscoveringInstalledBrowsers.value) {
+        if (isUnmounted || !open || isDiscoveringInstalledBrowsers.value) {
             return;
         }
 
@@ -374,7 +366,7 @@
     }
 
     function scheduleAutoSave() {
-        if (isSyncingFromStore || !canSave.value) return;
+        if (isUnmounted || isSyncingFromStore || !canSave.value) return;
         if (autoSaveTimer) {
             clearTimeout(autoSaveTimer);
         }
@@ -387,6 +379,9 @@
     watch(draft, scheduleAutoSave, { deep: true });
 
     onMounted(() => {
+        void settingsStore
+            .initialize()
+            .catch((error) => log.error('[BrowserSettings] Failed to initialize settings:', error));
         void loadInstalledBrowsers();
         void loadDefaultBrowserDataPath();
     });
@@ -400,15 +395,12 @@
     });
 
     async function pickBrowserDataPath() {
+        if (isUnmounted) return;
         try {
-            const picked = await open({
-                directory: true,
-                multiple: false,
-                defaultPath:
-                    draft.value.browserDataPath.trim() || defaultBrowserDataPath.value || undefined,
-                title: t('settings.browser.browserDataPath.pick'),
-            });
-            if (typeof picked === 'string') {
+            const picked = await settingsStore.pickBrowserDataPath(
+                draft.value.browserDataPath.trim() || defaultBrowserDataPath.value || undefined
+            );
+            if (!isUnmounted && typeof picked === 'string') {
                 draft.value.browserDataPath = picked;
             }
         } catch (error) {
@@ -417,14 +409,12 @@
     }
 
     async function pickBrowserExecutable() {
+        if (isUnmounted) return;
         try {
-            const picked = await open({
-                directory: false,
-                multiple: false,
-                defaultPath: draft.value.browserExecutablePath.trim() || undefined,
-                title: t('settings.browser.executablePath.pick'),
-            });
-            if (typeof picked === 'string') {
+            const picked = await settingsStore.pickBrowserExecutable(
+                draft.value.browserExecutablePath.trim() || undefined
+            );
+            if (!isUnmounted && typeof picked === 'string') {
                 isEditingCustomBrowserExecutable.value = true;
                 draft.value.browserExecutablePath = picked;
             }
@@ -434,23 +424,24 @@
     }
 
     async function saveSettings() {
-        if (!canSave.value) return;
+        if (isUnmounted || !canSave.value) return;
         saveState.value = 'saving';
         try {
             const submitted = cloneConfig(draft.value);
-            const incoming = cloneConfig(settings.value.browserSettings);
+            const incoming = cloneConfig(browserSettings.value);
             await settingsStore.updateBrowserSettings(
                 mergeSettingsDraft(syncedConfig, submitted, incoming)
             );
             await nextTick();
+            if (isUnmounted) return;
             saveState.value = 'saved';
-            syncedConfig = cloneConfig(settings.value.browserSettings);
+            syncedConfig = cloneConfig(browserSettings.value);
             if (hasSettingsDraftChanges(syncedConfig, cloneConfig(draft.value))) {
                 scheduleAutoSave();
             }
         } catch (error) {
             log.error('[BrowserSettings] Failed to save browser settings:', error);
-            saveState.value = 'error';
+            if (!isUnmounted) saveState.value = 'error';
         }
     }
 </script>

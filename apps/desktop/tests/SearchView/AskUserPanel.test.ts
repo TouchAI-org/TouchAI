@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick } from 'vue';
 
 import { setLocale } from '@/i18n';
-import type { AskUserQuestion } from '@/services/AgentService/contracts/tooling';
+import type { AskUserQuestion } from '@/modules/tools';
 import { useAskUserStore } from '@/stores/askUser';
 import AskUserPanel from '@/views/SearchView/components/AskUser/AskUserPanel.vue';
 

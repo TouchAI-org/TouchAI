@@ -4,11 +4,11 @@
     import AppIcon from '@components/AppIcon.vue';
     import { Button } from '@components/ui/button';
     import { useMcpConnection } from '@composables/useMcpConnection';
-    import type { McpServerEntity } from '@database/types';
     import { computed, onUnmounted, toRef } from 'vue';
 
+    import type { McpServerEntity } from '@/app/api/tools/mcpAdministration';
     import { t } from '@/i18n';
-    import { useMcpStore } from '@/stores/mcp';
+    import { useMcpAdministrationStore as useMcpStore } from '@/stores/mcpAdministration';
     interface Props {
         server: McpServerEntity;
         isNewServer: boolean;

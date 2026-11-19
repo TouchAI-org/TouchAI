@@ -1,36 +1,21 @@
 import { type ContextMenuItem, useContextMenu } from '@composables/useContextMenu';
-import {
-    beginSearchInteraction,
-    finishSearchInteraction,
-    runResultAction,
-    type SearchInteraction,
-    selectSearchResult,
-    settleSearchInteraction,
-    trackSearchFeatureExposed,
-} from '@services/AnalyticsService/productInteractions';
-import { clipboardService } from '@services/ClipboardService';
-import { native, type QuickShortcutItem } from '@services/NativeService';
-import { log } from '@services/ObservabilityService';
-import { openPath, revealItemInDir } from '@tauri-apps/plugin-opener';
 import { computed, nextTick, onMounted, onUnmounted, type Ref, ref, watch } from 'vue';
 
-import { t } from '@/i18n';
+import { useProductAnalyticsApi } from '@/app/api/analytics/product';
+import { type SearchInteraction } from '@/app/api/analytics/product';
+import { log } from '@/app/api/diagnostics';
+import type { QuickShortcutItem } from '@/app/api/search/queries';
 import {
-    SearchActionDispatcher,
-    type SearchActionOutcome,
-    searchActions,
-    type SearchActivationContext,
-    type SearchMatch,
-    type SearchProviderRegistry,
-    searchProviders,
-    type SearchSnapshot,
-} from '@/services/SearchService';
-import { loadFileReferenceSuggestions } from '@/services/SearchService/fileReferenceHistory';
-import {
-    createFileSearchProvider,
-    type FileOpenAction,
     fileSearchItem,
-} from '@/services/SearchService/files';
+    type SearchActionOutcome,
+    type SearchActivationContext,
+    type SearchApi,
+    type SearchMatch,
+    type SearchSnapshot,
+    useSearchApi,
+} from '@/app/api/search/queries';
+import { writeClipboardText } from '@/app/api/windows/clipboard';
+import { t } from '@/i18n';
 import { createPerfTrace } from '@/utils/perfTrace';
 import { buildMatchTokens, type NameSegment, splitNameByTokens } from '@/utils/searchHighlight';
 
@@ -90,22 +75,8 @@ interface UseQuickSearchFlowOptions {
 }
 
 export interface UseQuickSearchDeps {
-    quickSearch: Pick<typeof native.quickSearch, 'getStatus' | 'prepareIndex' | 'searchShortcuts'> &
-        Partial<Pick<typeof native.quickSearch, 'listDirectory'>>;
-    window: Pick<typeof native.window, 'hideSearchWindow'>;
-    openPath: typeof openPath;
-    registry?: SearchProviderRegistry;
-    actions?: SearchActionDispatcher;
-    loadReferenceSuggestions?: (limit: number, signal: AbortSignal) => Promise<QuickShortcutItem[]>;
+    search?: SearchApi;
 }
-
-const DEFAULT_DEPS: UseQuickSearchDeps = {
-    quickSearch: native.quickSearch,
-    window: native.window,
-    openPath,
-    loadReferenceSuggestions: (limit, signal) =>
-        loadFileReferenceSuggestions(native.quickSearch, limit, signal),
-};
 
 type E2EQuickSearchBridge = Window & {
     __TOUCHAI_E2E__?: {
@@ -148,10 +119,15 @@ interface UseQuickSearchLogicOptions {
  * @param deps 可注入依赖，默认使用 native 与 opener 实现。
  * @returns 搜索生命周期、结果高亮与打开行为方法集合。
  */
-function useQuickSearchFlow(
-    options: UseQuickSearchFlowOptions,
-    deps: UseQuickSearchDeps = DEFAULT_DEPS
-) {
+function useQuickSearchFlow(options: UseQuickSearchFlowOptions, deps: UseQuickSearchDeps = {}) {
+    const {
+        beginSearchInteraction,
+        finishSearchInteraction,
+        runResultAction,
+        selectSearchResult,
+        settleSearchInteraction,
+        trackSearchFeatureExposed,
+    } = useProductAnalyticsApi();
     const {
         searchQuery,
         enabled,
@@ -181,25 +157,12 @@ function useQuickSearchFlow(
     let lastSearchedQuery = '';
     const searchState = ref<'idle' | 'loading' | 'ready' | 'error'>('idle');
     const clickStats = useQuickSearchClickStats();
-    const session = (deps.registry ?? searchProviders).createSession([
-        createFileSearchProvider(
-            {
-                searchShortcuts: deps.quickSearch.searchShortcuts,
-                listDirectory: deps.quickSearch.listDirectory,
-            },
-            {
-                rank: (query, items) =>
-                    items.length ? clickStats.rankResults(query, items) : Promise.resolve(items),
-                fallback: resolveE2eQuickSearchFallbackResults,
-                loadReferenceSuggestions: deps.loadReferenceSuggestions,
-            }
-        ),
-    ]);
-    const actions = new SearchActionDispatcher(deps.actions ?? searchActions);
-    actions.register<FileOpenAction>('file.open', async (action, context) => {
-        clickStats.recordClick(context.query, action.path);
-        await deps.openPath(action.path);
-        return { status: 'completed' };
+    const searchApi = deps.search ?? useSearchApi();
+    const session = searchApi.openFileSession({
+        rank: (query, items) =>
+            items.length ? clickStats.rankResults(query, items) : Promise.resolve(items),
+        fallback: resolveE2eQuickSearchFallbackResults,
+        recordClick: clickStats.recordClick,
     });
     let visibleEpoch = -1;
     const unsubscribe = session.subscribe(applySnapshot);
@@ -379,7 +342,7 @@ function useQuickSearchFlow(
      */
     async function refreshStatus() {
         try {
-            await deps.quickSearch.getStatus();
+            await searchApi.getFileStatus();
         } catch (error) {
             log.warn('[QuickSearchPanel] Failed to get status:', error);
         }
@@ -393,7 +356,7 @@ function useQuickSearchFlow(
      */
     async function prepareIndex(force = false) {
         try {
-            await deps.quickSearch.prepareIndex(force);
+            await searchApi.prepareFileIndex(force);
         } catch (error) {
             log.warn('[QuickSearchPanel] Failed to prepare index:', error);
         } finally {
@@ -637,14 +600,14 @@ function useQuickSearchFlow(
         if (key === 'open-folder') {
             try {
                 // Revealing a result in the OS file manager is an external-open action.
-                await runResultAction('open_external', () => revealItemInDir(item.path));
+                await runResultAction('open_external', () => searchApi.revealFile(item.path));
             } catch (error) {
                 log.error('[QuickSearchPanel] Failed to reveal in folder:', error);
             }
         } else if (key === 'copy-path') {
             try {
                 // Copying a result's path has no dedicated category; it is an honest `other`.
-                await runResultAction('other', () => clipboardService.writeText(item.path));
+                await runResultAction('other', () => writeClipboardText(item.path));
             } catch (error) {
                 log.error('[QuickSearchPanel] Failed to copy path:', error);
             }
@@ -744,7 +707,7 @@ function useQuickSearchFlow(
         const selection = fileSearchItem(item.result) ? captureSearchSelection() : null;
         let opened = false;
         try {
-            const outcome = await session.activate(item, 'primary', actions, {
+            const outcome = await session.activate(item, 'primary', {
                 ...options.getActivationContext?.(),
                 signal: new AbortController().signal,
             });
@@ -887,7 +850,7 @@ function useQuickSearchState(options: UseQuickSearchLogicOptions) {
 
 export function useQuickSearchLogic(
     options: UseQuickSearchLogicOptions,
-    deps: UseQuickSearchDeps = DEFAULT_DEPS
+    deps: UseQuickSearchDeps = {}
 ) {
     const { open, searchQuery, enabled, emitOpenUpdate, handoff, referenceMode } = options;
 

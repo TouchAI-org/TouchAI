@@ -6,7 +6,7 @@ import type {
     SearchSurfacePreparation,
     SearchWindowRegionUpdate,
     SearchWindowState,
-} from '@/services/NativeService/types';
+} from '@/platform/native/types';
 
 import { mockTauriCommand } from './tauri';
 

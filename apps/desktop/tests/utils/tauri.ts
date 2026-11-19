@@ -39,7 +39,8 @@ const DEFAULT_WINDOWS = ['settings'];
 
 const tauriInvokeCalls: TauriInvokeCall[] = [];
 const tauriCommandResponders = new Map<string, TauriCommandResponder>();
-const tauriEventListeners = new Map<string, Set<number>>();
+type EventTarget = { kind: string; label?: string };
+const tauriEventListeners = new Map<string, Map<number, EventTarget>>();
 
 let tauriInvokeInterceptor: TauriInvokeInterceptor | undefined;
 
@@ -74,9 +75,9 @@ function normalizeRecordedPayload(payload?: InvokeArgs): InvokeArgs | undefined 
     return Object.keys(payload).length === 0 ? undefined : payload;
 }
 
-function addEventListener(event: string, handlerId: number) {
-    const listeners = tauriEventListeners.get(event) ?? new Set<number>();
-    listeners.add(handlerId);
+function addEventListener(event: string, handlerId: number, target: EventTarget) {
+    const listeners = tauriEventListeners.get(event) ?? new Map<number, EventTarget>();
+    listeners.set(handlerId, target);
     tauriEventListeners.set(event, listeners);
 }
 
@@ -102,14 +103,17 @@ function invokeEventPluginCommand(
     if (cmd === 'plugin:event|listen') {
         const event = String(payloadRecord.event ?? '');
         const handlerId = Number(payloadRecord.handler);
-        addEventListener(event, handlerId);
+        const target = (payloadRecord.target ?? { kind: 'Any' }) as EventTarget;
+        addEventListener(event, handlerId, target);
         return Promise.resolve(handlerId);
     }
 
-    if (cmd === 'plugin:event|emit') {
+    if (cmd === 'plugin:event|emit' || cmd === 'plugin:event|emit_to') {
         const event = String(payloadRecord.event ?? '');
         const listeners = [...(tauriEventListeners.get(event) ?? [])];
-        for (const handlerId of listeners) {
+        const target = payloadRecord.target as EventTarget | undefined;
+        for (const [handlerId, listener] of listeners) {
+            if (target && listener.kind !== 'Any' && listener.label !== target.label) continue;
             tauriInternals.runCallback(handlerId, {
                 event,
                 id: handlerId,
@@ -168,7 +172,9 @@ export function resetTauriMocks() {
     resetTauriMockState();
 }
 
-export function mockTauriCommand(cmd: string, responder: unknown | TauriCommandResponder) {
+export function mockTauriCommand(cmd: string, responder: TauriCommandResponder): void;
+export function mockTauriCommand(cmd: string, result: unknown): void;
+export function mockTauriCommand(cmd: string, responder: unknown) {
     tauriCommandResponders.set(
         cmd,
         typeof responder === 'function' ? (responder as TauriCommandResponder) : () => responder

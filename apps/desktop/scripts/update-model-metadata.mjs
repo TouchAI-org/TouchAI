@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Refreshes the bundled model metadata snapshot at
- * src/services/AgentService/infrastructure/modelMetadata/snapshot.json.
+ * src/modules/models/metadata/snapshot.json.
  *
  * The snapshot is the boot-time floor for the model catalog when the local
  * cache is empty and the live fetch is unavailable; a successful live fetch
@@ -19,8 +19,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 export const MODEL_METADATA_SOURCE_URL = 'https://models.dev/api.json';
 
-export const MODEL_METADATA_SNAPSHOT_PATH =
-    'src/services/AgentService/infrastructure/modelMetadata/snapshot.json';
+export const MODEL_METADATA_SNAPSHOT_PATH = 'src/modules/models/metadata/snapshot.json';
 
 // 下限而非等值：防止把错误页或截断的响应写进快照。
 const MINIMUM_MODELS = 1200;

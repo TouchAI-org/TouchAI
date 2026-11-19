@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { FILE_SEARCH_TOOL_DESCRIPTION } from '@/services/BuiltInToolService/tools/fileSearch/constants';
+import { FILE_SEARCH_TOOL_DESCRIPTION } from '@/modules/tools/builtin/read/file-search/constants';
 
 describe('user searches for files by name', () => {
     it('user sees file search restricted to name and path lookup', () => {

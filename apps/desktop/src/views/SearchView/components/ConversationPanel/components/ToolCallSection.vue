@@ -61,8 +61,8 @@
     import MotionCollapse from '@components/MotionCollapse.vue';
     import { computed, ref, watch } from 'vue';
 
+    import type { ToolCallInfo } from '@/app/api/agent/history';
     import { t } from '@/i18n';
-    import type { ToolCallInfo } from '@/types/session';
 
     import ToolCallItem from './ToolCallItem.vue';
 

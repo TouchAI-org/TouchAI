@@ -9,12 +9,20 @@ import { SKILL_FIXTURE_NAME } from './fixtures.js';
 
 async function typeSkillQuery(mainWindowHandle, trigger = '$', query = SKILL_FIXTURE_NAME) {
     await switchToWindowWithE2eBridge(mainWindowHandle);
+    // Selecting a WebDriver context does not focus its native window on WebKitGTK.
+    await browser.execute(async () => {
+        await window.__TAURI_INTERNALS__.invoke('plugin:window|set_focus', { label: 'main' });
+    });
+    await browser.waitUntil(() => browser.execute(() => document.hasFocus()), {
+        timeoutMsg: 'The main window did not receive focus before skill input.',
+    });
     const editor = await $("[data-testid='search-editor-host'] .ProseMirror");
     await editor.waitForDisplayed();
     await editor.click();
     await browser.keys(['Control', 'a']);
     await browser.keys(['Backspace']);
-    await browser.keys([`${trigger}${query}`]);
+    // keys() holds a chord; addValue() types text, including repeated characters.
+    await editor.addValue(`${trigger}${query}`);
     return editor;
 }
 
@@ -28,7 +36,7 @@ async function assertSkillUnavailable(mainWindowHandle) {
         !(await picker.getText()).includes(SKILL_FIXTURE_NAME),
         'The unavailable skill must be absent from the refreshed catalog.'
     );
-    await browser.keys([SKILL_FIXTURE_NAME]);
+    await editor.addValue(SKILL_FIXTURE_NAME);
     await browser.waitUntil(async () => (await editor.getAttribute('aria-expanded')) === 'false');
     assertVisible(
         !(await $('[data-testid="skill-picker-panel"]').isExisting()),

@@ -10,7 +10,7 @@
 </template>
 
 <script setup lang="ts">
-    import type { SessionMessage } from '@/types/session';
+    import type { SessionMessage } from '@/app/api/agent/history';
 
     import AssistantMessage from './AssistantMessage.vue';
     import UserMessage from './UserMessage.vue';

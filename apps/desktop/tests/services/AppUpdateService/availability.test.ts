@@ -1,6 +1,7 @@
-import { getAvailableAppUpdateVersion } from '@services/AppUpdateService/availability';
-import { createInitialAppUpdateState } from '@services/AppUpdateService/state';
 import { describe, expect, it } from 'vitest';
+
+import { getAvailableAppUpdateVersion } from '@/modules/updates/availability';
+import { createInitialAppUpdateState } from '@/modules/updates/state';
 
 function unsupportedState(version: string) {
     return {

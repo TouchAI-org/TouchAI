@@ -1,24 +1,16 @@
+import { createFileSearchToolsFixture } from '@tests/utils/fileSearchTools';
+import { mockTauriCommand } from '@tests/utils/tauri';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
-
-const { nativeMock } = vi.hoisted(() => ({
-    nativeMock: {
-        quickSearch: {
-            getStatus: vi.fn(),
-            searchFiles: vi.fn(),
-        },
-    },
-}));
-
-vi.mock('@services/NativeService', () => ({
-    native: nativeMock,
-}));
+const nativeMock = { quickSearch: { getStatus: vi.fn(), searchFiles: vi.fn() } };
 
 describe('user reads file search results in their own language', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         setLocale('zh-CN');
+        mockTauriCommand('quick_search_search_files', () => nativeMock.quickSearch.searchFiles());
+        mockTauriCommand('quick_search_get_status', () => nativeMock.quickSearch.getStatus());
     });
 
     it('user reads successful file search results in the active language', async () => {
@@ -30,8 +22,7 @@ describe('user reads file search results in their own language', () => {
             },
         ]);
 
-        const { executeFileSearchTool } =
-            await import('@/services/BuiltInToolService/tools/fileSearch');
+        const { executeFileSearchTool } = createFileSearchToolsFixture();
         const result = await executeFileSearchTool(
             { includeShortcutFiles: false, query: '设置', limit: 5 },
             {},
@@ -54,8 +45,7 @@ describe('user reads file search results in their own language', () => {
     it('user reads empty and failed file search results in the active language', async () => {
         setLocale('en-US');
 
-        const { executeFileSearchTool } =
-            await import('@/services/BuiltInToolService/tools/fileSearch');
+        const { executeFileSearchTool } = createFileSearchToolsFixture();
 
         nativeMock.quickSearch.searchFiles.mockResolvedValueOnce([]);
         const emptyResult = await executeFileSearchTool(
@@ -98,7 +88,7 @@ describe('user reads file search results in their own language', () => {
     it('user reads the default conversation target in the active language', async () => {
         setLocale('en-US');
 
-        const { fileSearchTool } = await import('@/services/BuiltInToolService/tools/fileSearch');
+        const { tool: fileSearchTool } = createFileSearchToolsFixture();
 
         expect(fileSearchTool.buildConversationSemantic({ query: '*' })).toEqual({
             action: 'search',

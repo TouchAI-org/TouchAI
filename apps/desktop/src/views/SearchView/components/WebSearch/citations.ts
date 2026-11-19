@@ -9,7 +9,7 @@
 
 import type { InjectionKey } from 'vue';
 
-import type { WebSearchSource } from '@/services/BuiltInToolService/tools/webSearch/sources';
+import type { WebSearchSource } from '@/app/api/tools/results';
 
 export interface WebSearchCitationRegistry {
     findByUrl(url: string): WebSearchSource | undefined;

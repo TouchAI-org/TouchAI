@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { SearchProviderRegistry } from '@/services/SearchService';
-import { createFileSearchProvider, fileSearchItem } from '@/services/SearchService/files';
+import { SearchProviderRegistry } from '@/modules/search';
+import { createFileSearchProvider, fileSearchItem } from '@/modules/search/files';
 
 describe('given the native file index contributes to shared search', () => {
     it('user gets distinct open and reference actions without reading file contents', async () => {

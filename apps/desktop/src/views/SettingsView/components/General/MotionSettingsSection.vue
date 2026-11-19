@@ -3,10 +3,10 @@
     import CustomSelect from '@components/CustomSelect.vue';
     import SettingsRow from '@components/SettingsRow.vue';
     import { Switch } from '@components/ui/switch';
-    import { log } from '@services/ObservabilityService';
     import { storeToRefs } from 'pinia';
     import { computed, ref } from 'vue';
 
+    import { log } from '@/app/api/diagnostics';
     import { ANIMATION_SPEEDS, type AnimationSpeed } from '@/config/motion';
     import { t } from '@/i18n';
     import { useSettingsStore } from '@/stores/settings';

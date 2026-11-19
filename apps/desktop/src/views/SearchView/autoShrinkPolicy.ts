@@ -1,5 +1,5 @@
-import type { SessionMessage } from '@/types/session';
-import { selectToolCalls } from '@/utils/session';
+import type { SessionMessage } from '@/app/api/agent/history';
+import { selectToolCalls } from '@/app/api/agent/history';
 
 interface LatestCompletedMessageMarkerParts {
     sessionId: number;

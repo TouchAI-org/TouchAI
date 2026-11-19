@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { createWidgetRenderer } from '@/services/BuiltInToolService/tools/widgetTool/showWidget/runtime';
+import { createWidgetRenderer } from '@/components/widgets';
 
 describe('given generated widgets and local skill access share a conversation window', () => {
     it('user skill access stays outside the generated widget execution realm', () => {

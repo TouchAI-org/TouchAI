@@ -1,20 +1,79 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
+import { trace } from '@opentelemetry/api';
+import {
+    InMemorySpanExporter,
+    SimpleSpanProcessor,
+    TracerProvider,
+} from '@opentelemetry/sdk-trace';
+import { compatibleResponse, createCompatibleProvider } from '@tests/utils/provider';
+import { normalizeProviderBaseUrl } from '@touchai/models';
+import { AiErrorCode } from '@touchai/models/contracts';
 import { describe, expect, it } from 'vitest';
 
-import { AiErrorCode } from '@/services/AgentService/contracts/errors';
-import {
-    AI_SDK_TELEMETRY,
-    buildUrlWithQueryParams,
-    extractApiCallError,
-    mapHttpStatusToAiError,
-    normalizeProviderBaseUrl,
-} from '@/services/AgentService/infrastructure/providers/ai-sdk/base';
+function classify(error: unknown) {
+    const connection = createCompatibleProvider(globalThis.fetch);
+    try {
+        return connection.classifyError?.(error) ?? null;
+    } finally {
+        connection.dispose();
+    }
+}
 
-describe('user keeps prompts out of provider telemetry', () => {
-    it('user gets inputs and outputs disabled for every AI SDK span', () => {
-        expect(AI_SDK_TELEMETRY.recordInputs).toBe(false);
-        expect(AI_SDK_TELEMETRY.recordOutputs).toBe(false);
+function mapped(statusCode: number | undefined, message: string) {
+    return classify({ statusCode, message });
+}
+
+async function discoveryUrl(endpoint: string, queryParams: Record<string, string>) {
+    let url = '';
+    const connection = createCompatibleProvider(
+        async (input) => {
+            url = String(input);
+            return Response.json({ data: [] });
+        },
+        { apiEndpoint: endpoint, config: { queryParams } }
+    );
+    try {
+        await connection.listModels();
+        return url;
+    } finally {
+        connection.dispose();
+    }
+}
+
+describe('given a real provider request records local SDK spans', () => {
+    it('user keeps prompt and generated text out of every completed SDK span', async () => {
+        trace.disable();
+        const exporter = new InMemorySpanExporter();
+        const tracer = new TracerProvider({
+            spanProcessors: [new SimpleSpanProcessor({ exporter })],
+        });
+        trace.setGlobalTracerProvider(tracer);
+        const connection = createCompatibleProvider(async () =>
+            compatibleResponse('private-generated-sentinel')
+        );
+        try {
+            expect(
+                (
+                    await connection.request({
+                        model: 'fixture',
+                        messages: [{ role: 'user', content: 'private-prompt-sentinel' }],
+                    })
+                ).content
+            ).toBe('private-generated-sentinel');
+            await tracer.forceFlush();
+            const spans = exporter.getFinishedSpans();
+            expect(spans.length).toBeGreaterThan(0);
+            const payload = JSON.stringify(
+                spans.map(({ attributes, events }) => ({ attributes, events }))
+            );
+            expect(payload).not.toMatch(/private-prompt-sentinel|private-generated-sentinel/);
+            expect(payload).not.toMatch(/ai\.prompt\.messages|ai\.response\.text/);
+        } finally {
+            connection.dispose();
+            await tracer.shutdown();
+            trace.disable();
+        }
     });
 });
 
@@ -48,16 +107,16 @@ describe('user types a provider base url', () => {
  * that may already carry its own query, without dropping or duplicating anything.
  */
 describe('user connects to a provider that needs query parameters', () => {
-    it('user gets the parameter added to a url that had none', () => {
-        const url = buildUrlWithQueryParams('https://api.example.com/v1/chat', {
+    it('user gets the parameter added to a url that had none', async () => {
+        const url = await discoveryUrl('https://api.example.com/v1/chat', {
             'api-version': '2024-02-01',
         });
 
         expect(url).toContain('api-version=2024-02-01');
     });
 
-    it('user gets existing query parameters kept alongside the new one', () => {
-        const url = buildUrlWithQueryParams('https://api.example.com/v1/chat?model=gpt', {
+    it('user gets existing query parameters kept alongside the new one', async () => {
+        const url = await discoveryUrl('https://api.example.com/v1?model=gpt', {
             'api-version': '2024-02-01',
         });
 
@@ -65,8 +124,8 @@ describe('user connects to a provider that needs query parameters', () => {
         expect(url).toContain('api-version=2024-02-01');
     });
 
-    it('user gets an existing parameter replaced rather than duplicated', () => {
-        const url = buildUrlWithQueryParams('https://api.example.com/v1?api-version=old', {
+    it('user gets an existing parameter replaced rather than duplicated', async () => {
+        const url = await discoveryUrl('https://api.example.com/v1?api-version=old', {
             'api-version': 'new',
         });
 
@@ -75,11 +134,13 @@ describe('user connects to a provider that needs query parameters', () => {
         expect(params).toEqual(['new']);
     });
 
-    it('user gets the url untouched when there is nothing to add', () => {
-        expect(buildUrlWithQueryParams('https://api.example.com/v1', {})).toBe(
-            'https://api.example.com/v1'
+    it('user gets the discovery endpoint unchanged when there is nothing to add', async () => {
+        expect(await discoveryUrl('https://api.example.com/v1', {})).toBe(
+            'https://api.example.com/v1/models'
         );
-        expect(buildUrlWithQueryParams('', { 'api-version': '1' })).toBe('');
+        await expect(discoveryUrl('', { 'api-version': '1' })).rejects.toThrow(
+            'Provider base URL is empty'
+        );
     });
 });
 
@@ -89,38 +150,39 @@ describe('user connects to a provider that needs query parameters', () => {
  */
 describe('user gets a provider failure recognised whatever shape it arrives in', () => {
     it('user gets a plain api error read for its status and body', () => {
-        const error = extractApiCallError({
+        const error = classify({
             statusCode: 429,
             responseBody: '{"error":"slow down"}',
             message: 'Too many requests',
         });
 
-        expect(error?.statusCode).toBe(429);
-        expect(error?.responseBody).toBe('{"error":"slow down"}');
+        expect(error?.code).toBe(AiErrorCode.RATE_LIMIT);
+        expect(error?.cause).toMatchObject({ responseBody: '{"error":"slow down"}' });
         expect(error?.message).toBe('Too many requests');
     });
 
     it('user gets a retry wrapper unwrapped to the last error', () => {
-        const error = extractApiCallError({
+        const error = classify({
             name: 'AI_RetryError',
             lastError: { statusCode: 503, responseBody: 'unavailable', message: 'Server busy' },
         });
 
-        expect(error?.statusCode).toBe(503);
+        expect(error?.code).toBe(AiErrorCode.SERVICE_UNAVAILABLE);
         expect(error?.message).toBe('Server busy');
     });
 
     it('user gets no api error from something unrelated', () => {
-        expect(extractApiCallError(new Error('plain failure'))).toBeNull();
-        expect(extractApiCallError(null)).toBeNull();
-        expect(extractApiCallError('a string')).toBeNull();
-        expect(extractApiCallError({ message: 'no status here' })).toBeNull();
+        expect(classify(new Error('plain failure'))).toBeNull();
+        expect(classify(null)).toBeNull();
+        expect(classify('a string')).toBeNull();
+        expect(classify({ message: 'no status here' })).toBeNull();
     });
 
     it('user gets a missing message rendered as an empty string rather than undefined', () => {
-        const error = extractApiCallError({ statusCode: 500 });
+        const error = classify({ statusCode: 500 });
 
-        expect(error?.message).toBe('');
+        expect(error?.code).toBe(AiErrorCode.API_ERROR);
+        expect(error?.usesDefaultMessage).toBe(true);
     });
 });
 
@@ -131,45 +193,45 @@ describe('user gets a provider failure recognised whatever shape it arrives in',
  */
 describe('user gets a provider failure explained from its status code', () => {
     it('user gets an auth failure mapped for 401 and 403', () => {
-        expect(mapHttpStatusToAiError(401, 'nope')?.code).toBe(AiErrorCode.UNAUTHORIZED);
-        expect(mapHttpStatusToAiError(403, 'nope')?.code).toBe(AiErrorCode.UNAUTHORIZED);
+        expect(mapped(401, 'nope')?.code).toBe(AiErrorCode.UNAUTHORIZED);
+        expect(mapped(403, 'nope')?.code).toBe(AiErrorCode.UNAUTHORIZED);
     });
 
     it('user gets a timeout mapped for 408', () => {
-        expect(mapHttpStatusToAiError(408, 'slow')?.code).toBe(AiErrorCode.TIMEOUT);
+        expect(mapped(408, 'slow')?.code).toBe(AiErrorCode.TIMEOUT);
     });
 
     it('user gets a rate limit mapped for 429', () => {
-        expect(mapHttpStatusToAiError(429, 'slow down')?.code).toBe(AiErrorCode.RATE_LIMIT);
+        expect(mapped(429, 'slow down')?.code).toBe(AiErrorCode.RATE_LIMIT);
     });
 
     it('user gets each gateway failure mapped distinctly', () => {
-        expect(mapHttpStatusToAiError(502, 'bad')?.code).toBe(AiErrorCode.BAD_GATEWAY);
-        expect(mapHttpStatusToAiError(503, 'busy')?.code).toBe(AiErrorCode.SERVICE_UNAVAILABLE);
-        expect(mapHttpStatusToAiError(504, 'slow')?.code).toBe(AiErrorCode.GATEWAY_TIMEOUT);
+        expect(mapped(502, 'bad')?.code).toBe(AiErrorCode.BAD_GATEWAY);
+        expect(mapped(503, 'busy')?.code).toBe(AiErrorCode.SERVICE_UNAVAILABLE);
+        expect(mapped(504, 'slow')?.code).toBe(AiErrorCode.GATEWAY_TIMEOUT);
     });
 
     it('user gets an unmapped server failure treated as a generic api error', () => {
-        expect(mapHttpStatusToAiError(500, 'boom')?.code).toBe(AiErrorCode.API_ERROR);
-        expect(mapHttpStatusToAiError(599, 'boom')?.code).toBe(AiErrorCode.API_ERROR);
+        expect(mapped(500, 'boom')?.code).toBe(AiErrorCode.API_ERROR);
+        expect(mapped(599, 'boom')?.code).toBe(AiErrorCode.API_ERROR);
     });
 
     it('user gets no error for a status that is not a server or auth failure', () => {
         // A 400 is the caller's fault and is reported by the caller, not mapped here.
-        expect(mapHttpStatusToAiError(400, 'bad request')).toBeNull();
-        expect(mapHttpStatusToAiError(200, 'ok')).toBeNull();
-        expect(mapHttpStatusToAiError(undefined, 'unknown')).toBeNull();
+        expect(mapped(400, 'bad request')).toBeNull();
+        expect(mapped(200, 'ok')).toBeNull();
+        expect(mapped(undefined, 'unknown')).toBeNull();
     });
 
     it('user gets the provider detail kept when it is not just a status line', () => {
-        const error = mapHttpStatusToAiError(429, 'quota exhausted for this key');
+        const error = mapped(429, 'quota exhausted for this key');
 
         expect(error?.message).toBe('quota exhausted for this key');
     });
 
     it('user gets a bare status line dropped in favour of the standard message', () => {
         // "HTTP 429" carries nothing the user can act on, so the standard text is used.
-        const error = mapHttpStatusToAiError(429, 'HTTP 429');
+        const error = mapped(429, 'HTTP 429');
 
         expect(error?.message).not.toBe('HTTP 429');
         expect(error?.message.length).toBeGreaterThan(0);

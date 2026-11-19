@@ -275,16 +275,38 @@ export async function useProductFont() {
     const family = 'TouchAI Source Han Serif SC';
     const referenceFamily = 'TouchAI E2E Reference';
 
+    // The product loader can replace a failed WOFF2 face with a decoded TTF.
+    // Wait for that owner to finish; fonts.ready also resolves when no face exists.
+    await browser.waitUntil(
+        async () =>
+            browser.execute(
+                (productFamily) =>
+                    [...document.fonts].some(
+                        (face) => face.family === productFamily && face.status === 'loaded'
+                    ),
+                family
+            ),
+        {
+            timeout: 30000,
+            timeoutMsg: `The product font "${family}" did not reach loaded status.`,
+        }
+    );
+
     // WebdriverIO 10 removed `executeAsync`; `execute` now awaits an async script and
     // resolves with its return value, so the same measurement is written as a plain
     // async function. The `done` callback form no longer exists on the driver.
     const report = await browser.execute(
         async (productFamily, refFamily) => {
-            await document.fonts.load(`52px '${productFamily}'`);
             await document.fonts.ready;
 
-            const injected = document.querySelector('style[data-touchai-font-face]')?.textContent;
-            const fontUrl = injected?.match(/url\('([^']+)'\)/)?.[1];
+            const injected = document.querySelector('style[data-touchai-font-face]');
+            const fontRule = [...(injected?.sheet?.cssRules ?? [])].find(
+                (rule) => rule.type === CSSRule.FONT_FACE_RULE
+            );
+            const fontSource = fontRule?.style.getPropertyValue('src');
+            if (!fontSource) {
+                throw new Error("The app's product font has no injected @font-face source.");
+            }
 
             function rasterise(target) {
                 const canvas = document.createElement('canvas');
@@ -310,14 +332,12 @@ export async function useProductFont() {
                 return changed;
             }
 
-            // The reference declares the same format hint the product uses. If the
-            // engine rejects it, no face appears and step 1 below fails loudly
-            // instead of the comparison silently agreeing with itself.
+            // Reuse the parsed source so the URL and format follow the final product face.
             const referenceRule = document.createElement('style');
             referenceRule.textContent = `
                 @font-face {
                     font-family: '${refFamily}';
-                    src: url('${fontUrl}') format('woff2-variations');
+                    src: ${fontSource};
                     font-weight: 250 900;
                     font-style: normal;
                     font-display: block;
@@ -326,8 +346,6 @@ export async function useProductFont() {
             document.head.appendChild(referenceRule);
             await document.fonts.load(`52px '${refFamily}'`);
             await document.fonts.ready;
-            // Rasterising before the face settles silently measures the fallback.
-            await new Promise((resolve) => setTimeout(resolve, 300));
 
             const referenceFaces = [...document.fonts].filter((face) => face.family === refFamily);
             const productFaces = [...document.fonts].filter(
@@ -338,13 +356,13 @@ export async function useProductFont() {
             const reference = rasterise(`'${refFamily}'`);
 
             return {
-                usesDataUrl: (injected ?? '').includes('data:font'),
+                usesDataUrl: fontSource.includes('data:'),
                 againstReference: differingPixels(product, reference),
                 referenceFaceCount: referenceFaces.length,
                 referenceFaceStatus: referenceFaces.map((face) => face.status),
                 productFaceCount: productFaces.length,
-                declaredFormat: injected?.match(/format\('([^']+)'\)/)?.[1] ?? 'none',
-                declaredWeight: injected?.match(/font-weight:\s*([^;]+);/)?.[1]?.trim() ?? 'none',
+                declaredFormat: fontSource.match(/format\(['"]?([^'")]+)['"]?\)/)?.[1] ?? 'none',
+                declaredWeight: fontRule.style.getPropertyValue('font-weight') || 'none',
             };
         },
         family,

@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { setLocale } from '@/i18n';
 import {
     appendCurrentLanguageToolDescriptionContext,
     buildCurrentLanguageSystemPrompt,
     buildCurrentLanguageToolDescriptionContext,
     getCurrentModelLanguageContext,
-} from '@/services/AgentService/languageContext';
-import { composePromptSnapshot } from '@/services/AgentService/prompt';
+} from '@/app/workflows/agent/language';
+import { composePromptSnapshot } from '@/app/workflows/agent/prompt';
+import { setLocale } from '@/i18n';
 
 describe('the app language reaches the assistant', () => {
     beforeEach(() => {

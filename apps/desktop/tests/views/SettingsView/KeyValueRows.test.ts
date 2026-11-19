@@ -1,4 +1,6 @@
+import { createTestWindowPresentation } from '@tests/utils/windowPresentation';
 import { mount } from '@vue/test-utils';
+import { beforeEach as beforePresentation } from 'vitest';
 import { describe, expect, it } from 'vitest';
 
 import KeyValueRows from '@/views/SettingsView/components/McpTools/components/KeyValueRows.vue';
@@ -100,4 +102,8 @@ describe('user edits a list of key and value rows', () => {
         expect(wrapper.findAll('input')[0]!.attributes('data-testid')).toBe('mcp-header-0');
         wrapper.unmount();
     });
+});
+
+beforePresentation(async () => {
+    (await createTestWindowPresentation('settings')).install();
 });

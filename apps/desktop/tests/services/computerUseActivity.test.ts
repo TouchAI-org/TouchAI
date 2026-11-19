@@ -1,14 +1,22 @@
 import { emit } from '@tauri-apps/api/event';
+import { listen } from '@tauri-apps/api/event';
 import { installTauriMocks, mockTauriCommand, resetTauriMocks } from '@tests/utils/tauri';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { computerUseService } from '@/services/ComputerUseService';
+import { createComputerControl } from '@/modules/tools';
+let computerUseService: ReturnType<typeof createComputerControl>;
 
 const activeTasks = new Set<string>();
 const pointers: unknown[] = [];
 
 beforeEach(() => {
     installTauriMocks();
+    computerUseService = createComputerControl({
+        locale: () => 'en-US',
+        warn: () => undefined,
+        onStopped: (handler) =>
+            listen<string[]>('computer-use-stopped', ({ payload }) => handler(payload)),
+    });
     activeTasks.clear();
     pointers.length = 0;
     mockTauriCommand('computer_use_glow_set_active', (payload: unknown) => {
@@ -21,7 +29,8 @@ beforeEach(() => {
     });
 });
 
-afterEach(() => {
+afterEach(async () => {
+    await computerUseService.dispose();
     vi.useRealTimers();
     resetTauriMocks();
 });

@@ -1,10 +1,7 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-export type { BashApprovalMode, BashToolConfig } from '@/services/BuiltInToolService/tools/bash';
-export {
-    DEFAULT_BASH_TOOL_CONFIG,
-    parseBashToolConfig,
-} from '@/services/BuiltInToolService/tools/bash';
+export type { BashApprovalMode, BashToolConfig } from '@/app/api/tools/configuration';
+export { DEFAULT_BASH_TOOL_CONFIG, parseBashToolConfig } from '@/app/api/tools/configuration';
 export {
     type BrowserAutomationMode,
     type BrowserAutomationToolConfig,
@@ -12,99 +9,24 @@ export {
     getBrowserAutomationStartupUrlError,
     parseBrowserAutomationToolConfig,
     serializeBrowserAutomationToolConfig,
-} from '@/services/BuiltInToolService/tools/browser/config';
+} from '@/app/api/tools/configuration';
 export {
     parseUpgradeModelToolConfig,
     type UpgradeModelToolConfig,
-} from '@/services/BuiltInToolService/tools/upgradeModel/config';
+} from '@/app/api/tools/configuration';
+import type { BuiltInToolEntity } from '@/app/api/tools/administration';
 import { t } from '@/i18n';
 import { formatDateTime } from '@/i18n/format';
-
-export type BuiltInToolRiskLevel = 'low' | 'medium' | 'high';
-export type BuiltInToolLogStatus =
-    | 'pending'
-    | 'awaiting_approval'
-    | 'approved'
-    | 'rejected'
-    | 'success'
-    | 'error'
-    | 'timeout';
-export interface BuiltInToolEntity {
-    id: number;
-    tool_id: string;
-    display_name: string;
-    description: string | null;
-    enabled: number;
-    risk_level: BuiltInToolRiskLevel;
-    config_json: string | null;
-    last_used_at: string | null;
-    created_at: string;
-    updated_at: string;
-}
-
-export interface BuiltInToolLogEntity {
-    id: number;
-    tool_id: string;
-    tool_call_id: string;
-    session_id: number | null;
-    message_id: number | null;
-    iteration: number;
-    input: string;
-    output: string | null;
-    status: BuiltInToolLogStatus;
-    approval_state: string | null;
-    approval_summary: string | null;
-    duration_ms: number | null;
-    error_message: string | null;
-    created_at: string;
-}
-
-export interface BuiltInToolUpdateData {
-    enabled?: number;
-    config_json?: string | null;
-}
-
-export interface FindBuiltInToolLogsOptions {
-    limit?: number;
-    offset?: number;
-}
-
-/** 列表展示用的日志摘要，不含完整 input/output。 */
-export interface BuiltInToolLogSummary {
-    id: number;
-    tool_call_id: string | null;
-    tool_name: string;
-    session_id: number | null;
-    message_id: number;
-    created_at: string;
-    status: BuiltInToolLogStatus;
-    duration_ms: number | null;
-    input_preview: string | null;
-    output_length: number;
-}
-
-export interface BuiltInToolQueries {
-    findAllBuiltInTools: () => Promise<BuiltInToolEntity[]>;
-    updateBuiltInTool: (
-        id: number,
-        patch: BuiltInToolUpdateData
-    ) => Promise<BuiltInToolEntity | undefined>;
-    updateBuiltInTools: (
-        ids: number[],
-        patch: BuiltInToolUpdateData
-    ) => Promise<BuiltInToolEntity[]>;
-    findBuiltInToolLogsByToolId: (
-        toolId: string,
-        options?: FindBuiltInToolLogsOptions
-    ) => Promise<BuiltInToolLogEntity[]>;
-    /** 列表轻量投影。 */
-    findBuiltInToolLogSummariesByToolId: (
-        toolId: string,
-        options?: FindBuiltInToolLogsOptions
-    ) => Promise<BuiltInToolLogSummary[]>;
-    /** 展开时按主键读取完整正文。 */
-    findBuiltInToolLogById: (id: number) => Promise<BuiltInToolLogEntity | undefined>;
-}
+export type {
+    BuiltInToolEntity,
+    BuiltInToolLogEntity,
+    BuiltInToolLogStatus,
+    BuiltInToolLogSummary,
+    BuiltInToolQueries,
+    BuiltInToolRiskLevel,
+    BuiltInToolUpdateData,
+    FindBuiltInToolLogsOptions,
+} from '@/app/api/tools/administration';
 
 const BUILT_IN_TOOL_EMPTY_CONFIG_IDS = new Set([
     'file_search',
@@ -201,8 +123,4 @@ export function formatToolLastUsed(value: string | null): string {
     }
 
     return formatDateTime(value);
-}
-
-export async function loadBuiltInToolQueries(): Promise<BuiltInToolQueries> {
-    return (await import('@database/queries')) as unknown as BuiltInToolQueries;
 }

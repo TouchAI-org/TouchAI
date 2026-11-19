@@ -1,21 +1,16 @@
+import { createReadToolsFixture } from '@tests/utils/readTools';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
-import {
-    buildReadApprovalRequest,
-    buildReadConversationSemantic,
-    executeReadFile,
-} from '@/services/BuiltInToolService/tools/read/helper';
+const { buildReadApprovalRequest, buildReadConversationSemantic, executeReadFile } =
+    createReadToolsFixture();
 
-const { readDirMock, readTextFileLinesMock, statMock, openMock, createAttachmentMock } = vi.hoisted(
-    () => ({
-        createAttachmentMock: vi.fn(),
-        openMock: vi.fn(),
-        readDirMock: vi.fn(),
-        readTextFileLinesMock: vi.fn(),
-        statMock: vi.fn(),
-    })
-);
+const { readDirMock, readTextFileLinesMock, statMock, openMock } = vi.hoisted(() => ({
+    openMock: vi.fn(),
+    readDirMock: vi.fn(),
+    readTextFileLinesMock: vi.fn(),
+    statMock: vi.fn(),
+}));
 
 vi.mock('@tauri-apps/api/path', () => ({
     basename: vi.fn(async (path: string) => path.split(/[\\/]/).pop() ?? path),
@@ -32,8 +27,10 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
     stat: statMock,
 }));
 
-vi.mock('@/services/AgentService/infrastructure/attachments', () => ({
-    createAttachment: createAttachmentMock,
+vi.mock('tauri-plugin-fs-pro-api', () => ({
+    fullName: async (path: string) => path.split(/[\\/]/).pop() ?? path,
+    size: async () => 1,
+    icon: async () => 'fixture-icon.png',
 }));
 
 describe('user reads file contents and approvals in their own language', () => {
@@ -47,13 +44,6 @@ describe('user reads file contents and approvals in their own language', () => {
             close: vi.fn(),
             read: vi.fn(async () => 0),
         });
-        createAttachmentMock.mockImplementation(async (type: string, path: string) => ({
-            id: `${type}:${path}`,
-            type,
-            name: path.split(/[\\/]/).pop() ?? path,
-            originPath: path,
-            size: 1,
-        }));
     });
 
     it('user reads the file read approval request in English', async () => {

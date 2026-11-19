@@ -1,8 +1,8 @@
+import { createTestUpdateController } from '@tests/utils/updates';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
-import { AppUpdateController } from '@/services/AppUpdateService';
-import type { AppUpdateCheckResult } from '@/services/AppUpdateService/types';
+import type { AppUpdateCheckResult } from '@/modules/updates/types';
 
 afterEach(() => {
     vi.restoreAllMocks();
@@ -26,7 +26,7 @@ function fixture() {
         },
     };
     const check = vi.fn<() => Promise<AppUpdateCheckResult>>().mockResolvedValue(result);
-    const controller = new AppUpdateController({
+    const controller = createTestUpdateController({
         native: { checkForUpdates: check, downloadUpdate: vi.fn(), installUpdate: vi.fn() },
         settings: {
             initialize: async () => {},

@@ -9,8 +9,8 @@ import {
     hydratePersistedAttachments,
     persistPreparedAttachment,
     prepareAttachmentForPersistence,
-} from '@/services/AgentService/infrastructure/attachments/storage';
-import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments/types';
+} from '@/modules/attachments/storage.io';
+import type { AttachmentIndex } from '@/modules/attachments/types';
 
 /**
  * Attachments are copied into an app-owned cache and deduplicated by content hash. Getting this
@@ -45,7 +45,7 @@ vi.mock('@database/queries', async (importOriginal) => ({
     findAttachmentByHash: mocks.findAttachmentByHash,
 }));
 
-vi.mock('@services/NativeService', () => ({
+vi.mock('@/platform/native', () => ({
     native: { paths: { getAppDirectoryPath: mocks.getAppDirectoryPath } },
 }));
 
@@ -69,7 +69,7 @@ vi.mock('tauri-plugin-fs-pro-api', () => ({
     size: mocks.getFileSize,
 }));
 
-vi.mock('@/services/AgentService/infrastructure/attachments/imageNormalization', () => ({
+vi.mock('@/modules/attachments/image.io', () => ({
     normalizeImageBytes: mocks.normalizeImageBytes,
 }));
 

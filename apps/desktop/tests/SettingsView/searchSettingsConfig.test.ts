@@ -1,66 +1,15 @@
-import { createPinia, setActivePinia } from 'pinia';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-const settingsValues = new Map<string, string | null>();
-const setSettingMock = vi.hoisted(() =>
-    vi.fn(async ({ key, value }: { key: string; value: string }) => {
-        settingsValues.set(key, value);
-        return { id: 1, key, value, created_at: '', updated_at: '' };
-    })
-);
-const getSettingValueMock = vi.hoisted(() =>
-    vi.fn(async ({ key }: { key: string }) => settingsValues.get(key) ?? null)
-);
-const getSettingValuesMock = vi.hoisted(() =>
-    vi.fn(async ({ keys }: { keys: string[] }) =>
-        Object.fromEntries(keys.map((key) => [key, settingsValues.get(key) ?? null]))
-    )
-);
-
-vi.mock('@database/queries', () => ({
-    getSettingValue: getSettingValueMock,
-    getSettingValues: getSettingValuesMock,
-    setSetting: setSettingMock,
-}));
-
-vi.mock('@services/EventService', () => ({
-    AppEvent: { SETTINGS_GENERAL_UPDATED: 'settings-general-updated' },
-    eventService: {
-        emit: vi.fn(async () => undefined),
-        on: vi.fn(async () => undefined),
-    },
-}));
-
-vi.mock('@tauri-apps/api/window', () => ({
-    getCurrentWindow: () => ({ label: 'settings' }),
-}));
-
-import { createSettingsBus } from '@tests/utils/settingsTransport';
-
-import { setActiveSettingsService } from '@/services/SettingsService';
-import { SettingsService } from '@/services/SettingsService/service';
+import { closeTestDatabases } from '@tests/database/sqliteHarness';
+import { createSettingsWindowFixture } from '@tests/utils/settingsWindow';
+import { afterEach, describe, expect, it } from 'vitest';
+afterEach(closeTestDatabases);
 
 describe('user edits the search settings', () => {
-    beforeEach(() => {
-        settingsValues.clear();
-        setSettingMock.mockClear();
-        getSettingValueMock.mockClear();
-        setActivePinia(createPinia());
-        // The settings store now mirrors the single owner; provide it a bus-backed owner.
-        const bus = createSettingsBus();
-        setActiveSettingsService(new SettingsService({ transport: bus.transport('main') }));
-    });
-
-    afterEach(() => {
-        setActiveSettingsService(null);
-    });
-
     it('user normalizes defaults and invalid json', async () => {
         const {
             DEFAULT_SEARCH_SETTINGS,
             parseSearchSettingsConfig,
             serializeSearchSettingsConfig,
-        } = await import('@services/SettingsService/domain');
+        } = await import('@/app/api/settings/tools');
 
         expect(DEFAULT_SEARCH_SETTINGS.version).toBe(1);
         expect(DEFAULT_SEARCH_SETTINGS.defaultProvider).toBe('anysearch');
@@ -78,7 +27,7 @@ describe('user edits the search settings', () => {
     });
 
     it('user trims provider keys and preserves intent routing', async () => {
-        const { parseSearchSettingsConfig } = await import('@services/SettingsService/domain');
+        const { parseSearchSettingsConfig } = await import('@/app/api/settings/tools');
 
         expect(
             parseSearchSettingsConfig(
@@ -124,7 +73,7 @@ describe('user edits the search settings', () => {
     });
 
     it('user does not enable required-key providers without API keys', async () => {
-        const { parseSearchSettingsConfig } = await import('@services/SettingsService/domain');
+        const { parseSearchSettingsConfig } = await import('@/app/api/settings/tools');
 
         expect(
             parseSearchSettingsConfig(
@@ -155,7 +104,7 @@ describe('user edits the search settings', () => {
 
     it('user trims the DeepSeek key and keeps provider configs minimal', async () => {
         const { parseSearchSettingsConfig, serializeSearchSettingsConfig } =
-            await import('@services/SettingsService/domain');
+            await import('@/app/api/settings/tools');
 
         const parsed = parseSearchSettingsConfig(
             JSON.stringify({
@@ -180,7 +129,7 @@ describe('user edits the search settings', () => {
     });
 
     it('user does not enable the DeepSeek provider without an API key', async () => {
-        const { parseSearchSettingsConfig } = await import('@services/SettingsService/domain');
+        const { parseSearchSettingsConfig } = await import('@/app/api/settings/tools');
 
         expect(
             parseSearchSettingsConfig(
@@ -195,33 +144,32 @@ describe('user edits the search settings', () => {
         });
     });
 
-    it('user loads and saves search settings through the existing settings store', async () => {
-        const { useSettingsStore } = await import('@/stores/settings');
-        settingsValues.set(
-            'search_settings',
-            JSON.stringify({
+    it('user loads saved search configuration and commits edits through the main writer', async () => {
+        const fixture = createSettingsWindowFixture({
+            label: 'settings',
+            values: {
+                search_settings: JSON.stringify({ defaultProvider: 'github', maxResults: 4 }),
+            },
+        });
+        try {
+            await fixture.initialize();
+            const store = fixture.tools();
+            await store.initialize();
+            expect(store.searchSettings).toMatchObject({
                 defaultProvider: 'github',
                 maxResults: 4,
-            })
-        );
-
-        const store = useSettingsStore();
-        await store.initialize();
-
-        expect(store.settings.searchSettings).toMatchObject({
-            defaultProvider: 'github',
-            maxResults: 4,
-        });
-
-        await store.updateSearchSettings({
-            ...store.settings.searchSettings,
-            defaultProvider: 'wikipedia',
-            maxResults: 7,
-        });
-
-        expect(setSettingMock).toHaveBeenLastCalledWith({
-            key: 'search_settings',
-            value: expect.stringContaining('"defaultProvider":"wikipedia"'),
-        });
+            });
+            await store.updateSearchSettings({
+                ...store.searchSettings,
+                defaultProvider: 'wikipedia',
+                maxResults: 7,
+            });
+            expect(JSON.parse(fixture.values.get('search_settings')!)).toMatchObject({
+                defaultProvider: 'wikipedia',
+                maxResults: 7,
+            });
+        } finally {
+            fixture.dispose();
+        }
     });
 });

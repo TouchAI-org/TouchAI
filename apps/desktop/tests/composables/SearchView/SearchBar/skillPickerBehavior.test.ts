@@ -1,3 +1,4 @@
+import { withTestSkillSearch } from '@tests/utils/searchHost';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -27,11 +28,13 @@ describe.each(['$', '/'])('given the skill picker is opened with %s', (prefix) =
         'user given one visible name-prefix match when pressing %s then accepts it while preserving inline completion',
         async (key) => {
             const selections: string[] = [];
-            const picker = useSkillAutocomplete({
-                discoverSkills: async () => catalog,
-                getSelectedSkills: () => [],
-                onSelect: (skill) => selections.push(skill.name),
-            });
+            const picker = useSkillAutocomplete(
+                withTestSkillSearch({
+                    discoverSkills: async () => catalog,
+                    getSelectedSkills: () => [],
+                    onSelect: (skill) => selections.push(skill.name),
+                })
+            );
             await picker.refresh(`${prefix}sum`);
             expect(picker.isOpen.value).toBe(true);
             expect(picker.completionText.value).toBe('marize');
@@ -44,22 +47,26 @@ describe.each(['$', '/'])('given the skill picker is opened with %s', (prefix) =
     );
 
     it('user given a unique name prefix before existing text when browsing then keeps a visible candidate instead of an invisible completion', async () => {
-        const picker = useSkillAutocomplete({
-            discoverSkills: async () => catalog,
-            getSelectedSkills: () => [],
-            onSelect: () => undefined,
-        });
+        const picker = useSkillAutocomplete(
+            withTestSkillSearch({
+                discoverSkills: async () => catalog,
+                getSelectedSkills: () => [],
+                onSelect: () => undefined,
+            })
+        );
         await picker.refresh(`${prefix}sum`, { textAfterCursor: ' later' });
         expect(picker.isOpen.value).toBe(true);
         expect(picker.completionText.value).toBe('');
     });
 
     it('user sees all skills for a bare trigger and matching skills after typing a query', async () => {
-        const picker = useSkillAutocomplete({
-            discoverSkills: async () => catalog,
-            getSelectedSkills: () => [],
-            onSelect: () => undefined,
-        });
+        const picker = useSkillAutocomplete(
+            withTestSkillSearch({
+                discoverSkills: async () => catalog,
+                getSelectedSkills: () => [],
+                onSelect: () => undefined,
+            })
+        );
         await picker.refresh(prefix);
         expect(picker.candidates.value.map((skill) => skill.name)).toEqual(['review', 'summarize']);
 
@@ -71,11 +78,13 @@ describe.each(['$', '/'])('given the skill picker is opened with %s', (prefix) =
         'user presses %s before choosing a suggestion and keeps the draft without submitting or moving focus',
         async (key) => {
             const selections: string[] = [];
-            const picker = useSkillAutocomplete({
-                discoverSkills: async () => catalog,
-                getSelectedSkills: () => [],
-                onSelect: (skill) => selections.push(skill.name),
-            });
+            const picker = useSkillAutocomplete(
+                withTestSkillSearch({
+                    discoverSkills: async () => catalog,
+                    getSelectedSkills: () => [],
+                    onSelect: (skill) => selections.push(skill.name),
+                })
+            );
             await picker.refresh(prefix);
             const event = new KeyboardEvent('keydown', { key, cancelable: true });
 
@@ -88,11 +97,13 @@ describe.each(['$', '/'])('given the skill picker is opened with %s', (prefix) =
     );
 
     it('user sees an inline suggestion only after choosing a candidate and loses it when editing the query', async () => {
-        const picker = useSkillAutocomplete({
-            discoverSkills: async () => [catalog[0]!, { ...catalog[1]!, name: 'summary' }],
-            getSelectedSkills: () => [],
-            onSelect: () => undefined,
-        });
+        const picker = useSkillAutocomplete(
+            withTestSkillSearch({
+                discoverSkills: async () => [catalog[0]!, { ...catalog[1]!, name: 'summary' }],
+                getSelectedSkills: () => [],
+                onSelect: () => undefined,
+            })
+        );
         await picker.refresh(`${prefix}sum`);
         expect(picker.completionText.value).toBe('');
 
@@ -106,11 +117,13 @@ describe.each(['$', '/'])('given the skill picker is opened with %s', (prefix) =
 
     it('user chooses the first suggestion with ArrowDown and inserts it with Tab without submitting the prompt', async () => {
         const selections: string[] = [];
-        const picker = useSkillAutocomplete({
-            discoverSkills: async () => catalog,
-            getSelectedSkills: () => [],
-            onSelect: (skill) => selections.push(skill.name),
-        });
+        const picker = useSkillAutocomplete(
+            withTestSkillSearch({
+                discoverSkills: async () => catalog,
+                getSelectedSkills: () => [],
+                onSelect: (skill) => selections.push(skill.name),
+            })
+        );
         await picker.refresh(prefix);
         picker.handleKeyDown(new KeyboardEvent('keydown', { key: 'ArrowDown' }));
         const event = new KeyboardEvent('keydown', { key: 'Tab', cancelable: true });
@@ -122,11 +135,13 @@ describe.each(['$', '/'])('given the skill picker is opened with %s', (prefix) =
 
     it('user can finish composing with Enter without inserting a skill', async () => {
         const selections: string[] = [];
-        const picker = useSkillAutocomplete({
-            discoverSkills: async () => catalog,
-            getSelectedSkills: () => [],
-            onSelect: (skill) => selections.push(skill.name),
-        });
+        const picker = useSkillAutocomplete(
+            withTestSkillSearch({
+                discoverSkills: async () => catalog,
+                getSelectedSkills: () => [],
+                onSelect: (skill) => selections.push(skill.name),
+            })
+        );
         await picker.refresh(prefix);
         picker.handleKeyDown(new KeyboardEvent('keydown', { key: 'ArrowDown' }));
         expect(
@@ -144,11 +159,13 @@ describe.each(['$', '/'])('given the skill picker is opened with %s', (prefix) =
         { gesture: 'legacy IME Enter', options: { keyCode: 229 } },
     ])('user keeps $gesture available without selecting a skill', async ({ options }) => {
         const selections: string[] = [];
-        const picker = useSkillAutocomplete({
-            discoverSkills: async () => catalog,
-            getSelectedSkills: () => [],
-            onSelect: (skill) => selections.push(skill.name),
-        });
+        const picker = useSkillAutocomplete(
+            withTestSkillSearch({
+                discoverSkills: async () => catalog,
+                getSelectedSkills: () => [],
+                onSelect: (skill) => selections.push(skill.name),
+            })
+        );
         await picker.refresh(prefix);
         picker.handleKeyDown(new KeyboardEvent('keydown', { key: 'ArrowDown' }));
         const event = new KeyboardEvent('keydown', { key: 'Enter', cancelable: true, ...options });
@@ -161,11 +178,13 @@ describe.each(['$', '/'])('given the skill picker is opened with %s', (prefix) =
 
     it('user dismisses suggestions with Escape without selecting a skill', async () => {
         const selections: string[] = [];
-        const picker = useSkillAutocomplete({
-            discoverSkills: async () => catalog,
-            getSelectedSkills: () => [],
-            onSelect: (skill) => selections.push(skill.name),
-        });
+        const picker = useSkillAutocomplete(
+            withTestSkillSearch({
+                discoverSkills: async () => catalog,
+                getSelectedSkills: () => [],
+                onSelect: (skill) => selections.push(skill.name),
+            })
+        );
         await picker.refresh(prefix);
         const event = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true });
 
@@ -179,11 +198,13 @@ describe.each(['$', '/'])('given the skill picker is opened with %s', (prefix) =
         'user presses %s with no matches and retains the empty skill panel until results match again',
         async (key) => {
             const selections: string[] = [];
-            const picker = useSkillAutocomplete({
-                discoverSkills: async () => catalog,
-                getSelectedSkills: () => [],
-                onSelect: (skill) => selections.push(skill.name),
-            });
+            const picker = useSkillAutocomplete(
+                withTestSkillSearch({
+                    discoverSkills: async () => catalog,
+                    getSelectedSkills: () => [],
+                    onSelect: (skill) => selections.push(skill.name),
+                })
+            );
             await picker.refresh(`${prefix}missing`);
             expect(picker.candidates.value).toEqual([]);
             expect(picker.isOpen.value).toBe(true);
@@ -210,11 +231,13 @@ describe.each(['$', '/'])('given the skill picker is opened with %s', (prefix) =
     );
 
     it('user can search using a translated description', async () => {
-        const picker = useSkillAutocomplete({
-            discoverSkills: async () => [{ ...catalog[0]!, description: '总结文档' }],
-            getSelectedSkills: () => [],
-            onSelect: () => undefined,
-        });
+        const picker = useSkillAutocomplete(
+            withTestSkillSearch({
+                discoverSkills: async () => [{ ...catalog[0]!, description: '总结文档' }],
+                getSelectedSkills: () => [],
+                onSelect: () => undefined,
+            })
+        );
         await picker.refresh(`${prefix}总结`);
         expect(picker.candidates.value.map((skill) => skill.name)).toEqual(['summarize']);
     });
@@ -225,14 +248,16 @@ describe('given the skill catalog contains unavailable choices', () => {
         let resolveRefresh!: (value: typeof catalog) => void;
         let refresh = false;
         const selected: string[] = [];
-        const picker = useSkillAutocomplete({
-            discoverSkills: () =>
-                refresh
-                    ? new Promise((resolve) => (resolveRefresh = resolve))
-                    : Promise.resolve(catalog),
-            getSelectedSkills: () => [],
-            onSelect: (skill) => selected.push(skill.name),
-        });
+        const picker = useSkillAutocomplete(
+            withTestSkillSearch({
+                discoverSkills: () =>
+                    refresh
+                        ? new Promise((resolve) => (resolveRefresh = resolve))
+                        : Promise.resolve(catalog),
+                getSelectedSkills: () => [],
+                onSelect: (skill) => selected.push(skill.name),
+            })
+        );
         await picker.refresh('/');
         picker.handleKeyDown(new KeyboardEvent('keydown', { key: 'ArrowDown' }));
         picker.handleKeyDown(new KeyboardEvent('keydown', { key: 'ArrowDown' }));

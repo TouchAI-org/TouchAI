@@ -1,11 +1,10 @@
-import { findModelsWithProvider } from '@database/queries';
-import type { ModelWithProvider } from '@database/queries/models';
-import { log } from '@services/ObservabilityService';
 import { useStateMachine } from 'reka-ui';
 import { computed, onMounted, type Ref, ref, watch } from 'vue';
 
-import { aiService } from '@/services/AgentService';
-import { parseModelModalities } from '@/utils/modelSchemas';
+import { log } from '@/app/api/diagnostics';
+import { parseModelModalities } from '@/app/api/models/catalog';
+import type { ModelOption } from '@/app/api/models/selection';
+import { findModelOption, getActiveModel, listModelOptions } from '@/app/api/models/selection';
 import type { SearchModelDropdownContext } from '@/views/SearchView/types';
 
 import type { SearchModelOverride } from '../types';
@@ -22,9 +21,9 @@ interface UseModelSelectionOptions {
 }
 
 export interface UseModelSelectionDeps {
-    findModels: () => Promise<ModelWithProvider[]>;
-    getActiveModel: () => Promise<ModelWithProvider | null>;
-    findModelByOverride: (override: SearchModelOverride) => Promise<ModelWithProvider | null>;
+    findModels: () => Promise<ModelOption[]>;
+    getActiveModel: () => Promise<ModelOption | null>;
+    findModelByOverride: (override: SearchModelOverride) => Promise<ModelOption | null>;
 }
 
 const DROPDOWN_MODELS_LIFECYCLE = {
@@ -35,24 +34,18 @@ const DROPDOWN_MODELS_LIFECYCLE = {
 } as const;
 
 type DropdownModelsLoad = ReturnType<typeof useStateMachine<typeof DROPDOWN_MODELS_LIFECYCLE>> & {
-    promise: Promise<ModelWithProvider[]> | null;
+    promise: Promise<ModelOption[]> | null;
 };
 
 const DEFAULT_DEPS: UseModelSelectionDeps = {
-    findModels: () => findModelsWithProvider(),
-    getActiveModel: () => aiService.getModel(),
+    findModels: () => listModelOptions(),
+    getActiveModel,
     findModelByOverride: async (override) => {
         if (!override.modelId || override.providerId === null) {
             return null;
         }
 
-        return (
-            (
-                await findModelsWithProvider({
-                    providerId: override.providerId,
-                })
-            ).find((model) => model.model_id === override.modelId) ?? null
-        );
+        return findModelOption({ providerId: override.providerId, modelId: override.modelId });
     },
 };
 
@@ -70,10 +63,10 @@ export function useModelSelection(
 ) {
     const { searchBarContainerRef, logoContainerRef, modelOverride } = options;
 
-    const activeModel = ref<ModelWithProvider | null>(null);
+    const activeModel = ref<ModelOption | null>(null);
     const hasResolvedActiveModel = ref(false);
-    const resolvedOverrideModel = ref<ModelWithProvider | null>(null);
-    const availableModels = ref<ModelWithProvider[]>([]);
+    const resolvedOverrideModel = ref<ModelOption | null>(null);
+    const availableModels = ref<ModelOption[]>([]);
     let dropdownModelsLoad: DropdownModelsLoad | null = null;
     let resolveOverrideRequestId = 0;
 
@@ -195,7 +188,7 @@ export function useModelSelection(
      *
      * @returns 当前可用的模型列表。
      */
-    async function loadDropdownModels(): Promise<ModelWithProvider[]> {
+    async function loadDropdownModels(): Promise<ModelOption[]> {
         if (dropdownModelsLoad?.state.value === 'ready') {
             return availableModels.value;
         }

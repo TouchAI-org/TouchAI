@@ -113,7 +113,7 @@ const {
 
 vi.mock('@/views/SearchView/components/SearchBar/tags', () => ({}));
 vi.mock('@tiptap/vue-3', () => ({ Editor: MockEditor }));
-vi.mock('@/services/AgentService/infrastructure/attachments', () => ({
+vi.mock('@/modules/attachments', () => ({
     buildAttachmentPromptMetas: vi.fn((attachments: Array<{ id: string }>) =>
         attachments.map((attachment, index) => ({ alias: `A${index + 1}-${attachment.id}` }))
     ),
@@ -159,7 +159,7 @@ vi.mock('@/views/SearchView/components/SearchBar/composables/useModelSelection',
     useModelSelection: vi.fn(() => modelSelectionState.current),
 }));
 
-import { createInputHistorySnapshot } from '@/types/session';
+import { createInputHistorySnapshot } from '@/app/api/agent/history';
 import { useSearchInput } from '@/views/SearchView/components/SearchBar/composables/useSearchLogic';
 
 interface MockEditorInstance {

@@ -1,9 +1,9 @@
-import { log } from '@services/ObservabilityService';
 import { mount } from '@vue/test-utils';
 import { describe, expect, it, vi } from 'vitest';
 
 import AppIcon from '@/components/AppIcon.vue';
 import { appIconFallback, appIconMap } from '@/components/appIconMap';
+import { log } from '@/platform/diagnostics';
 
 /**
  * An icon name is looked up in a map built from the icon set. A name that is not in the map has

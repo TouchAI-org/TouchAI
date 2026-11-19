@@ -175,10 +175,10 @@
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
     import EmptyState from '@components/EmptyState.vue';
-    import { log } from '@services/ObservabilityService';
     import type { ComponentPublicInstance } from 'vue';
     import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 
+    import { log } from '@/app/api/diagnostics';
     import { type MessageKey, t } from '@/i18n';
     import { formatMonthDay, formatTime } from '@/i18n/format';
     import { matchShortcut } from '@/utils/shortcuts';

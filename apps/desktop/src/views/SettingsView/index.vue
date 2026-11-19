@@ -4,11 +4,6 @@
     import LoadingState from '@components/LoadingState.vue';
     import { useScrollbarStabilizer } from '@composables/useScrollbarStabilizer';
     import { useScrollFade } from '@composables/useScrollFade';
-    import { appUpdateService } from '@services/AppUpdateService';
-    import { AppEvent, eventService } from '@services/EventService';
-    import { log } from '@services/ObservabilityService';
-    import type { UnlistenFn } from '@tauri-apps/api/event';
-    import { getCurrentWindow } from '@tauri-apps/api/window';
     import {
         type Component,
         type ComponentPublicInstance,
@@ -21,6 +16,10 @@
         watch,
     } from 'vue';
 
+    import { log } from '@/app/api/diagnostics';
+    import { AppEvent, eventService } from '@/app/api/settings/events';
+    import { useUpdatesApi } from '@/app/api/updates';
+    import { type StopWindowListener, useSettingsWindowApi } from '@/app/api/windows/presentation';
     import { locale, t } from '@/i18n';
 
     import GeneralView from './components/General/index.vue';
@@ -32,6 +31,8 @@
     import { createSectionPreloader } from './sectionPreloader';
     import { readScrollTop, resolveRestoredScrollTop } from './sectionScrollMemory';
     import type { SettingsSearchResult } from './settingsSearch';
+
+    const updates = useUpdatesApi();
 
     defineOptions({
         name: 'SettingsWindowView',
@@ -157,8 +158,8 @@
         'SettingsDataManagementSection',
     ];
     let preloadFrame: number | null = null;
-    let unlistenSettingsOpened: UnlistenFn | null = null;
-    let unlistenShowUpdates: UnlistenFn | null = null;
+    let unlistenSettingsOpened: StopWindowListener | null = null;
+    let unlistenShowUpdates: StopWindowListener | null = null;
     let unmounted = false;
     const contentScrollRef = ref<HTMLElement | null>(null);
     const contentElementRef = ref<HTMLElement | null>(null);
@@ -199,13 +200,7 @@
         );
     }
 
-    const currentWindow = (() => {
-        try {
-            return getCurrentWindow();
-        } catch {
-            return null;
-        }
-    })();
+    const currentWindow = useSettingsWindowApi();
 
     const cancelPendingSearch = () => {
         pendingSearchResult = null;
@@ -363,7 +358,7 @@
     }
 
     function checkForUpdatesOnOpen() {
-        void appUpdateService.checkNow('settings-open').catch((error) => {
+        void updates.checkNow('settings-open').catch((error) => {
             log.warn('[SettingsView] Failed to check for updates:', error);
         });
     }

@@ -1,8 +1,8 @@
 import { enableAutoUnmount, mount } from '@vue/test-utils';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import type { ToolCallInfo } from '@/app/api/agent/history';
 import { setLocale } from '@/i18n';
-import type { ToolCallInfo } from '@/types/session';
 import ToolCallItem from '@/views/SearchView/components/ConversationPanel/components/ToolCallItem.vue';
 
 enableAutoUnmount(afterEach);

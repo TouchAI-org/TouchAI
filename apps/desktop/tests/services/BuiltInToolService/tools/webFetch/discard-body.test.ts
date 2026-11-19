@@ -1,7 +1,8 @@
+import { createWebFetchToolsFixture } from '@tests/utils/webFetchTools';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale, t } from '@/i18n';
-import { executeWebFetchTool } from '@/services/BuiltInToolService/tools/webFetch';
+const { execute: executeWebFetchTool } = createWebFetchToolsFixture();
 
 /**
  * The HTTP wrapper reads the upstream body on demand (pull-driven), so a response

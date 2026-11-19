@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 /**
  * The product serif font is loaded from the Tauri asset protocol at runtime.
  *
- * `src/utils/font.ts` builds the URL with `convertFileSrc`, which resolves to
+ * `src/platform/windows/font.ts` builds the URL with `convertFileSrc`, which resolves to
  * `http://asset.localhost/<path>` on Windows. A CSP source list matches by scheme
  * and origin, and `asset:` does not match an `http://` origin, so a `font-src` that
  * lists only `asset:` blocks the font even though the request itself is served.

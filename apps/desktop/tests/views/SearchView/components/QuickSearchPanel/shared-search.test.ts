@@ -1,14 +1,11 @@
 import { mountComposable } from '@tests/utils/composables';
+import { createTestSearchHost, withTestSearch } from '@tests/utils/searchHost';
 import { flushPromises } from '@vue/test-utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ref } from 'vue';
 
-import type { QuickSearchResult } from '@/services/NativeService';
-import {
-    SearchActionDispatcher,
-    type SearchActivationContext,
-    SearchProviderRegistry,
-} from '@/services/SearchService';
+import { type SearchActivationContext } from '@/app/api/search/queries';
+import type { QuickSearchResult } from '@/platform/native';
 import { useQuickSearchLogic } from '@/views/SearchView/components/QuickSearchPanel/composables/useQuickSearchLogic';
 
 afterEach(() => {
@@ -34,7 +31,7 @@ describe('given files and a trusted non-file contribution in the same search pan
                             open.value = value;
                         },
                     },
-                    {
+                    withTestSearch({
                         openPath: async () => {},
                         window: { hideSearchWindow: async () => {} },
                         quickSearch: {
@@ -48,7 +45,7 @@ describe('given files and a trusted non-file contribution in the same search pan
                             prepareIndex: async () => {},
                             searchShortcuts: () => pending,
                         },
-                    }
+                    })
                 )
             );
             try {
@@ -102,7 +99,7 @@ describe('given files and a trusted non-file contribution in the same search pan
                         open.value = value;
                     },
                 },
-                {
+                withTestSearch({
                     openPath: async () => {},
                     window: { hideSearchWindow: async () => {} },
                     quickSearch: {
@@ -122,7 +119,7 @@ describe('given files and a trusted non-file contribution in the same search pan
                             return Promise.resolve(page);
                         },
                     },
-                }
+                })
             )
         );
         try {
@@ -148,8 +145,21 @@ describe('given files and a trusted non-file contribution in the same search pan
 
     it('user sees shared ordering and dispatches the non-file action without opening a path', async () => {
         vi.useFakeTimers();
-        const registry = new SearchProviderRegistry();
-        const registration = registry.registerProvider({
+        const host = createTestSearchHost({
+            openFile: async (path) => {
+                await openPath(path);
+            },
+            files: {
+                searchShortcuts: async () => ({
+                    shortcuts: [],
+                    files: [{ name: 'plan.md', path: 'D:/plan.md', source: 'file' }],
+                    total_files: 1,
+                    total_results: 1,
+                    next_offset: 1,
+                }),
+            },
+        });
+        const registration = host.registerProvider({
             id: 'test-apps',
             intents: ['launcher'],
             async search() {
@@ -166,9 +176,8 @@ describe('given files and a trusted non-file contribution in the same search pan
                 };
             },
         });
-        const actions = new SearchActionDispatcher();
         let launched: SearchActivationContext | undefined;
-        actions.register('test.launch', (_action, context) => {
+        host.registerAction('test.launch', (_action, context) => {
             launched = context;
             return { status: 'started' };
         });
@@ -189,29 +198,7 @@ describe('given files and a trusted non-file contribution in the same search pan
                         conversation: { sessionId: 42 },
                     }),
                 },
-                {
-                    registry,
-                    actions,
-                    openPath,
-                    window: { hideSearchWindow: async () => {} },
-                    quickSearch: {
-                        getStatus: async () => ({
-                            provider: 'everything',
-                            db_loaded: true,
-                            index_warmed: true,
-                            last_refresh_ms: null,
-                            last_error: null,
-                        }),
-                        prepareIndex: async () => {},
-                        searchShortcuts: async () => ({
-                            shortcuts: [],
-                            files: [{ name: 'plan.md', path: 'D:/plan.md', source: 'file' }],
-                            total_files: 1,
-                            total_results: 1,
-                            next_offset: 1,
-                        }),
-                    },
-                }
+                { search: host.api }
             )
         );
         mounted.result.triggerSearch('plan');

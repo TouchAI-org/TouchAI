@@ -1,8 +1,7 @@
 ﻿// Copyright (c) 2026. 千诚. Licensed under GPL v3
 
+import { expandModelIdCandidates } from '@touchai/models/catalog';
 import { and, count, eq, inArray, isNotNull } from 'drizzle-orm';
-
-import { expandModelIdCandidates } from '@/domain/models/modelIdCandidates';
 
 import { db } from '../index';
 import { llmMetadata, llmMetadataAliases } from '../schema';

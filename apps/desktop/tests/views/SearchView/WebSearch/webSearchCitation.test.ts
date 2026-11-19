@@ -1,7 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { WebSearchSource } from '@/services/BuiltInToolService/tools/webSearch/sources';
+import type { WebSearchSource } from '@/modules/tools/builtin/web-search/sources';
 import WebSearchCitation from '@/views/SearchView/components/WebSearch/WebSearchCitation.vue';
 
 const source: WebSearchSource = {

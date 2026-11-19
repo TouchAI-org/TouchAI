@@ -1,11 +1,9 @@
+import { createReadToolsFixture } from '@tests/utils/readTools';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
-import {
-    buildReadApprovalRequest,
-    buildReadConversationSemantic,
-    executeReadFile,
-} from '@/services/BuiltInToolService/tools/read/helper';
+const { buildReadApprovalRequest, buildReadConversationSemantic, executeReadFile } =
+    createReadToolsFixture();
 
 /**
  * The Read tool is how the model gets at a local file, so what it reports back is what the user
@@ -16,15 +14,12 @@ import {
  * inside the helper — path handling, pagination, binary sniffing, formatting — runs for real.
  */
 
-const { readDirMock, readTextFileLinesMock, statMock, openMock, createAttachmentMock } = vi.hoisted(
-    () => ({
-        createAttachmentMock: vi.fn(),
-        openMock: vi.fn(),
-        readDirMock: vi.fn(),
-        readTextFileLinesMock: vi.fn(),
-        statMock: vi.fn(),
-    })
-);
+const { readDirMock, readTextFileLinesMock, statMock, openMock } = vi.hoisted(() => ({
+    openMock: vi.fn(),
+    readDirMock: vi.fn(),
+    readTextFileLinesMock: vi.fn(),
+    statMock: vi.fn(),
+}));
 
 vi.mock('@tauri-apps/api/path', () => ({
     basename: vi.fn(async (path: string) => path.split(/[\\/]/).pop() ?? path),
@@ -41,8 +36,10 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
     stat: statMock,
 }));
 
-vi.mock('@/services/AgentService/infrastructure/attachments', () => ({
-    createAttachment: createAttachmentMock,
+vi.mock('tauri-plugin-fs-pro-api', () => ({
+    fullName: async (path: string) => path.split(/[\\/]/).pop() ?? path,
+    size: async () => 1,
+    icon: async () => 'fixture-icon.png',
 }));
 
 function createExecutionContext(
@@ -81,13 +78,6 @@ beforeEach(() => {
     readTextFileLinesMock.mockResolvedValue(linesOf());
     statMock.mockResolvedValue({ isDirectory: false, size: 12 });
     openMock.mockResolvedValue(textFileHandle());
-    createAttachmentMock.mockImplementation(async (type: string, path: string) => ({
-        id: `${type}:${path}`,
-        type,
-        name: path.split(/[\\/]/).pop() ?? path,
-        originPath: path,
-        size: 1,
-    }));
 });
 
 describe('user asks the assistant to read a text file', () => {

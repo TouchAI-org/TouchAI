@@ -15,6 +15,7 @@ vi.mock('@components/AppIcon.vue', () => ({
 
 vi.mock('@tauri-apps/api/window', () => ({
     getCurrentWindow: () => ({
+        label: 'settings',
         close: vi.fn(),
         minimize: vi.fn(),
     }),

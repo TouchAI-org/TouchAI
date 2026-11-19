@@ -117,12 +117,9 @@
     import { useMotion } from '@composables/useMotion';
     import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
+    import type { ToolCallInfo } from '@/app/api/agent/history';
+    import { isEmptyBashOutputText, parseBashToolResult } from '@/app/api/tools/results';
     import { t } from '@/i18n';
-    import {
-        isEmptyBashOutputText,
-        parseBashToolResult,
-    } from '@/services/BuiltInToolService/tools/bash/helper';
-    import type { ToolCallInfo } from '@/types/session';
     import { formatCompactDuration, parseMillisecondDurationLabel } from '@/utils/duration';
 
     const ROOT_CLASS =

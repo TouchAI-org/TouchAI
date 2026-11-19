@@ -1,24 +1,14 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3.
-
 import type { UsageLiveTurn, UsageSummary, UsageTrendPoint } from '@database/queries/usageStats';
-import type { SessionTaskUsageProgressEvent } from '@services/EventService';
+import { emit } from '@tauri-apps/api/event';
+import { createTestWindowPresentation } from '@tests/utils/windowPresentation';
 import { flushPromises, mount } from '@vue/test-utils';
+import { beforeEach as beforePresentation } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { AppEvent, type SessionTaskUsageProgressEvent } from '@/app/api/usage/events';
 import { setLocale } from '@/i18n';
 import UsageDashboard from '@/views/SettingsView/components/Usage/components/UsageDashboard.vue';
-
-const listeners = vi.hoisted(() => new Map<string, (payload: unknown) => void>());
-
-vi.mock('@services/EventService', () => ({
-    AppEvent: { SESSION_TASK_USAGE_PROGRESS: 'session:task:usage-progress' },
-    eventService: {
-        on: vi.fn(async (event: string, listener: (payload: unknown) => void) => {
-            listeners.set(event, listener);
-            return () => listeners.delete(event);
-        }),
-    },
-}));
 
 const summary: UsageSummary = {
     requestCount: 6,
@@ -93,7 +83,6 @@ function mountDashboard(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
     setLocale('zh-CN');
-    listeners.clear();
 });
 
 afterEach(() => {
@@ -157,7 +146,7 @@ describe('user watches the usage curve', () => {
             const wrapper = mountDashboard();
             await flushPromises();
 
-            listeners.get('session:task:usage-progress')?.(progressEvent());
+            await emit(AppEvent.SESSION_TASK_USAGE_PROGRESS, progressEvent());
             await flushPromises();
             await vi.advanceTimersByTimeAsync(400);
 
@@ -175,7 +164,7 @@ describe('user watches the usage curve', () => {
         const wrapper = mountDashboard();
         await flushPromises();
 
-        listeners.get('session:task:usage-progress')?.(progressEvent({ streaming: false }));
+        await emit(AppEvent.SESSION_TASK_USAGE_PROGRESS, progressEvent({ streaming: false }));
         await flushPromises();
 
         expect(wrapper.emitted('track-tasks')).toEqual([[['task-1']]]);
@@ -241,4 +230,8 @@ describe('user watches the usage curve', () => {
         expect(wrapper.find('[data-testid="settings-usage-metric-rpm"]').exists()).toBe(false);
         wrapper.unmount();
     });
+});
+
+beforePresentation(async () => {
+    (await createTestWindowPresentation('settings')).install();
 });

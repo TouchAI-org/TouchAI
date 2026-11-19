@@ -1,9 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import {
-    normalizePastedPath,
-    resolvePastedPathAttachment,
-} from '@/services/SearchService/pastedPath';
+import { normalizePastedPath, resolvePastedPathAttachment } from '@/modules/search/pastedPath.io';
 
 describe('given a user pastes a local path', () => {
     it('user gets an image attachment when the pasted path is an existing image', async () => {

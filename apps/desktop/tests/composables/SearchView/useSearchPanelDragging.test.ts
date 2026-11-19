@@ -1,15 +1,23 @@
+import { config } from '@vue/test-utils';
 import { flushPromises } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ref } from 'vue';
 
-import { useSearchPanelDragging } from '@/views/SearchView/composables/useSearchPanelDragging';
+import { type SearchWindowApi, searchWindowApiKey } from '@/app/api/windows/presentation';
+import { useSearchPanelDragging as useProductionPanel } from '@/views/SearchView/composables/useSearchPanelDragging';
+
+const useSearchPanelDragging = (options: Parameters<typeof useProductionPanel>[0]) =>
+    useProductionPanel(
+        options,
+        Reflect.get(config.global.provide, searchWindowApiKey) as SearchWindowApi
+    );
 
 const { startDraggingMock } = vi.hoisted(() => ({ startDraggingMock: vi.fn() }));
 vi.mock('@tauri-apps/api/window', () => ({
-    getCurrentWindow: () => ({ startDragging: startDraggingMock }),
+    getCurrentWindow: () => ({ label: 'main', startDragging: startDraggingMock }),
 }));
 const { completedNativeDrag } = vi.hoisted(() => ({ completedNativeDrag: vi.fn() }));
-vi.mock('@services/NativeService', () => ({
+vi.mock('@/platform/native', () => ({
     native: { window: { dragSearchWindow: completedNativeDrag } },
 }));
 
