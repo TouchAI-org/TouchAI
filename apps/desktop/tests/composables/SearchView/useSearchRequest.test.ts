@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Ref } from 'vue';
 import { ref } from 'vue';
 
+import { setLocale } from '@/i18n';
 import { AppEvent } from '@/services/EventService/types';
 import { createInputHistorySnapshot, type SessionMessage } from '@/types/session';
 import { useSearchRequestFlow } from '@/views/SearchView/composables/useSearchRequest';
@@ -28,6 +29,7 @@ const {
         sessionHistory: { value: [] as SessionMessage[] },
         pendingToolApproval: { value: null },
         pendingUserQuestion: { value: null },
+        pendingUserMessages: { value: [] as unknown[] },
         sendRequest: vi.fn().mockResolvedValue(undefined),
         cancel: vi.fn(),
         clearSession: vi.fn(),
@@ -35,6 +37,31 @@ const {
         approvePendingToolApproval: vi.fn(() => true),
         rejectPendingToolApproval: vi.fn(() => true),
         settleUserQuestion: vi.fn(),
+        enqueueUserMessage: vi.fn(
+            (
+                input: { prompt: string; attachments: unknown[] },
+                delivery: string
+            ): {
+                id: string;
+                prompt: string;
+                attachments: unknown[];
+                delivery: string;
+                createdAt: number;
+            } | null => ({
+                id: `pending-${input.prompt}`,
+                prompt: input.prompt,
+                attachments: input.attachments,
+                delivery,
+                createdAt: 1,
+            })
+        ),
+        removePendingUserMessage: vi.fn(() => true),
+        beginPendingMessageEdit: vi.fn(() => true),
+        endPendingMessageEdit: vi.fn(() => true),
+        reorderPendingUserMessages: vi.fn(() => true),
+        updatePendingUserMessage: vi.fn(() => true),
+        clearPendingUserMessages: vi.fn(() => true),
+        updatePendingUserMessagesModel: vi.fn(() => true),
     };
     return {
         agentCallbacks: callbacksHolder,
@@ -135,6 +162,7 @@ interface FlowOptions {
     clearDraft?: (options?: { preserveModelTag?: boolean }) => void;
     attachments?: Index[];
     unsupportedMessage?: string | null;
+    unsupportedMessageFor?: (attachments: Index[]) => string | null;
 }
 
 async function mountFlow(options: FlowOptions = {}) {
@@ -152,8 +180,9 @@ async function mountFlow(options: FlowOptions = {}) {
         useSearchRequestFlow({
             modelOverride,
             clearDraft,
-            getSupportedAttachments: () => attachments,
             getUnsupportedAttachmentMessage: () => unsupportedMessage,
+            getUnsupportedAttachmentMessageFor:
+                options.unsupportedMessageFor ?? (() => unsupportedMessage),
             getCurrentInputSnapshot: (query) =>
                 createInputHistorySnapshot({
                     text: query,
@@ -205,6 +234,35 @@ describe('when the user sends a prompt', () => {
         unmount();
     });
 
+    it('user sends a widget reply without borrowing composer attachments', async () => {
+        const attachment = createAttachment('doc-1');
+        const { result, unmount } = await mountFlow({
+            attachments: [attachment],
+            unsupportedMessage: 'The active model does not support files.',
+            unsupportedMessageFor: (candidate) =>
+                candidate.length > 0 ? 'The active model does not support files.' : null,
+        });
+        const replySnapshot = createInputHistorySnapshot({
+            text: 'widget reply',
+            attachments: [],
+        });
+
+        await result.handleSubmit('widget reply', replySnapshot, undefined, {
+            preserveComposerDraft: true,
+        });
+
+        expect(agentState.sendRequest).toHaveBeenCalledWith(
+            'widget reply',
+            [],
+            replySnapshot,
+            undefined,
+            undefined
+        );
+        expect(notifyMock).not.toHaveBeenCalled();
+
+        unmount();
+    });
+
     it('user gets the draft cleared and the prompt sent with the selected model', async () => {
         const attachment = createAttachment('doc-1');
         const { result, clearDraft, unmount } = await mountFlow({
@@ -235,6 +293,7 @@ describe('when the user sends a second prompt while a request is running', () =>
         agentState.isLoading.value = true;
         agentState.currentSessionId.value = null;
         agentState.sessionHistory.value = [];
+        agentState.pendingUserMessages.value = [];
         listSessionsMock.mockResolvedValue([]);
         agentState.sendRequest.mockResolvedValue(undefined);
     });
@@ -243,29 +302,7 @@ describe('when the user sends a second prompt while a request is running', () =>
         document.body.innerHTML = '';
     });
 
-    it('user sees the follow-up queued instead of interrupting the running request', async () => {
-        const attachment = createAttachment('queued-1');
-        const { result, unmount } = await mountFlow({
-            modelOverride: ref({ modelId: 'queued-model', providerId: 3 }),
-            attachments: [attachment],
-        });
-
-        await result.handleSubmit('queued prompt');
-
-        expect(result.isWaitingForCompletion.value).toBe(true);
-        expect(result.pendingRequest.value).toEqual({
-            query: 'queued prompt',
-            attachments: [attachment],
-            inputSnapshot: expect.objectContaining({ text: 'queued prompt' }),
-            modelId: 'queued-model',
-            providerId: 3,
-        });
-        expect(agentState.sendRequest).not.toHaveBeenCalled();
-
-        unmount();
-    });
-
-    it('user gets the queued prompt sent automatically once the running request completes', async () => {
+    it('user sees the follow-up queued as a pending bubble instead of interrupting the run', async () => {
         const attachment = createAttachment('queued-1');
         const { result, clearDraft, unmount } = await mountFlow({
             modelOverride: ref({ modelId: 'queued-model', providerId: 3 }),
@@ -274,47 +311,76 @@ describe('when the user sends a second prompt while a request is running', () =>
 
         await result.handleSubmit('queued prompt');
 
-        agentState.isLoading.value = false;
-        await (agentCallbacks.current?.onComplete as (() => Promise<void>) | undefined)?.();
-
-        expect(agentState.sendRequest).toHaveBeenCalledWith(
-            'queued prompt',
-            [attachment],
-            expect.objectContaining({ text: 'queued prompt' }),
-            'queued-model',
-            3
+        expect(agentState.enqueueUserMessage).toHaveBeenCalledWith(
+            {
+                prompt: 'queued prompt',
+                attachments: [attachment],
+                inputSnapshot: expect.objectContaining({ text: 'queued prompt' }),
+                modelId: 'queued-model',
+                providerId: 3,
+            },
+            'queue'
         );
+        expect(agentState.sendRequest).not.toHaveBeenCalled();
         expect(clearDraft).toHaveBeenCalledWith({ preserveModelTag: true });
-        expect(result.pendingRequest.value).toBeNull();
-        expect(result.isWaitingForCompletion.value).toBe(false);
 
         unmount();
     });
 
-    it('user can drop the queued prompt without cancelling the request that is already running', async () => {
+    it('user gets Ctrl+Enter inserted as priority rather than queued', async () => {
         const { result, unmount } = await mountFlow();
 
-        await result.handleSubmit('queued prompt');
-        expect(result.cancelPendingRequest()).toBe(true);
+        await result.handleSubmit('insert this', undefined, 'enter-modified');
 
-        expect(result.pendingRequest.value).toBeNull();
-        expect(result.isWaitingForCompletion.value).toBe(false);
+        expect(agentState.enqueueUserMessage).toHaveBeenCalledWith(
+            expect.objectContaining({ prompt: 'insert this' }),
+            'priority'
+        );
+
+        unmount();
+    });
+
+    it('user keeps the draft when the running task can no longer accept a message', async () => {
+        setLocale('en-US');
+        agentState.enqueueUserMessage.mockReturnValueOnce(null);
+        const { result, clearDraft, unmount } = await mountFlow();
+
+        await result.handleSubmit('too late');
+
+        expect(clearDraft).not.toHaveBeenCalled();
+        expect(notifyMock).toHaveBeenCalledWith({
+            title: 'TouchAI',
+            body: 'Message not queued. Try again.',
+        });
+
+        unmount();
+    });
+
+    it('user can drop the latest pending message without cancelling the run', async () => {
+        agentState.pendingUserMessages.value = [{ id: 'm1' }, { id: 'm2' }] as never;
+        const { result, unmount } = await mountFlow();
+
+        expect(result.cancelLatestPendingMessage()).toBe(true);
+        expect(agentState.removePendingUserMessage).toHaveBeenCalledWith('m2');
         expect(agentState.cancel).not.toHaveBeenCalled();
-        expect(result.cancelPendingRequest()).toBe(false);
 
         unmount();
     });
 
-    it('user gets a failed request drop the queued prompt instead of leaving it stuck', async () => {
+    it('user gets queued messages reordered from the conversation tail', async () => {
         const { result, unmount } = await mountFlow();
 
-        await result.handleSubmit('queued prompt');
-        expect(result.isWaitingForCompletion.value).toBe(true);
+        expect(result.reorderPendingUserMessages(['m3', 'm1', 'm2'])).toBe(true);
+        expect(agentState.reorderPendingUserMessages).toHaveBeenCalledWith(['m3', 'm1', 'm2']);
 
-        await (agentCallbacks.current?.onError as (() => void) | undefined)?.();
+        unmount();
+    });
 
-        expect(result.pendingRequest.value).toBeNull();
-        expect(result.isWaitingForCompletion.value).toBe(false);
+    it('user gets nothing removed when no pending message exists', async () => {
+        const { result, unmount } = await mountFlow();
+
+        expect(result.cancelLatestPendingMessage()).toBe(false);
+        expect(agentState.removePendingUserMessage).not.toHaveBeenCalled();
 
         unmount();
     });
@@ -334,7 +400,7 @@ describe('when the user cancels a running request', () => {
         document.body.innerHTML = '';
     });
 
-    it('user gets the running request cancelled and any queued prompt dropped', async () => {
+    it('user gets the running request cancelled and queued prompts preserved', async () => {
         const { result, unmount } = await mountFlow();
 
         await result.handleSubmit('queued prompt');
@@ -342,7 +408,7 @@ describe('when the user cancels a running request', () => {
 
         expect(agentState.cancel).toHaveBeenCalled();
         expect(result.pendingRequest.value).toBeNull();
-        expect(result.isWaitingForCompletion.value).toBe(false);
+        expect(agentState.clearPendingUserMessages).not.toHaveBeenCalled();
 
         unmount();
     });
@@ -438,7 +504,6 @@ describe('when the user browses the session history list', () => {
             useSearchRequestFlow({
                 modelOverride: ref({ modelId: null, providerId: null }),
                 clearDraft: vi.fn(),
-                getSupportedAttachments: () => [],
                 getUnsupportedAttachmentMessage: () => null,
                 getCurrentInputSnapshot: (query) =>
                     createInputHistorySnapshot({ text: query, attachments: [] }),
@@ -565,14 +630,12 @@ describe('when the user opens a stored conversation', () => {
         });
 
         await result.handleSubmit('queued before open');
-        expect(result.pendingRequest.value?.query).toBe('queued before open');
+        expect(agentState.enqueueUserMessage).toHaveBeenCalled();
 
         const loadedSession = await result.openSession(7);
 
         expect(clearDraft).toHaveBeenCalledWith({ preserveModelTag: true });
         expect(dismissSessionTerminalStatusMock).toHaveBeenCalledWith(7);
-        expect(result.pendingRequest.value).toBeNull();
-        expect(result.isWaitingForCompletion.value).toBe(false);
         expect(modelOverride.value).toEqual({ modelId: 'gpt-5', providerId: 9 });
         expect(loadedSession).toEqual({
             sessionId: 7,
@@ -596,9 +659,9 @@ describe('when the user opens a stored conversation', () => {
 
         await expect(result.openSession(7)).rejects.toThrow('session not found');
 
-        expect(clearDraft).not.toHaveBeenCalledWith({ preserveModelTag: true });
-        expect(result.pendingRequest.value?.query).toBe('queued before failed open');
-        expect(result.isWaitingForCompletion.value).toBe(true);
+        // Only the queue submission clears the draft; a failed open must not clear it again.
+        expect(clearDraft).toHaveBeenCalledTimes(1);
+        expect(agentState.enqueueUserMessage).toHaveBeenCalled();
         expect(modelOverride.value).toEqual({ modelId: 'stale-model', providerId: 2 });
 
         unmount();

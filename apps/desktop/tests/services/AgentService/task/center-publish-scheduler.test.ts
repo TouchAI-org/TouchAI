@@ -47,6 +47,7 @@ function createSnapshot(overrides: Partial<TaskViewSnapshot> = {}): TaskViewSnap
         status: 'running',
         executionMode: 'background',
         sessionHistory: [],
+        pendingUserMessages: [],
         pendingToolApproval: null,
         pendingApprovals: [],
         pendingUserQuestion: null,
@@ -199,6 +200,28 @@ describe('cloneTaskViewSnapshot structural sharing', () => {
         } as never);
 
         expect(view.pendingApprovals).toHaveLength(1);
+    });
+
+    it('user gets a stable queued-message collection while the reply streams', () => {
+        const snapshot = createSnapshot({
+            sessionHistory: [createMessage('assistant-1', 'first')],
+            pendingUserMessages: [
+                {
+                    id: 'queue-1',
+                    prompt: 'queued while streaming',
+                    attachments: [],
+                    delivery: 'queue',
+                    createdAt: 2,
+                },
+            ],
+        });
+        const first = cloneTaskViewSnapshot(snapshot);
+
+        snapshot.sessionHistory[0]!.content = 'first and another wrapped line';
+        const second = cloneTaskViewSnapshot(snapshot, first);
+
+        expect(second.pendingUserMessages).toBe(first.pendingUserMessages);
+        expect(second.pendingUserMessages[0]).toBe(first.pendingUserMessages[0]);
     });
 });
 

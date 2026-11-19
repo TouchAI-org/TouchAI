@@ -40,15 +40,15 @@ export function openMigratedDatabase(): SqliteDatabase {
  */
 export function routeQueriesTo(
     database: SqliteDatabase,
-    options: { beforeCommit?: () => void } = {}
+    options: { beforeCommit?: () => void | Promise<void> } = {}
 ): void {
-    interceptTauriInvoke((call, next) => {
+    interceptTauriInvoke(async (call, next) => {
         if (call.cmd === 'database_tx_begin') {
             database.exec('BEGIN');
             return 'test-tx';
         }
         if (call.cmd === 'database_tx_commit') {
-            options.beforeCommit?.();
+            await options.beforeCommit?.();
             database.exec('COMMIT');
             return null;
         }

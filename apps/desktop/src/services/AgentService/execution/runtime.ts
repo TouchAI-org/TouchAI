@@ -2,11 +2,13 @@
 
 import { updateModelLastUsed } from '@database/queries';
 import { findModelPricing } from '@database/queries/llmMetadata';
+import type { ModelWithProvider } from '@database/queries/models';
 import { type Span, SpanStatusCode } from '@opentelemetry/api';
 import { event, log } from '@services/ObservabilityService';
 import { ATTR } from '@services/ObservabilityService/attributes';
 import { classifyError } from '@services/ObservabilityService/errors';
 import { withSpan } from '@services/ObservabilityService/tracing';
+import { DrizzleQueryError } from 'drizzle-orm';
 
 import { t } from '@/i18n';
 import {
@@ -32,16 +34,19 @@ import { getCurrentModelLanguageContext } from '../languageContext';
 import { PersistenceProjector } from '../outputs/persistence';
 import { composePromptSnapshot } from '../prompt/composer';
 import { summarizePromptSnapshot } from '../prompt/serialization';
-import { buildPromptTransportMessages } from '../prompt/transport';
+import { buildPromptTransportMessages, buildUserPromptMessage } from '../prompt/transport';
 import type { PromptSnapshot } from '../prompt/types';
 import { createSessionReadModel } from '../session/readModel';
 import { buildSessionTitle } from '../session/title';
 import { findUnsupportedSessionAttachmentTypes } from '../session/transport';
+import { loadSelectedSkills } from '../skills';
+import type { DeliveredPendingUserMessage, PendingUserMessage } from '../task/types';
 import {
     AiRequestExecutor,
     type AttemptCheckpoint,
     type AttemptExecutionResult,
     type AttemptFailureResult,
+    type InjectedUserMessages,
     type RequestExecutionCallbacks,
     type RequestPrivateState,
 } from './executor';
@@ -87,7 +92,8 @@ export interface RuntimePersistenceIssue {
         | 'turn_completed'
         | 'turn_cancelled'
         | 'turn_failed'
-        | 'retry_started';
+        | 'retry_started'
+        | 'user_message_delivery';
     title: string;
     body: string;
     error: unknown;
@@ -144,10 +150,22 @@ export type RuntimeTurnEvent =
           maxRetries: number;
           reason: string;
           checkpoint: AttemptCheckpoint;
+      }
+    | {
+          type: 'user_messages_delivered';
+          taskId: string;
+          messages: DeliveredPendingUserMessage[];
+      }
+    | {
+          type: 'user_messages_rejected';
+          taskId: string;
+          messageIds: string[];
       };
 
 export interface ExecuteRequestOptions extends RequestExecutionCallbacks {
     prompt: string;
+    /** Durable queue row removed when this turn's user message is committed. */
+    pendingMessageId?: string;
     sessionId?: number;
     modelId?: string;
     providerId?: number;
@@ -156,6 +174,13 @@ export interface ExecuteRequestOptions extends RequestExecutionCallbacks {
     executionMode?: TaskExecutionMode;
     promptSnapshot?: PromptSnapshot;
     environment?: ConversationRuntimeEnvironment;
+    takePriorityUserMessages?: () => PendingUserMessage[];
+    /** Return claimed messages to the pending queue when they were not delivered. */
+    releasePriorityUserMessages?: (messageIds: string[]) => void;
+    /** True once the user clicked Steer now and the message is still undelivered. */
+    hasImmediatePriorityUserMessages?: () => boolean;
+    /** Ensure queued rows are durable before a priority delivery claims them. */
+    waitForPendingMessageWrites?: () => Promise<void>;
 }
 
 interface RuntimeContext {
@@ -173,6 +198,50 @@ function buildPersistenceIssue(
     return {
         title: t('agent.persistenceIssue.title'),
         body: t(bodyKey),
+    };
+}
+
+/**
+ * Priority messages bypass `composePromptSnapshot`, so their selected skills
+ * must be loaded into the running turn explicitly. They are prepended to the
+ * user message instead of inserted as a system message because some providers
+ * only accept system instructions at the start of the conversation.
+ */
+async function loadPrioritySkillContext(
+    inputSnapshot: InputHistorySnapshot | undefined
+): Promise<string | undefined> {
+    const selectedSkills = inputSnapshot?.skills ?? [];
+    if (selectedSkills.length === 0) {
+        return undefined;
+    }
+
+    const loadedSkills = await loadSelectedSkills(selectedSkills, 'user_tag');
+    const content = loadedSkills
+        .map((skill) => skill.contextText)
+        .join('\n\n')
+        .trim();
+    return content || undefined;
+}
+
+/**
+ * Keep the skill body request-only while preserving the provider-neutral user
+ * role and the original text/attachment order.
+ */
+function withPrioritySkillContext(message: AiMessage, skillContext?: string): AiMessage {
+    if (!skillContext) {
+        return message;
+    }
+
+    if (typeof message.content === 'string') {
+        return {
+            ...message,
+            content: `${skillContext}\n\n${message.content}`,
+        };
+    }
+
+    return {
+        ...message,
+        content: [{ type: 'text', text: skillContext }, ...message.content],
     };
 }
 
@@ -380,6 +449,7 @@ export class AiConversationRuntime {
             prompt: this.options.prompt,
             attachments,
             model: initialModel,
+            pendingMessageId: this.options.pendingMessageId,
             sessionId: this.options.sessionId ?? null,
             taskId: this.options.taskId ?? crypto.randomUUID(),
             executionMode: this.options.executionMode ?? 'foreground',
@@ -408,15 +478,205 @@ export class AiConversationRuntime {
                 log.error('[AiConversationRuntime] Failed to record request start:', error);
                 await this.reportPersistenceIssue({
                     phase: 'turn_start',
-                    ...buildPersistenceIssue('agent.persistenceIssue.turnStart'),
+                    ...buildPersistenceIssue(
+                        this.options.pendingMessageId
+                            ? 'agent.persistenceIssue.queuedTurnStart'
+                            : 'agent.persistenceIssue.turnStart'
+                    ),
                     error,
                 });
+                if (this.options.pendingMessageId) {
+                    throw error;
+                }
             });
 
         return {
             initialCheckpoint,
             persister,
             requestStartRecordPromise,
+        };
+    }
+
+    /**
+     * 在安全边界投递插队消息：工具轮结束，或用户点击「插队」后当前回答中断处。
+     *
+     * 消息先按普通用户消息落库，再作为下一条上下文发给模型；落库失败保留
+     * 待发消息并报告错误，避免重启后重复执行已发给模型的消息。
+     */
+    private async deliverPriorityUserMessages(
+        persister: PersistenceProjector,
+        model: ModelWithProvider
+    ): Promise<InjectedUserMessages> {
+        const pending = this.options.takePriorityUserMessages?.() ?? [];
+        if (pending.length === 0) {
+            return { messages: [] };
+        }
+        const prepared: DeliveredPendingUserMessage[] = [];
+        const rejectedMessageIds: string[] = [];
+        const messages: AiMessage[] = [];
+        const privateContents: NonNullable<InjectedUserMessages['privateContents']> = [];
+        const settledMessageIds = new Set<string>();
+
+        try {
+            persister.closeOutputBoundary();
+            await this.options.waitForPendingMessageWrites?.();
+            const attachmentCapabilities = getModelAttachmentCapabilities(model);
+            for (const pendingMessage of pending) {
+                if (this.options.signal?.aborted) {
+                    break;
+                }
+
+                const unsupportedAttachmentTypes = getUnsupportedAttachmentTypes(
+                    pendingMessage.attachments,
+                    attachmentCapabilities
+                );
+                if (unsupportedAttachmentTypes.length > 0) {
+                    await persister.discardPendingUserMessage(pendingMessage.id);
+                    await this.reportPersistenceIssue({
+                        phase: 'user_message_delivery',
+                        title: t('agent.priorityMessage.removedTitle'),
+                        body: t('agent.priorityMessage.unsupportedAttachmentsBody', {
+                            types: unsupportedAttachmentTypes
+                                .map((type) =>
+                                    t(
+                                        type === 'image'
+                                            ? 'agent.priorityMessage.attachmentImage'
+                                            : 'agent.priorityMessage.attachmentFile'
+                                    )
+                                )
+                                .join(' / '),
+                        }),
+                        error: new AiError(AiErrorCode.UNSUPPORTED_INPUT, {
+                            unsupportedAttachmentTypes,
+                            modelId: model.model_id,
+                            providerId: model.provider_id,
+                        }),
+                    });
+                    rejectedMessageIds.push(pendingMessage.id);
+                    settledMessageIds.add(pendingMessage.id);
+                    continue;
+                }
+
+                let message: AiMessage;
+                try {
+                    // Validate and materialize the transport message first. A
+                    // rejected build must not leave a committed history row
+                    // behind and then fall back to the pending queue.
+                    message = await buildUserPromptMessage({
+                        prompt: pendingMessage.prompt,
+                        attachments: pendingMessage.attachments,
+                        attachmentCapabilities,
+                    });
+                } catch (error) {
+                    log.error(
+                        '[AiConversationRuntime] Failed to build an inserted user message:',
+                        error
+                    );
+                    await persister.discardPendingUserMessage(pendingMessage.id);
+                    await this.reportPersistenceIssue({
+                        phase: 'user_message_delivery',
+                        title: t('agent.priorityMessage.removedTitle'),
+                        body: t('agent.priorityMessage.prepareFailedBody'),
+                        error,
+                    });
+                    rejectedMessageIds.push(pendingMessage.id);
+                    settledMessageIds.add(pendingMessage.id);
+                    continue;
+                }
+
+                if (this.options.signal?.aborted) {
+                    break;
+                }
+
+                let skillContext: string | undefined;
+                try {
+                    skillContext = await loadPrioritySkillContext(pendingMessage.inputSnapshot);
+                } catch (error) {
+                    log.error(
+                        '[AiConversationRuntime] Failed to load skills for an inserted user message:',
+                        error
+                    );
+                    await persister.discardPendingUserMessage(pendingMessage.id);
+                    await this.reportPersistenceIssue({
+                        phase: 'user_message_delivery',
+                        title: t('agent.priorityMessage.removedTitle'),
+                        body: t('agent.priorityMessage.skillLoadFailedBody'),
+                        error,
+                    });
+                    rejectedMessageIds.push(pendingMessage.id);
+                    settledMessageIds.add(pendingMessage.id);
+                    continue;
+                }
+
+                if (this.options.signal?.aborted) {
+                    break;
+                }
+
+                messages.push(message);
+                if (skillContext) {
+                    privateContents.push({
+                        index: messages.length - 1,
+                        content: withPrioritySkillContext(message, skillContext).content,
+                    });
+                }
+                prepared.push({
+                    id: pendingMessage.id,
+                    prompt: pendingMessage.prompt,
+                    attachments: pendingMessage.attachments,
+                    ...(pendingMessage.inputSnapshot
+                        ? { inputSnapshot: pendingMessage.inputSnapshot }
+                        : {}),
+                });
+            }
+            if (prepared.length === 0 || this.options.signal?.aborted) {
+                return { messages: [] };
+            }
+
+            const sources = await persister.persistInjectedUserMessages(prepared);
+            for (const [index, delivery] of prepared.entries()) {
+                const source = sources.get(delivery.id);
+                if (source) messages[index]!.contextSource = source;
+                settledMessageIds.add(delivery.id);
+            }
+            if (this.options.taskId) {
+                this.notifyTurnEvent({
+                    type: 'user_messages_delivered',
+                    taskId: this.options.taskId,
+                    messages: prepared,
+                });
+            }
+        } catch (error) {
+            const failure = error instanceof DrizzleQueryError ? (error.cause ?? error) : error;
+            log.error('[AiConversationRuntime] Failed to settle inserted user messages:', {
+                taskId: this.options.taskId,
+                sessionId: persister.getSessionId(),
+                errorType: failure instanceof Error ? failure.name : typeof failure,
+            });
+            await this.reportPersistenceIssue({
+                phase: 'user_message_delivery',
+                ...buildPersistenceIssue('agent.persistenceIssue.userMessageDelivery'),
+                error: failure,
+            });
+            throw failure;
+        } finally {
+            if (rejectedMessageIds.length > 0 && this.options.taskId) {
+                this.notifyTurnEvent({
+                    type: 'user_messages_rejected',
+                    taskId: this.options.taskId,
+                    messageIds: rejectedMessageIds,
+                });
+            }
+            const unsettledMessageIds = pending
+                .map((message) => message.id)
+                .filter((id) => !settledMessageIds.has(id));
+            if (unsettledMessageIds.length > 0) {
+                this.options.releasePriorityUserMessages?.(unsettledMessageIds);
+            }
+        }
+
+        return {
+            messages,
+            ...(privateContents.length > 0 ? { privateContents } : {}),
         };
     }
 
@@ -660,9 +920,11 @@ export class AiConversationRuntime {
 
         let resumeCheckpoint = context.initialCheckpoint;
         const requestToolApproval = this.wrapToolApproval();
+        let requestStartRecorded = false;
 
         try {
             await context.requestStartRecordPromise;
+            requestStartRecorded = true;
 
             // The panel needs usage while streaming, and pricing is static, so
             // one lookup at the start of the turn is enough; persisting later
@@ -707,6 +969,12 @@ export class AiConversationRuntime {
                                     this.options.onChunk?.(chunk);
                                 },
                                 onTurnEvent: (event) => this.notifyTurnEvent(event),
+                                onToolBoundary: ({ persister, model }) =>
+                                    this.deliverPriorityUserMessages(persister, model),
+                                onSteerBoundary: ({ persister, model }) =>
+                                    this.deliverPriorityUserMessages(persister, model),
+                                shouldInterruptForImmediateSteer: () =>
+                                    this.options.hasImmediatePriorityUserMessages?.() ?? false,
                                 requestToolApproval: requestToolApproval
                                     ? (payload) =>
                                           requestToolApproval({
@@ -738,8 +1006,6 @@ export class AiConversationRuntime {
                 if (this.providerTtftMs === null && attemptResult.firstTtftMs !== null) {
                     this.providerTtftMs = attemptResult.firstTtftMs;
                 }
-
-                await context.requestStartRecordPromise;
 
                 if (attemptResult.type === 'completed') {
                     return await this.handleCompleted(context, attemptResult);
@@ -888,7 +1154,18 @@ export class AiConversationRuntime {
                 ? 'cancelled'
                 : 'failure';
             this.analyticsErrorCode ??= aiError.code;
-            await context.requestStartRecordPromise;
+            if (!requestStartRecorded) {
+                this.analyticsPersistence = 'failed';
+                if (this.options.taskId) {
+                    this.notifyTurnEvent({
+                        type: 'task_failed',
+                        taskId: this.options.taskId,
+                        turnId: null,
+                        error: aiError.message,
+                    });
+                }
+                throw aiError;
+            }
 
             if (!this.requestFinalized) {
                 if (aiError.is(AiErrorCode.REQUEST_CANCELLED)) {

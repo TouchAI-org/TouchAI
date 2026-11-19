@@ -11,6 +11,7 @@ export * from './mcpTools';
 export * from './messageParts';
 export * from './messages';
 export * from './models';
+export * from './pendingMessages';
 export * from './providers';
 export * from './quickSearchClicks';
 export * from './sessions';

@@ -106,6 +106,46 @@ export const messages = sqliteTable(
 );
 
 /**
+ * 回合间隙的待发消息。
+ *
+ * 高频检索字段保持独立列，附件、技能与编辑器文档放 payload_json；
+ * position 保留用户拖拽顺序，同一会话内唯一。
+ */
+export const sessionPendingMessages = sqliteTable(
+    'session_pending_messages',
+    {
+        id: text('id').primaryKey(),
+        session_id: integer('session_id')
+            .notNull()
+            .references(() => sessions.id, { onDelete: 'cascade' }),
+        position: integer('position').notNull(),
+        prompt: text('prompt').notNull(),
+        model_id: text('model_id'),
+        provider_id: integer('provider_id').references(() => providers.id, {
+            onDelete: 'set null',
+        }),
+        payload_version: integer('payload_version').notNull().default(1),
+        payload_json: text('payload_json').notNull(),
+        created_at: text('created_at')
+            .notNull()
+            .default(sql`(datetime('now'))`),
+        updated_at: text('updated_at')
+            .notNull()
+            .default(sql`(datetime('now'))`),
+    },
+    (table) => [
+        uniqueIndex('session_pending_messages_session_position_idx').on(
+            table.session_id,
+            table.position
+        ),
+        check(
+            'session_pending_messages_payload_json_check',
+            sql`json_valid(${table.payload_json}) AND json_type(${table.payload_json}) = 'object'`
+        ),
+    ]
+);
+
+/**
  * 消息输出片段表。
  *
  * text、reasoning 与 tool_call 作为同级片段保存，sort_order 保留模型实际输出顺序；

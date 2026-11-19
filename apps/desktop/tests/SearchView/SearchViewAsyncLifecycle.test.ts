@@ -3,8 +3,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent, h, nextTick, type Ref, ref, watch } from 'vue';
 
 import type { AskUserQuestion } from '@/services/AgentService/contracts/tooling';
-import type { PendingUserQuestionView } from '@/services/AgentService/task/types';
-import type { PendingToolApproval, SessionMessage } from '@/types/session';
+import type {
+    PendingUserMessage,
+    PendingUserQuestionView,
+} from '@/services/AgentService/task/types';
+import {
+    createInputHistorySnapshot,
+    type InputHistorySnapshot,
+    type PendingToolApproval,
+    type SessionMessage,
+} from '@/types/session';
 import type { SkillPickerState } from '@/views/SearchView/components/SearchBar/composables/useSkillAutocomplete';
 import SearchView from '@/views/SearchView/index.vue';
 import type { SearchSurfacePreparationControllerOptions } from '@/views/SearchView/searchSurfacePreparation';
@@ -82,17 +90,22 @@ const {
             markHistorySelectionPending: ReturnType<typeof vi.fn>;
             abandonHistorySelection: ReturnType<typeof vi.fn>;
             sessionHistory: Ref<SessionMessage[]>;
+            pendingUserMessages: Ref<PendingUserMessage[]>;
             currentSessionId: Ref<number | null>;
             pendingToolApproval: Ref<PendingToolApproval | null>;
             pendingUserQuestion: Ref<PendingUserQuestionView | null>;
             approvePendingToolApproval: ReturnType<typeof vi.fn>;
             rejectPendingToolApproval: ReturnType<typeof vi.fn>;
             settleUserQuestion: ReturnType<typeof vi.fn>;
+            beginPendingMessageEdit: ReturnType<typeof vi.fn>;
+            endPendingMessageEdit: ReturnType<typeof vi.fn>;
         } | null,
     },
     resizeState: {
         options: null as { resizeEnabled?: Ref<boolean> } | null,
+        cardHeight: { value: 60 } as Ref<number>,
         remeasureTargetHeight: vi.fn(),
+        scheduleMeasurement: vi.fn(),
         playSessionExpandAnimation: vi.fn(),
         collapseSessionToIdle: vi.fn(),
         resetSearchWindowBounds: vi.fn(),
@@ -309,7 +322,7 @@ vi.mock('@/views/SearchView/composables/useSearchRequest', async () => {
         useSearchRequestFlow: () => {
             const result = {
                 pendingRequest: ref(null),
-                isWaitingForCompletion: ref(false),
+                pendingUserMessages: ref<PendingUserMessage[]>([]),
                 isLoading: ref(false),
                 error: ref(null),
                 currentSessionId: ref<number | null>(null),
@@ -328,6 +341,7 @@ vi.mock('@/views/SearchView/composables/useSearchRequest', async () => {
                 refreshSessionList: vi.fn().mockResolvedValue(undefined),
                 ensureSessionListLoaded: vi.fn().mockResolvedValue(undefined),
                 startNewSession: vi.fn(),
+                reopenLastClosedSession: vi.fn().mockResolvedValue(undefined),
                 openSession: vi.fn().mockResolvedValue(undefined),
                 pendingToolApproval: ref(null),
                 pendingUserQuestion: ref(null),
@@ -337,6 +351,14 @@ vi.mock('@/views/SearchView/composables/useSearchRequest', async () => {
                 handleSubmit: vi.fn().mockResolvedValue(undefined),
                 clearAll: vi.fn(),
                 cancelRequest: vi.fn(),
+                cancelPendingRequest: vi.fn(() => false),
+                cancelLatestPendingMessage: vi.fn(() => false),
+                promotePendingUserMessage: vi.fn(() => false),
+                removePendingUserMessage: vi.fn(() => false),
+                updatePendingUserMessage: vi.fn(() => false),
+                beginPendingMessageEdit: vi.fn(() => true),
+                endPendingMessageEdit: vi.fn(() => true),
+                reorderPendingUserMessages: vi.fn(() => false),
                 handleRegenerateMessage: vi.fn().mockResolvedValue(undefined),
             };
             result.setSessionHistoryOverlayOpen.mockImplementation(async (open: boolean) => {
@@ -356,7 +378,7 @@ vi.mock('@/views/SearchView/composables/useSearchWindowResize', async () => {
             return {
                 contentReady: ref(true),
                 currentHeight: ref(60),
-                cardHeight: ref(60),
+                cardHeight: resizeState.cardHeight,
                 cardReveal: ref(0),
                 isCardGrowing: ref(false),
                 isMaximized: ref(false),
@@ -373,7 +395,7 @@ vi.mock('@/views/SearchView/composables/useSearchWindowResize', async () => {
                 syncWindowState: vi.fn().mockResolvedValue(undefined),
                 remeasureTargetHeight: resizeState.remeasureTargetHeight,
                 measureTargetHeight: resizeState.measureTargetHeight,
-                scheduleMeasurement: vi.fn(),
+                scheduleMeasurement: resizeState.scheduleMeasurement,
                 playSessionExpandAnimation: resizeState.playSessionExpandAnimation,
                 collapseSessionToIdle: resizeState.collapseSessionToIdle,
                 sessionExpandMotion: ref(undefined),
@@ -482,6 +504,8 @@ describe('SearchView async overlay and listener lifecycle', () => {
         requestFlowState.current = null;
         runtimeModeState.isE2eTestMode.mockResolvedValue(false);
         resizeState.remeasureTargetHeight.mockResolvedValue(undefined);
+        resizeState.cardHeight.value = 60;
+        resizeState.scheduleMeasurement.mockClear();
         resizeState.playSessionExpandAnimation.mockResolvedValue(undefined);
         resizeState.collapseSessionToIdle.mockResolvedValue(true);
         resizeState.resetSearchWindowBounds.mockResolvedValue(true);
@@ -554,14 +578,24 @@ describe('SearchView async overlay and listener lifecycle', () => {
                     SearchBar: defineComponent({
                         name: 'SearchBar',
                         inheritAttrs: false,
-                        props: { queryText: { type: String, default: '' } },
+                        props: {
+                            queryText: { type: String, default: '' },
+                            modelOverride: { type: Object, required: true },
+                        },
                         emits: [
                             'update:queryText',
                             'skillAutocompleteOpenChange',
                             'skillInputActiveChange',
+                            'modelOverrideChange',
                             'requestToggleModelDropdown',
                         ],
-                        setup(_, { slots, emit }) {
+                        setup(props, { slots, emit, expose }) {
+                            expose({
+                                captureInputHistorySnapshot: () =>
+                                    createInputHistorySnapshot({ text: props.queryText }),
+                                restoreInputHistorySnapshot: (snapshot: InputHistorySnapshot) =>
+                                    snapshot.text,
+                            });
                             watch(
                                 skillPicker,
                                 (picker) => emit('skillAutocompleteOpenChange', picker !== null),
@@ -581,6 +615,7 @@ describe('SearchView async overlay and listener lifecycle', () => {
                     SessionHistoryPopover: overlayContent,
                     ConversationPanel: defineComponent({
                         name: 'ConversationPanel',
+                        emits: ['contentResize', 'pendingAction'],
                         setup(_, { expose }) {
                             expose({ getContentHeight: () => 340, focus: vi.fn() });
                             return () => h('div', 'Conversation');
@@ -625,6 +660,118 @@ describe('SearchView async overlay and listener lifecycle', () => {
             highlightedIndex: 0,
         };
     }
+
+    describe('given a queued message and a different composer model', () => {
+        it.each(
+            [
+                {
+                    label: 'saved model',
+                    selection: { modelId: 'queued-model', providerId: 2 },
+                    expected: { modelId: 'queued-model', providerId: 2 },
+                },
+                {
+                    label: 'default model',
+                    selection: {},
+                    expected: { modelId: null, providerId: null },
+                },
+            ].flatMap((scenario) => [
+                { ...scenario, action: 'cancelEdit', ending: 'cancel' },
+                { ...scenario, action: 'remove', ending: 'removing the message' },
+                { ...scenario, action: 'sendNow', ending: 'sending the message immediately' },
+            ])
+        )(
+            'user edits with the queued $label and recovers their composer selection on $ending',
+            async ({ selection, expected, action }) => {
+                const wrapper = mountSearchView();
+                await flushPromises();
+                const message: PendingUserMessage = {
+                    id: 'queued-message',
+                    prompt: 'Queued prompt',
+                    attachments: [],
+                    delivery: 'queue',
+                    createdAt: 1,
+                    ...selection,
+                };
+                requestFlowState.current!.pendingUserMessages.value = [message];
+                requestFlowState.current!.sessionHistory.value = [
+                    {
+                        id: 'prior',
+                        role: 'user',
+                        content: 'Previous prompt',
+                        parts: [],
+                        timestamp: 1,
+                    },
+                ];
+                await nextTick();
+                const editor = wrapper.findComponent({ name: 'SearchBar' });
+                const originalSelection = { modelId: 'composer-model', providerId: 8 };
+                editor.vm.$emit('modelOverrideChange', originalSelection);
+                editor.vm.$emit('update:queryText', 'Unsent composer draft');
+                await nextTick();
+
+                const conversation = wrapper.findComponent({ name: 'ConversationPanel' });
+                conversation.vm.$emit('pendingAction', 'edit', message.id);
+                await flushPromises();
+
+                expect(editor.props('queryText')).toBe('Queued prompt');
+                expect(editor.props('modelOverride')).toEqual(expected);
+
+                conversation.vm.$emit('pendingAction', action, message.id);
+                await flushPromises();
+
+                expect(editor.props('queryText')).toBe('Unsent composer draft');
+                expect(editor.props('modelOverride')).toEqual(originalSelection);
+            }
+        );
+
+        it('user leaves the view during an edit and the queued message is no longer parked', async () => {
+            const wrapper = mountSearchView();
+            await flushPromises();
+            const flow = requestFlowState.current!;
+            const message: PendingUserMessage = {
+                id: 'queued-message',
+                prompt: 'Queued prompt',
+                attachments: [],
+                delivery: 'queue',
+                createdAt: 1,
+            };
+            flow.pendingUserMessages.value = [message];
+            flow.sessionHistory.value = [
+                { id: 'prior', role: 'user', content: 'Previous prompt', parts: [], timestamp: 1 },
+            ];
+            flow.beginPendingMessageEdit.mockImplementation((messageId: string) => {
+                flow.pendingUserMessages.value = flow.pendingUserMessages.value.map((entry) =>
+                    entry.id === messageId ? { ...entry, editing: true } : entry
+                );
+                return true;
+            });
+            flow.endPendingMessageEdit.mockImplementation((messageId: string) => {
+                flow.pendingUserMessages.value = flow.pendingUserMessages.value.map((entry) =>
+                    entry.id === messageId ? { ...entry, editing: undefined } : entry
+                );
+                return true;
+            });
+            await nextTick();
+
+            wrapper
+                .findComponent({ name: 'ConversationPanel' })
+                .vm.$emit('pendingAction', 'edit', message.id);
+            await flushPromises();
+            expect(flow.pendingUserMessages.value[0]?.editing).toBe(true);
+
+            wrapper.unmount();
+            wrappers.splice(wrappers.indexOf(wrapper), 1);
+            await flushPromises();
+
+            expect(flow.pendingUserMessages.value).toEqual([
+                expect.objectContaining({
+                    id: message.id,
+                    prompt: message.prompt,
+                    editing: undefined,
+                }),
+            ]);
+        });
+    });
 
     it('user given a conversation and skill draft when typing @ then searches the local filename in the existing file panel', async () => {
         const wrapper = mountSearchView();
@@ -942,6 +1089,33 @@ describe('SearchView async overlay and listener lifecycle', () => {
             setup[mode] = true;
             await nextTick();
             expect(setup.pageContent.style.maxHeight).toBe('none');
+        }
+    );
+
+    it.each(['fillConversationAvailableHeight', 'effectiveWindowMaximized'] as const)(
+        'user gets a compact conversation measured before %s suppresses streaming measurements',
+        async (mode) => {
+            const wrapper = mountSearchView();
+            await flushPromises();
+            requestFlowState.current!.sessionHistory.value = [
+                { id: 'queued', role: 'user', content: 'Queued message', parts: [], timestamp: 1 },
+            ];
+            await nextTick();
+            const setup = getSetupState(wrapper);
+            setup[mode] = true;
+            await nextTick();
+            const conversation = wrapper.findComponent({ name: 'ConversationPanel' });
+
+            conversation.vm.$emit('contentResize', 900);
+            await nextTick();
+            expect(resizeState.scheduleMeasurement).toHaveBeenCalledOnce();
+
+            resizeState.scheduleMeasurement.mockClear();
+            resizeState.cardHeight.value = 660;
+            await nextTick();
+            conversation.vm.$emit('contentResize', 920);
+            await nextTick();
+            expect(resizeState.scheduleMeasurement).not.toHaveBeenCalled();
         }
     );
 

@@ -427,7 +427,7 @@ describe('TouchAI search smoke', () => {
         await history.waitForExist({ reverse: true });
     });
 
-    it('keeps history interactive after a concrete session and native hide/show', async () => {
+    it('user opens a filtered session and keeps history usable after hide/show', async () => {
         const fixtureError = await browser.execute(async () => {
             try {
                 await window.__TAURI_INTERNALS__.invoke('database_query', {
@@ -512,7 +512,19 @@ describe('TouchAI search smoke', () => {
             'Expected history filter focus before searching history'
         );
         await fixtureSearchInput.setValue('E2E history toolbar session');
-        const fixtureSession = await $('[data-search-history-popover="true"] .history-session-row');
+        await browser.waitUntil(
+            async () => {
+                const sessions = await fixtureHistory.$$('.history-session-row');
+                return (
+                    sessions.length === 1 &&
+                    (await sessions[0].getText()).includes('E2E history toolbar session')
+                );
+            },
+            { timeoutMsg: 'Expected history search to settle on the concrete fixture session' }
+        );
+        const fixtureSession = await fixtureHistory.$(
+            'button.history-session-row*=E2E history toolbar session'
+        );
         await fixtureSession.waitForDisplayed();
         await fixtureSession.click();
         await fixtureHistory.waitForExist({ reverse: true });

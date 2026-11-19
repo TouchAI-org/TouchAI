@@ -13,6 +13,7 @@ import {
 } from '../languageContext';
 import type { TaskExecutionMode } from '../task/types';
 import { TOUCHAI_BUILTIN_SYSTEM_PROMPT } from './builtin';
+import { createPromptInputSnapshot } from './serialization';
 import type { PromptAssembly, PromptFragment, PromptFragmentSource, PromptSnapshot } from './types';
 
 const TOOL_DISCIPLINE_SYSTEM_PROMPT = [
@@ -132,6 +133,7 @@ export async function composePromptSnapshot(
         ...options,
         skillContext: skillContextFragments,
     });
+    const inputSnapshot = createPromptInputSnapshot(options.inputSnapshot);
 
     const snapshot = {
         id: crypto.randomUUID(),
@@ -146,25 +148,7 @@ export async function composePromptSnapshot(
             .map((fragment) => fragment.content)
             .join('\n\n')
             .trim(),
-        ...(options.inputSnapshot?.editorDoc || options.inputSnapshot?.skills?.length
-            ? {
-                  inputSnapshot: {
-                      ...(options.inputSnapshot.skills?.length
-                          ? { skills: options.inputSnapshot.skills }
-                          : {}),
-                      editorDoc: options.inputSnapshot.editorDoc,
-                      ...(options.inputSnapshot.excludeFromHistory
-                          ? { excludeFromHistory: true }
-                          : {}),
-                  },
-              }
-            : options.inputSnapshot?.excludeFromHistory
-              ? {
-                    inputSnapshot: {
-                        excludeFromHistory: true,
-                    },
-                }
-              : {}),
+        ...(inputSnapshot ? { inputSnapshot } : {}),
     };
 
     return snapshot;

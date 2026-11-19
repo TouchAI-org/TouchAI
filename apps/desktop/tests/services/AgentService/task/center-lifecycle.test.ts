@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
 import type { TaskResult } from '@/services/AgentService/execution/runtime';
+import type { PendingMessageStore } from '@/services/AgentService/task/pendingMessagePersistence';
 import { computerUseService } from '@/services/ComputerUseService';
 import { log } from '@/services/ObservabilityService';
 import {
@@ -94,8 +95,19 @@ function completesInSession(sessionId: number | null, response = 'done') {
 }
 
 /** The task center is process-wide, so every test builds its own isolated instance. */
+const pendingMessageStore: PendingMessageStore = {
+    enqueue: vi.fn(),
+    update: vi.fn(),
+    remove: vi.fn(),
+    clear: vi.fn(),
+    reorder: vi.fn(),
+    updateModel: vi.fn(),
+    flush: vi.fn(async () => {}),
+    load: vi.fn(async () => []),
+};
+
 function createCenter() {
-    return new SessionTaskCenter();
+    return new SessionTaskCenter(pendingMessageStore);
 }
 
 describe('user starts a conversation task', () => {
@@ -209,6 +221,42 @@ describe('user starts a conversation task', () => {
         );
         expect(center.getSessionStatus(4)).toBeNull();
         expect(center.listActiveTasks()).toEqual([]);
+    });
+
+    it('user keeps a message queued during startup when loading history fails', async () => {
+        let rejectHistory!: (error: Error) => void;
+        historyState.loadSessionHistory.mockImplementationOnce(
+            () =>
+                new Promise((_resolve, reject) => {
+                    rejectHistory = reject;
+                })
+        );
+        const center = createCenter();
+        const starting = center.startTask({ prompt: 'Hi', sessionId: 12 });
+        const startingTask = await vi.waitFor(() => {
+            const [active] = center.listActiveTasks();
+            if (!active) {
+                throw new Error('task is not registered yet');
+            }
+            return active;
+        });
+
+        expect(
+            center.enqueueTaskUserMessage(startingTask.taskId, { prompt: 'Follow up' }, 'queue')
+        ).not.toBeNull();
+
+        rejectHistory(new Error('database is locked'));
+        await expect(starting).rejects.toThrow('database is locked');
+
+        // The failed startup must not swallow what the user queued after the
+        // task became visible but before its history finished loading.
+        historyState.loadSessionHistory.mockResolvedValue([]);
+        runtimeState.run.mockImplementation(staysRunningInSession(12));
+        const next = await center.startTask({ prompt: 'Next', sessionId: 12 });
+        expect(center.getTaskSnapshot(next.taskId)?.pendingUserMessages).toEqual([
+            expect.objectContaining({ prompt: 'Follow up' }),
+        ]);
+        center.cancelTask(next.taskId);
     });
 
     it('user sees a background task marked as such', async () => {

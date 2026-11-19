@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useAgent } from '@/composables/agent/useAgent';
+import type { PendingUserMessage } from '@/services/AgentService';
 
 /**
  * When a conversation is reopened the page has to pick a model and provider to show in the
@@ -15,6 +16,8 @@ const { getSessionDataMock, sessionTaskCenterMock } = vi.hoisted(() => ({
         approveTaskToolCall: vi.fn(() => true),
         cancelTask: vi.fn(() => true),
         rejectTaskToolCall: vi.fn(() => true),
+        restoreSessionQueue: vi.fn<() => Promise<PendingUserMessage[]>>(async () => []),
+        resumeSessionQueue: vi.fn(),
         startTask: vi.fn(),
         subscribeTask: vi.fn(),
     },
@@ -134,4 +137,85 @@ describe('user reopens a conversation whose model was deleted', () => {
 
         mounted.unmount();
     });
+});
+
+describe('user reopens a conversation with durable pending messages', () => {
+    it('user gets the queued bubbles restored and the queue resumed', async () => {
+        const pending = {
+            id: 'pending-1',
+            prompt: 'continue later',
+            delivery: 'queue' as const,
+            attachments: [],
+            createdAt: 1,
+        };
+        getSessionDataMock.mockResolvedValue(sessionData());
+        sessionTaskCenterMock.restoreSessionQueue.mockResolvedValueOnce([pending]);
+        const mounted = await mountComposable(() => useAgent());
+
+        await mounted.result.openSession(7);
+
+        expect(mounted.result.pendingUserMessages.value).toEqual([pending]);
+        expect(sessionTaskCenterMock.resumeSessionQueue).toHaveBeenCalledWith(7);
+
+        mounted.unmount();
+    });
+});
+
+describe('user changes views while saved history is still loading', () => {
+    it('user opens another conversation and keeps its queue when the earlier history arrives later', async () => {
+        let resolveEarlier!: (data: ReturnType<typeof sessionData>) => void;
+        const earlierData = new Promise<ReturnType<typeof sessionData>>((resolve) => {
+            resolveEarlier = resolve;
+        });
+        getSessionDataMock.mockImplementation((sessionId: number) =>
+            sessionId === 7
+                ? earlierData
+                : Promise.resolve(sessionData({ session: { id: 8, title: 'Newer conversation' } }))
+        );
+        const earlierPending: PendingUserMessage = {
+            id: 'earlier-pending',
+            prompt: 'earlier queue',
+            delivery: 'queue',
+            attachments: [],
+            createdAt: 1,
+        };
+        const newerPending = { ...earlierPending, id: 'newer-pending', prompt: 'newer queue' };
+        sessionTaskCenterMock.restoreSessionQueue
+            .mockResolvedValueOnce([earlierPending])
+            .mockResolvedValueOnce([newerPending]);
+        const mounted = await mountComposable(() => useAgent());
+
+        const earlierOpen = mounted.result.openSession(7);
+        await mounted.result.openSession(8);
+        resolveEarlier(sessionData());
+        await expect(earlierOpen).resolves.toMatchObject({ sessionId: 7 });
+
+        expect(mounted.result.currentSessionId.value).toBe(8);
+        expect(mounted.result.pendingUserMessages.value).toEqual([newerPending]);
+        mounted.unmount();
+    });
+
+    it.each(['clear', 'unmount'] as const)(
+        'user leaves the conversation through %s and is not brought back by a late history load',
+        async (action) => {
+            let resolveEarlier!: (data: ReturnType<typeof sessionData>) => void;
+            getSessionDataMock.mockReturnValue(
+                new Promise<ReturnType<typeof sessionData>>((resolve) => {
+                    resolveEarlier = resolve;
+                })
+            );
+            const mounted = await mountComposable(() => useAgent());
+            const earlierOpen = mounted.result.openSession(7);
+
+            if (action === 'clear') mounted.result.clearSession();
+            else mounted.unmount();
+            resolveEarlier(sessionData());
+            await expect(earlierOpen).resolves.toMatchObject({ sessionId: 7 });
+
+            expect(mounted.result.currentSessionId.value).toBeNull();
+            expect(mounted.result.pendingUserMessages.value).toEqual([]);
+            expect(mounted.result.sessionHistory.value).toEqual([]);
+            if (action === 'clear') mounted.unmount();
+        }
+    );
 });

@@ -1,6 +1,6 @@
 ﻿// Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { asc, count, desc, eq } from 'drizzle-orm';
+import { asc, count, desc, eq, sql } from 'drizzle-orm';
 
 import { type DatabaseExecutor, db } from '../index';
 import { models, providers, sessionTurns } from '../schema';
@@ -55,6 +55,31 @@ export const updateSessionTurn = async ({
     database?: DatabaseExecutor;
 }): Promise<void> => {
     await database.update(sessionTurns).set(turnPatch).where(eq(sessionTurns.id, id)).run();
+};
+
+export const appendSessionTurnInputSnapshot = async ({
+    id,
+    messageId,
+    inputSnapshotJson,
+    database = db,
+}: {
+    id: number;
+    messageId: number;
+    inputSnapshotJson: string;
+    database?: DatabaseExecutor;
+}): Promise<SessionTurnEntity> => {
+    const turn = await database
+        .update(sessionTurns)
+        .set({
+            prompt_snapshot_json: sql`json_set(${sessionTurns.prompt_snapshot_json}, ${`$.messageInputSnapshots."${messageId}"`}, json(${inputSnapshotJson}))`,
+        })
+        .where(eq(sessionTurns.id, id))
+        .returning()
+        .get();
+    if (!turn) {
+        throw new Error('Failed to save session turn input snapshot');
+    }
+    return turn;
 };
 
 /**

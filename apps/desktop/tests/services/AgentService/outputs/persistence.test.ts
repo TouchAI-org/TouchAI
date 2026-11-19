@@ -11,6 +11,7 @@ import { PersistenceProjector } from '@/services/AgentService/outputs/persistenc
 
 const queries = vi.hoisted(() => ({
     createMessage: vi.fn(),
+    deletePendingMessage: vi.fn(),
     createMessageParts: vi.fn(),
     updateMessage: vi.fn(),
     syncOutputParts: vi.fn(),
@@ -90,7 +91,13 @@ function createSnapshot() {
     };
 }
 
-function createProjector(overrides: { sessionId?: number | null; attachments?: unknown[] } = {}) {
+function createProjector(
+    overrides: {
+        sessionId?: number | null;
+        attachments?: unknown[];
+        pendingMessageId?: string;
+    } = {}
+) {
     return new PersistenceProjector({
         sessionId: overrides.sessionId === undefined ? 1 : overrides.sessionId,
         model: { id: 1, provider_id: 1, model_id: 'test-model' },
@@ -100,6 +107,7 @@ function createProjector(overrides: { sessionId?: number | null; attachments?: u
         maxRetries: 3,
         buildSessionTitle: (prompt) => prompt,
         promptSnapshot: createSnapshot(),
+        ...(overrides.pendingMessageId ? { pendingMessageId: overrides.pendingMessageId } : {}),
         ...(overrides.attachments ? { attachments: overrides.attachments as never } : {}),
     });
 }
@@ -149,6 +157,7 @@ describe('user waits for the answer while its turn is recorded', () => {
         vi.clearAllMocks();
         let messageId = 10;
         queries.createMessage.mockImplementation(async (draft) => ({ ...draft, id: messageId++ }));
+        queries.deletePendingMessage.mockResolvedValue(undefined);
         queries.createSession.mockImplementation(async (draft) => ({ ...draft, id: 3 }));
         queries.createSessionTurn.mockImplementation(async (draft) => ({ ...draft, id: 2 }));
         queries.createSessionTurnAttempt.mockImplementation(async (draft) => ({ ...draft, id: 3 }));
@@ -239,6 +248,34 @@ describe('user waits for the answer while its turn is recorded', () => {
         expect(queries.createSessionTurn).toHaveBeenCalledWith(
             expect.objectContaining({ prompt_message_id: 10, task_id: 'task-1' }),
             expect.anything()
+        );
+    });
+
+    it('user gets a delivered queued message removed in the same transaction', async () => {
+        const projector = createProjector({ pendingMessageId: 'pending-1' });
+
+        await projector.recordTurnStart(createCheckpoint());
+
+        expect(queries.deletePendingMessage).toHaveBeenCalledWith('pending-1', expect.anything());
+        expect(queries.deletePendingMessage.mock.calls[0]?.[1]).toBe(
+            queries.createMessage.mock.calls[0]?.[1]
+        );
+    });
+
+    it('user gets a delivered steer removed from the queue in the same transaction', async () => {
+        const projector = createProjector();
+
+        await projector.persistInjectedUserMessages([
+            {
+                prompt: 'Steer this',
+                id: 'pending-2',
+                attachments: [],
+            },
+        ]);
+
+        expect(queries.deletePendingMessage).toHaveBeenCalledWith('pending-2', expect.anything());
+        expect(queries.deletePendingMessage.mock.calls[0]?.[1]).toBe(
+            queries.createMessage.mock.calls[0]?.[1]
         );
     });
 

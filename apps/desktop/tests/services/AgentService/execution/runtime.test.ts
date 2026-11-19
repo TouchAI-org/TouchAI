@@ -32,6 +32,8 @@ const {
     findUnsupportedSessionAttachmentTypesMock,
     composePromptSnapshotMock,
     buildPromptTransportMessagesMock,
+    buildUserPromptMessageMock,
+    loadSelectedSkillsMock,
     getCurrentModelLanguageContextMock,
     shouldRetryRequestFailureMock,
     waitForRetryDelayMock,
@@ -46,6 +48,8 @@ const {
     findUnsupportedSessionAttachmentTypesMock: vi.fn(),
     composePromptSnapshotMock: vi.fn(),
     buildPromptTransportMessagesMock: vi.fn(),
+    buildUserPromptMessageMock: vi.fn(),
+    loadSelectedSkillsMock: vi.fn(),
     getCurrentModelLanguageContextMock: vi.fn(),
     shouldRetryRequestFailureMock: vi.fn(),
     waitForRetryDelayMock: vi.fn(async () => undefined),
@@ -63,6 +67,11 @@ const {
         markCancelled: vi.fn(async () => undefined),
         markFailed: vi.fn(async () => undefined),
         beginNextAttempt: vi.fn(async () => undefined),
+        closeOutputBoundary: vi.fn(),
+        discardPendingUserMessage: vi.fn(async () => undefined),
+        persistInjectedUserMessages: vi.fn(
+            async () => new Map([['pending-1', { id: 11, fingerprint: 'f'.repeat(64) }]])
+        ),
     },
 }));
 
@@ -94,6 +103,11 @@ vi.mock('@/services/AgentService/prompt/composer', () => ({
 
 vi.mock('@/services/AgentService/prompt/transport', () => ({
     buildPromptTransportMessages: buildPromptTransportMessagesMock,
+    buildUserPromptMessage: buildUserPromptMessageMock,
+}));
+
+vi.mock('@/services/AgentService/skills', () => ({
+    loadSelectedSkills: loadSelectedSkillsMock,
 }));
 
 vi.mock('@/services/AgentService/languageContext', () => ({
@@ -285,6 +299,7 @@ describe('user starts a turn that needs a new conversation', () => {
         findUnsupportedSessionAttachmentTypesMock.mockResolvedValue([]);
         composePromptSnapshotMock.mockResolvedValue(createSnapshot());
         buildPromptTransportMessagesMock.mockResolvedValue([{ role: 'user', content: 'hello' }]);
+        loadSelectedSkillsMock.mockResolvedValue([]);
         getCurrentModelLanguageContextMock.mockReturnValue({ ...LANGUAGE_CONTEXT });
         findModelPricingMock.mockResolvedValue({ outputPerMillion: '15' });
         updateModelLastUsedMock.mockResolvedValue(undefined);
@@ -341,6 +356,440 @@ describe('user starts a turn that needs a new conversation', () => {
         expect(events[1]).toMatchObject({ type: 'task_started', turnId: null });
     });
 
+    it('user gets an inserted message persisted and announced at the tool boundary', async () => {
+        const executor = createExecutor();
+        buildUserPromptMessageMock.mockResolvedValue({ role: 'user', content: 'Insert this' });
+        const { runtime, events } = run(executor, {
+            taskId: 'task-1',
+            takePriorityUserMessages: () => [
+                {
+                    id: 'pending-1',
+                    prompt: 'Insert this',
+                    attachments: [],
+                    delivery: 'priority',
+                    createdAt: 1,
+                },
+            ],
+        });
+
+        await runtime.run();
+
+        const attemptOptions = executor.runAttempt.mock.calls[0]![0] as ExecuteRequestOptions;
+        const injected = await attemptOptions.onToolBoundary!({
+            persister: projectorMock as never,
+            model: createModel(),
+        });
+
+        expect(projectorMock.persistInjectedUserMessages).toHaveBeenCalledWith([
+            {
+                prompt: 'Insert this',
+                attachments: [],
+                id: 'pending-1',
+            },
+        ]);
+        // The stored row is the context source, so the next request can point back at it.
+        expect(injected).toEqual({
+            messages: [
+                {
+                    role: 'user',
+                    content: 'Insert this',
+                    contextSource: { id: 11, fingerprint: 'f'.repeat(64) },
+                },
+            ],
+        });
+        expect(events).toContainEqual({
+            type: 'user_messages_delivered',
+            taskId: 'task-1',
+            messages: [{ id: 'pending-1', prompt: 'Insert this', attachments: [] }],
+        });
+    });
+
+    it('user gets an immediate steer injected without waiting for a tool call', async () => {
+        const executor = createExecutor();
+        buildUserPromptMessageMock.mockResolvedValue({ role: 'user', content: 'Steer this' });
+        const { runtime, events } = run(executor, {
+            taskId: 'task-1',
+            takePriorityUserMessages: () => [
+                {
+                    id: 'pending-1',
+                    prompt: 'Steer this',
+                    attachments: [],
+                    delivery: 'priority',
+                    immediate: true,
+                    createdAt: 1,
+                },
+            ],
+            hasImmediatePriorityUserMessages: () => true,
+        });
+
+        await runtime.run();
+
+        const attemptOptions = executor.runAttempt.mock.calls[0]![0] as ExecuteRequestOptions;
+        expect(attemptOptions.shouldInterruptForImmediateSteer?.()).toBe(true);
+
+        const injected = await attemptOptions.onSteerBoundary!({
+            persister: projectorMock as never,
+            model: createModel(),
+        });
+
+        expect(projectorMock.persistInjectedUserMessages).toHaveBeenCalledWith([
+            {
+                prompt: 'Steer this',
+                attachments: [],
+                id: 'pending-1',
+            },
+        ]);
+        expect(injected).toEqual({
+            messages: [
+                {
+                    role: 'user',
+                    content: 'Steer this',
+                    contextSource: { id: 11, fingerprint: 'f'.repeat(64) },
+                },
+            ],
+        });
+        expect(events).toContainEqual({
+            type: 'user_messages_delivered',
+            taskId: 'task-1',
+            messages: [{ id: 'pending-1', prompt: 'Steer this', attachments: [] }],
+        });
+    });
+
+    it('user gets a tagged skill included when a priority message is delivered', async () => {
+        const executor = createExecutor();
+        const path = '/home/user/.agents/skills/summary/SKILL.md';
+        const selectedSkills = [{ name: 'summary', path }];
+        const inputSnapshot = {
+            text: 'Insert this',
+            attachments: [],
+            skills: selectedSkills,
+        };
+        buildUserPromptMessageMock.mockResolvedValue({ role: 'user', content: 'Insert this' });
+        loadSelectedSkillsMock.mockResolvedValueOnce([
+            {
+                name: 'summary',
+                path,
+                contextText: '<skill>\nSummarize carefully\n</skill>',
+            },
+        ]);
+        const { runtime, events } = run(executor, {
+            taskId: 'task-1',
+            takePriorityUserMessages: () => [
+                {
+                    id: 'pending-1',
+                    prompt: 'Insert this',
+                    attachments: [],
+                    inputSnapshot,
+                    delivery: 'priority',
+                    createdAt: 1,
+                },
+            ],
+        });
+
+        await runtime.run();
+
+        const attemptOptions = executor.runAttempt.mock.calls[0]![0] as ExecuteRequestOptions;
+        const injected = await attemptOptions.onToolBoundary!({
+            persister: projectorMock as never,
+            model: createModel(),
+        });
+
+        expect(loadSelectedSkillsMock).toHaveBeenCalledWith(selectedSkills, 'user_tag');
+        expect(injected).toEqual({
+            messages: [
+                {
+                    role: 'user',
+                    content: 'Insert this',
+                    contextSource: { id: 11, fingerprint: 'f'.repeat(64) },
+                },
+            ],
+            privateContents: [
+                {
+                    index: 0,
+                    content: '<skill>\nSummarize carefully\n</skill>\n\nInsert this',
+                },
+            ],
+        });
+        expect(events).toContainEqual({
+            type: 'user_messages_delivered',
+            taskId: 'task-1',
+            messages: [
+                {
+                    id: 'pending-1',
+                    prompt: 'Insert this',
+                    attachments: [],
+                    inputSnapshot,
+                },
+            ],
+        });
+    });
+
+    it('user gets a tagged skill before the existing content parts', async () => {
+        const executor = createExecutor();
+        const path = '/home/user/.agents/skills/summary/SKILL.md';
+        const selectedSkills = [{ name: 'summary', path }];
+        buildUserPromptMessageMock.mockResolvedValue({
+            role: 'user',
+            content: [{ type: 'text', text: 'Insert this' }],
+        });
+        loadSelectedSkillsMock.mockResolvedValueOnce([
+            {
+                name: 'summary',
+                path,
+                contextText: '<skill>\nSummarize carefully\n</skill>',
+            },
+        ]);
+        const { runtime } = run(executor, {
+            taskId: 'task-1',
+            takePriorityUserMessages: () => [
+                {
+                    id: 'pending-1',
+                    prompt: 'Insert this',
+                    attachments: [],
+                    inputSnapshot: {
+                        text: 'Insert this',
+                        attachments: [],
+                        skills: selectedSkills,
+                    },
+                    delivery: 'priority',
+                    createdAt: 1,
+                },
+            ],
+        });
+
+        await runtime.run();
+
+        const attemptOptions = executor.runAttempt.mock.calls[0]![0] as ExecuteRequestOptions;
+        const injected = await attemptOptions.onToolBoundary!({
+            persister: projectorMock as never,
+            model: createModel(),
+        });
+
+        expect(injected).toEqual({
+            messages: [
+                {
+                    role: 'user',
+                    content: [{ type: 'text', text: 'Insert this' }],
+                    contextSource: { id: 11, fingerprint: 'f'.repeat(64) },
+                },
+            ],
+            privateContents: [
+                {
+                    index: 0,
+                    content: [
+                        { type: 'text', text: '<skill>\nSummarize carefully\n</skill>' },
+                        { type: 'text', text: 'Insert this' },
+                    ],
+                },
+            ],
+        });
+    });
+
+    it('user gets a priority message removed when its tagged skill cannot load', async () => {
+        const executor = createExecutor();
+        const reportPersistenceIssue = vi.fn();
+        const path = '/home/user/.agents/skills/summary/SKILL.md';
+        const inputSnapshot = {
+            text: 'Insert this',
+            attachments: [],
+            skills: [{ name: 'summary', path }],
+        };
+        buildUserPromptMessageMock.mockResolvedValue({ role: 'user', content: 'Insert this' });
+        loadSelectedSkillsMock.mockRejectedValueOnce(new Error('skill was disabled'));
+        const { runtime, events } = run(executor, {
+            taskId: 'task-1',
+            takePriorityUserMessages: () => [
+                {
+                    id: 'pending-1',
+                    prompt: 'Insert this',
+                    attachments: [],
+                    inputSnapshot,
+                    delivery: 'priority',
+                    createdAt: 1,
+                },
+            ],
+            environment: { reportPersistenceIssue },
+        });
+
+        await runtime.run();
+
+        const attemptOptions = executor.runAttempt.mock.calls[0]![0] as ExecuteRequestOptions;
+        const injected = await attemptOptions.onToolBoundary!({
+            persister: projectorMock as never,
+            model: createModel(),
+        });
+
+        expect(injected).toEqual({ messages: [] });
+        expect(projectorMock.persistInjectedUserMessages).not.toHaveBeenCalled();
+        expect(events).toContainEqual({
+            type: 'user_messages_rejected',
+            taskId: 'task-1',
+            messageIds: ['pending-1'],
+        });
+        expect(events).not.toContainEqual(
+            expect.objectContaining({ type: 'user_messages_delivered' })
+        );
+        expect(reportPersistenceIssue).toHaveBeenCalledWith(
+            expect.objectContaining({
+                phase: 'user_message_delivery',
+                body: expect.stringMatching(/技能|skill/i),
+                error: expect.any(Error),
+            })
+        );
+    });
+
+    it('user gets an unsupported steer removed and reported instead of silently dropped', async () => {
+        const executor = createExecutor();
+        const reportPersistenceIssue = vi.fn();
+        getUnsupportedAttachmentTypesMock.mockImplementation((attachments: unknown[]) =>
+            attachments.length > 0 ? ['image', 'file'] : []
+        );
+        const { runtime, events } = run(executor, {
+            taskId: 'task-1',
+            takePriorityUserMessages: () => [
+                {
+                    id: 'pending-1',
+                    prompt: 'Steer this image',
+                    attachments: [
+                        {
+                            id: 'attachment-1',
+                            type: 'image',
+                            name: 'chart.png',
+                            path: 'D:/cache/chart.png',
+                            originPath: 'D:/origin/chart.png',
+                            mimeType: 'image/png',
+                            size: 12,
+                        } as never,
+                        {
+                            id: 'attachment-2',
+                            type: 'file',
+                            name: 'notes.txt',
+                            path: 'D:/cache/notes.txt',
+                            originPath: 'D:/origin/notes.txt',
+                            mimeType: 'text/plain',
+                            size: 8,
+                        } as never,
+                    ],
+                    delivery: 'priority',
+                    immediate: true,
+                    createdAt: 1,
+                },
+            ],
+            hasImmediatePriorityUserMessages: () => true,
+            environment: { reportPersistenceIssue },
+        });
+
+        await runtime.run();
+
+        const attemptOptions = executor.runAttempt.mock.calls[0]![0] as ExecuteRequestOptions;
+        const injected = await attemptOptions.onSteerBoundary!({
+            persister: projectorMock as never,
+            model: createModel(),
+        });
+
+        expect(injected).toEqual({ messages: [] });
+        expect(projectorMock.persistInjectedUserMessages).not.toHaveBeenCalled();
+        expect(buildUserPromptMessageMock).not.toHaveBeenCalled();
+        expect(events).toContainEqual({
+            type: 'user_messages_rejected',
+            taskId: 'task-1',
+            messageIds: ['pending-1'],
+        });
+        expect(events).not.toContainEqual(
+            expect.objectContaining({ type: 'user_messages_delivered' })
+        );
+        expect(reportPersistenceIssue).toHaveBeenCalledWith(
+            expect.objectContaining({
+                phase: 'user_message_delivery',
+                body: expect.stringMatching(/image|图片/),
+            })
+        );
+        expect(reportPersistenceIssue).toHaveBeenCalledWith(
+            expect.objectContaining({ body: expect.stringMatching(/file|文件/) })
+        );
+    });
+
+    it('user gets an unbuildable steer removed instead of retrying it forever', async () => {
+        const executor = createExecutor();
+        const reportPersistenceIssue = vi.fn();
+        buildUserPromptMessageMock.mockRejectedValueOnce(new Error('attachment read failed'));
+        const { runtime, events } = run(executor, {
+            taskId: 'task-1',
+            takePriorityUserMessages: () => [
+                {
+                    id: 'pending-1',
+                    prompt: 'Steer this',
+                    attachments: [],
+                    delivery: 'priority',
+                    createdAt: 1,
+                },
+            ],
+            environment: { reportPersistenceIssue },
+        });
+
+        await runtime.run();
+
+        const attemptOptions = executor.runAttempt.mock.calls[0]![0] as ExecuteRequestOptions;
+        const injected = await attemptOptions.onToolBoundary!({
+            persister: projectorMock as never,
+            model: createModel(),
+        });
+
+        expect(injected).toEqual({ messages: [] });
+        // A message that cannot be materialized must not leave a committed
+        // history row behind and then remain eligible for a retry.
+        expect(projectorMock.persistInjectedUserMessages).not.toHaveBeenCalled();
+        expect(projectorMock.closeOutputBoundary).toHaveBeenCalled();
+        expect(events).toContainEqual({
+            type: 'user_messages_rejected',
+            taskId: 'task-1',
+            messageIds: ['pending-1'],
+        });
+        expect(reportPersistenceIssue).toHaveBeenCalledWith(
+            expect.objectContaining({
+                phase: 'user_message_delivery',
+                title: expect.stringMatching(/移出队列|removed from queue/i),
+                body: expect.stringMatching(/无法准备消息内容|could not prepare the message/i),
+            })
+        );
+    });
+
+    it('user keeps the interrupted answer separate when persisting a steer fails', async () => {
+        const executor = createExecutor();
+        buildUserPromptMessageMock.mockResolvedValue({ role: 'user', content: 'Steer this' });
+        projectorMock.persistInjectedUserMessages.mockRejectedValueOnce(
+            new Error('database is locked')
+        );
+        const releasePriorityUserMessages = vi.fn();
+        const { runtime, events } = run(executor, {
+            taskId: 'task-1',
+            takePriorityUserMessages: () => [
+                {
+                    id: 'pending-1',
+                    prompt: 'Steer this',
+                    attachments: [],
+                    delivery: 'priority',
+                    createdAt: 1,
+                },
+            ],
+            releasePriorityUserMessages,
+        });
+
+        await runtime.run();
+
+        const attemptOptions = executor.runAttempt.mock.calls[0]![0] as ExecuteRequestOptions;
+        await expect(
+            attemptOptions.onToolBoundary!({
+                persister: projectorMock as never,
+                model: createModel(),
+            })
+        ).rejects.toThrow('database is locked');
+
+        expect(events.some((event) => event.type === 'user_messages_delivered')).toBe(false);
+        expect(releasePriorityUserMessages).toHaveBeenCalledWith(['pending-1']);
+        expect(projectorMock.closeOutputBoundary).toHaveBeenCalled();
+    });
+
     it('user sees no live task events when the request runs outside a task', async () => {
         const executor = createExecutor();
         const { runtime, events } = run(executor);
@@ -389,6 +838,25 @@ describe('user starts a turn that needs a new conversation', () => {
         const { runtime } = run(executor, { taskId: 'task-1' });
 
         await expect(runtime.run()).resolves.toMatchObject({ response: 'Answer' });
+    });
+
+    it('user is told the queued message was not sent when starting it fails', async () => {
+        projectorMock.recordTurnStart.mockRejectedValueOnce(new Error('database is locked'));
+        const reportPersistenceIssue = vi.fn();
+        const { runtime } = run(createExecutor(), {
+            pendingMessageId: 'pending-1',
+            environment: { reportPersistenceIssue },
+        });
+
+        await expect(runtime.run()).rejects.toThrow();
+        expect(reportPersistenceIssue).toHaveBeenCalledWith(
+            expect.objectContaining({
+                phase: 'turn_start',
+                body: expect.stringMatching(
+                    /消息未发送，仍在队列中|message was not sent and remains queued/i
+                ),
+            })
+        );
     });
 
     it('user still gets the answer when reporting a persistence problem throws', async () => {

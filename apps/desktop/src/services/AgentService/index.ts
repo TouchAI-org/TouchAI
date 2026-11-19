@@ -52,6 +52,10 @@ export class AgentService {
 
 export type { ModelWithProvider };
 export type {
+    DeliveredPendingUserMessage,
+    PendingUserMessage,
+    PendingUserMessageDelivery,
+    PendingUserMessageInput,
     SessionTaskSnapshot,
     SessionTaskStatus,
     SessionTaskViewSnapshot,

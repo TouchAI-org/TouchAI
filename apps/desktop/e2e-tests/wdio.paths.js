@@ -9,6 +9,24 @@ const productConfig = JSON.parse(
 const windowsMainExe = productConfig.packaging.mainExe;
 const unixMainExe = windowsMainExe.replace(/\.exe$/i, '');
 
+export function resolveE2eRuntimeDirectory(repoRoot, env = process.env) {
+    const directory = path.resolve(
+        repoRoot,
+        env.TOUCHAI_E2E_RUNTIME_ROOT?.trim() || '.e2e-runtime'
+    );
+    const checkoutRelativePath = path.relative(directory, path.resolve(repoRoot));
+    const containsCheckout =
+        !path.isAbsolute(checkoutRelativePath) &&
+        checkoutRelativePath !== '..' &&
+        !checkoutRelativePath.startsWith(`..${path.sep}`);
+    if (directory === path.parse(directory).root || containsCheckout) {
+        throw new Error(
+            'The E2E runtime must be a dedicated directory, not a drive, checkout root or checkout ancestor.'
+        );
+    }
+    return directory;
+}
+
 export function resolveE2eCargoProfile(env = process.env) {
     const profile = env.TOUCHAI_E2E_CARGO_PROFILE?.trim();
     return profile || undefined;

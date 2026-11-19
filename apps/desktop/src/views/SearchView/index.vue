@@ -16,9 +16,19 @@
     import { getCurrentWindow } from '@tauri-apps/api/window';
     import { storeToRefs } from 'pinia';
     import { useStateMachine } from 'reka-ui';
-    import { computed, nextTick, onMounted, onUnmounted, reactive, ref, toRef, watch } from 'vue';
+    import {
+        computed,
+        nextTick,
+        onBeforeUnmount,
+        onMounted,
+        onUnmounted,
+        reactive,
+        ref,
+        toRef,
+        watch,
+    } from 'vue';
 
-    import type { SearchKeybindingActionId } from '@/config/searchKeybindings';
+    import type { SearchKeybindingActionId, SearchKeybindings } from '@/config/searchKeybindings';
     import {
         SEARCH_SURFACE_EASING,
         SEARCH_SURFACE_MOTION,
@@ -27,7 +37,7 @@
     import { type AppLocale, t } from '@/i18n';
     import type { ToolApprovalDecisionRequest } from '@/services/AgentService/contracts/tooling';
     import { mcpManager } from '@/services/AgentService/infrastructure/mcp';
-    import type { SessionTaskStatus } from '@/services/AgentService/task/types';
+    import type { PendingUserMessage, SessionTaskStatus } from '@/services/AgentService/task/types';
     import { clipboardService } from '@/services/ClipboardService';
     import type {
         ClipboardPayload,
@@ -376,10 +386,18 @@
             resizeWindowHeight: typeof native.window.resizeWindowHeight;
             resetSearchWindowBounds: () => Promise<void>;
             setSearchFixture: (query: string, results: QuickShortcutItem[]) => void;
-            setConversation: (messages: SessionMessage[]) => void;
+            setConversation: (messages: SessionMessage[]) => Promise<void>;
             setAskUserRequest: (request: E2eAskUserRequest) => void;
             clearAskUser: () => void;
             setLanguage: (locale: AppLocale) => Promise<void>;
+            setSearchKeybindings: (keybindings: Partial<SearchKeybindings>) => Promise<void>;
+            configureE2eModel: (
+                endpoint: string,
+                modelId: string,
+                modelName: string
+            ) => Promise<void>;
+            cancelSearchRequest: () => Promise<void>;
+            clearPendingSearchMessages: () => Promise<void>;
             getQuickSearchFallbackResults?: (query: string) => QuickShortcutItem[];
             resetDraft?: () => void;
             clearSessionToIdle?: () => Promise<void>;
@@ -544,6 +562,7 @@
         clearAttachments,
         getSupportedAttachments,
         getUnsupportedAttachmentMessage,
+        getUnsupportedAttachmentMessageFor,
         syncAttachmentSupport,
     } = useSearchAttachments({
         attachments,
@@ -567,7 +586,7 @@
 
     const {
         pendingRequest,
-        isWaitingForCompletion,
+        pendingUserMessages,
         isLoading,
         error,
         currentSessionId,
@@ -596,13 +615,149 @@
         handleSubmit,
         clearAll,
         cancelRequest,
+        cancelPendingRequest,
+        cancelLatestPendingMessage,
+        promotePendingUserMessage,
+        removePendingUserMessage,
+        updatePendingUserMessage,
+        beginPendingMessageEdit: holdPendingMessageForEdit,
+        endPendingMessageEdit: releasePendingMessageEdit,
+        reorderPendingUserMessages,
         handleRegenerateMessage: handleRegenerateMessageRequest,
     } = useSearchRequestFlow({
         modelOverride,
         clearDraft: requestDraftClear,
-        getSupportedAttachments,
         getUnsupportedAttachmentMessage,
+        getUnsupportedAttachmentMessageFor,
         getCurrentInputSnapshot: buildCurrentInputHistorySnapshot,
+    });
+
+    interface PendingMessageEdit {
+        messageId: string;
+        previousDraft: InputHistorySnapshot;
+        previousModelOverride: SearchModelOverride;
+    }
+
+    const pendingMessageEdit = ref<PendingMessageEdit | null>(null);
+    const editingPendingMessageId = computed(() => pendingMessageEdit.value?.messageId ?? null);
+
+    function restorePendingMessageDraft(message: PendingUserMessage): void {
+        const snapshot = createInputHistorySnapshot({
+            text: message.prompt,
+            attachments: message.attachments,
+            editorDoc: message.inputSnapshot?.editorDoc,
+            excludeFromHistory: message.inputSnapshot?.excludeFromHistory,
+        });
+        applyInputHistorySnapshot(snapshot);
+        modelOverride.value = {
+            modelId: message.modelId ?? null,
+            providerId: message.providerId ?? null,
+        };
+    }
+
+    async function beginPendingMessageEdit(message: PendingUserMessage): Promise<void> {
+        if (!holdPendingMessageForEdit(message.id)) {
+            return;
+        }
+        if (pendingMessageEdit.value?.messageId !== message.id) {
+            // Switching between queued messages keeps the draft the user had
+            // before the first edit, so cancelling the last edit still restores it.
+            const previousEdit = pendingMessageEdit.value;
+            if (previousEdit) {
+                releasePendingMessageEdit(previousEdit.messageId);
+                pendingMessageEdit.value = {
+                    ...previousEdit,
+                    messageId: message.id,
+                };
+            } else {
+                pendingMessageEdit.value = {
+                    messageId: message.id,
+                    previousDraft: buildCurrentInputHistorySnapshot(),
+                    previousModelOverride: { ...modelOverride.value },
+                };
+            }
+        }
+        restorePendingMessageDraft(message);
+        await nextTick();
+        await controller.focusSearchInput();
+    }
+
+    function finishPendingMessageEdit(restoreDraft = true): PendingMessageEdit | null {
+        const edit = pendingMessageEdit.value;
+        if (!edit) {
+            return null;
+        }
+        pendingMessageEdit.value = null;
+        releasePendingMessageEdit(edit.messageId);
+        if (restoreDraft) {
+            applyInputHistorySnapshot(edit.previousDraft);
+            modelOverride.value = { ...edit.previousModelOverride };
+        }
+        return edit;
+    }
+
+    async function cancelPendingMessageEdit(): Promise<void> {
+        if (!finishPendingMessageEdit()) {
+            return;
+        }
+        await nextTick();
+        await controller.focusSearchInput();
+    }
+
+    async function savePendingMessageEdit(
+        query: string,
+        inputSnapshot?: InputHistorySnapshot
+    ): Promise<boolean> {
+        const edit = pendingMessageEdit.value;
+        if (!edit) {
+            return false;
+        }
+
+        const message = pendingUserMessages.value.find(
+            (entry) => entry.id === edit.messageId && entry.delivery === 'queue'
+        );
+        if (!message) {
+            // The message left the queue while the user was editing it. Keep the
+            // typed draft in place instead of silently sending a duplicate turn.
+            finishPendingMessageEdit(false);
+            return true;
+        }
+
+        const unsupportedAttachmentMessage = getUnsupportedAttachmentMessage();
+        if (unsupportedAttachmentMessage) {
+            notify({ title: 'TouchAI', body: unsupportedAttachmentMessage });
+            return true;
+        }
+
+        const editedAttachments = getSupportedAttachments();
+        if (query.trim().length === 0 && editedAttachments.length === 0) {
+            // An empty queued message would be invisible and unsendable. Stay in
+            // edit mode so the user can keep typing or cancel.
+            return true;
+        }
+
+        const updated = updatePendingUserMessage(edit.messageId, {
+            prompt: query,
+            attachments: editedAttachments,
+            inputSnapshot: inputSnapshot ?? buildCurrentInputHistorySnapshot(query),
+            modelId: modelOverride.value.modelId ?? undefined,
+            providerId: modelOverride.value.providerId ?? undefined,
+        });
+        finishPendingMessageEdit(updated);
+        if (!updated) {
+            return true;
+        }
+        await nextTick();
+        await controller.focusSearchInput();
+        return true;
+    }
+
+    watch(currentSessionId, () => {
+        finishPendingMessageEdit(false);
+    });
+
+    onBeforeUnmount(() => {
+        finishPendingMessageEdit(false);
     });
 
     const floatingPicker = computed(
@@ -1005,6 +1160,9 @@
 
     async function handleSearchKeybindingAction(actionId: SearchKeybindingActionId) {
         switch (actionId) {
+            case 'search.submit.queue':
+            case 'search.submit.priority':
+                return;
             case 'search.history.open':
                 await openHistoryDialog();
                 return;
@@ -1336,8 +1494,17 @@
     }
 
     async function submitSearchQuery(
-        ...args: Parameters<typeof handleSubmit>
+        query: string,
+        inputSnapshotOrIntent?:
+            | Parameters<typeof handleSubmit>[1]
+            | Parameters<typeof handleSubmit>[2],
+        intent?: Parameters<typeof handleSubmit>[2],
+        options?: Parameters<typeof handleSubmit>[3]
     ): ReturnType<typeof handleSubmit> {
+        const inputSnapshot =
+            typeof inputSnapshotOrIntent === 'string' ? undefined : inputSnapshotOrIntent;
+        const shortcutIntent =
+            typeof inputSnapshotOrIntent === 'string' ? inputSnapshotOrIntent : intent;
         const quickSearchWasOpen = quickSearchOpen.value;
         const shouldExpand = sessionHistory.value.length === 0 && !effectiveWindowMaximized.value;
         const expansion = shouldExpand || quickSearchWasOpen ? beginSessionExpansion() : null;
@@ -1350,7 +1517,15 @@
                 await hideAllOverlays(false);
             }
 
-            const submitPromise = handleSubmit(...args);
+            // Only pass the arguments the caller actually supplied, so callers that
+            // submit without a snapshot or shortcut keep the simplest call shape.
+            const submitPromise = options?.preserveComposerDraft
+                ? handleSubmit(query, inputSnapshot, shortcutIntent, options)
+                : shortcutIntent === undefined
+                  ? inputSnapshot === undefined
+                      ? handleSubmit(query)
+                      : handleSubmit(query, inputSnapshot)
+                  : handleSubmit(query, inputSnapshot, shortcutIntent);
             if (expansion?.signal.aborted) return submitPromise;
             if (quickSearchWasOpen) {
                 // Hand the viewport over: the results row collapses on the card's curve
@@ -1397,6 +1572,24 @@
         }
     }
 
+    async function submitComposerQuery(
+        query: string,
+        inputSnapshotOrIntent?:
+            | Parameters<typeof handleSubmit>[1]
+            | Parameters<typeof handleSubmit>[2],
+        intent?: Parameters<typeof handleSubmit>[2]
+    ): ReturnType<typeof handleSubmit> {
+        const inputSnapshot =
+            typeof inputSnapshotOrIntent === 'string' ? undefined : inputSnapshotOrIntent;
+        // Saving an edit replaces the queued item in place; it must not branch
+        // into the normal "queue a new message" path. Only the composer owns
+        // this draft, so widget and status replies must bypass it.
+        if (await savePendingMessageEdit(query, inputSnapshot)) {
+            return;
+        }
+        return submitSearchQuery(query, inputSnapshotOrIntent, intent);
+    }
+
     const completeFile = computed(() => {
         if (
             !quickSearchOpen.value ||
@@ -1435,7 +1628,8 @@
         controller,
         sessionHistory,
         pendingRequest,
-        isWaitingForCompletion,
+        cancelPendingRequest,
+        cancelLatestPendingMessage,
         isLoading,
         pendingToolApproval,
         approvePendingToolApproval,
@@ -1463,7 +1657,7 @@
         closeModelDropdown,
         toggleWindowMaximize: handleToggleMaximize,
         handleSearchKeybindingAction,
-        handleSubmit: submitSearchQuery,
+        handleSubmit: submitComposerQuery,
         clearAll,
         cancelRequest,
         clearSession: clearSessionToIdle,
@@ -1473,6 +1667,21 @@
 
     function handleQueryTextChange(value: string) {
         queryText.value = value;
+    }
+
+    function handleConversationContentResize(): void {
+        // A filled conversation scrolls inside a host that is already at its
+        // maximum height. Feeding every streaming frame back into native window
+        // measurement animates the card on each chunk and makes the whole
+        // surface flicker. The compact card still has to grow when a
+        // conversation is mounted without the normal submit expansion path.
+        if (
+            (fillConversationAvailableHeight.value || effectiveWindowMaximized.value) &&
+            cardPixelHeight.value > searchWindowDefaultSize.value.height
+        ) {
+            return;
+        }
+        scheduleContentMeasurement();
     }
 
     function handleSkillInputActiveChange(active: boolean) {
@@ -2261,7 +2470,9 @@
             text: normalizedReply,
             attachments: [],
         });
-        await submitSearchQuery(normalizedReply, replySnapshot);
+        await submitSearchQuery(normalizedReply, replySnapshot, undefined, {
+            preserveComposerDraft: true,
+        });
     }
 
     async function handleSessionStatusReminderAction(payload: SessionStatusReminderActionEvent) {
@@ -2308,6 +2519,43 @@
         await handleRegenerateMessageRequest(messageId);
     }
 
+    async function handlePendingMessageAction(
+        action: 'sendNow' | 'edit' | 'remove' | 'cancelEdit',
+        messageId: string
+    ): Promise<void> {
+        if (action === 'cancelEdit') {
+            await cancelPendingMessageEdit();
+            return;
+        }
+
+        if (action === 'sendNow' || action === 'remove') {
+            const editFinished = pendingMessageEdit.value?.messageId === messageId;
+            if (editFinished) {
+                finishPendingMessageEdit();
+            }
+            if (action === 'sendNow') {
+                promotePendingUserMessage(messageId);
+            } else {
+                removePendingUserMessage(messageId);
+            }
+            if (editFinished) {
+                await nextTick();
+                await controller.focusSearchInput();
+            }
+            return;
+        }
+
+        const message = pendingUserMessages.value.find((entry) => entry.id === messageId);
+        if (!message) {
+            return;
+        }
+        await beginPendingMessageEdit(message);
+    }
+
+    function handlePendingMessagesReorder(orderedMessageIds: string[]): void {
+        reorderPendingUserMessages(orderedMessageIds);
+    }
+
     function applyE2eSearchQuery(nextText: string) {
         const snapshot = createInputHistorySnapshot({
             text: nextText,
@@ -2347,8 +2595,9 @@
                     attachments: [],
                     excludeFromHistory: true,
                 });
-                applyE2eSearchQuery(text);
-                await submitSearchQuery(text, snapshot);
+                await submitSearchQuery(text, snapshot, undefined, {
+                    preserveComposerDraft: true,
+                });
             },
             getQuickSearchFallbackResults(query: string) {
                 const fixture = e2eSearchFixture.value;
@@ -2362,8 +2611,54 @@
             setSearchFixture(query: string, results: QuickShortcutItem[]) {
                 e2eSearchFixture.value = { query, results };
             },
-            setConversation(messages: SessionMessage[]) {
+            async setConversation(messages: SessionMessage[]) {
                 sessionHistory.value = messages;
+                if (messages.length === 0) {
+                    return;
+                }
+
+                // E2E fixtures bypass submit/openSession. Expand through the
+                // same geometry owner so the card reaches the height a real
+                // conversation would use instead of staying at the idle bar.
+                // The panel can mount a frame or two after the history update,
+                // especially after the surface was reset. WebView2 can coalesce
+                // requestAnimationFrame callbacks while the native host settles,
+                // so a timer-bounded poll must wait for the panel and its
+                // measured content instead of counting animation frames.
+                const deadline = Date.now() + 5_000;
+                let mountedAt: number | null = null;
+                let contentHeight: number | null = null;
+                while (Date.now() < deadline) {
+                    await nextTick();
+                    if (
+                        searchViewContentReady.value &&
+                        conversationPanel.value &&
+                        sessionHistory.value.length > 0
+                    ) {
+                        mountedAt ??= Date.now();
+                        contentHeight = measureTargetHeight();
+                        // Long fixtures reveal as soon as the scroller publishes
+                        // its content. Short fixtures stay at the compact target,
+                        // so allow them a short settling window.
+                        if (
+                            contentHeight !== null &&
+                            (contentHeight > searchWindowDefaultSize.value.height ||
+                                Date.now() - mountedAt >= 500)
+                        ) {
+                            break;
+                        }
+                    } else {
+                        contentHeight = null;
+                        mountedAt = null;
+                    }
+                    await new Promise<void>((resolve) => window.setTimeout(resolve, 16));
+                }
+                if (contentHeight === null) {
+                    throw new Error('The E2E conversation fixture did not mount in time.');
+                }
+                await playSessionExpandAnimation(contentHeight).catch((error) => {
+                    log.error('[SearchView] Failed to expand the E2E conversation fixture:', error);
+                });
             },
             setAskUserRequest(request: E2eAskUserRequest) {
                 if (request.kind === 'confirm') {
@@ -2378,6 +2673,90 @@
             async setLanguage(locale: AppLocale) {
                 await settingsStore.initialize();
                 await settingsStore.updateLanguage(locale);
+            },
+            async setSearchKeybindings(keybindings: Partial<SearchKeybindings>) {
+                await settingsStore.initialize();
+                await settingsStore.updateSearchKeybindings({
+                    ...settingsStore.searchKeybindings,
+                    ...keybindings,
+                });
+            },
+            async configureE2eModel(endpoint: string, modelId: string, modelName: string) {
+                const {
+                    createModel,
+                    createProvider,
+                    findModelsWithProvider,
+                    setDefaultModel,
+                    updateModel,
+                    updateProvider,
+                } = await import('@database/queries');
+                const providerName = 'TouchAI E2E Local';
+                const existingModels = await findModelsWithProvider();
+                const existingProvider = existingModels.find(
+                    (model) => model.provider_name === providerName
+                );
+                let providerId: number;
+
+                if (existingProvider) {
+                    providerId = existingProvider.provider_id;
+                    await updateProvider({
+                        id: providerId,
+                        providerPatch: {
+                            driver: 'openai-compatible',
+                            api_endpoint: endpoint,
+                            enabled: 1,
+                            is_builtin: 0,
+                        },
+                    });
+                } else {
+                    providerId = (
+                        await createProvider({
+                            name: providerName,
+                            driver: 'openai-compatible',
+                            api_endpoint: endpoint,
+                            api_key: null,
+                            config_json: null,
+                            logo: 'openai.png',
+                            enabled: 1,
+                            is_builtin: 0,
+                        })
+                    ).id;
+                }
+
+                const existingModel = existingModels.find(
+                    (model) => model.provider_id === providerId && model.model_id === modelId
+                );
+                const modelPatch = {
+                    name: modelName,
+                    tool_call: 1,
+                    context_limit: 65_536,
+                    output_limit: 8_192,
+                };
+                let modelDbId = existingModel?.id;
+                if (modelDbId === undefined) {
+                    modelDbId = (
+                        await createModel({
+                            provider_id: providerId,
+                            model_id: modelId,
+                            ...modelPatch,
+                        })
+                    ).id;
+                } else {
+                    await updateModel({ id: modelDbId, modelPatch });
+                }
+
+                await setDefaultModel({ modelId: modelDbId });
+                modelOverride.value = { modelId: null, providerId: null };
+                controller.invalidateModelDropdownData();
+                await controller.loadActiveModel();
+            },
+            async cancelSearchRequest() {
+                cancelRequest();
+                await nextTick();
+            },
+            async clearPendingSearchMessages() {
+                cancelPendingRequest();
+                await nextTick();
             },
             async clearSessionToIdle() {
                 await clearSessionToIdle();
@@ -2410,7 +2789,9 @@
             attachments: [],
             excludeFromHistory: true,
         });
-        void submitSearchQuery(normalizedText, widgetSnapshot);
+        void submitSearchQuery(normalizedText, widgetSnapshot, undefined, {
+            preserveComposerDraft: true,
+        });
     }
 
     function handleWidgetOpenLink(url: string) {
@@ -2791,6 +3172,8 @@
                                 <ConversationPanel
                                     ref="conversationPanel"
                                     :messages="sessionHistory"
+                                    :pending-messages="pendingUserMessages"
+                                    :editing-pending-message-id="editingPendingMessageId"
                                     :is-loading="isLoading"
                                     :error="error"
                                     :is-pinned="isPinned"
@@ -2805,7 +3188,9 @@
                                     @drag-start="handleSearchPanelDragStart"
                                     @drag-end="handleSearchPanelDragEnd"
                                     @regenerate-message="handleRegenerateMessage"
-                                    @content-resize="scheduleContentMeasurement()"
+                                    @pending-action="handlePendingMessageAction"
+                                    @reorder-pending-messages="handlePendingMessagesReorder"
+                                    @content-resize="handleConversationContentResize"
                                     @latest-content-visibility-change="
                                         handleLatestContentVisibilityChange
                                     "
@@ -2837,9 +3222,7 @@
                             >
                                 <SearchBar
                                     ref="searchBar"
-                                    :disabled="
-                                        isWaitingForCompletion || Boolean(pendingToolApproval)
-                                    "
+                                    :disabled="Boolean(pendingToolApproval)"
                                     :query-text="queryText"
                                     :attachments="attachments"
                                     :complete-file="completeFile"

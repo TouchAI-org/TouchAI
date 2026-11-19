@@ -8,6 +8,10 @@
  */
 export { sessionTaskCenter } from './center';
 export type {
+    DeliveredPendingUserMessage,
+    PendingUserMessage,
+    PendingUserMessageDelivery,
+    PendingUserMessageInput,
     SessionTaskSnapshot,
     SessionTaskStatus,
     SessionTaskViewSnapshot,

@@ -14,10 +14,17 @@
  * bugs live in how the scroll position moves between states. These cases assert the
  * viewport geometry instead, so they survive a restyle.
  */
+import { createAgentStreamServer, deferred } from '../support/agent-stream.js';
 import {
     sampleConversationNavigation,
     targetExcursionAfterArrival,
 } from '../support/conversation-navigation.js';
+import {
+    fillSearchDraft,
+    loadingMessage,
+    submitSearchDraft,
+    waitForConversation,
+} from '../support/conversation-queue.js';
 import {
     assertVisible,
     callE2eBridge,
@@ -88,9 +95,36 @@ async function readScrollState() {
             scrollTop: viewport.scrollTop,
             scrollHeight: viewport.scrollHeight,
             clientHeight: viewport.clientHeight,
+            clientWidth: viewport.clientWidth,
             mountedMessages: viewport.querySelectorAll('[data-message-id]').length,
+            animations:
+                document.querySelector('[data-testid="search-view-card"]')?.getAnimations()
+                    .length ?? 0,
         };
     });
+}
+
+async function waitForConversationLayout() {
+    let previous = '';
+    let stableSince = Date.now();
+    await browser.waitUntil(
+        async () => {
+            const state = await readScrollState();
+            const signature = JSON.stringify(state);
+            if (
+                !state ||
+                state.clientHeight === 0 ||
+                state.animations > 0 ||
+                signature !== previous
+            ) {
+                previous = signature;
+                stableSince = Date.now();
+                return false;
+            }
+            return Date.now() - stableSince >= 500;
+        },
+        { interval: 50, timeoutMsg: 'The conversation viewport did not finish settling.' }
+    );
 }
 
 async function scrollViewportTo(scrollTop) {
@@ -102,8 +136,7 @@ async function scrollViewportTo(scrollTop) {
             viewport.scrollTop = top;
         }
     }, scrollTop);
-    // One frame for the scroll listener, one for the virtualizer to re-measure.
-    await browser.pause(400);
+    await waitForConversationLayout();
 }
 
 function distanceFromBottom(state) {
@@ -118,17 +151,19 @@ describe('user scrolls a long conversation', () => {
         await resetSearchSurface();
     });
 
+    beforeEach(async () => {
+        await resetSearchSurface();
+        await callE2eBridge('setConversation', buildConversation());
+        await waitForTestIdDisplayed('conversation-panel-host');
+        await waitForConversationLayout();
+    });
+
     after(async () => {
         // Leave the app empty so the specs that follow stay independent.
         await resetSearchSurface();
     });
 
     it('user sees the newest message when a long conversation opens', async () => {
-        await callE2eBridge('setConversation', buildConversation());
-
-        await waitForTestIdDisplayed('conversation-panel-host');
-        await browser.pause(1200);
-
         const state = await readScrollState();
 
         assertVisible(state !== null, 'The message viewport was not found.');
@@ -157,7 +192,7 @@ describe('user scrolls a long conversation', () => {
 
         // A new answer arrives while the user is reading older text.
         await callE2eBridge('setConversation', buildConversation(1));
-        await browser.pause(800);
+        await waitForConversationLayout();
 
         const after = await readScrollState();
 
@@ -171,9 +206,12 @@ describe('user scrolls a long conversation', () => {
         );
     });
 
-    it('user gets the newest message again after scrolling back to the bottom', async () => {
-        const current = await readScrollState();
-        await scrollViewportTo(current.scrollHeight);
+    it('user gets the newest message again after using the scroll-to-latest control', async () => {
+        await scrollViewportTo(200);
+        const scrollToLatest = await $('button[aria-label="Scroll to latest message"]');
+        await scrollToLatest.waitForClickable();
+        await scrollToLatest.click();
+        await waitForConversationLayout();
 
         const afterScroll = await readScrollState();
         assertVisible(
@@ -183,7 +221,7 @@ describe('user scrolls a long conversation', () => {
 
         // Following is on again, so the next answer stays in view.
         await callE2eBridge('setConversation', buildConversation(2));
-        await browser.pause(800);
+        await waitForConversationLayout();
 
         const afterStream = await readScrollState();
         assertVisible(
@@ -204,7 +242,7 @@ describe('user scrolls a long conversation', () => {
         const railDots = await browser.$$('[data-slot="message-scroller-rail"] button');
         assertVisible(railDots.length > 0, 'The message navigation rail was empty.');
         await railDots[0].click();
-        await browser.pause(900);
+        await waitForConversationLayout();
 
         const after = await readScrollState();
 
@@ -234,7 +272,7 @@ describe('user scrolls a long conversation', () => {
         });
         await callE2eBridge('setConversation', messages);
         await waitForTestIdDisplayed('conversation-panel-host');
-        await browser.pause(1500);
+        await waitForConversationLayout();
 
         const reducedMotion = await browser.execute(
             () => matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -262,6 +300,7 @@ describe('user scrolls a long conversation', () => {
     });
 
     it('user can keep scrolling after selecting a question', async () => {
+        await sampleConversationNavigation(4, 'e2e-scroll-8');
         const viewport = await browser.$('[data-slot="message-scroller"] section[aria-label]');
         await viewport.click();
         const readQuestionOffset = () =>
@@ -286,7 +325,7 @@ describe('user scrolls a long conversation', () => {
             }
         );
 
-        await browser.pause(1200);
+        await waitForConversationLayout();
         const settled = await readQuestionOffset();
         assertVisible(
             settled === null || settled < before - 100,
@@ -332,4 +371,156 @@ describe('user scrolls a long conversation', () => {
             await restore.click();
         }
     });
+});
+
+async function wheelConversation(deltaY) {
+    const point = await browser.execute(() => {
+        const viewport = document.querySelector(
+            '[data-slot="message-scroller"] section[aria-label]'
+        );
+        const rect = viewport.getBoundingClientRect();
+        window.__e2eConversationWheel = null;
+        viewport.addEventListener(
+            'wheel',
+            (event) => {
+                window.__e2eConversationWheel = { trusted: event.isTrusted, deltaY: event.deltaY };
+            },
+            { once: true }
+        );
+        return {
+            x: Math.round(rect.left + rect.width / 2),
+            y: Math.round(rect.top + rect.height / 2),
+        };
+    });
+    await browser.performActions([
+        {
+            type: 'wheel',
+            id: 'conversation-reading-wheel',
+            actions: [
+                { type: 'scroll', origin: 'viewport', ...point, deltaX: 0, deltaY, duration: 0 },
+            ],
+        },
+    ]);
+    await browser.releaseActions();
+    await browser.waitUntil(
+        () => browser.execute(() => window.__e2eConversationWheel?.trusted === true),
+        { timeoutMsg: 'The conversation did not receive a real wheel gesture.' }
+    );
+}
+
+describe('user reads earlier text while a real answer continues streaming', () => {
+    let server;
+
+    before(async () => {
+        server = await createAgentStreamServer();
+        await waitForE2eBridge();
+        await useInterfaceLanguage();
+        await resetSearchSurface();
+        await callE2eBridge(
+            'configureE2eModel',
+            server.endpoint,
+            server.modelId,
+            'TouchAI E2E Model'
+        );
+        await callE2eBridge('setSearchKeybindings', { 'search.submit.queue': 'Enter' });
+    });
+
+    afterEach(async () => {
+        await callE2eBridge('clearPendingSearchMessages');
+        await callE2eBridge('cancelSearchRequest');
+        await resetSearchSurface();
+        await browser.execute(() => delete window.__e2eConversationWheel);
+        server.reset();
+    });
+
+    after(async () => {
+        await server.close();
+    });
+
+    for (const distance of [8, 64]) {
+        it(`user scrolls up ${distance} pixels and keeps that position until returning to the newest text`, async () => {
+            const finishAnswer = deferred();
+            let activeStream;
+            const paragraph = `${'Streaming answer detail. '.repeat(12)}\n\n`;
+            server.planNext(async ({ stream }) => {
+                activeStream = stream;
+                stream.text(paragraph.repeat(30));
+                await finishAnswer.promise;
+                stream.finish();
+            });
+
+            await fillSearchDraft(`Read during a stream with a ${distance} pixel wheel`);
+            await submitSearchDraft('enter');
+            await server.waitForRequestCount(1);
+            await waitForConversation(
+                (state) => Boolean(loadingMessage(state)),
+                'The real streaming answer did not start.'
+            );
+            await browser.waitUntil(
+                async () => {
+                    const state = await readScrollState();
+                    return state && state.scrollTop > 500 && distanceFromBottom(state) <= 2;
+                },
+                { timeoutMsg: 'The streaming answer did not overflow and settle at the bottom.' }
+            );
+            await waitForConversationLayout();
+            const before = await readScrollState();
+            assertVisible(
+                distanceFromBottom(before) <= 2,
+                'The settled streaming answer did not remain at the live edge.'
+            );
+            await wheelConversation(-distance);
+            await browser.waitUntil(
+                async () => (await readScrollState()).scrollTop < before.scrollTop - 2,
+                { timeoutMsg: 'A small upward wheel did not move the reading position.' }
+            );
+            const reading = await readScrollState();
+
+            for (let index = 0; index < 5; index += 1) {
+                const beforeChunk = await readScrollState();
+                activeStream.text(`Continued paragraph ${index + 1}. ${paragraph.repeat(2)}`);
+                await browser.waitUntil(
+                    async () =>
+                        (await readScrollState()).scrollHeight > beforeChunk.scrollHeight + 20,
+                    { timeoutMsg: 'The model chunk did not increase the real answer height.' }
+                );
+                const afterChunk = await readScrollState();
+                assertVisible(
+                    Math.abs(afterChunk.scrollTop - reading.scrollTop) <= 2,
+                    `The stream pulled the user back after a ${distance}px wheel: ${reading.scrollTop} -> ${afterChunk.scrollTop}.`
+                );
+            }
+            const continued = await readScrollState();
+            assertVisible(
+                distanceFromBottom(continued) > 400,
+                'The answer did not grow while the user read earlier text.'
+            );
+
+            await wheelConversation(continued.scrollHeight);
+            await browser.waitUntil(async () => distanceFromBottom(await readScrollState()) <= 2, {
+                timeoutMsg: 'Scrolling down did not reach the newest text.',
+            });
+            const following = await readScrollState();
+            activeStream.text(`Text after returning to the bottom. ${paragraph.repeat(2)}`);
+            await browser.waitUntil(
+                async () => {
+                    const state = await readScrollState();
+                    return (
+                        state.scrollHeight > following.scrollHeight + 20 &&
+                        distanceFromBottom(state) <= 2
+                    );
+                },
+                { timeoutMsg: 'Following did not resume after returning to the bottom.' }
+            );
+            finishAnswer.resolve();
+            await waitForConversation(
+                (state) => !loadingMessage(state),
+                'The streaming answer did not finish.'
+            );
+            assertVisible(
+                server.requests.length === 1 && server.protocolError === null,
+                'The scroll gesture restarted the model request.'
+            );
+        });
+    }
 });

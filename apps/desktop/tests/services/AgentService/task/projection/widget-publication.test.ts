@@ -15,6 +15,7 @@ function createProjection() {
         status: 'running',
         executionMode: 'foreground',
         sessionHistory: [],
+        pendingUserMessages: [],
         pendingToolApproval: null,
         pendingApprovals: [],
         pendingUserQuestion: null,

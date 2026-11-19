@@ -16,6 +16,7 @@ function createSnapshot(): SessionTaskSnapshot {
         status: 'running',
         executionMode: 'foreground',
         sessionHistory: [],
+        pendingUserMessages: [],
         pendingToolApproval: null,
         pendingApprovals: [],
         pendingUserQuestion: null,

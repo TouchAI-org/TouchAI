@@ -10,6 +10,8 @@
  * broke.
  */
 
+import path from 'node:path';
+
 import { SEARCH_FIXTURE_QUERY, SEARCH_FIXTURE_RESULTS } from './fixtures.js';
 
 const DEFAULT_TIMEOUT_MS = 15000;
@@ -122,6 +124,38 @@ export async function callE2eBridge(methodName, ...args) {
     }
 }
 
+export async function useIsolatedGlobalShortcut(appRoot) {
+    assertVisible(
+        typeof appRoot === 'string' && path.isAbsolute(appRoot),
+        'Shortcut fixtures require an isolated E2E application root.'
+    );
+    const state = await browser.execute(async () => ({
+        runtime: await window.__TAURI_INTERNALS__.invoke('get_runtime_info'),
+        dataDirectory: await window.__TAURI_INTERNALS__.invoke('get_app_directory_path', {
+            directory: 'DATA',
+        }),
+    }));
+    assertVisible(
+        state.runtime?.isE2eTestMode === true &&
+            typeof state.dataDirectory === 'string' &&
+            path.resolve(state.dataDirectory) === path.resolve(appRoot, 'data'),
+        'Shortcut fixtures must only change their own isolated E2E application.'
+    );
+
+    const result = await browser.execute(async () => {
+        const shortcut = 'Ctrl+Alt+Shift+F12';
+        await window.__TAURI_INTERNALS__.invoke('register_global_shortcut', { shortcut });
+        return window.__TAURI_INTERNALS__.invoke('database_query', {
+            request: {
+                sql: 'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+                params: ['global_shortcut', shortcut],
+                method: 'run',
+            },
+        });
+    });
+    assertVisible(result.rowsAffected === 1, 'The isolated E2E shortcut was not saved.');
+}
+
 export async function findElementByTestId(testId) {
     return $(`[data-testid='${testId}']`);
 }
@@ -135,27 +169,53 @@ export async function resetSearchSurface() {
     );
     if (hasConversation) await callE2eBridge('clearSessionToIdle');
     await callE2eBridge('resetSearchWindowBounds');
-    await browser.waitUntil(
-        async () =>
-            browser.execute(async () => {
-                const card = document.querySelector('[data-testid="search-view-card"]');
-                const editor = document.querySelector(
-                    '[data-testid="search-editor-host"] .ProseMirror'
-                );
-                if (!card || !editor) return false;
-                const rect = editor.getBoundingClientRect();
-                const state = await window.__TOUCHAI_E2E__.getSearchWindowState();
-                return (
-                    !document.querySelector('[data-testid="conversation-panel-host"]') &&
-                    card.getAnimations().length === 0 &&
-                    Math.abs(card.getBoundingClientRect().height - state.defaults.height) <= 2 &&
-                    rect.top >= 0 &&
-                    rect.bottom <= innerHeight &&
-                    rect.height > 0
-                );
-            }),
-        { timeoutMsg: 'The search surface did not settle with an accessible idle editor.' }
-    );
+    let lastSurfaceState = null;
+    try {
+        await browser.waitUntil(
+            async () => {
+                lastSurfaceState = await browser.execute(async () => {
+                    const card = document.querySelector('[data-testid="search-view-card"]');
+                    const editor = document.querySelector(
+                        '[data-testid="search-editor-host"] .ProseMirror'
+                    );
+                    if (!card || !editor) {
+                        return { ready: false, missingCard: !card, missingEditor: !editor };
+                    }
+                    const rect = editor.getBoundingClientRect();
+                    const state = await window.__TOUCHAI_E2E__.getSearchWindowState();
+                    const cardRect = card.getBoundingClientRect();
+                    return {
+                        ready:
+                            !document.querySelector('[data-testid="conversation-panel-host"]') &&
+                            card.getAnimations().length === 0 &&
+                            Math.abs(cardRect.height - state.defaults.height) <= 2 &&
+                            rect.top >= 0 &&
+                            rect.bottom <= innerHeight &&
+                            rect.height > 0,
+                        hasConversation: Boolean(
+                            document.querySelector('[data-testid="conversation-panel-host"]')
+                        ),
+                        animationCount: card.getAnimations().length,
+                        cardHeight: cardRect.height,
+                        defaultHeight: state.defaults.height,
+                        editorTop: rect.top,
+                        editorBottom: rect.bottom,
+                        editorHeight: rect.height,
+                        innerHeight,
+                    };
+                });
+                return lastSurfaceState.ready;
+            },
+            { timeoutMsg: 'The search surface did not settle.' }
+        );
+    } catch (error) {
+        throw new Error(
+            `The search surface did not settle with an accessible idle editor: ${JSON.stringify(
+                lastSurfaceState
+            )}`,
+            { cause: error }
+        );
+    }
 }
 
 /** Compare the visible card; the transparent host also reserves room for overlays. */

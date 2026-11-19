@@ -1,6 +1,7 @@
 <script setup lang="ts">
     import AlertMessage from '@components/AlertMessage.vue';
     import AppIcon from '@components/AppIcon.vue';
+    import SettingsRow from '@components/SettingsRow.vue';
     import { type ShortcutCaptureSystemKeyEvent } from '@services/EventService';
     import { log } from '@services/ObservabilityService';
     import { storeToRefs } from 'pinia';
@@ -8,8 +9,10 @@
 
     import {
         getSearchKeybindingDefinition,
+        isSearchKeybindingShortcutAllowed,
         SEARCH_KEYBINDING_DEFINITIONS,
         type SearchKeybindingActionId,
+        type SearchKeybindings,
     } from '@/config/searchKeybindings';
     import { type MessageKey, type MessageParams, t } from '@/i18n';
     import { useSettingsStore } from '@/stores/settings';
@@ -51,6 +54,7 @@
         hasError?: boolean;
         shortcutAction?: SearchShortcutIconAction;
         shortcutActionLabel?: string;
+        fixedHint?: string;
     }
 
     const settingsStore = useSettingsStore();
@@ -63,7 +67,6 @@
     const searchShortcutErrorActionId = ref<SearchKeybindingActionId | null>(null);
     const shortcutCapturePrompt = computed(() => t('settings.general.shortcutCapturePrompt'));
     const { focusCaptureInput, clearCaptureSelection } = useCaptureInputFocus();
-
     function formatSearchShortcutForSettings(shortcut: string | null | undefined): string {
         const normalizedShortcut = normalizeLocalShortcutString(shortcut);
         return normalizedShortcut
@@ -100,13 +103,6 @@
             },
             {
                 kind: 'fixed',
-                id: 'search.submit',
-                label: t('settings.general.fixedSearchActions.submitRequest'),
-                description: t('settings.general.searchActionDescriptions.submitRequest'),
-                displayValue: 'Enter',
-            },
-            {
-                kind: 'fixed',
                 id: 'search.newLine',
                 label: t('settings.general.fixedSearchActions.newLine'),
                 description: t('settings.general.searchActionDescriptions.newLine'),
@@ -119,16 +115,19 @@
     const searchShortcutRows = computed<SettingsSearchShortcutGroupRow[]>(() =>
         SEARCH_KEYBINDING_DEFINITIONS.map((definition) => {
             const currentShortcut = settings.value.searchKeybindings[definition.id];
+            const isReadOnly = Boolean(definition.submitIntent);
             const isDefaultShortcut =
                 normalizeLocalShortcutString(currentShortcut) ===
                 normalizeLocalShortcutString(definition.defaultShortcut);
-            const shortcutAction: SearchShortcutIconAction = isDefaultShortcut
-                ? 'clear'
-                : 'restore';
+            const shortcutAction: SearchShortcutIconAction | undefined = isReadOnly
+                ? undefined
+                : isDefaultShortcut
+                  ? 'clear'
+                  : 'restore';
 
             return {
                 ...definition,
-                kind: 'configurable',
+                kind: isReadOnly ? 'fixed' : 'configurable',
                 label: t(definition.labelKey),
                 description: t(definition.descriptionKey),
                 displayValue:
@@ -141,7 +140,12 @@
                 shortcutActionLabel:
                     shortcutAction === 'clear'
                         ? t('common.clear')
-                        : `${t('window.restore')} ${t('common.default')}`,
+                        : shortcutAction === 'restore'
+                          ? `${t('window.restore')} ${t('common.default')}`
+                          : undefined,
+                fixedHint: isReadOnly
+                    ? t('settings.general.searchShortcuts.managedInGeneral')
+                    : undefined,
             };
         })
     );
@@ -168,6 +172,8 @@
                 id: 'inputAndRequest',
                 title: t('settings.general.searchShortcutGroups.inputAndRequest'),
                 actionIds: [
+                    'search.submit.queue',
+                    'search.submit.priority',
                     'search.input.focus',
                     'search.model.toggle',
                     'search.quickSearch.toggleView',
@@ -181,6 +187,7 @@
         ];
 
         return groups.map((group) => ({
+            id: group.id,
             title: group.title,
             rows: [
                 ...group.actionIds
@@ -287,30 +294,33 @@
             const allowsModifierlessFunctionShortcut =
                 definition.allowModifierlessFunctionShortcut &&
                 isModifierlessFunctionShortcut(normalizedShortcut);
+            const isAllowed = isSearchKeybindingShortcutAllowed(definition, normalizedShortcut);
 
-            if (!hasCommandModifier(normalizedShortcut) && !allowsModifierlessFunctionShortcut) {
-                reportSearchShortcutError(
-                    actionId,
-                    'settings.general.searchShortcuts.errors.modifierRequired'
-                );
-
-                return false;
-            }
-
-            if (isReservedGlobalShortcut(normalizedShortcut)) {
-                reportSearchShortcutError(
-                    actionId,
-                    'settings.general.searchShortcuts.errors.systemReserved'
-                );
-
-                return false;
-            }
-
-            if (isReservedLocalShortcut(normalizedShortcut)) {
-                reportSearchShortcutError(
-                    actionId,
-                    'settings.general.searchShortcuts.errors.reserved'
-                );
+            if (!isAllowed) {
+                if (
+                    !hasCommandModifier(normalizedShortcut) &&
+                    !allowsModifierlessFunctionShortcut
+                ) {
+                    reportSearchShortcutError(
+                        actionId,
+                        'settings.general.searchShortcuts.errors.modifierRequired'
+                    );
+                } else if (isReservedGlobalShortcut(normalizedShortcut)) {
+                    reportSearchShortcutError(
+                        actionId,
+                        'settings.general.searchShortcuts.errors.systemReserved'
+                    );
+                } else if (isReservedLocalShortcut(normalizedShortcut)) {
+                    reportSearchShortcutError(
+                        actionId,
+                        'settings.general.searchShortcuts.errors.reserved'
+                    );
+                } else {
+                    reportSearchShortcutError(
+                        actionId,
+                        'settings.general.searchShortcuts.errors.unsupported'
+                    );
+                }
 
                 return false;
             }
@@ -351,10 +361,11 @@
         isSaving.value = true;
         searchShortcutErrorActionId.value = null;
         try {
-            await settingsStore.updateSearchKeybindings({
+            const nextShortcuts: SearchKeybindings = {
                 ...settings.value.searchKeybindings,
                 [actionId]: normalizedShortcut,
-            });
+            };
+            await settingsStore.updateSearchKeybindings(nextShortcuts);
 
             alertMessage.value?.success(t('common.saved'), 2000);
             return true;
@@ -453,77 +464,68 @@
             {{ group.title }}
         </h2>
         <div class="settings-row-group divide-y divide-neutral-200/70">
-            <div
+            <SettingsRow
                 v-for="row in group.rows"
                 :key="row.id"
                 :data-settings-search-target="row.id"
-                class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_220px] sm:items-center"
+                control-width="220"
+                :label="row.label"
+                :description="row.description"
+                :label-attrs="{ 'data-testid': 'settings-general-row-label' }"
             >
-                <div
-                    data-testid="settings-general-row-label"
-                    class="min-w-0 text-compact leading-6 font-normal text-neutral-900"
-                >
-                    <div>{{ row.label }}</div>
-                    <div v-if="row.description" class="text-[12px] leading-5 text-neutral-500">
-                        {{ row.description }}
-                    </div>
+                <div class="relative w-full">
+                    <input
+                        :value="row.displayValue"
+                        :data-testid="`settings-search-shortcut-input-${row.id}`"
+                        type="text"
+                        readonly
+                        :class="[
+                            'shortcut-capture-input w-full rounded-control border px-9 py-2 text-center text-[12px] shadow-none [box-shadow:none] transition-colors select-none focus:shadow-none focus:[box-shadow:none] focus:outline-none',
+                            row.hasError
+                                ? 'border-red-300 bg-red-50 text-red-600'
+                                : row.isCapturing
+                                  ? 'border-primary-300 bg-white text-neutral-950'
+                                  : 'border-transparent bg-surface-sunken text-neutral-900 hover:bg-surface-active focus:border-primary-300',
+                            isSaving
+                                ? 'cursor-wait opacity-50'
+                                : row.shortcutAction
+                                  ? 'cursor-pointer'
+                                  : 'cursor-default',
+                        ]"
+                        :disabled="isSaving"
+                        :placeholder="t('settings.general.shortcutPlaceholder')"
+                        :title="
+                            row.kind === 'fixed'
+                                ? (row.fixedHint ??
+                                  t('settings.general.searchShortcuts.fixedUnavailable'))
+                                : undefined
+                        "
+                        :tabindex="row.kind === 'fixed' ? -1 : 0"
+                        @mousedown="focusSearchShortcutInput($event, row)"
+                        @select="clearCaptureSelection"
+                        @dragstart.prevent
+                        @focus="startSearchShortcutCapture(row)"
+                        @blur="stopSearchShortcutCapture(row)"
+                    />
+                    <button
+                        v-if="row.shortcutAction"
+                        type="button"
+                        class="absolute top-1/2 right-2.5 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-neutral-500 transition-colors hover:bg-neutral-200/70 hover:text-neutral-900 disabled:cursor-not-allowed disabled:opacity-50"
+                        :disabled="isSaving"
+                        :title="row.shortcutActionLabel"
+                        :aria-label="row.shortcutActionLabel"
+                        :data-testid="`settings-search-shortcut-action-${row.id}`"
+                        :data-shortcut-action="row.shortcutAction"
+                        @mousedown.prevent
+                        @click="handleSearchShortcutIconAction(row)"
+                    >
+                        <AppIcon
+                            :name="row.shortcutAction === 'clear' ? 'x' : 'undo'"
+                            class="h-4 w-4"
+                        />
+                    </button>
                 </div>
-                <div class="min-w-0 justify-self-end">
-                    <div class="flex min-w-0 items-center justify-end">
-                        <div class="relative w-[220px] shrink-0">
-                            <input
-                                :value="row.displayValue"
-                                :data-testid="`settings-search-shortcut-input-${row.id}`"
-                                type="text"
-                                readonly
-                                :class="[
-                                    'shortcut-capture-input w-full rounded-control border px-9 py-2 text-center text-[12px] shadow-none [box-shadow:none] transition-colors select-none focus:shadow-none focus:[box-shadow:none] focus:outline-none',
-                                    row.hasError
-                                        ? 'border-red-300 bg-red-50 text-red-600'
-                                        : row.isCapturing
-                                          ? 'border-primary-300 bg-white text-neutral-950'
-                                          : 'border-transparent bg-surface-sunken text-neutral-900 hover:bg-surface-active focus:border-primary-300',
-                                    isSaving
-                                        ? 'cursor-wait opacity-50'
-                                        : row.shortcutAction
-                                          ? 'cursor-pointer'
-                                          : 'cursor-default',
-                                ]"
-                                :disabled="isSaving"
-                                :placeholder="t('settings.general.shortcutPlaceholder')"
-                                :title="
-                                    row.kind === 'fixed'
-                                        ? t('settings.general.searchShortcuts.fixedUnavailable')
-                                        : undefined
-                                "
-                                :tabindex="row.kind === 'fixed' ? -1 : 0"
-                                @mousedown="focusSearchShortcutInput($event, row)"
-                                @select="clearCaptureSelection"
-                                @dragstart.prevent
-                                @focus="startSearchShortcutCapture(row)"
-                                @blur="stopSearchShortcutCapture(row)"
-                            />
-                            <button
-                                v-if="row.shortcutAction"
-                                type="button"
-                                class="absolute top-1/2 right-2.5 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-neutral-500 transition-colors hover:bg-neutral-200/70 hover:text-neutral-900 disabled:cursor-not-allowed disabled:opacity-50"
-                                :disabled="isSaving"
-                                :title="row.shortcutActionLabel"
-                                :aria-label="row.shortcutActionLabel"
-                                :data-testid="`settings-search-shortcut-action-${row.id}`"
-                                :data-shortcut-action="row.shortcutAction"
-                                @mousedown.prevent
-                                @click="handleSearchShortcutIconAction(row)"
-                            >
-                                <AppIcon
-                                    :name="row.shortcutAction === 'clear' ? 'x' : 'undo'"
-                                    class="h-4 w-4"
-                                />
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            </SettingsRow>
         </div>
     </section>
 </template>

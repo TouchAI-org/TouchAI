@@ -1,0 +1,1561 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
+import type { TaskResult } from '@/services/AgentService/execution/runtime';
+import type { PendingMessageStore } from '@/services/AgentService/task/pendingMessagePersistence';
+import type { PendingUserMessage } from '@/services/AgentService/task/types';
+import {
+    registerStartupCapability,
+    resetStartupCapabilities,
+} from '@/services/StartupService/capabilities';
+
+/**
+ * Messages submitted during a run belong to the task center, not to the page.
+ * These cover what the user can observe: the pending list on the snapshot, the
+ * priority hand-off at a tool boundary, the fallback to the next turn, and the
+ * fact that cancelling keeps them available for the next turn.
+ */
+const runtimeState = vi.hoisted(() => ({
+    run: vi.fn(),
+    instances: [] as Array<{ options: Record<string, unknown> }>,
+}));
+
+function latestOptions(): Record<string, unknown> & {
+    onTurnEvent?: (event: Record<string, unknown>) => void;
+    takePriorityUserMessages?: () => PendingUserMessage[];
+    releasePriorityUserMessages?: (messageIds: string[]) => void;
+    hasImmediatePriorityUserMessages?: () => boolean;
+    waitForPendingMessageWrites?: () => Promise<void>;
+    signal?: AbortSignal;
+} {
+    const entries = runtimeState.instances;
+    return (entries[entries.length - 1]?.options ?? {}) as never;
+}
+
+const historyState = vi.hoisted(() => ({ loadSessionHistory: vi.fn() }));
+
+vi.mock('@/services/AgentService/execution/runtime', async () => {
+    const actual = await vi.importActual<
+        typeof import('@/services/AgentService/execution/runtime')
+    >('@/services/AgentService/execution/runtime');
+
+    class StubConversationRuntime {
+        constructor(_executor: unknown, options: never) {
+            runtimeState.instances.push({ options });
+        }
+
+        run() {
+            return runtimeState.run();
+        }
+    }
+
+    return { ...actual, AiConversationRuntime: StubConversationRuntime };
+});
+
+vi.mock('@/services/AgentService/session/history', () => ({
+    loadSessionHistory: historyState.loadSessionHistory,
+}));
+
+const { SessionTaskCenter } = await import('@/services/AgentService/task/center');
+
+const completedTurn = (response: string): TaskResult =>
+    ({
+        model: {
+            modelDbId: 1,
+            providerId: 1,
+            providerName: 'Provider',
+            modelId: 'model-1',
+            modelName: 'Model',
+        },
+        response,
+        reasoning: '',
+        turn: null,
+    }) as unknown as TaskResult;
+
+let finishCurrentTask: (() => void) | null = null;
+
+/** A task that binds to its session and finishes only when the test says so. */
+function finishableRun(sessionId: number | null) {
+    return () =>
+        new Promise<TaskResult>((resolve) => {
+            const options = latestOptions();
+            options.onTurnEvent?.({ type: 'task_started', sessionId, turnId: 1 });
+            finishCurrentTask = () => {
+                options.onTurnEvent?.({
+                    type: 'task_completed',
+                    taskId: 'task',
+                    turnId: 1,
+                    model: {
+                        modelDbId: 1,
+                        providerId: 1,
+                        providerName: 'p',
+                        modelId: 'm',
+                        modelName: 'M',
+                    },
+                    response: 'done',
+                    reasoning: '',
+                });
+                resolve(completedTurn('done'));
+            };
+        });
+}
+
+/** A task that binds to its session and never finishes on its own. */
+function staysRunningInSession(sessionId: number | null) {
+    return () => {
+        latestOptions().onTurnEvent?.({ type: 'task_started', sessionId, turnId: 1 });
+        return new Promise<TaskResult>(() => {});
+    };
+}
+
+const pendingMessageStore: PendingMessageStore = {
+    enqueue: vi.fn(),
+    update: vi.fn(),
+    remove: vi.fn(),
+    clear: vi.fn(),
+    reorder: vi.fn(),
+    updateModel: vi.fn(),
+    flush: vi.fn(async () => {}),
+    load: vi.fn(async () => []),
+};
+
+function createCenter() {
+    return new SessionTaskCenter(pendingMessageStore);
+}
+
+beforeEach(() => {
+    runtimeState.run.mockReset();
+    runtimeState.instances.length = 0;
+    historyState.loadSessionHistory.mockReset();
+    historyState.loadSessionHistory.mockResolvedValue([]);
+    vi.mocked(pendingMessageStore.enqueue).mockClear();
+    vi.mocked(pendingMessageStore.update).mockClear();
+    vi.mocked(pendingMessageStore.remove).mockClear();
+    vi.mocked(pendingMessageStore.clear).mockClear();
+    vi.mocked(pendingMessageStore.reorder).mockClear();
+    vi.mocked(pendingMessageStore.updateModel).mockClear();
+    vi.mocked(pendingMessageStore.flush).mockClear();
+    vi.mocked(pendingMessageStore.load).mockClear();
+    finishCurrentTask = null;
+});
+
+describe('user submits a message while a task runs', () => {
+    it('user gets the queued message as a pending bubble on the task snapshot', async () => {
+        runtimeState.run.mockImplementation(staysRunningInSession(1));
+        const center = createCenter();
+        const started = await center.startTask({ prompt: 'Hi', sessionId: 1 });
+
+        const message = center.enqueueTaskUserMessage(
+            started.taskId,
+            { prompt: 'Follow up' },
+            'queue'
+        );
+
+        expect(message).toMatchObject({ prompt: 'Follow up', delivery: 'queue' });
+        expect(center.getTaskSnapshot(started.taskId)?.pendingUserMessages).toEqual([message]);
+        expect(pendingMessageStore.enqueue).toHaveBeenCalledWith(
+            1,
+            expect.objectContaining({ id: message!.id, prompt: 'Follow up' })
+        );
+    });
+
+    it('user keeps the priority bubble until the projection reports it delivered', async () => {
+        runtimeState.run.mockImplementation(staysRunningInSession(1));
+        const center = createCenter();
+        const started = await center.startTask({ prompt: 'Hi', sessionId: 1 });
+        const message = center.enqueueTaskUserMessage(
+            started.taskId,
+            { prompt: 'Insert me' },
+            'priority'
+        );
+
+        // The runtime may ask twice before the delivery event lands; it may claim
+        // the message only once, and neither read removes the bubble early.
+        expect(latestOptions().takePriorityUserMessages?.()).toEqual([message]);
+        expect(latestOptions().takePriorityUserMessages?.()).toEqual([]);
+        expect(center.getTaskSnapshot(started.taskId)?.pendingUserMessages).toHaveLength(1);
+    });
+
+    it('user gets queued writes flushed before a priority delivery', async () => {
+        runtimeState.run.mockImplementation(staysRunningInSession(1));
+        const center = createCenter();
+        await center.startTask({ prompt: 'Hi', sessionId: 1 });
+        vi.mocked(pendingMessageStore.flush).mockClear();
+
+        await latestOptions().waitForPendingMessageWrites?.();
+
+        expect(pendingMessageStore.flush).toHaveBeenCalledWith(1);
+    });
+
+    it('user cannot queue more than twenty messages on one run', async () => {
+        runtimeState.run.mockImplementation(staysRunningInSession(1));
+        const center = createCenter();
+        const started = await center.startTask({ prompt: 'Hi', sessionId: 1 });
+
+        for (let index = 0; index < 20; index += 1) {
+            expect(
+                center.enqueueTaskUserMessage(
+                    started.taskId,
+                    { prompt: `queued ${index}` },
+                    'queue'
+                )
+            ).not.toBeNull();
+        }
+
+        expect(
+            center.enqueueTaskUserMessage(started.taskId, { prompt: 'overflow' }, 'queue')
+        ).toBeNull();
+    });
+
+    it('user cannot remove a steer while its delivery is in flight', async () => {
+        runtimeState.run.mockImplementation(staysRunningInSession(1));
+        const center = createCenter();
+        const started = await center.startTask({ prompt: 'Hi', sessionId: 1 });
+        const message = center.enqueueTaskUserMessage(
+            started.taskId,
+            { prompt: 'Insert me' },
+            'priority'
+        )!;
+
+        expect(latestOptions().takePriorityUserMessages?.()).toEqual([message]);
+        expect(center.removeTaskUserMessage(started.taskId, message.id)).toBe(false);
+        expect(center.promoteTaskUserMessage(started.taskId, message.id)).toBe(false);
+        expect(
+            center.updateTaskUserMessage(started.taskId, message.id, { prompt: 'Changed' })
+        ).toBe(false);
+
+        latestOptions().releasePriorityUserMessages?.([message.id]);
+        expect(center.removeTaskUserMessage(started.taskId, message.id)).toBe(true);
+        expect(center.getTaskSnapshot(started.taskId)?.pendingUserMessages).toEqual([]);
+    });
+
+    it('user gets the bubble gone once the projection reports the delivery', async () => {
+        runtimeState.run.mockImplementation(staysRunningInSession(1));
+        const center = createCenter();
+        const started = await center.startTask({ prompt: 'Hi', sessionId: 1 });
+        const message = center.enqueueTaskUserMessage(
+            started.taskId,
+            { prompt: 'Insert me' },
+            'priority'
+        );
+        const seen: unknown[] = [];
+        center.subscribeTask(started.taskId, (snapshot) => seen.push(snapshot));
+
+        latestOptions().onTurnEvent?.({
+            type: 'user_messages_delivered',
+            taskId: started.taskId,
+            messages: [{ id: message!.id, prompt: 'Insert me', attachments: [] }],
+        });
+
+        const snapshot = center.getTaskSnapshot(started.taskId);
+        expect(snapshot?.pendingUserMessages).toEqual([]);
+        expect(snapshot?.sessionHistory.filter((entry) => entry.id === message!.id)).toHaveLength(
+            1
+        );
+        expect(seen.length).toBeGreaterThan(0);
+    });
+
+    it('user gets a queued message promoted to the next tool boundary', async () => {
+        runtimeState.run.mockImplementation(staysRunningInSession(1));
+        const center = createCenter();
+        const started = await center.startTask({ prompt: 'Hi', sessionId: 1 });
+        const message = center.enqueueTaskUserMessage(
+            started.taskId,
+            { prompt: 'Send me now' },
+            'queue'
+        );
+
+        expect(center.promoteTaskUserMessage(started.taskId, message!.id)).toBe(true);
+        expect(center.getTaskSnapshot(started.taskId)?.pendingUserMessages[0]?.delivery).toBe(
+            'priority'
+        );
+        expect(latestOptions().takePriorityUserMessages?.()).toEqual([
+            expect.objectContaining({ id: message!.id, delivery: 'priority' }),
+        ]);
+        expect(center.promoteTaskUserMessage(started.taskId, message!.id)).toBe(false);
+    });
+
+    it('user cannot promote a queued message until its edit finishes', async () => {
+        runtimeState.run.mockImplementation(staysRunningInSession(23));
+        const center = createCenter();
+        try {
+            const started = await center.startTask({ prompt: 'first', sessionId: 23 });
+            const message = center.enqueueTaskUserMessage(
+                started.taskId,
+                { prompt: 'editing' },
+                'queue'
+            )!;
+            expect(center.setTaskUserMessageEditing(started.taskId, message.id, true)).toBe(true);
+
+            expect(center.promoteTaskUserMessage(started.taskId, message.id)).toBe(false);
+            expect(center.promoteSessionUserMessage(23, message.id)).toBe(false);
+            expect(latestOptions().hasImmediatePriorityUserMessages?.()).toBe(false);
+            expect(latestOptions().takePriorityUserMessages?.()).toEqual([]);
+            expect(center.getTaskSnapshot(started.taskId)?.pendingUserMessages).toEqual([
+                expect.objectContaining({ id: message.id, delivery: 'queue', editing: true }),
+            ]);
+
+            expect(center.setTaskUserMessageEditing(started.taskId, message.id, false)).toBe(true);
+            expect(center.promoteTaskUserMessage(started.taskId, message.id)).toBe(true);
+            expect(latestOptions().takePriorityUserMessages?.()).toEqual([
+                expect.objectContaining({ id: message.id, delivery: 'priority' }),
+            ]);
+        } finally {
+            center.dispose();
+        }
+    });
+
+    it('user does not deliver an inherited priority message while its edit is parked', async () => {
+        runtimeState.run.mockImplementation(staysRunningInSession(23));
+        const center = createCenter();
+        try {
+            const message: PendingUserMessage = {
+                id: 'parked-priority',
+                prompt: 'editing',
+                attachments: [],
+                delivery: 'priority',
+                immediate: true,
+                editing: true,
+                createdAt: 1,
+            };
+            const started = await center.startTask({
+                prompt: 'first',
+                sessionId: 23,
+                pendingUserMessages: [message],
+            });
+
+            expect(latestOptions().hasImmediatePriorityUserMessages?.()).toBe(false);
+            expect(latestOptions().takePriorityUserMessages?.()).toEqual([]);
+            expect(center.getTaskSnapshot(started.taskId)?.pendingUserMessages).toEqual([message]);
+        } finally {
+            center.dispose();
+        }
+    });
+
+    it('user gets their message flagged for immediate delivery when they click steer now', async () => {
+        runtimeState.run.mockImplementation(staysRunningInSession(1));
+        const center = createCenter();
+        const started = await center.startTask({ prompt: 'Hi', sessionId: 1 });
+        const message = center.enqueueTaskUserMessage(
+            started.taskId,
+            { prompt: 'Send me now' },
+            'queue'
+        );
+
+        expect(center.promoteTaskUserMessage(started.taskId, message!.id)).toBe(true);
+
+        // The executor needs this flag to cut the running answer instead of
+        // waiting for the next tool call.
+        expect(latestOptions().hasImmediatePriorityUserMessages?.()).toBe(true);
+    });
+
+    it('user does not interrupt the answer for a message that only waits for a tool call', async () => {
+        runtimeState.run.mockImplementation(staysRunningInSession(1));
+        const center = createCenter();
+        const started = await center.startTask({ prompt: 'Hi', sessionId: 1 });
+        center.enqueueTaskUserMessage(started.taskId, { prompt: 'Insert me' }, 'priority');
+
+        expect(latestOptions().hasImmediatePriorityUserMessages?.()).toBe(false);
+    });
+
+    it('user gets a queued message turned solid immediately when they click steer now', async () => {
+        runtimeState.run.mockImplementation(staysRunningInSession(1));
+        const center = createCenter();
+        const started = await center.startTask({ prompt: 'Hi', sessionId: 1 });
+        const message = center.enqueueTaskUserMessage(
+            started.taskId,
+            { prompt: 'Insert me' },
+            'queue'
+        );
+        const seen: string[] = [];
+        center.subscribeTask(started.taskId, (snapshot) => {
+            seen.push(snapshot.pendingUserMessages[0]?.delivery ?? 'none');
+        });
+
+        expect(center.promoteTaskUserMessage(started.taskId, message!.id)).toBe(true);
+
+        expect(center.getTaskSnapshot(started.taskId)?.pendingUserMessages[0]).toMatchObject({
+            id: message!.id,
+            delivery: 'priority',
+        });
+        // The subscriber must be told, otherwise the bubble stays dashed until
+        // some unrelated snapshot happens to publish.
+        await vi.waitFor(() => expect(seen[seen.length - 1]).toBe('priority'));
+    });
+
+    it('user gets pending messages removed or cleared from the task', async () => {
+        runtimeState.run.mockImplementation(staysRunningInSession(1));
+        const center = createCenter();
+        const started = await center.startTask({ prompt: 'Hi', sessionId: 1 });
+        const first = center.enqueueTaskUserMessage(started.taskId, { prompt: 'one' }, 'queue');
+        const second = center.enqueueTaskUserMessage(started.taskId, { prompt: 'two' }, 'queue');
+
+        expect(center.removeTaskUserMessage(started.taskId, first!.id)).toBe(true);
+        expect(center.removeTaskUserMessage(started.taskId, first!.id)).toBe(false);
+        expect(center.getTaskSnapshot(started.taskId)?.pendingUserMessages).toEqual([second]);
+        expect(pendingMessageStore.remove).toHaveBeenCalledWith(1, first!.id);
+
+        expect(center.clearTaskUserMessages(started.taskId)).toBe(true);
+        expect(center.clearTaskUserMessages(started.taskId)).toBe(false);
+        expect(center.getTaskSnapshot(started.taskId)?.pendingUserMessages).toEqual([]);
+    });
+
+    it('user gets an edited queue updated in place without changing its slot', async () => {
+        runtimeState.run.mockImplementation(staysRunningInSession(1));
+        const center = createCenter();
+        const started = await center.startTask({ prompt: 'Hi', sessionId: 1 });
+        const first = center.enqueueTaskUserMessage(started.taskId, { prompt: 'first' }, 'queue');
+        const second = center.enqueueTaskUserMessage(started.taskId, { prompt: 'second' }, 'queue');
+
+        expect(
+            center.updateTaskUserMessage(started.taskId, first!.id, {
+                prompt: 'first edited',
+                attachments: [],
+                inputSnapshot: {
+                    text: 'first edited',
+                    attachments: [],
+                    skills: [],
+                },
+            })
+        ).toBe(true);
+
+        expect(center.getTaskSnapshot(started.taskId)?.pendingUserMessages).toEqual([
+            expect.objectContaining({
+                id: first!.id,
+                prompt: 'first edited',
+                delivery: 'queue',
+                createdAt: first!.createdAt,
+            }),
+            second,
+        ]);
+        expect(pendingMessageStore.remove).not.toHaveBeenCalledWith(1, first!.id);
+        expect(pendingMessageStore.update).toHaveBeenCalledWith(
+            1,
+            expect.objectContaining({ id: first!.id, prompt: 'first edited' })
+        );
+    });
+
+    it('user cannot rewrite a queue after it has been promoted to a steer', async () => {
+        runtimeState.run.mockImplementation(staysRunningInSession(1));
+        const center = createCenter();
+        const started = await center.startTask({ prompt: 'Hi', sessionId: 1 });
+        const message = center.enqueueTaskUserMessage(
+            started.taskId,
+            { prompt: 'send now' },
+            'queue'
+        );
+
+        expect(center.promoteTaskUserMessage(started.taskId, message!.id)).toBe(true);
+        expect(
+            center.updateTaskUserMessage(started.taskId, message!.id, {
+                prompt: 'too late',
+            })
+        ).toBe(false);
+        expect(center.getTaskSnapshot(started.taskId)?.pendingUserMessages[0]?.prompt).toBe(
+            'send now'
+        );
+    });
+
+    it('user gets queued messages reordered without moving a committed steer', async () => {
+        runtimeState.run.mockImplementation(staysRunningInSession(10));
+        const center = createCenter();
+        const started = await center.startTask({ prompt: 'Hi', sessionId: 10 });
+        const steered = center.enqueueTaskUserMessage(
+            started.taskId,
+            { prompt: 'insert' },
+            'priority'
+        );
+        const first = center.enqueueTaskUserMessage(started.taskId, { prompt: 'first' }, 'queue');
+        const second = center.enqueueTaskUserMessage(started.taskId, { prompt: 'second' }, 'queue');
+        const third = center.enqueueTaskUserMessage(started.taskId, { prompt: 'third' }, 'queue');
+
+        expect(
+            center.reorderTaskQueuedMessages(started.taskId, [third!.id, first!.id, second!.id])
+        ).toBe(true);
+
+        const snapshot = center.getTaskSnapshot(started.taskId);
+        expect(snapshot?.pendingUserMessages.map((message) => message.prompt)).toEqual([
+            'insert',
+            'third',
+            'first',
+            'second',
+        ]);
+        expect(latestOptions().takePriorityUserMessages?.()).toEqual([steered]);
+
+        expect(center.reorderTaskQueuedMessages(started.taskId, [steered!.id])).toBe(false);
+        expect(center.getTaskSnapshot(started.taskId)?.pendingUserMessages).toEqual(
+            snapshot?.pendingUserMessages
+        );
+    });
+});
+
+describe('user waits for a queued message to become the next turn', () => {
+    it('user gets the reordered queue started first on the next turn', async () => {
+        runtimeState.run
+            .mockImplementationOnce(finishableRun(11))
+            .mockImplementation(staysRunningInSession(11));
+        const center = createCenter();
+        const first = await center.startTask({ prompt: 'first', sessionId: 11 });
+        const queuedFirst = center.enqueueTaskUserMessage(
+            first.taskId,
+            { prompt: 'queued first' },
+            'queue'
+        );
+        const queuedSecond = center.enqueueTaskUserMessage(
+            first.taskId,
+            { prompt: 'queued second' },
+            'queue'
+        );
+        const queuedThird = center.enqueueTaskUserMessage(
+            first.taskId,
+            { prompt: 'queued third' },
+            'queue'
+        );
+
+        expect(
+            center.reorderTaskQueuedMessages(first.taskId, [
+                queuedThird!.id,
+                queuedFirst!.id,
+                queuedSecond!.id,
+            ])
+        ).toBe(true);
+
+        finishCurrentTask!();
+        await first.completion;
+
+        await vi.waitFor(() => expect(runtimeState.instances).toHaveLength(2));
+        const next = center.getSessionStatus(11);
+        const nextSnapshot = center.getTaskSnapshot(next!.taskId);
+        expect(nextSnapshot?.sessionHistory[0]).toMatchObject({
+            id: queuedThird!.id,
+            content: 'queued third',
+        });
+        expect(nextSnapshot?.pendingUserMessages.map((message) => message.prompt)).toEqual([
+            'queued first',
+            'queued second',
+        ]);
+    });
+
+    it('user gets the next queued message started after the run completes', async () => {
+        runtimeState.run
+            .mockImplementationOnce(finishableRun(3))
+            .mockImplementation(staysRunningInSession(3));
+        const center = createCenter();
+        const first = await center.startTask({ prompt: 'first', sessionId: 3 });
+        const queued = center.enqueueTaskUserMessage(first.taskId, { prompt: 'second' }, 'queue');
+        const alsoQueued = center.enqueueTaskUserMessage(
+            first.taskId,
+            { prompt: 'third' },
+            'queue'
+        );
+
+        finishCurrentTask!();
+        await first.completion;
+
+        await vi.waitFor(() => expect(runtimeState.instances).toHaveLength(2));
+        const next = center.getSessionStatus(3);
+        expect(next?.status).toBe('running');
+        const nextSnapshot = center.getTaskSnapshot(next!.taskId);
+        // The same id keeps the dashed bubble turning into the solid one in place.
+        expect(nextSnapshot?.sessionHistory[0]).toMatchObject({
+            id: queued!.id,
+            content: 'second',
+        });
+        expect(nextSnapshot?.pendingUserMessages.map((message) => message.id)).toEqual([
+            alsoQueued!.id,
+        ]);
+        expect(center.getTaskSnapshot(first.taskId)?.pendingUserMessages).toEqual([]);
+    });
+
+    it('user gets a priority message that missed the tool boundary queued for the next turn', async () => {
+        runtimeState.run
+            .mockImplementationOnce(finishableRun(4))
+            .mockImplementation(staysRunningInSession(4));
+        const center = createCenter();
+        const first = await center.startTask({ prompt: 'first', sessionId: 4 });
+        const inserted = center.enqueueTaskUserMessage(
+            first.taskId,
+            { prompt: 'insert' },
+            'priority'
+        );
+
+        finishCurrentTask!();
+        await first.completion;
+
+        await vi.waitFor(() => expect(runtimeState.instances).toHaveLength(2));
+        const next = center.getSessionStatus(4);
+        expect(center.getTaskSnapshot(next!.taskId)?.sessionHistory[0]).toMatchObject({
+            id: inserted!.id,
+            content: 'insert',
+        });
+    });
+
+    it('user gets an undelivered steer before earlier queues when the run ends', async () => {
+        runtimeState.run
+            .mockImplementationOnce(finishableRun(19))
+            .mockImplementation(staysRunningInSession(19));
+        const center = createCenter();
+        const first = await center.startTask({ prompt: 'first', sessionId: 19 });
+        const queuedFirst = center.enqueueTaskUserMessage(
+            first.taskId,
+            { prompt: 'queued first' },
+            'queue'
+        );
+        const queuedSecond = center.enqueueTaskUserMessage(
+            first.taskId,
+            { prompt: 'queued second' },
+            'queue'
+        );
+        const steered = center.enqueueTaskUserMessage(
+            first.taskId,
+            { prompt: 'steer last' },
+            'priority'
+        );
+
+        finishCurrentTask!();
+        await first.completion;
+
+        await vi.waitFor(() => expect(runtimeState.instances).toHaveLength(2));
+        const next = center.getSessionStatus(19);
+        const nextSnapshot = center.getTaskSnapshot(next!.taskId);
+        expect(nextSnapshot?.sessionHistory[0]).toMatchObject({
+            id: steered!.id,
+            content: 'steer last',
+        });
+        expect(nextSnapshot?.pendingUserMessages.map((message) => message.id)).toEqual([
+            queuedFirst!.id,
+            queuedSecond!.id,
+        ]);
+        center.cancelTask(next!.taskId, { preservePending: false });
+    });
+
+    it('user gets a queued message skipped while it is being edited', async () => {
+        runtimeState.run
+            .mockImplementationOnce(finishableRun(13))
+            .mockImplementation(staysRunningInSession(13));
+        const center = createCenter();
+        const first = await center.startTask({ prompt: 'first', sessionId: 13 });
+        const editing = center.enqueueTaskUserMessage(first.taskId, { prompt: 'editing' }, 'queue');
+        const nextQueued = center.enqueueTaskUserMessage(first.taskId, { prompt: 'next' }, 'queue');
+
+        expect(center.setTaskUserMessageEditing(first.taskId, editing!.id, true)).toBe(true);
+        finishCurrentTask!();
+        await first.completion;
+
+        await vi.waitFor(() => expect(runtimeState.instances).toHaveLength(2));
+        const next = center.getSessionStatus(13);
+        const nextSnapshot = center.getTaskSnapshot(next!.taskId);
+        expect(nextSnapshot?.sessionHistory[0]).toMatchObject({
+            id: nextQueued!.id,
+            content: 'next',
+        });
+        expect(nextSnapshot?.pendingUserMessages).toEqual([
+            expect.objectContaining({
+                id: editing!.id,
+                prompt: 'editing',
+                editing: true,
+            }),
+        ]);
+        center.cancelTask(next!.taskId, { preservePending: false });
+    });
+
+    it('user gets an edited queued message started after the previous run ends', async () => {
+        runtimeState.run
+            .mockImplementationOnce(finishableRun(15))
+            .mockImplementation(staysRunningInSession(15));
+        const center = createCenter();
+        const first = await center.startTask({ prompt: 'first', sessionId: 15 });
+        const editing = center.enqueueTaskUserMessage(
+            first.taskId,
+            { prompt: 'editing' },
+            'queue'
+        )!;
+
+        expect(center.setTaskUserMessageEditing(first.taskId, editing.id, true)).toBe(true);
+        finishCurrentTask!();
+        await first.completion;
+
+        expect(center.getTaskSnapshot(first.taskId)?.status).toBe('completed');
+        expect(
+            center.updateTaskUserMessage(first.taskId, editing.id, {
+                prompt: 'edited after completion',
+            })
+        ).toBe(true);
+        expect(center.clearUserMessageEditing(editing.id)).toBe(true);
+
+        await vi.waitFor(() => expect(runtimeState.instances).toHaveLength(2));
+        const next = center.getSessionStatus(15);
+        expect(center.getTaskSnapshot(next!.taskId)?.sessionHistory[0]).toMatchObject({
+            id: editing.id,
+            content: 'edited after completion',
+        });
+        center.cancelTask(next!.taskId, { preservePending: false });
+    });
+
+    it('user gets a new queue started while an earlier message remains in edit', async () => {
+        runtimeState.run
+            .mockImplementationOnce(finishableRun(17))
+            .mockImplementation(staysRunningInSession(17));
+        const center = createCenter();
+        const first = await center.startTask({ prompt: 'first', sessionId: 17 });
+        const editing = center.enqueueTaskUserMessage(
+            first.taskId,
+            { prompt: 'editing' },
+            'queue'
+        )!;
+        expect(center.setTaskUserMessageEditing(first.taskId, editing.id, true)).toBe(true);
+
+        finishCurrentTask!();
+        await first.completion;
+        expect(runtimeState.instances).toHaveLength(1);
+
+        const late = center.enqueueSessionUserMessage(17, { prompt: 'late' }, 'queue');
+        expect(late).toMatchObject({ prompt: 'late', delivery: 'queue' });
+
+        await vi.waitFor(() => expect(runtimeState.instances).toHaveLength(2));
+        const next = center.getSessionStatus(17);
+        expect(center.getTaskSnapshot(next!.taskId)?.sessionHistory[0]).toMatchObject({
+            id: late!.id,
+            content: 'late',
+        });
+        expect(center.getTaskSnapshot(next!.taskId)?.pendingUserMessages).toEqual([
+            expect.objectContaining({
+                id: editing.id,
+                prompt: 'editing',
+                editing: true,
+            }),
+        ]);
+        center.cancelTask(next!.taskId, { preservePending: false });
+    });
+
+    it('user gets a steer added in the hand-off window started before an edited queue', async () => {
+        runtimeState.run
+            .mockImplementationOnce(finishableRun(20))
+            .mockImplementation(staysRunningInSession(20));
+        const center = createCenter();
+        const first = await center.startTask({ prompt: 'first', sessionId: 20 });
+        const editing = center.enqueueTaskUserMessage(
+            first.taskId,
+            { prompt: 'editing' },
+            'queue'
+        )!;
+        expect(center.setTaskUserMessageEditing(first.taskId, editing.id, true)).toBe(true);
+
+        finishCurrentTask!();
+        await first.completion;
+        expect(runtimeState.instances).toHaveLength(1);
+
+        const steered = center.enqueueSessionUserMessage(
+            20,
+            { prompt: 'steer in hand-off' },
+            'priority'
+        );
+        expect(steered).toMatchObject({ prompt: 'steer in hand-off', delivery: 'priority' });
+
+        await vi.waitFor(() => expect(runtimeState.instances).toHaveLength(2));
+        const next = center.getSessionStatus(20);
+        expect(center.getTaskSnapshot(next!.taskId)?.sessionHistory[0]).toMatchObject({
+            id: steered!.id,
+            content: 'steer in hand-off',
+        });
+        expect(center.getTaskSnapshot(next!.taskId)?.pendingUserMessages).toEqual([
+            expect.objectContaining({
+                id: editing.id,
+                prompt: 'editing',
+                editing: true,
+            }),
+        ]);
+        center.cancelTask(next!.taskId, { preservePending: false });
+    });
+
+    it('user gets an edited queue started after the finished task is released', async () => {
+        vi.useFakeTimers();
+        let center!: ReturnType<typeof createCenter>;
+        let editing!: PendingUserMessage;
+        try {
+            runtimeState.run
+                .mockImplementationOnce(finishableRun(18))
+                .mockImplementation(staysRunningInSession(18));
+            center = createCenter();
+            const first = await center.startTask({ prompt: 'first', sessionId: 18 });
+            editing = center.enqueueTaskUserMessage(first.taskId, { prompt: 'editing' }, 'queue')!;
+            expect(center.setTaskUserMessageEditing(first.taskId, editing.id, true)).toBe(true);
+
+            finishCurrentTask!();
+            await first.completion;
+            await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+            expect(center.getTaskSnapshot(first.taskId)).toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
+
+        expect(center.setSessionUserMessageEditing(18, editing.id, false)).toBe(true);
+        await vi.waitFor(() => expect(runtimeState.instances).toHaveLength(2));
+        const next = center.getSessionStatus(18);
+        expect(center.getTaskSnapshot(next!.taskId)?.sessionHistory[0]).toMatchObject({
+            id: editing.id,
+            content: 'editing',
+        });
+        center.cancelTask(next!.taskId, { preservePending: false });
+    });
+});
+
+describe('user cancels a run with pending messages', () => {
+    it('user reorders messages while cancellation settles and the next turn follows the new order', async () => {
+        runtimeState.run.mockImplementation(staysRunningInSession(1));
+        const center = createCenter();
+        try {
+            const started = await center.startTask({ prompt: 'Active', sessionId: 1 });
+            const first = center.enqueueTaskUserMessage(
+                started.taskId,
+                { prompt: 'First' },
+                'queue'
+            )!;
+            const second = center.enqueueTaskUserMessage(
+                started.taskId,
+                { prompt: 'Second' },
+                'queue'
+            )!;
+
+            center.cancelTask(started.taskId);
+            expect(center.reorderTaskQueuedMessages(started.taskId, [second.id, first.id])).toBe(
+                true
+            );
+            expect(center.getTaskSnapshot(started.taskId)?.pendingUserMessages).toEqual([
+                second,
+                first,
+            ]);
+            latestOptions().onTurnEvent?.({
+                type: 'task_cancelled',
+                taskId: started.taskId,
+                turnId: 1,
+            });
+
+            await vi.waitFor(() => expect(latestOptions().prompt).toBe('Second'));
+            const next = center.getSessionStatus(1)!;
+            expect(center.getTaskSnapshot(next.taskId)?.pendingUserMessages).toEqual([first]);
+        } finally {
+            center.dispose();
+        }
+    });
+
+    it('user clicks send now after a failed run and the selected message starts ahead of the queue', async () => {
+        runtimeState.run.mockImplementation(staysRunningInSession(1));
+        const center = createCenter();
+        try {
+            const started = await center.startTask({ prompt: 'Active', sessionId: 1 });
+            const first = center.enqueueTaskUserMessage(
+                started.taskId,
+                { prompt: 'First' },
+                'queue'
+            )!;
+            const selected = center.enqueueTaskUserMessage(
+                started.taskId,
+                { prompt: 'Send now' },
+                'queue'
+            )!;
+            latestOptions().onTurnEvent?.({
+                type: 'task_failed',
+                taskId: started.taskId,
+                turnId: 1,
+                error: 'Connection failed',
+            });
+            expect(center.getSessionStatus(1)).toBeNull();
+
+            expect(center.promoteSessionUserMessage(1, selected.id)).toBe(true);
+
+            await vi.waitFor(() => expect(latestOptions().prompt).toBe('Send now'));
+            const next = center.getSessionStatus(1)!;
+            expect(next.status).toBe('running');
+            expect(center.getTaskSnapshot(next.taskId)?.pendingUserMessages).toEqual([first]);
+        } finally {
+            center.dispose();
+        }
+    });
+
+    it('user keeps the queued messages when the run fails', async () => {
+        let failCurrentTask!: () => void;
+        runtimeState.run.mockImplementationOnce(
+            () =>
+                new Promise<TaskResult>((_resolve, reject) => {
+                    const options = latestOptions();
+                    options.onTurnEvent?.({ type: 'task_started', sessionId: 21, turnId: 1 });
+                    failCurrentTask = () => reject(new Error('provider failed'));
+                })
+        );
+        const center = createCenter();
+        const started = await center.startTask({ prompt: 'first', sessionId: 21 });
+        const queued = center.enqueueTaskUserMessage(
+            started.taskId,
+            { prompt: 'keep me' },
+            'queue'
+        );
+
+        failCurrentTask();
+        await started.completion.catch(() => {});
+
+        expect(center.getTaskSnapshot(started.taskId)?.pendingUserMessages).toEqual([queued]);
+        expect(pendingMessageStore.reorder).toHaveBeenCalledWith(21, [queued!.id]);
+    });
+
+    it('user changes models after a failed run and sends the retained queue with the new selection', async () => {
+        runtimeState.run.mockImplementation(staysRunningInSession(1));
+        const center = createCenter();
+        try {
+            const started = await center.startTask({ prompt: 'Active', sessionId: 1 });
+            const first = center.enqueueTaskUserMessage(
+                started.taskId,
+                { prompt: 'First', modelId: 'old-model', providerId: 1 },
+                'queue'
+            )!;
+            const second = center.enqueueTaskUserMessage(
+                started.taskId,
+                { prompt: 'Second', modelId: 'old-model', providerId: 1 },
+                'queue'
+            )!;
+            latestOptions().onTurnEvent?.({
+                type: 'task_failed',
+                taskId: started.taskId,
+                turnId: 1,
+                error: 'Connection failed',
+            });
+
+            expect(center.updateTaskUserMessageModel(started.taskId, 'new-model', 2)).toBe(true);
+            expect(center.promoteSessionUserMessage(1, first.id)).toBe(true);
+
+            await vi.waitFor(() => expect(latestOptions().prompt).toBe('First'));
+            expect(latestOptions()).toMatchObject({ modelId: 'new-model', providerId: 2 });
+            const next = center.getSessionStatus(1)!;
+            expect(center.getTaskSnapshot(next.taskId)?.pendingUserMessages).toEqual([
+                expect.objectContaining({
+                    id: second.id,
+                    modelId: 'new-model',
+                    providerId: 2,
+                }),
+            ]);
+        } finally {
+            center.dispose();
+        }
+    });
+
+    it('user keeps the queued messages and the next one starts after cancellation', async () => {
+        runtimeState.run
+            .mockImplementationOnce(() => {
+                const options = latestOptions();
+                options.onTurnEvent?.({ type: 'task_started', sessionId: 5, turnId: 1 });
+                return new Promise<TaskResult>((_resolve, reject) => {
+                    options.signal?.addEventListener('abort', () => {
+                        options.onTurnEvent?.({
+                            type: 'task_cancelled',
+                            taskId: 'task',
+                            turnId: 1,
+                        });
+                        reject(new Error('cancelled'));
+                    });
+                });
+            })
+            .mockImplementation(staysRunningInSession(5));
+        const center = createCenter();
+        const started = await center.startTask({ prompt: 'first', sessionId: 5 });
+        const queued = center.enqueueTaskUserMessage(started.taskId, { prompt: 'queued' }, 'queue');
+
+        center.cancelTask(started.taskId);
+        await started.completion.catch(() => {});
+
+        await vi.waitFor(() => expect(runtimeState.instances).toHaveLength(2));
+        const next = center.getSessionStatus(5);
+        expect(next).not.toBeNull();
+        expect(center.getTaskSnapshot(next!.taskId)?.sessionHistory[0]).toMatchObject({
+            id: queued!.id,
+            content: 'queued',
+        });
+        center.cancelTask(next!.taskId, { preservePending: false });
+    });
+
+    it('user keeps the queue when the runtime rejects cancellation without a terminal event', async () => {
+        runtimeState.run
+            .mockImplementationOnce(() => {
+                const options = latestOptions();
+                options.onTurnEvent?.({ type: 'task_started', sessionId: 16, turnId: 1 });
+                return new Promise<TaskResult>((_resolve, reject) => {
+                    options.signal?.addEventListener('abort', () => {
+                        reject(new AiError(AiErrorCode.REQUEST_CANCELLED));
+                    });
+                });
+            })
+            .mockImplementation(staysRunningInSession(16));
+        const center = createCenter();
+        const started = await center.startTask({ prompt: 'first', sessionId: 16 });
+        const queued = center.enqueueTaskUserMessage(started.taskId, { prompt: 'queued' }, 'queue');
+
+        center.cancelTask(started.taskId);
+        await started.completion.catch(() => {});
+
+        await vi.waitFor(() => expect(runtimeState.instances).toHaveLength(2));
+        const next = center.getSessionStatus(16);
+        expect(center.getTaskSnapshot(next!.taskId)?.sessionHistory[0]).toMatchObject({
+            id: queued!.id,
+            content: 'queued',
+        });
+        center.cancelTask(next!.taskId, { preservePending: false });
+    });
+});
+
+describe('user returns to a session with a durable queue', () => {
+    it('user gets the stored pending messages restored before the session opens', async () => {
+        const restored = {
+            id: 'restored-1',
+            prompt: 'restored prompt',
+            delivery: 'queue' as const,
+            attachments: [],
+            createdAt: 1,
+        };
+        vi.mocked(pendingMessageStore.load).mockResolvedValueOnce([restored]);
+        const center = createCenter();
+
+        await expect(center.restoreSessionQueue(22)).resolves.toEqual([restored]);
+        expect(pendingMessageStore.load).toHaveBeenCalledWith(22);
+    });
+
+    it('user gets an in-memory queue instead of reloading it again', async () => {
+        const restored = {
+            id: 'restored-1',
+            prompt: 'restored prompt',
+            delivery: 'queue' as const,
+            attachments: [],
+            createdAt: 1,
+        };
+        vi.mocked(pendingMessageStore.load).mockResolvedValueOnce([restored]);
+        const center = createCenter();
+
+        await center.restoreSessionQueue(22);
+        await expect(center.restoreSessionQueue(22)).resolves.toEqual([restored]);
+        expect(pendingMessageStore.load).toHaveBeenCalledTimes(1);
+    });
+
+    it('user gets the active task queue without touching storage', async () => {
+        runtimeState.run.mockImplementation(staysRunningInSession(22));
+        const center = createCenter();
+        await center.startTask({ prompt: 'running', sessionId: 22 });
+
+        await expect(center.restoreSessionQueue(22)).resolves.toEqual([]);
+        expect(pendingMessageStore.load).not.toHaveBeenCalled();
+    });
+
+    it('user gets an empty queue when storage cannot be read', async () => {
+        vi.mocked(pendingMessageStore.load).mockRejectedValueOnce(new Error('database busy'));
+        const center = createCenter();
+
+        await expect(center.restoreSessionQueue(22)).resolves.toEqual([]);
+    });
+
+    it('user gets no new task when there is nothing to resume', () => {
+        const center = createCenter();
+
+        center.resumeSessionQueue(22);
+
+        expect(runtimeState.instances).toHaveLength(0);
+    });
+
+    it('user gets the restored head started when the session opens', async () => {
+        const restored = {
+            id: 'restored-1',
+            prompt: 'resume me',
+            delivery: 'queue' as const,
+            attachments: [],
+            createdAt: 1,
+        };
+        vi.mocked(pendingMessageStore.load).mockResolvedValueOnce([restored]);
+        runtimeState.run.mockImplementation(staysRunningInSession(22));
+        const center = createCenter();
+
+        await center.restoreSessionQueue(22);
+        center.resumeSessionQueue(22);
+
+        await vi.waitFor(() => expect(runtimeState.instances).toHaveLength(1));
+        expect(center.getSessionStatus(22)?.status).toBe('running');
+        center.dispose();
+    });
+
+    it('user gets a restored queue removed one item at a time and then cleared', async () => {
+        const first = {
+            id: 'restored-1',
+            prompt: 'first',
+            delivery: 'queue' as const,
+            attachments: [],
+            createdAt: 1,
+        };
+        const second = {
+            id: 'restored-2',
+            prompt: 'second',
+            delivery: 'queue' as const,
+            attachments: [],
+            createdAt: 2,
+        };
+        vi.mocked(pendingMessageStore.load).mockResolvedValueOnce([first, second]);
+        const center = createCenter();
+
+        await center.restoreSessionQueue(22);
+
+        expect(center.removeSessionUserMessage(22, first.id)).toBe(true);
+        expect(pendingMessageStore.remove).toHaveBeenCalledWith(22, first.id);
+        expect(center.clearSessionUserMessages(22)).toBe(true);
+        expect(pendingMessageStore.clear).toHaveBeenCalledWith(22);
+    });
+});
+
+describe('user submits while a finished run hands over to its queue', () => {
+    it('user changes models during handover and the current owner updates the remaining queue', async () => {
+        runtimeState.run
+            .mockImplementationOnce(finishableRun(23))
+            .mockImplementationOnce(finishableRun(23))
+            .mockImplementation(staysRunningInSession(23));
+        const center = createCenter();
+        let releaseHistory!: (history: never[]) => void;
+        try {
+            const first = await center.startTask({ prompt: 'First', sessionId: 23 });
+            center.enqueueTaskUserMessage(first.taskId, { prompt: 'Second' }, 'queue');
+            const remaining = center.enqueueTaskUserMessage(
+                first.taskId,
+                { prompt: 'Third', modelId: 'old-model', providerId: 1 },
+                'queue'
+            )!;
+            historyState.loadSessionHistory.mockImplementationOnce(
+                () =>
+                    new Promise<never[]>((resolve) => {
+                        releaseHistory = resolve;
+                    })
+            );
+            finishCurrentTask!();
+            await first.completion;
+            await vi.waitFor(() => expect(releaseHistory).toBeTypeOf('function'));
+
+            expect(center.updateTaskUserMessageModel(first.taskId, 'new-model', 2)).toBe(true);
+
+            releaseHistory([]);
+            await vi.waitFor(() => expect(latestOptions().prompt).toBe('Second'));
+            finishCurrentTask!();
+            await vi.waitFor(() => expect(latestOptions().prompt).toBe('Third'));
+            expect(latestOptions()).toMatchObject({
+                pendingMessageId: remaining.id,
+                modelId: 'new-model',
+                providerId: 2,
+            });
+        } finally {
+            releaseHistory?.([]);
+            center.dispose();
+        }
+    });
+
+    it('user saves an edit during history loading and the new owner sends the saved text', async () => {
+        runtimeState.run
+            .mockImplementationOnce(finishableRun(23))
+            .mockImplementationOnce(finishableRun(23))
+            .mockImplementation(staysRunningInSession(23));
+        const center = createCenter();
+        let releaseHistory!: (history: never[]) => void;
+        try {
+            const first = await center.startTask({ prompt: 'first', sessionId: 23 });
+            const editing = center.enqueueTaskUserMessage(
+                first.taskId,
+                { prompt: 'original edit' },
+                'queue'
+            )!;
+            center.enqueueTaskUserMessage(first.taskId, { prompt: 'next turn' }, 'queue');
+            expect(center.setTaskUserMessageEditing(first.taskId, editing.id, true)).toBe(true);
+            historyState.loadSessionHistory.mockImplementationOnce(
+                () =>
+                    new Promise<never[]>((resolve) => {
+                        releaseHistory = resolve;
+                    })
+            );
+
+            finishCurrentTask!();
+            await first.completion;
+            await vi.waitFor(() => expect(releaseHistory).toBeTypeOf('function'));
+            const newTaskId = center.getSessionStatus(23)!.taskId;
+            expect(newTaskId).not.toBe(first.taskId);
+
+            expect(
+                center.updateTaskUserMessage(first.taskId, editing.id, { prompt: 'saved edit' })
+            ).toBe(true);
+            expect(center.setTaskUserMessageEditing(first.taskId, editing.id, false)).toBe(true);
+            expect(center.getTaskSnapshot(newTaskId)?.pendingUserMessages).toEqual([
+                expect.objectContaining({
+                    id: editing.id,
+                    prompt: 'saved edit',
+                    editing: undefined,
+                }),
+            ]);
+
+            releaseHistory([]);
+            await vi.waitFor(() => expect(runtimeState.instances).toHaveLength(2));
+            finishCurrentTask!();
+            await vi.waitFor(() => expect(runtimeState.instances).toHaveLength(3));
+            const finalTaskId = center.getSessionStatus(23)!.taskId;
+            expect(center.getTaskSnapshot(finalTaskId)?.sessionHistory[0]).toMatchObject({
+                id: editing.id,
+                content: 'saved edit',
+            });
+        } finally {
+            releaseHistory?.([]);
+            center.dispose();
+        }
+    });
+
+    it('user keeps handover edits and removals when loading the next turn fails', async () => {
+        runtimeState.run.mockImplementationOnce(finishableRun(24));
+        const center = createCenter();
+        let rejectHistory!: (error: Error) => void;
+        try {
+            const first = await center.startTask({ prompt: 'first', sessionId: 24 });
+            const selected = center.enqueueTaskUserMessage(
+                first.taskId,
+                { prompt: 'next' },
+                'queue'
+            )!;
+            const editing = center.enqueueTaskUserMessage(
+                first.taskId,
+                { prompt: 'original' },
+                'queue'
+            )!;
+            const removed = center.enqueueTaskUserMessage(
+                first.taskId,
+                { prompt: 'remove me' },
+                'queue'
+            )!;
+            expect(center.setTaskUserMessageEditing(first.taskId, editing.id, true)).toBe(true);
+            historyState.loadSessionHistory.mockImplementationOnce(
+                () =>
+                    new Promise<never[]>((_resolve, reject) => {
+                        rejectHistory = reject;
+                    })
+            );
+
+            finishCurrentTask!();
+            await first.completion;
+            await vi.waitFor(() => expect(rejectHistory).toBeTypeOf('function'));
+            expect(
+                center.updateTaskUserMessage(first.taskId, editing.id, { prompt: 'saved' })
+            ).toBe(true);
+            expect(center.setTaskUserMessageEditing(first.taskId, editing.id, false)).toBe(true);
+            expect(center.removeSessionUserMessage(24, removed.id)).toBe(true);
+            const late = center.enqueueSessionUserMessage(24, { prompt: 'late' }, 'queue')!;
+
+            rejectHistory(new Error('history unavailable'));
+            await vi.waitFor(() => expect(center.getSessionStatus(24)).toBeNull());
+            const expected = [
+                expect.objectContaining({ id: selected.id, prompt: 'next' }),
+                expect.objectContaining({ id: editing.id, prompt: 'saved', editing: undefined }),
+                expect.objectContaining({ id: late.id, prompt: 'late' }),
+            ];
+            await expect(center.restoreSessionQueue(24)).resolves.toEqual(expected);
+            expect(center.getTaskSnapshot(first.taskId)?.pendingUserMessages).toEqual(expected);
+        } finally {
+            center.dispose();
+        }
+    });
+
+    it('user gets the message queued instead of racing a second task for the session', async () => {
+        let releaseStartup!: () => void;
+        try {
+            runtimeState.run
+                .mockImplementationOnce(finishableRun(6))
+                .mockImplementation(staysRunningInSession(6));
+            const center = createCenter();
+            const first = await center.startTask({ prompt: 'first', sessionId: 6 });
+            center.enqueueTaskUserMessage(first.taskId, { prompt: 'second' }, 'queue');
+            center.enqueueTaskUserMessage(first.taskId, { prompt: 'third' }, 'queue');
+
+            // The hand-over task is starting but has not attached yet: the user submits here.
+            registerStartupCapability(
+                'model-metadata',
+                new Promise<void>((resolve) => {
+                    releaseStartup = resolve;
+                })
+            );
+            finishCurrentTask!();
+            await first.completion;
+            await Promise.resolve();
+            await Promise.resolve();
+
+            expect(center.getSessionStatus(6)).toBeNull();
+            const late = center.enqueueSessionUserMessage(6, { prompt: 'late' }, 'queue');
+            expect(late).toMatchObject({ prompt: 'late', delivery: 'queue' });
+
+            releaseStartup();
+            await vi.waitFor(() => expect(center.getSessionStatus(6)?.status).toBe('running'));
+            const nextId = center.getSessionStatus(6)!.taskId;
+            expect(
+                center.getTaskSnapshot(nextId)?.pendingUserMessages.map((entry) => entry.prompt)
+            ).toEqual(['third', 'late']);
+        } finally {
+            releaseStartup?.();
+            resetStartupCapabilities();
+        }
+    });
+
+    it('user gets handover queues reordered before the next task attaches', async () => {
+        let releaseStartup!: () => void;
+        try {
+            runtimeState.run
+                .mockImplementationOnce(finishableRun(12))
+                .mockImplementation(staysRunningInSession(12));
+            const center = createCenter();
+            const first = await center.startTask({ prompt: 'first', sessionId: 12 });
+            center.enqueueTaskUserMessage(first.taskId, { prompt: 'second' }, 'queue');
+            const third = center.enqueueTaskUserMessage(first.taskId, { prompt: 'third' }, 'queue');
+
+            registerStartupCapability(
+                'model-metadata',
+                new Promise<void>((resolve) => {
+                    releaseStartup = resolve;
+                })
+            );
+            finishCurrentTask!();
+            await first.completion;
+            await Promise.resolve();
+            await Promise.resolve();
+
+            expect(center.getSessionStatus(12)).toBeNull();
+            const late = center.enqueueSessionUserMessage(12, { prompt: 'late' }, 'queue');
+            expect(late).not.toBeNull();
+            expect(center.reorderSessionQueuedMessages(12, [late!.id, third!.id])).toBe(true);
+
+            releaseStartup();
+            await vi.waitFor(() => expect(center.getSessionStatus(12)?.status).toBe('running'));
+            const nextId = center.getSessionStatus(12)!.taskId;
+            expect(
+                center.getTaskSnapshot(nextId)?.pendingUserMessages.map((entry) => entry.prompt)
+            ).toEqual(['late', 'third']);
+        } finally {
+            releaseStartup?.();
+            resetStartupCapabilities();
+        }
+    });
+
+    it('user gets a handover queue edited in place before the next task attaches', async () => {
+        let releaseStartup!: () => void;
+        try {
+            runtimeState.run
+                .mockImplementationOnce(finishableRun(13))
+                .mockImplementation(staysRunningInSession(13));
+            const center = createCenter();
+            const first = await center.startTask({ prompt: 'first', sessionId: 13 });
+            center.enqueueTaskUserMessage(first.taskId, { prompt: 'second' }, 'queue');
+
+            registerStartupCapability(
+                'model-metadata',
+                new Promise<void>((resolve) => {
+                    releaseStartup = resolve;
+                })
+            );
+            finishCurrentTask!();
+            await first.completion;
+            await Promise.resolve();
+            await Promise.resolve();
+
+            expect(center.getSessionStatus(13)).toBeNull();
+            const late = center.enqueueSessionUserMessage(13, { prompt: 'late' }, 'queue');
+            expect(late).not.toBeNull();
+            expect(center.updateSessionUserMessage(13, late!.id, { prompt: 'late edited' })).toBe(
+                true
+            );
+
+            releaseStartup();
+            await vi.waitFor(() => expect(center.getSessionStatus(13)?.status).toBe('running'));
+            const nextId = center.getSessionStatus(13)!.taskId;
+            expect(
+                center.getTaskSnapshot(nextId)?.pendingUserMessages.map((entry) => ({
+                    id: entry.id,
+                    prompt: entry.prompt,
+                }))
+            ).toEqual([{ id: late!.id, prompt: 'late edited' }]);
+        } finally {
+            releaseStartup?.();
+            resetStartupCapabilities();
+        }
+    });
+
+    it('user gets a failed handover run contained instead of an unhandled rejection', async () => {
+        const unhandled = vi.fn();
+        const onUnhandled = (reason: unknown) => {
+            if (reason instanceof Error && reason.message === 'handover failed') {
+                unhandled(reason);
+            }
+        };
+        process.on('unhandledRejection', onUnhandled);
+        let restoreStartTask: (() => void) | null = null;
+        try {
+            runtimeState.run.mockImplementationOnce(finishableRun(14));
+            const center = createCenter();
+            const first = await center.startTask({ prompt: 'first', sessionId: 14 });
+            center.enqueueTaskUserMessage(first.taskId, { prompt: 'second' }, 'queue');
+
+            let rejectHandover!: (error: Error) => void;
+            const completion = new Promise<TaskResult>((_resolve, reject) => {
+                rejectHandover = reject;
+            });
+            const startTaskSpy = vi.spyOn(center, 'startTask').mockResolvedValueOnce({
+                taskId: 'handover-task',
+                sessionId: 14,
+                completion,
+            });
+            restoreStartTask = () => startTaskSpy.mockRestore();
+
+            finishCurrentTask!();
+            await first.completion;
+            await vi.waitFor(() => expect(startTaskSpy).toHaveBeenCalledTimes(1));
+            await Promise.resolve();
+            await Promise.resolve();
+
+            rejectHandover(new Error('handover failed'));
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            expect(unhandled).not.toHaveBeenCalled();
+        } finally {
+            restoreStartTask?.();
+            process.off('unhandledRejection', onUnhandled);
+            resetStartupCapabilities();
+        }
+    });
+
+    it('user gets no phantom queue write when the session has nothing waiting', () => {
+        const center = createCenter();
+
+        // Without a hand-over there is no task to consume the message; accepting it here
+        // would silently swallow the user's prompt.
+        expect(center.enqueueSessionUserMessage(8, { prompt: 'orphan' }, 'queue')).toBeNull();
+    });
+});
+
+describe('user manages a queue attached to a run that has ended', () => {
+    it('user gets queue edits refused once the run can no longer deliver them', async () => {
+        runtimeState.run.mockImplementationOnce(finishableRun(null));
+        const center = createCenter();
+        const started = await center.startTask({ prompt: 'first' });
+        const queued = center.enqueueTaskUserMessage(
+            started.taskId,
+            { prompt: 'waiting' },
+            'queue'
+        );
+
+        finishCurrentTask!();
+        await started.completion;
+        await Promise.resolve();
+
+        expect(center.getTaskSnapshot(started.taskId)?.status).toBe('completed');
+        expect(
+            center.enqueueTaskUserMessage(started.taskId, { prompt: 'too late' }, 'queue')
+        ).toBeNull();
+        expect(center.updateTaskUserMessage(started.taskId, queued!.id, { prompt: 'edited' })).toBe(
+            false
+        );
+        expect(center.removeTaskUserMessage(started.taskId, queued!.id)).toBe(false);
+        expect(center.promoteTaskUserMessage(started.taskId, queued!.id)).toBe(false);
+        expect(center.reorderTaskQueuedMessages(started.taskId, [queued!.id])).toBe(false);
+
+        // Model switches are safe to keep up to date while the final snapshot is still
+        // visible; the message itself is not editable but will start the next turn.
+        expect(center.updateTaskUserMessageModel(started.taskId, 'model-2', 2)).toBe(true);
+        expect(center.getTaskSnapshot(started.taskId)?.pendingUserMessages[0]).toMatchObject({
+            id: queued!.id,
+            modelId: 'model-2',
+            providerId: 2,
+        });
+
+        center.dispose();
+    });
+
+    it('user gets session queue edits and ordering kept until the next task attaches', async () => {
+        let releaseStartup!: () => void;
+        try {
+            runtimeState.run
+                .mockImplementationOnce(finishableRun(14))
+                .mockImplementation(staysRunningInSession(14));
+            const center = createCenter();
+            const first = await center.startTask({ prompt: 'first', sessionId: 14 });
+            center.enqueueTaskUserMessage(first.taskId, { prompt: 'second' }, 'queue');
+
+            finishCurrentTask!();
+            await first.completion;
+
+            registerStartupCapability(
+                'model-metadata',
+                new Promise<void>((resolve) => {
+                    releaseStartup = resolve;
+                })
+            );
+            await Promise.resolve();
+            await Promise.resolve();
+
+            const lateOne = center.enqueueSessionUserMessage(14, { prompt: 'late one' }, 'queue');
+            const lateTwo = center.enqueueSessionUserMessage(14, { prompt: 'late two' }, 'queue');
+            expect(lateOne).not.toBeNull();
+            expect(lateTwo).not.toBeNull();
+
+            expect(center.updateSessionUserMessage(14, 'missing', { prompt: 'nope' })).toBe(false);
+            expect(
+                center.updateSessionUserMessage(14, lateOne!.id, { prompt: 'late one edited' })
+            ).toBe(true);
+            expect(center.removeSessionUserMessage(14, 'missing')).toBe(false);
+            expect(center.removeSessionUserMessage(14, lateOne!.id)).toBe(true);
+            expect(center.promoteSessionUserMessage(14, lateTwo!.id)).toBe(true);
+            expect(center.promoteSessionUserMessage(14, lateTwo!.id)).toBe(false);
+            expect(center.reorderSessionQueuedMessages(14, [lateTwo!.id])).toBe(false);
+            expect(center.reorderSessionQueuedMessages(999, [lateTwo!.id])).toBe(false);
+
+            const lateThree = center.enqueueSessionUserMessage(
+                14,
+                { prompt: 'late three' },
+                'queue'
+            );
+            expect(center.reorderSessionQueuedMessages(14, [lateThree!.id])).toBe(true);
+            expect(center.clearSessionUserMessages(14)).toBe(true);
+            expect(center.clearSessionUserMessages(14)).toBe(false);
+            expect(center.clearSessionUserMessages(999)).toBe(false);
+
+            releaseStartup();
+            await vi.waitFor(() => expect(center.getSessionStatus(14)?.status).toBe('running'));
+        } finally {
+            releaseStartup?.();
+            resetStartupCapabilities();
+        }
+    });
+
+    it('user gets queued messages restored when the hand-over task fails to start', async () => {
+        const failure = new Error('history unavailable');
+        historyState.loadSessionHistory.mockResolvedValueOnce([]).mockRejectedValueOnce(failure);
+        runtimeState.run.mockImplementationOnce(finishableRun(15));
+        const center = createCenter();
+        const first = await center.startTask({ prompt: 'first', sessionId: 15 });
+        center.enqueueTaskUserMessage(first.taskId, { prompt: 'second' }, 'queue');
+
+        finishCurrentTask!();
+        await first.completion;
+
+        let late: PendingUserMessage | null = null;
+        await vi.waitFor(
+            () => {
+                late = center.enqueueSessionUserMessage(15, { prompt: 'late' }, 'queue');
+                expect(late).not.toBeNull();
+            },
+            { timeout: 1000, interval: 10 }
+        );
+
+        expect(late).toMatchObject({ prompt: 'late', delivery: 'queue' });
+        center.dispose();
+    });
+
+    it('user gets no stale delivery request after the task is released', async () => {
+        runtimeState.run.mockImplementation(staysRunningInSession(16));
+        const center = createCenter();
+        await center.startTask({ prompt: 'first', sessionId: 16 });
+        const options = latestOptions();
+
+        center.dispose();
+
+        expect(options.takePriorityUserMessages?.()).toEqual([]);
+        expect(options.hasImmediatePriorityUserMessages?.()).toBe(false);
+    });
+});
