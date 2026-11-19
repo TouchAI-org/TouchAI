@@ -11,6 +11,7 @@ import {
     providers,
     sessions,
     sessionTurns,
+    statistics,
     usageDailyRollups,
 } from '../schema';
 
@@ -161,7 +162,7 @@ export interface UsageTrendPoint {
 
 /** A ranking row: a model or a session. */
 export interface UsageRankItem {
-    id: number;
+    id: number | null;
     /** Primary label: model name or session title. */
     name: string;
     /** Secondary line for session rows (model name); empty for model rows. */
@@ -259,6 +260,9 @@ export interface UsageFilterOptions {
 // Internal: WHERE construction
 // ============================================================================
 
+const historicalModelName = sql<string>`coalesce(${sessionTurns.model_name}, ${models.name}, '—')`;
+const historicalProviderName = sql<string>`coalesce(${sessionTurns.provider_name}, ${providers.name}, '—')`;
+
 /** Turn-level WHERE shared by every aggregate so the numbers agree. */
 function buildTurnWhere(filter: UsageFilter): SQL {
     const clauses: Array<SQL | undefined> = [
@@ -294,6 +298,8 @@ function buildTurnWhere(filter: UsageFilter): SQL {
         clauses.push(
             or(
                 like(sessionTurns.error_message, pattern),
+                like(sessionTurns.model_name, pattern),
+                like(sessionTurns.provider_name, pattern),
                 sql`${sessionTurns.model_id} IN (
                     SELECT ${models.id} FROM ${models}
                     INNER JOIN ${providers} ON ${providers.id} = ${models.provider_id}
@@ -461,12 +467,9 @@ export const getUsageTrend = async (
 
     const groupIdExpr =
         dimension === 'model'
-            ? sql<number>`${models.id}`
-            : sql<number>`coalesce(${providers.id}, 0)`;
-    const groupNameExpr =
-        dimension === 'model'
-            ? sql<string>`${models.name}`
-            : sql<string>`coalesce(${providers.name}, '—')`;
+            ? sql<number | null>`${models.id}`
+            : sql<number | null>`${providers.id}`;
+    const groupNameExpr = dimension === 'model' ? historicalModelName : historicalProviderName;
 
     const rows = await database
         .select({
@@ -481,7 +484,7 @@ export const getUsageTrend = async (
             costMicros: sql<number>`coalesce(sum(${sessionTurns.total_cost_micros}), 0)`,
         })
         .from(sessionTurns)
-        .innerJoin(models, eq(models.id, sessionTurns.model_id))
+        .leftJoin(models, eq(models.id, sessionTurns.model_id))
         .leftJoin(providers, eq(providers.id, models.provider_id))
         .where(buildTurnWhere(filter))
         .groupBy(keyExpr, groupIdExpr, groupNameExpr)
@@ -578,6 +581,66 @@ export const getUsageTrendFromArchive = async (): Promise<{
         .orderBy(usageDailyRollups.day)
         .all();
 
+    return { bucket: 'day', points: foldTrendRows(rows) };
+};
+
+/** Archived totals are immutable once a turn detail is cleared. */
+export const getUsageBaselineTrend = async (): Promise<{
+    bucket: 'day';
+    points: UsageTrendPoint[];
+}> => {
+    const stored = await db
+        .select({ value: statistics.value })
+        .from(statistics)
+        .where(eq(statistics.key, 'usage_rollup_baseline'))
+        .get();
+    if (!stored?.value) {
+        return { bucket: 'day', points: [] };
+    }
+
+    let entries: unknown;
+    try {
+        entries = JSON.parse(stored.value);
+    } catch {
+        return { bucket: 'day', points: [] };
+    }
+    if (!Array.isArray(entries)) {
+        return { bucket: 'day', points: [] };
+    }
+
+    const number = (value: unknown): number =>
+        typeof value === 'number' && Number.isFinite(value) ? value : 0;
+    const rows = entries.flatMap((entry) => {
+        if (!entry || typeof entry !== 'object') return [];
+        const record = entry as Record<string, unknown>;
+        if (typeof record.day !== 'string' || !record.day) return [];
+        const input = number(record.input_tokens);
+        const output = number(record.output_tokens);
+        const read = number(record.cache_read_tokens);
+        const write = number(record.cache_write_tokens);
+        return [
+            {
+                key: record.day,
+                groupName: typeof record.model_name === 'string' ? record.model_name : '—',
+                requests: number(record.request_count),
+                tokens: input + output + read + write,
+                costMicros: number(record.total_cost_micros),
+            },
+        ];
+    });
+
+    return { bucket: 'day', points: foldTrendRows(rows) };
+};
+
+function foldTrendRows(
+    rows: Array<{
+        key: string;
+        groupName: string;
+        requests: number;
+        tokens: number;
+        costMicros: number;
+    }>
+): UsageTrendPoint[] {
     const byBucket = new Map<string, UsageTrendPoint>();
     for (const row of rows) {
         let point = byBucket.get(row.key);
@@ -603,8 +666,8 @@ export const getUsageTrendFromArchive = async (): Promise<{
         point.segments.sort((left, right) => right.tokens - left.tokens);
     }
 
-    return { bucket: 'day', points: [...byBucket.values()] };
-};
+    return [...byBucket.values()];
+}
 
 /** The archive cannot serve a filtered trend; it has no id dimension. */
 export function canUseUsageArchive(filter: UsageFilter): boolean {
@@ -672,11 +735,11 @@ const groupSelection = {
 
 export const getUsageByModel = async (filter: UsageFilter): Promise<UsageGroup[]> => {
     const rows = await db
-        .select({ id: models.id, name: models.name, ...groupSelection })
+        .select({ id: models.id, name: historicalModelName, ...groupSelection })
         .from(sessionTurns)
-        .innerJoin(models, eq(models.id, sessionTurns.model_id))
+        .leftJoin(models, eq(models.id, sessionTurns.model_id))
         .where(buildTurnWhere(filter))
-        .groupBy(models.id, models.name)
+        .groupBy(models.id, historicalModelName)
         .orderBy(
             desc(
                 sql`coalesce(sum(${sessionTurns.input_tokens} + ${sessionTurns.output_tokens}), 0)`
@@ -689,12 +752,12 @@ export const getUsageByModel = async (filter: UsageFilter): Promise<UsageGroup[]
 
 export const getUsageByProvider = async (filter: UsageFilter): Promise<UsageGroup[]> => {
     const rows = await db
-        .select({ id: providers.id, name: providers.name, ...groupSelection })
+        .select({ id: providers.id, name: historicalProviderName, ...groupSelection })
         .from(sessionTurns)
-        .innerJoin(models, eq(models.id, sessionTurns.model_id))
-        .innerJoin(providers, eq(providers.id, models.provider_id))
+        .leftJoin(models, eq(models.id, sessionTurns.model_id))
+        .leftJoin(providers, eq(providers.id, models.provider_id))
         .where(buildTurnWhere(filter))
-        .groupBy(providers.id, providers.name)
+        .groupBy(providers.id, historicalProviderName)
         .orderBy(
             desc(
                 sql`coalesce(sum(${sessionTurns.input_tokens} + ${sessionTurns.output_tokens}), 0)`
@@ -727,7 +790,7 @@ export const getModelRanking = async (
     const rows = await db
         .select({
             id: models.id,
-            name: models.name,
+            name: historicalModelName,
             requests: count(),
             tokens: sql<number>`coalesce(sum(
                 ${sessionTurns.input_tokens} + ${sessionTurns.output_tokens}
@@ -737,9 +800,9 @@ export const getModelRanking = async (
             unpricedCount: sql<number>`coalesce(sum(${sessionTurns.unpriced_calls}), 0)`,
         })
         .from(sessionTurns)
-        .innerJoin(models, eq(models.id, sessionTurns.model_id))
+        .leftJoin(models, eq(models.id, sessionTurns.model_id))
         .where(buildTurnWhere(filter))
-        .groupBy(models.id, models.name)
+        .groupBy(models.id, historicalModelName)
         .orderBy(desc(orderExpr))
         .limit(limit)
         .all();
@@ -782,7 +845,7 @@ export const getSessionRanking = async (
         .select({
             id: sessions.id,
             title: sessions.title,
-            modelName: sql<string>`coalesce(max(${models.name}), '')`,
+            modelName: sql<string>`coalesce(max(${historicalModelName}), '')`,
             lastAt: sql<string>`max(${sessionTurns.created_at})`,
             requests: count(),
             tokens: sql<number>`coalesce(sum(

@@ -1,6 +1,7 @@
 ﻿// Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { asc, count, desc, eq } from 'drizzle-orm';
+import { storage } from '@services/NativeService/storage';
+import { asc, count, desc, eq, sql } from 'drizzle-orm';
 
 import { type DatabaseExecutor, db } from '../index';
 import { models, providers, sessionTurns } from '../schema';
@@ -15,6 +16,9 @@ import { type ModelWithProvider, modelWithProviderSelection } from './models';
 export interface SessionTurnHistoryRow {
     id: number;
     session_id: number | null;
+    model_id: number | null;
+    model_name: string | null;
+    provider_name: string | null;
     task_id: string;
     execution_mode: SessionTurnEntity['execution_mode'];
     prompt_snapshot_json: string;
@@ -33,7 +37,26 @@ export const createSessionTurn = async (
     turnDraft: SessionTurnCreateData,
     database: DatabaseExecutor = db
 ): Promise<SessionTurnEntity> => {
-    const createdTurn = await database.insert(sessionTurns).values(turnDraft).returning().get();
+    // Resolve the association and names in the same INSERT. Configuration may
+    // disappear after a caller captured its model object, but the call still exists.
+    const modelId = turnDraft.model_id;
+    const createdTurn = await database
+        .insert(sessionTurns)
+        .values({
+            ...turnDraft,
+            model_id:
+                modelId === null
+                    ? null
+                    : sql`(SELECT ${models.id} FROM ${models} WHERE ${models.id} = ${modelId})`,
+            model_name:
+                turnDraft.model_name ??
+                sql`(SELECT ${models.name} FROM ${models} WHERE ${models.id} = ${modelId})`,
+            provider_name:
+                turnDraft.provider_name ??
+                sql`(SELECT ${providers.name} FROM ${models} JOIN ${providers} ON ${providers.id} = ${models.provider_id} WHERE ${models.id} = ${modelId})`,
+        })
+        .returning()
+        .get();
 
     if (!createdTurn || createdTurn.id === undefined) {
         throw new Error('Failed to create session turn');
@@ -94,14 +117,14 @@ export const findLatestModelBySessionId = async ({
     const result = await db
         .select(modelWithProviderSelection)
         .from(sessionTurns)
-        .innerJoin(models, eq(models.id, sessionTurns.model_id))
-        .innerJoin(providers, eq(providers.id, models.provider_id))
+        .leftJoin(models, eq(models.id, sessionTurns.model_id))
+        .leftJoin(providers, eq(providers.id, models.provider_id))
         .where(eq(sessionTurns.session_id, sessionId))
         .orderBy(desc(sessionTurns.created_at), desc(sessionTurns.id))
         .limit(1)
         .get();
 
-    if (!result || result.id === undefined) {
+    if (!result || result.id === null || result.id === undefined) {
         return null;
     }
 
@@ -118,6 +141,9 @@ export const findSessionTurnsBySessionId = async (
         .select({
             id: sessionTurns.id,
             session_id: sessionTurns.session_id,
+            model_id: sessionTurns.model_id,
+            model_name: sessionTurns.model_name,
+            provider_name: sessionTurns.provider_name,
             task_id: sessionTurns.task_id,
             execution_mode: sessionTurns.execution_mode,
             prompt_snapshot_json: sessionTurns.prompt_snapshot_json,
@@ -146,5 +172,5 @@ export const countSessionTurns = async (): Promise<number> => {
  * 删除所有会话轮次。
  */
 export const deleteAllSessionTurns = async (): Promise<void> => {
-    await db.delete(sessionTurns).run();
+    await storage.clearHistory('turns');
 };

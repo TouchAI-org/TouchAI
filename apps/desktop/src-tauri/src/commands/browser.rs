@@ -19,8 +19,10 @@ pub fn browser_status(runtime: State<'_, BrowserRuntime>) -> BrowserStatus {
 #[tauri::command]
 pub async fn browser_start(
     runtime: State<'_, BrowserRuntime>,
+    storage: State<'_, crate::core::storage::StorageRuntime>,
     request: BrowserStartRequest,
 ) -> Result<BrowserStatus, String> {
+    let _storage = storage.access().await;
     runtime.start(request).await
 }
 
@@ -44,8 +46,10 @@ pub async fn browser_discover_existing(
 #[tauri::command]
 pub async fn browser_connect_existing(
     runtime: State<'_, BrowserRuntime>,
+    storage: State<'_, crate::core::storage::StorageRuntime>,
     request: BrowserConnectExistingRequest,
 ) -> Result<BrowserConnectExistingResult, String> {
+    let _storage = storage.access().await;
     runtime.connect_existing(request).await
 }
 
@@ -57,47 +61,59 @@ pub fn browser_stop(runtime: State<'_, BrowserRuntime>) -> BrowserStatus {
 #[tauri::command]
 pub async fn browser_navigate(
     runtime: State<'_, BrowserRuntime>,
+    storage: State<'_, crate::core::storage::StorageRuntime>,
     request: BrowserNavigateRequest,
 ) -> Result<BrowserStatus, String> {
+    let _storage = storage.access().await;
     runtime.navigate(request).await
 }
 
 #[tauri::command]
 pub async fn browser_back(
     runtime: State<'_, BrowserRuntime>,
+    storage: State<'_, crate::core::storage::StorageRuntime>,
     request: BrowserTabRequest,
 ) -> Result<BrowserStatus, String> {
+    let _storage = storage.access().await;
     runtime.history_action(request, "back").await
 }
 
 #[tauri::command]
 pub async fn browser_forward(
     runtime: State<'_, BrowserRuntime>,
+    storage: State<'_, crate::core::storage::StorageRuntime>,
     request: BrowserTabRequest,
 ) -> Result<BrowserStatus, String> {
+    let _storage = storage.access().await;
     runtime.history_action(request, "forward").await
 }
 
 #[tauri::command]
 pub async fn browser_reload(
     runtime: State<'_, BrowserRuntime>,
+    storage: State<'_, crate::core::storage::StorageRuntime>,
     request: BrowserTabRequest,
 ) -> Result<BrowserStatus, String> {
+    let _storage = storage.access().await;
     runtime.history_action(request, "reload").await
 }
 
 #[tauri::command]
 pub async fn browser_observe(
     runtime: State<'_, BrowserRuntime>,
+    storage: State<'_, crate::core::storage::StorageRuntime>,
     request: BrowserObserveRequest,
 ) -> Result<BrowserObservation, String> {
+    let _storage = storage.access().await;
     runtime.observe(request).await
 }
 
 #[tauri::command]
 pub async fn browser_act(
     runtime: State<'_, BrowserRuntime>,
+    storage: State<'_, crate::core::storage::StorageRuntime>,
     request: BrowserActRequest,
 ) -> Result<BrowserActResult, String> {
+    let _storage = storage.access().await;
     runtime.act(request).await
 }

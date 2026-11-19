@@ -100,7 +100,7 @@ describe('user is told the import succeeded when the app starts again', () => {
         const payload = JSON.stringify({
             type: 'import-success',
             version: 1,
-            importMode: 'settings_only',
+            importMode: 'future_scope',
         });
         getMetaMock.mockResolvedValue(payload);
         const { runStartupTasks } = await import('@services/StartupService');
@@ -110,6 +110,18 @@ describe('user is told the import succeeded when the app starts again', () => {
         expect(notifyMock).toHaveBeenCalledWith({
             title: 'TouchAI',
             body: payload,
+        });
+    });
+
+    it('user restores settings alone and sees the selected scope after restarting', async () => {
+        setLocale('en-US');
+        const { runStartupTasks, serializeImportSuccessStartupPayload } =
+            await import('@services/StartupService');
+        getMetaMock.mockResolvedValue(serializeImportSuccessStartupPayload('settings_only'));
+        await runStartupTasks();
+        expect(notifyMock).toHaveBeenCalledWith({
+            title: 'TouchAI',
+            body: expect.stringContaining('Restore settings only'),
         });
     });
 

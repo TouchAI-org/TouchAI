@@ -315,7 +315,9 @@ export interface ModelWithProvider {
 export interface SessionTurnEntity {
     id: number;
     session_id: number | null;
-    model_id: number;
+    model_id: number | null;
+    model_name: string | null;
+    provider_name: string | null;
     task_id: string;
     execution_mode: 'foreground' | 'background';
     prompt_snapshot_json: string;
@@ -355,7 +357,9 @@ export interface SessionTurnEntity {
 
 export interface SessionTurnCreateData {
     session_id?: number | null;
-    model_id: number;
+    model_id: number | null;
+    model_name?: string | null;
+    provider_name?: string | null;
     task_id: string;
     execution_mode?: 'foreground' | 'background';
     prompt_snapshot_json: string;

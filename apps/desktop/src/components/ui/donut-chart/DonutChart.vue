@@ -25,6 +25,7 @@
         data: Array<{ key: string; label: string; value: number; color?: string }>;
         /** Centre caption; replaced by the slice name when one is active. */
         totalLabel?: string;
+        totalValue?: number;
         /** Ring diameter in px. */
         size?: number;
         /** Ring thickness. */
@@ -44,6 +45,7 @@
 
     const props = withDefaults(defineProps<Props>(), {
         totalLabel: undefined,
+        totalValue: undefined,
         size: 160,
         thickness: 20,
         groupBelow: 0.04,
@@ -75,6 +77,12 @@
         'var(--usage-series-4, rgb(245 158 11))',
         'var(--usage-series-5, rgb(139 92 246))',
         'var(--usage-series-6, rgb(236 72 153))',
+    ];
+    const EXTENDED_SERIES = [
+        ...SERIES,
+        'var(--color-text-warning)',
+        'var(--color-text-info)',
+        'var(--color-text-tertiary)',
     ];
     const OTHER_KEY = '__other';
     const OTHER_COLOR = 'rgb(212 212 212)';
@@ -110,10 +118,13 @@
         if (item.color) return item.color;
         if (item.key === OTHER_KEY) return OTHER_COLOR;
         const index = palette.value.get(item.key) ?? 0;
-        return SERIES[index % SERIES.length]!;
+        const colors = props.maxSegments > SERIES.length ? EXTENDED_SERIES : SERIES;
+        return colors[index % colors.length]!;
     }
 
-    const total = computed(() => slices.value.reduce((sum, item) => sum + item.value, 0));
+    const total = computed(
+        () => props.totalValue ?? slices.value.reduce((sum, item) => sum + item.value, 0)
+    );
 
     // ===== Interaction state =====
 
@@ -131,8 +142,27 @@
         selected.value = selected.value === key ? null : key;
     }
 
-    function ratioOf(value: number): number {
-        return total.value > 0 ? value / total.value : 0;
+    watch(slices, (items) => {
+        if (selected.value !== null && !items.some((item) => item.key === selected.value)) {
+            selected.value = null;
+        }
+        if (preview.value !== null && !items.some((item) => item.key === preview.value)) {
+            preview.value = null;
+        }
+    });
+
+    function legendBindings(key: string) {
+        return {
+            'aria-pressed': selected.value === key,
+            onClick: () => toggle(key),
+            onMouseenter: () => (preview.value = key),
+            onMouseleave: () => (preview.value = null),
+        };
+    }
+
+    function shareOf(value: number): string {
+        const ratio = total.value > 0 ? value / total.value : 0;
+        return `${(ratio * 100).toFixed(1)}%`;
     }
 
     /** Prefix estimated values with ≈ in the legend, matching the card notes. */
@@ -341,7 +371,7 @@
     );
     const centerMeta = computed(() => {
         if (!activeSlice.value) return '';
-        return `${(ratioOf(activeSlice.value.value) * 100).toFixed(1)}%`;
+        return shareOf(activeSlice.value.value);
     });
 
     /**
@@ -368,73 +398,85 @@
 <template>
     <figure
         class="grid min-w-0 grid-cols-1 items-center gap-6"
-        :class="legend ? 'sm:grid-cols-[auto_minmax(0,1fr)]' : ''"
+        :class="$slots.legend ? '@xl:flex' : legend ? 'sm:grid-cols-[auto_minmax(0,1fr)]' : ''"
     >
-        <div
-            class="relative justify-self-center"
-            :style="{ width: `${size}px`, height: `${size}px` }"
-        >
-            <svg
-                :viewBox="`0 0 ${size} ${size}`"
-                class="block h-full w-full overflow-visible"
-                role="img"
-                :aria-label="totalLabel ?? ''"
-            >
-                <!-- 底环：无数据时显示，让空态也有形状 -->
-                <circle
-                    v-if="rendered.length === 0"
-                    :cx="c"
-                    :cy="c"
-                    :r="(outer + inner) / 2"
-                    fill="none"
-                    stroke="currentColor"
-                    class="text-neutral-200/70"
-                    :stroke-width="thickness"
-                />
-                <path
-                    v-for="item in rendered"
-                    :key="item.key"
-                    :ref="setPathRef(item.key)"
-                    :d="item.d"
-                    :fill="item.color"
-                    :opacity="item.dim ? 0.45 : 1"
-                    class="transition-opacity duration-200"
-                    style="shape-rendering: geometricPrecision"
-                    @mouseenter="preview = item.key"
-                    @mouseleave="preview = null"
-                />
-            </svg>
-
-            <!-- 中心读数：用 grid 叠放，切换时不移动也不改变尺寸 -->
-            <!-- inner 是半径，中心框宽度要按直径算，否则读数会被截断 -->
+        <div class="grid shrink-0 justify-items-center gap-3">
             <div
-                class="pointer-events-none absolute top-1/2 left-1/2 grid -translate-x-1/2 -translate-y-1/2 text-center"
-                :style="{ width: `${Math.max(40, inner * 2 - 10)}px` }"
+                class="relative justify-self-center"
+                :style="{ width: `${size}px`, height: `${size}px` }"
             >
-                <span
-                    class="block w-full font-serif leading-tight font-semibold whitespace-nowrap text-neutral-950 tabular-nums"
-                    :style="{
-                        fontSize: `${centerFontSize}px`,
-                    }"
+                <svg
+                    :viewBox="`0 0 ${size} ${size}`"
+                    class="block h-full w-full overflow-visible"
+                    role="img"
+                    :aria-label="totalLabel ?? ''"
                 >
-                    {{ centerValue }}
-                </span>
-                <span
-                    v-if="centerLabel"
-                    class="mt-1 block w-full truncate text-2xs leading-4 text-neutral-400"
+                    <!-- 底环：无数据时显示，让空态也有形状 -->
+                    <circle
+                        v-if="rendered.length === 0"
+                        :cx="c"
+                        :cy="c"
+                        :r="(outer + inner) / 2"
+                        fill="none"
+                        stroke="currentColor"
+                        class="text-neutral-200/70"
+                        :stroke-width="thickness"
+                    />
+                    <path
+                        v-for="item in rendered"
+                        :key="item.key"
+                        :ref="setPathRef(item.key)"
+                        :d="item.d"
+                        :fill="item.color"
+                        :opacity="item.dim ? 0.45 : 1"
+                        class="transition-opacity duration-200"
+                        style="shape-rendering: geometricPrecision"
+                        @mouseenter="preview = item.key"
+                        @mouseleave="preview = null"
+                    />
+                </svg>
+
+                <!-- 中心读数：用 grid 叠放，切换时不移动也不改变尺寸 -->
+                <!-- inner 是半径，中心框宽度要按直径算，否则读数会被截断 -->
+                <div
+                    class="pointer-events-none absolute top-1/2 left-1/2 grid -translate-x-1/2 -translate-y-1/2 text-center"
+                    :style="{ width: `${Math.max(40, inner * 2 - 10)}px` }"
                 >
-                    {{ centerLabel }}
-                </span>
-                <span
-                    v-if="centerMeta"
-                    class="block w-full truncate text-2xs leading-4 text-neutral-400 tabular-nums"
-                >
-                    {{ centerMeta }}
-                </span>
+                    <span
+                        class="block w-full font-serif leading-tight font-semibold whitespace-nowrap text-neutral-950 tabular-nums"
+                        :style="{
+                            fontSize: `${centerFontSize}px`,
+                        }"
+                    >
+                        {{ centerValue }}
+                    </span>
+                    <span
+                        v-if="centerLabel"
+                        class="mt-1 block w-full truncate text-2xs leading-4 text-neutral-400"
+                    >
+                        {{ centerLabel }}
+                    </span>
+                    <span
+                        v-if="centerMeta"
+                        class="block w-full truncate text-2xs leading-4 text-neutral-400 tabular-nums"
+                    >
+                        {{ centerMeta }}
+                    </span>
+                    <slot name="center-detail" :active-key="activeSlice?.key" />
+                </div>
             </div>
+            <slot name="caption" />
         </div>
 
-        <ul v-if="legend" class="m-0 min-w-0 list-none p-0">
+        <slot
+            v-if="legend && $slots.legend"
+            name="legend"
+            :color-of="colorOf"
+            :share-of="shareOf"
+            :bind-item="legendBindings"
+            :active-key="activeKey"
+        />
+        <ul v-else-if="legend" class="m-0 min-w-0 list-none p-0">
             <li v-for="item in slices" :key="item.key">
                 <button
                     type="button"
@@ -444,10 +486,7 @@
                             ? 'bg-neutral-900/[0.05]'
                             : 'hover:bg-neutral-900/[0.04]'
                     "
-                    :aria-pressed="selected === item.key"
-                    @click="toggle(item.key)"
-                    @mouseenter="preview = item.key"
-                    @mouseleave="preview = null"
+                    v-bind="legendBindings(item.key)"
                 >
                     <span
                         class="h-2 w-2 shrink-0 rounded-full"
@@ -466,7 +505,7 @@
                     <span
                         class="w-11 shrink-0 text-right text-[12px] font-medium text-neutral-900 tabular-nums"
                     >
-                        {{ (ratioOf(item.value) * 100).toFixed(1) }}%
+                        {{ shareOf(item.value) }}
                     </span>
                 </button>
             </li>

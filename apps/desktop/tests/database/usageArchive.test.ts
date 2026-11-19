@@ -1,6 +1,10 @@
 import type { SQLInputValue } from 'node:sqlite';
 
-import { canUseUsageArchive, getUsageTrendFromArchive } from '@database/queries/usageStats';
+import {
+    canUseUsageArchive,
+    getUsageBaselineTrend,
+    getUsageTrendFromArchive,
+} from '@database/queries/usageStats';
 import { interceptTauriInvoke } from '@tests/utils/tauri';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -55,6 +59,40 @@ afterEach(() => {
 });
 
 describe('user opens the usage chart after old data was pruned', () => {
+    it('user gets frozen baseline days as their own trend points', async () => {
+        const database = openDatabase();
+        routeQueriesTo(database);
+        database.exec(`
+            INSERT INTO statistics (key, value)
+            VALUES ('usage_rollup_baseline', json('[{
+                "day":"2026-01-01","model_name":"gpt-4o","provider_name":"openai",
+                "request_count":3,"success_count":2,"input_tokens":100,"output_tokens":50,
+                "cache_read_tokens":10,"cache_write_tokens":0,"reasoning_tokens":0,
+                "total_cost_micros":2500,"unpriced_count":0,"sum_ttft_ms":0,
+                "sum_duration_ms":0,"ttft_sample_count":0
+            }]'));
+        `);
+
+        const trend = await getUsageBaselineTrend();
+
+        expect(trend.bucket).toBe('day');
+        expect(trend.points).toEqual([
+            expect.objectContaining({
+                key: '2026-01-01',
+                requests: 3,
+                tokens: 160,
+                costMicros: 2500,
+            }),
+        ]);
+    });
+
+    it('user gets no baseline points when no baseline exists', async () => {
+        const database = openDatabase();
+        routeQueriesTo(database);
+
+        await expect(getUsageBaselineTrend()).resolves.toEqual({ bucket: 'day', points: [] });
+    });
+
     it('user gets the archived days with their request and token totals', async () => {
         const database = openDatabase();
         routeQueriesTo(database);

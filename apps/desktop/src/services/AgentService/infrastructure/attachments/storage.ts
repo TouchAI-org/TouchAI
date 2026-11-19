@@ -10,9 +10,10 @@ import {
 } from '@database/queries';
 import type { AttachmentEntity } from '@database/types';
 import { native } from '@services/NativeService';
+import { withStorageActivity } from '@services/StorageService';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { join } from '@tauri-apps/api/path';
-import { copyFile, exists, mkdir, stat, writeFile } from '@tauri-apps/plugin-fs';
+import { exists, mkdir, stat, writeFile } from '@tauri-apps/plugin-fs';
 import {
     fullName as getFileName,
     icon as getFileIcon,
@@ -62,19 +63,6 @@ async function buildPreview(
         // Icon lookup is platform-specific; a missing preview must not block the attachment.
         return undefined;
     }
-}
-
-async function computeAttachmentHash(path: string): Promise<string> {
-    const response = await fetch(convertFileSrc(path));
-    if (!response.ok) {
-        throw new Error(`Failed to read attachment: ${response.statusText}`);
-    }
-
-    const buffer = await response.arrayBuffer();
-    const digest = await crypto.subtle.digest('SHA-256', buffer);
-    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join(
-        ''
-    );
 }
 
 async function computeAttachmentHashFromBytes(bytes: Uint8Array): Promise<string> {
@@ -156,7 +144,7 @@ async function prepareAttachment(
         };
     }
 
-    const [mimeType, size] = await Promise.all([resolveMimeType(type, path), getFileSize(path)]);
+    const mimeType = await resolveMimeType(type, path);
 
     if (type === 'image') {
         const buffer = await readAttachmentBuffer(path);
@@ -164,22 +152,35 @@ async function prepareAttachment(
             bytes: new Uint8Array(buffer),
             mimeType: mimeType ?? 'image/png',
         });
-        const hash = await computeAttachmentHashFromBytes(normalized.bytes);
-        const targetPath = await buildAttachmentStoragePath(type, hash);
-        await writeFile(targetPath, normalized.bytes);
+        const published = await publishBytes(type, normalized.bytes, path);
         return {
-            hash,
+            hash: published.hash,
             name,
             mimeType: normalized.mimeType,
-            size: normalized.bytes.byteLength,
+            size: published.size,
         };
     }
 
-    const hash = await computeAttachmentHash(path);
-    const targetPath = await buildAttachmentStoragePath(type, hash);
-    await copyFile(path, targetPath);
+    const published = await native.storage.publishAttachment(type, path);
+    return { hash: published.hash, name, mimeType: mimeType ?? null, size: published.size };
+}
 
-    return { hash, name, mimeType: mimeType ?? null, size };
+/** The only renderer write is a private staging file, never a published hash path. */
+async function publishBytes(
+    type: AttachmentIndex['type'],
+    bytes: Uint8Array,
+    aliasSourcePath?: string
+) {
+    const hash = await computeAttachmentHashFromBytes(bytes);
+    const existingPath = await buildAttachmentStoragePath(type, hash);
+    if (await exists(existingPath)) {
+        return native.storage.publishAttachment(type, existingPath, hash, aliasSourcePath);
+    }
+    const directory = await join(await ensureCacheDirectory(), '.staging');
+    await mkdir(directory, { recursive: true });
+    const stagingPath = await join(directory, `attachment-${crypto.randomUUID()}`);
+    await writeFile(stagingPath, bytes);
+    return native.storage.publishAttachment(type, stagingPath, hash, aliasSourcePath);
 }
 
 async function ensureAttachmentRecord(
@@ -236,12 +237,8 @@ async function ensureAttachmentRecordFromBytes(
                   mimeType: options.mimeType ?? 'image/png',
               })
             : { bytes: options.data, mimeType: options.mimeType, resized: false };
-    const hash = await computeAttachmentHashFromBytes(prepared.bytes);
-    const targetPath = await buildAttachmentStoragePath(options.type, hash);
-
-    if (!(await exists(targetPath))) {
-        await writeFile(targetPath, prepared.bytes);
-    }
+    const published = await publishBytes(options.type, prepared.bytes);
+    const hash = published.hash;
 
     const existing = await findAttachmentByHash(hash, database);
     if (existing) {
@@ -351,14 +348,14 @@ export async function createPersistedAttachmentFromData(
     },
     database: DatabaseExecutor = db
 ): Promise<AttachmentIndex> {
-    const persisted = await ensureAttachmentRecordFromBytes(options, database);
-    return toAttachmentIndex(persisted, {
-        // 字节型附件可能命中去重记录，但当前调用方的来源路径/名称
-        // 仍然属于这一次消息语义，不能被旧记录回灌覆盖。
-        originPath: options.originPath,
-        name: options.name,
-        size: persisted.size ?? options.size ?? options.data.byteLength,
-        mimeType: persisted.mime_type ?? options.mimeType ?? undefined,
+    return withStorageActivity(async () => {
+        const persisted = await ensureAttachmentRecordFromBytes(options, database);
+        return toAttachmentIndex(persisted, {
+            originPath: options.originPath,
+            name: options.name,
+            size: persisted.size ?? options.size ?? options.data.byteLength,
+            mimeType: persisted.mime_type ?? options.mimeType ?? undefined,
+        });
     });
 }
 

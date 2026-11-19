@@ -9,6 +9,9 @@
 /// Serif face expands to 60 MB, so the native side decodes it once and caches a
 /// plain TTF for WebKit. Other platforms keep using the original asset.
 #[tauri::command]
-pub async fn prepare_product_font_file() -> Result<String, String> {
+pub async fn prepare_product_font_file(
+    storage: tauri::State<'_, crate::core::storage::StorageRuntime>,
+) -> Result<String, String> {
+    let _storage = storage.access().await;
     crate::core::system::assets::prepare_product_font_file().await
 }

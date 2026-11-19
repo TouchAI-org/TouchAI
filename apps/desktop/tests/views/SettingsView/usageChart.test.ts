@@ -1,5 +1,6 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3.
 
+import BarChart from '@components/ui/bar-chart/BarChart.vue';
 import type { UsageTrendPoint } from '@database/queries/usageStats';
 import { mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -86,6 +87,40 @@ describe('user reviews the usage trend', () => {
 
         expect(cost.attributes('aria-pressed')).toBe('true');
         expect(wrapper.emitted('update:dimension')).toBeUndefined();
+    });
+
+    it('user sees same-name segments added instead of the last one replacing the others', () => {
+        const duplicate: UsageTrendPoint[] = [
+            {
+                key: '2026-05-01',
+                requests: 2,
+                tokens: 300,
+                costMicros: 0,
+                segments: [
+                    {
+                        groupId: null,
+                        name: 'Shared provider',
+                        requests: 1,
+                        tokens: 100,
+                        costMicros: 0,
+                    },
+                    {
+                        groupId: 7,
+                        name: 'Shared provider',
+                        requests: 1,
+                        tokens: 200,
+                        costMicros: 0,
+                    },
+                ],
+            },
+        ];
+
+        const wrapper = mountChart({ points: duplicate, dimension: 'provider' });
+        const data = wrapper.findComponent(BarChart).props('data') as Array<{
+            values: Record<string, number>;
+        }>;
+
+        expect(data[0]!.values['Shared provider']).toBe(300);
     });
 
     it('user sees the remaining models folded into "other" when more than five compete', () => {

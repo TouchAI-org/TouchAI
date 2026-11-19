@@ -6,7 +6,7 @@ import { invoke } from './invoke';
 
 export type DatabaseQueryMethod = 'run' | 'all' | 'get' | 'values';
 export type DatabaseTransactionBehavior = 'deferred' | 'immediate' | 'exclusive';
-export type DatabaseImportMode = 'chat_only' | 'full';
+export type DatabaseImportMode = 'chat_only' | 'settings_only' | 'full';
 
 export interface DatabaseQueryRequest {
     sql: string;
@@ -54,8 +54,12 @@ export const database = {
         return invoke('database_tx_rollback', { txId });
     },
 
-    exportBackup(targetPath: string): Promise<void> {
-        return invoke('database_export_backup', { targetPath });
+    exportBackup(targetPath: string, mode: DatabaseImportMode = 'full'): Promise<void> {
+        return invoke('database_export_backup', { targetPath, mode });
+    },
+
+    backupScope(sourcePath: string): Promise<DatabaseImportMode> {
+        return invoke('database_backup_scope', { sourcePath });
     },
 
     importBackup(request: DatabaseImportRequest): Promise<void> {

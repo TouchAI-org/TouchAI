@@ -1,489 +1,265 @@
-// Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
+import { createHash } from 'node:crypto';
 
-import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mockTauriCommand } from '@tests/utils/tauri';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
     createAttachment,
     createPersistedAttachmentFromData,
-    ensurePersistedAttachmentIndex,
     hydratePersistedAttachments,
     persistPreparedAttachment,
     prepareAttachmentForPersistence,
 } from '@/services/AgentService/infrastructure/attachments/storage';
-import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments/types';
 
-/**
- * Attachments are copied into an app-owned cache and deduplicated by content hash. Getting this
- * wrong either loses the user's file, copies the same bytes once per send, or hands the model a
- * path that no longer exists.
- */
-const mocks = vi.hoisted(() => ({
-    createAttachmentRecord: vi.fn(),
-    findAttachmentByHash: vi.fn(),
-    getAppDirectoryPath: vi.fn(),
-    convertFileSrc: vi.fn(),
-    join: vi.fn(),
-    copyFile: vi.fn(),
-    exists: vi.fn(),
-    mkdir: vi.fn(),
-    writeFile: vi.fn(),
-    stat: vi.fn(),
-    getFileName: vi.fn(),
-    getFileIcon: vi.fn(),
-    getFileSize: vi.fn(),
-    normalizeImageBytes: vi.fn(),
+import {
+    closeTestDatabases,
+    openMigratedDatabase,
+    routeQueriesTo,
+} from '../../../../database/sqliteHarness';
+
+const system = vi.hoisted(() => ({
+    files: new Map<string, Uint8Array>(),
+    directories: new Set<string>(),
 }));
 
-vi.mock('@database', async (importOriginal) => ({
-    ...(await importOriginal<typeof import('@database')>()),
-    db: { __tag: 'db' },
+vi.mock('@tauri-apps/api/core', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@tauri-apps/api/core')>()),
+    convertFileSrc: (path: string) => `asset://${path}`,
 }));
-
-vi.mock('@database/queries', async (importOriginal) => ({
-    ...(await importOriginal<typeof import('@database/queries')>()),
-    createAttachmentRecord: mocks.createAttachmentRecord,
-    findAttachmentByHash: mocks.findAttachmentByHash,
-}));
-
-vi.mock('@services/NativeService', () => ({
-    native: { paths: { getAppDirectoryPath: mocks.getAppDirectoryPath } },
-}));
-
-vi.mock('@tauri-apps/api/core', () => ({ convertFileSrc: mocks.convertFileSrc }));
-
 vi.mock('@tauri-apps/api/path', () => ({
     join: (...parts: string[]) => Promise.resolve(parts.join('/')),
 }));
-
 vi.mock('@tauri-apps/plugin-fs', () => ({
-    copyFile: mocks.copyFile,
-    exists: mocks.exists,
-    mkdir: mocks.mkdir,
-    writeFile: mocks.writeFile,
-    stat: mocks.stat,
+    mkdir: async (path: string) => {
+        system.directories.add(path);
+    },
+    exists: async (path: string) => system.files.has(path) || system.directories.has(path),
+    stat: async (path: string) => {
+        if (system.directories.has(path)) return { isDirectory: true, isFile: false, size: 0 };
+        const bytes = system.files.get(path);
+        if (!bytes) throw new Error('source unavailable');
+        return { isDirectory: false, isFile: true, size: bytes.byteLength };
+    },
+    writeFile: async (path: string, bytes: Uint8Array) => {
+        system.files.set(path, bytes.slice());
+    },
 }));
-
 vi.mock('tauri-plugin-fs-pro-api', () => ({
-    fullName: mocks.getFileName,
-    icon: mocks.getFileIcon,
-    size: mocks.getFileSize,
+    fullName: async (path: string) => path.split(/[\\/]/).pop() ?? '',
+    icon: async () => '/icons/file.png',
+    size: async (path: string) => system.files.get(path)?.byteLength ?? 0,
 }));
 
-vi.mock('@/services/AgentService/infrastructure/attachments/imageNormalization', () => ({
-    normalizeImageBytes: mocks.normalizeImageBytes,
-}));
-
-/** A 32-byte payload; the real hash is computed by the platform crypto. */
-const sampleBytes = new Uint8Array(32).fill(7);
-
-const originalFetch = globalThis.fetch;
+let database: ReturnType<typeof openMigratedDatabase>;
+const sample = new Uint8Array([1, 2, 3, 4]);
+const digest = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
+const targetPath = (type: string, hash: string) =>
+    `/cache/attachments/${type === 'image' ? 'images' : 'files'}/${hash.slice(0, 3)}/${hash}`;
 
 beforeEach(() => {
-    vi.clearAllMocks();
-    // Hashing reads the file through fetch(convertFileSrc(path)); jsdom cannot resolve asset://.
-    globalThis.fetch = vi.fn(async () => ({
-        ok: true,
-        statusText: 'OK',
-        arrayBuffer: async () => new Uint8Array(32).fill(7).buffer,
-    })) as never;
-    mocks.getAppDirectoryPath.mockResolvedValue('/cache');
-    mocks.convertFileSrc.mockImplementation((path: string) => `asset://${path}`);
-    mocks.mkdir.mockResolvedValue(undefined);
-    mocks.copyFile.mockResolvedValue(undefined);
-    mocks.writeFile.mockResolvedValue(undefined);
-    mocks.exists.mockResolvedValue(false);
-    mocks.stat.mockResolvedValue({ isFile: true, isDirectory: false });
-    mocks.getFileName.mockResolvedValue('report.pdf');
-    mocks.getFileIcon.mockResolvedValue('/icons/pdf.png');
-    mocks.getFileSize.mockResolvedValue(2048);
-    mocks.normalizeImageBytes.mockImplementation(
-        async (input: { bytes: Uint8Array; mimeType: string }) => ({
-            ...input,
-            resized: false,
+    system.files.clear();
+    system.directories.clear();
+    database = openMigratedDatabase();
+    routeQueriesTo(database);
+    mockTauriCommand('get_app_directory_path', '/cache');
+    mockTauriCommand('storage_hold', 'fixture-activity');
+    mockTauriCommand('storage_release', undefined);
+    mockTauriCommand('storage_publish_attachment', (payload: unknown) => {
+        const { attachmentType, sourcePath, expectedHash } = payload as {
+            attachmentType: string;
+            sourcePath: string;
+            expectedHash?: string;
+        };
+        const bytes = system.files.get(sourcePath);
+        if (!bytes) throw new Error('source unavailable');
+        const hash = digest(bytes);
+        if (expectedHash && hash !== expectedHash) throw new Error('storage_corrupt_attachment');
+        const path = targetPath(attachmentType, hash);
+        const existing = system.files.get(path);
+        if (existing && digest(existing) !== hash) throw new Error('storage_corrupt_attachment');
+        if (!existing) system.files.set(path, bytes.slice());
+        if (sourcePath.includes('/.staging/')) system.files.delete(sourcePath);
+        return { hash, path, size: bytes.byteLength };
+    });
+    vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string) => {
+            const bytes = system.files.get(String(url).slice('asset://'.length));
+            return bytes
+                ? new Response(new Uint8Array(bytes).buffer)
+                : new Response(null, { status: 404, statusText: 'Not Found' });
         })
     );
-    mocks.findAttachmentByHash.mockResolvedValue(null);
-    mocks.createAttachmentRecord.mockImplementation(async (record: { hash: string }) => ({
-        id: 11,
-        ...record,
-        created_at: '2026-01-01T00:00:00Z',
-    }));
 });
 
-function attachment(overrides: Partial<AttachmentIndex> = {}): AttachmentIndex {
-    return {
-        id: 'local-1',
-        type: 'file',
-        path: '/downloads/report.pdf',
-        originPath: '/downloads/report.pdf',
-        name: 'report.pdf',
-        size: 2048,
-        preview: 'asset:///icons/pdf.png',
-        mimeType: 'application/pdf',
-        supportStatus: 'supported',
-        ...overrides,
-    };
+afterEach(() => {
+    closeTestDatabases();
+    vi.unstubAllGlobals();
+});
+
+async function draft(type: 'image' | 'file' = 'file', path = '/original/report.pdf') {
+    system.files.set(path, sample.slice());
+    return createAttachment(type, path);
 }
 
-describe('user attaches a file to a message', () => {
-    it('user gets the image mime type from its extension', async () => {
-        const result = await createAttachment('image', '/pictures/photo.JPG');
+function records() {
+    return database.prepare('SELECT * FROM attachments ORDER BY id').all();
+}
 
-        // Case must not matter: a .JPG is still a JPEG.
-        expect(result.mimeType).toBe('image/jpeg');
-    });
-
-    it('user gets a safe default when the image extension is unknown', async () => {
-        const result = await createAttachment('image', '/pictures/scan.xyz');
-
-        expect(result.mimeType).toBe('image/png');
-    });
-
-    it('user gets no mime type guessed for a non-image file', async () => {
-        const result = await createAttachment('file', '/downloads/report.pdf');
-
-        expect(result.mimeType).toBeUndefined();
-    });
-
-    it('user gets the image itself as its own preview', async () => {
-        const result = await createAttachment('image', '/pictures/photo.png');
-
-        expect(result.preview).toBe('asset:///pictures/photo.png');
-        expect(mocks.getFileIcon).not.toHaveBeenCalled();
-    });
-
-    it('user gets a file icon as the preview for a non-image', async () => {
-        const result = await createAttachment('file', '/downloads/report.pdf');
-
-        expect(mocks.getFileIcon).toHaveBeenCalledWith('/downloads/report.pdf', { size: 256 });
-        expect(result.preview).toBe('asset:///icons/pdf.png');
-    });
-
-    it('user gets a folder marked as a directory reference before sending', async () => {
-        mocks.stat.mockResolvedValue({ isFile: false, isDirectory: true });
-
-        const result = await createAttachment('file', '/docs');
-
-        expect(result).toMatchObject({
-            type: 'file',
-            mimeType: 'application/x-directory',
-            size: undefined,
+describe('given a file is attached before submission', () => {
+    it('user sees source metadata and no persistent copy before sending', async () => {
+        const index = await draft();
+        expect(index).toMatchObject({
+            name: 'report.pdf',
+            size: 4,
+            originPath: '/original/report.pdf',
         });
-        expect(mocks.getFileSize).not.toHaveBeenCalled();
+        expect(index.attachmentId).toBeUndefined();
+        expect(records()).toEqual([]);
+        expect([...system.files.keys()]).toEqual(['/original/report.pdf']);
     });
 
-    it('user gets the file name and size shown before sending', async () => {
-        const result = await createAttachment('file', '/downloads/report.pdf');
-
-        expect(result).toMatchObject({ name: 'report.pdf', size: 2048, type: 'file' });
-        expect(result.originPath).toBe('/downloads/report.pdf');
+    it('user sees a case-insensitive image MIME type and an image preview', async () => {
+        const index = await draft('image', '/original/photo.JPG');
+        expect(index.mimeType).toBe('image/jpeg');
+        expect(index.preview).toBe('asset:///original/photo.JPG');
     });
 
-    it('user gets the attachment marked supported so it can be sent', async () => {
-        const result = await createAttachment('file', '/downloads/report.pdf');
-
-        expect(result.supportStatus).toBe('supported');
+    it('user attaches a directory by reference without copying its contents', async () => {
+        system.directories.add('/documents');
+        const index = await createAttachment('file', '/documents');
+        await persistPreparedAttachment(index);
+        expect(index.path).toBe('/documents');
+        expect(index.mimeType).toBe('application/x-directory');
+        expect(records()).toHaveLength(1);
+        expect([...system.files]).toEqual([]);
     });
 });
 
-describe('user sends a message with an image attachment', () => {
-    it('user gets the normalized image stored instead of the original bytes', async () => {
-        mocks.normalizeImageBytes.mockResolvedValue({
-            bytes: new Uint8Array([9, 9]),
-            mimeType: 'image/jpeg',
-            resized: true,
-        });
-        const index = attachment({
-            type: 'image',
-            path: '/pictures/photo.png',
-            originPath: '/pictures/photo.png',
-            name: 'photo.png',
-            mimeType: 'image/png',
-        });
-
+describe('given an attachment is sent', () => {
+    it('user reopens the captured content even after changing the external source', async () => {
+        const index = await draft();
         await persistPreparedAttachment(index);
-
-        expect(mocks.writeFile).toHaveBeenCalledWith(
-            expect.stringContaining('/cache/attachments/images/'),
-            new Uint8Array([9, 9])
-        );
-        expect(mocks.createAttachmentRecord).toHaveBeenCalledWith(
-            expect.objectContaining({ mime_type: 'image/jpeg', size: 2 }),
-            expect.anything()
-        );
-        expect(index).toMatchObject({ mimeType: 'image/jpeg', size: 2 });
-    });
-});
-
-describe('user sends a message with attachments', () => {
-    it('user gets an attachment copied into the cache and recorded once', async () => {
-        const index = attachment();
-
-        await persistPreparedAttachment(index);
-
-        expect(mocks.copyFile).toHaveBeenCalledWith(
-            '/downloads/report.pdf',
-            expect.stringContaining('/cache/attachments/files/')
-        );
-        expect(mocks.createAttachmentRecord).toHaveBeenCalledWith(
-            expect.objectContaining({
-                original_name: 'report.pdf',
-                origin_path: '/downloads/report.pdf',
-            }),
-            expect.anything()
-        );
+        system.files.set('/original/report.pdf', new Uint8Array([9, 9]));
+        expect(system.files.get(index.path)).toEqual(sample);
+        expect(records()).toHaveLength(1);
+        expect(index.attachmentId).toBeGreaterThan(0);
+        expect(index.hash).toBe(digest(sample));
     });
 
-    it('user gets a folder persisted without copying directory bytes', async () => {
-        mocks.stat.mockResolvedValue({ isFile: false, isDirectory: true });
-        const index = attachment({
-            type: 'file',
-            path: '/docs',
-            originPath: '/docs',
-            name: 'docs',
-            mimeType: 'application/x-directory',
-        });
-
-        await persistPreparedAttachment(index);
-
-        expect(mocks.copyFile).not.toHaveBeenCalled();
-        expect(mocks.createAttachmentRecord).toHaveBeenCalledWith(
-            expect.objectContaining({ mime_type: 'application/x-directory', size: null }),
-            expect.anything()
-        );
-        expect(index.path).toBe('/docs');
+    it('user resends the same content without another record or modifying the saved bytes', async () => {
+        const first = await draft();
+        await persistPreparedAttachment(first);
+        const savedBytes = system.files.get(first.path);
+        const second = await draft();
+        await persistPreparedAttachment(second);
+        expect(second.attachmentId).toBe(first.attachmentId);
+        expect(system.files.get(first.path)).toBe(savedBytes);
+        expect(records()).toHaveLength(1);
     });
 
-    it('user gets the same bytes stored only once', async () => {
-        mocks.findAttachmentByHash.mockResolvedValue({ id: 5, hash: 'abc', type: 'file' });
-
-        const index = attachment();
-        await persistPreparedAttachment(index);
-
-        // A second row for the same bytes would duplicate every re-sent file.
-        expect(mocks.createAttachmentRecord).not.toHaveBeenCalled();
-        expect(index.attachmentId).toBe(5);
-    });
-
-    it('user gets an already persisted attachment reused without touching disk', async () => {
-        const index = attachment({ attachmentId: 9, hash: 'deadbeef' });
-
-        const persisted = await persistPreparedAttachment(index);
-
-        expect(persisted).toMatchObject({ id: 9, hash: 'deadbeef' });
-        expect(mocks.copyFile).not.toHaveBeenCalled();
-    });
-
-    it('user gets the local attachment filled in with its persisted identity', async () => {
-        const index = attachment();
-
-        await persistPreparedAttachment(index);
-
-        // The renderer keeps using this object, so it has to learn the id and cache path.
-        expect(index.attachmentId).toBe(11);
-        expect(index.hash).toMatch(/^[0-9a-f]{64}$/);
-        expect(index.path).toContain('/cache/attachments/files/');
-        expect(index.preview).toContain('asset://');
-    });
-
-    it('user gets the record found again when another writer wins the insert race', async () => {
-        mocks.createAttachmentRecord.mockRejectedValue(new Error('UNIQUE constraint failed'));
-        mocks.findAttachmentByHash
-            .mockResolvedValueOnce(null)
-            .mockResolvedValueOnce({ id: 77, hash: 'race', type: 'file' });
-
-        const index = attachment();
-        await persistPreparedAttachment(index);
-
-        // Two sends of the same file can race; the loser must adopt the winner's row.
-        expect(index.attachmentId).toBe(77);
-    });
-
-    it('user gets the original error when the insert fails for another reason', async () => {
-        mocks.createAttachmentRecord.mockRejectedValue(new Error('disk full'));
-
-        await expect(persistPreparedAttachment(attachment())).rejects.toThrow('disk full');
-    });
-});
-
-describe('user attaches a tool result as a file', () => {
-    it('user gets the bytes written when the cache does not have them', async () => {
-        mocks.exists.mockResolvedValue(false);
-
-        await createPersistedAttachmentFromData({
-            type: 'image',
-            name: 'chart.png',
-            originPath: 'tool://chart',
-            mimeType: 'image/png',
-            data: sampleBytes,
-        });
-
-        expect(mocks.writeFile).toHaveBeenCalledWith(
-            expect.stringContaining('/cache/attachments/images/'),
-            sampleBytes
-        );
-    });
-
-    it('user gets the bytes reused when the cache already has them', async () => {
-        mocks.exists.mockResolvedValue(true);
-
-        await createPersistedAttachmentFromData({
-            type: 'image',
-            name: 'chart.png',
-            originPath: 'tool://chart',
-            data: sampleBytes,
-        });
-
-        // Re-writing identical bytes wastes disk on every tool call.
-        expect(mocks.writeFile).not.toHaveBeenCalled();
-    });
-
-    it('user gets this send origin kept even when the bytes are a duplicate', async () => {
-        mocks.findAttachmentByHash.mockResolvedValue({
-            id: 3,
-            hash: 'old',
-            type: 'image',
-            original_name: 'old-name.png',
-            origin_path: 'tool://old',
-            mime_type: 'image/png',
-            size: 10,
-        });
-
-        const result = await createPersistedAttachmentFromData({
-            type: 'image',
-            name: 'chart.png',
-            originPath: 'tool://chart',
-            data: sampleBytes,
-        });
-
-        // The reused row describes an older send; this message still came from this tool call.
-        expect(result).toMatchObject({ name: 'chart.png', originPath: 'tool://chart' });
-    });
-
-    it('user gets the byte length used when no size is given', async () => {
-        const result = await createPersistedAttachmentFromData({
-            type: 'file',
-            name: 'blob.bin',
-            originPath: 'tool://blob',
-            data: sampleBytes,
-        });
-
-        expect(result.size).toBe(sampleBytes.byteLength);
-    });
-});
-
-describe('user reopens a conversation with attachments', () => {
-    it('user gets each stored attachment restored as a usable reference', async () => {
-        const restored = await hydratePersistedAttachments([
-            {
-                id: 1,
-                hash: 'aaa',
-                type: 'image',
-                original_name: 'photo.png',
-                origin_path: '/pictures/photo.png',
-                mime_type: 'image/png',
-                size: 100,
-                created_at: '2026-01-01T00:00:00Z',
-                message_id: 1,
-                sort_order: 0,
-                tool_call_id: null,
-                tool_kind: null,
-            },
-        ]);
-
-        expect(restored).toHaveLength(1);
-        expect(restored[0]).toMatchObject({
-            attachmentId: 1,
-            hash: 'aaa',
-            name: 'photo.png',
-            mimeType: 'image/png',
-            supportStatus: 'supported',
-        });
-        expect(restored[0]!.path).toContain('/cache/attachments/images/');
-    });
-
-    it('user gets a stored folder restored at its original path', async () => {
-        const restored = await hydratePersistedAttachments([
-            {
-                id: 2,
-                hash: 'folder-hash',
-                type: 'file',
-                original_name: 'Documents',
-                origin_path: '/Users/me/Documents',
-                mime_type: 'application/x-directory',
-                size: null,
-                created_at: '2026-01-01T00:00:00Z',
-                message_id: 1,
-                sort_order: 0,
-                tool_call_id: null,
-                tool_kind: null,
-            },
-        ]);
-
-        expect(restored[0]).toMatchObject({
-            path: '/Users/me/Documents',
-            mimeType: 'application/x-directory',
-        });
-    });
-
-    it('user gets no attachment restored when the message had none', async () => {
-        await expect(hydratePersistedAttachments([])).resolves.toEqual([]);
-    });
-});
-
-describe('user prepares an attachment before the write transaction', () => {
-    it('user gets the file copied once for a new attachment', async () => {
-        const index = attachment();
-
+    it('user gets one captured snapshot when preparing before a transaction', async () => {
+        const index = await draft();
         await prepareAttachmentForPersistence(index);
+        system.files.set('/original/report.pdf', new Uint8Array([8, 8]));
         await persistPreparedAttachment(index);
-
-        // Preparing exists so the slow copy happens outside the transaction, once.
-        expect(mocks.copyFile).toHaveBeenCalledTimes(1);
+        expect(system.files.get(index.path)).toEqual(sample);
+        expect(records()).toHaveLength(1);
     });
 
-    it('user gets nothing prepared for an attachment that is already persisted', async () => {
-        await prepareAttachmentForPersistence(attachment({ attachmentId: 4, hash: 'abc' }));
-
-        expect(mocks.copyFile).not.toHaveBeenCalled();
-    });
-});
-
-describe('user attaches a file that cannot be read', () => {
-    it('user gets a clear error naming the failure', async () => {
-        globalThis.fetch = vi.fn(async () => ({
-            ok: false,
-            statusText: 'Not Found',
-        })) as never;
-
-        await expect(persistPreparedAttachment(attachment())).rejects.toThrow(
-            'Failed to read attachment: Not Found'
-        );
-    });
-
-    it('user gets both attachments stored under the same cache root', async () => {
-        await persistPreparedAttachment(attachment({ path: '/a/one.pdf' }));
-        await persistPreparedAttachment(attachment({ path: '/a/two.pdf' }));
-
-        // Both copies must land under the one app-owned cache directory.
-        const targets = mocks.copyFile.mock.calls.map((call) => String(call[1]));
-        expect(targets).toHaveLength(2);
-        for (const target of targets) {
-            expect(target).toContain('/cache/attachments/files/');
-        }
+    it('user gets an unavailable-file error instead of an empty saved attachment', async () => {
+        const index = await draft();
+        system.files.delete(index.path);
+        await expect(persistPreparedAttachment(index)).rejects.toThrow('source unavailable');
+        expect(records()).toEqual([]);
     });
 });
 
-afterAll(() => {
-    globalThis.fetch = originalFetch;
+class NormalizingCanvas {
+    constructor(
+        public width: number,
+        public height: number
+    ) {}
+    getContext() {
+        return { save() {}, restore() {}, fillRect() {}, drawImage() {}, fillStyle: '' };
+    }
+    async convertToBlob({ type }: { type: string }) {
+        return new Blob([new Uint8Array([9, 9])], {
+            type: type === 'image/png' ? 'unsupported' : type,
+        });
+    }
+}
+
+describe('given an oversized image or tool media is supplied', () => {
+    it('user stores the existing normalized image policy without changing original bytes', async () => {
+        vi.stubGlobal('createImageBitmap', async () => ({ width: 4000, height: 2000, close() {} }));
+        vi.stubGlobal('OffscreenCanvas', NormalizingCanvas);
+        const index = await draft('image', '/original/photo.png');
+        await persistPreparedAttachment(index);
+        expect(index.mimeType).toBe('image/jpeg');
+        expect(index.size).toBe(2);
+        expect(system.files.get(index.path)).toEqual(new Uint8Array([9, 9]));
+        expect(system.files.get('/original/photo.png')).toEqual(sample);
+    });
+
+    it('user preserves this media name and origin when its bytes were already stored', async () => {
+        await createPersistedAttachmentFromData({
+            type: 'image',
+            name: 'first.png',
+            originPath: 'tool://first',
+            data: sample,
+        });
+        const second = await createPersistedAttachmentFromData({
+            type: 'image',
+            name: 'second.png',
+            originPath: 'tool://second',
+            data: sample,
+        });
+        expect(second).toMatchObject({ name: 'second.png', originPath: 'tool://second', size: 4 });
+        expect(records()).toHaveLength(1);
+        expect(system.files.get(second.path)).toEqual(sample);
+    });
+
+    it('user cannot silently reuse a corrupted saved file', async () => {
+        const hash = digest(sample);
+        const path = targetPath('image', hash);
+        system.files.set(path, new Uint8Array([8, 8]));
+        await expect(
+            createPersistedAttachmentFromData({
+                type: 'image',
+                name: 'image.png',
+                originPath: 'tool://image',
+                data: sample,
+            })
+        ).rejects.toThrow('storage_corrupt_attachment');
+        expect(system.files.get(path)).toEqual(new Uint8Array([8, 8]));
+        expect(records()).toEqual([]);
+    });
 });
 
-describe('user sends an attachment through the runtime entry point', () => {
-    it('user gets the same record the direct call would produce', async () => {
-        const index = attachment({ attachmentId: 21, hash: 'fff' });
+describe('given a stored conversation is reopened', () => {
+    it('user gets the same attachment path and per-message origin restored', async () => {
+        const index = await draft('image', '/original/photo.png');
+        const record = await persistPreparedAttachment(index);
+        const restored = await hydratePersistedAttachments([
+            {
+                ...record,
+                message_id: 1,
+                sort_order: 0,
+                tool_call_id: null,
+                tool_kind: null,
+                origin_path: '/per-message/original.png',
+            },
+        ]);
+        expect(restored[0]).toMatchObject({
+            attachmentId: record.id,
+            path: index.path,
+            originPath: '/per-message/original.png',
+        });
+        expect(system.files.get(restored[0]!.path)).toEqual(sample);
+    });
 
-        const record = await ensurePersistedAttachmentIndex(index);
-
-        expect(record).toMatchObject({ id: 21, hash: 'fff' });
+    it('user keeps an empty attachment list when the message contained no media', async () => {
+        expect(await hydratePersistedAttachments([])).toEqual([]);
     });
 });

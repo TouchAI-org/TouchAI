@@ -235,6 +235,7 @@
 
     const scrollToSearchResult = (result: SettingsSearchResult, target: Element | null) => {
         if (pendingSearchResult !== result || activeSection.value !== result.section) return;
+        target?.closest('details')?.setAttribute('open', '');
         (target ?? contentScrollRef.value ?? contentElementRef.value)?.scrollIntoView({
             block: target ? 'center' : 'start',
             behavior: 'smooth',

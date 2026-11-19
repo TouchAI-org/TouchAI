@@ -547,6 +547,9 @@
         syncAttachmentSupport,
     } = useSearchAttachments({
         attachments,
+        hasRetainedAttachments: () =>
+            inputHistoryBrowseState.value.activeBrowseSnapshot !== null &&
+            (inputHistoryBrowseState.value.draftBeforeBrowse?.attachments.length ?? 0) > 0,
     });
 
     const { clearDraft, importClipboardPayload } = useSearchDraftController({

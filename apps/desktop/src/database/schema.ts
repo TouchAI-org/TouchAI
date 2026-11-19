@@ -373,9 +373,10 @@ export const sessionTurns = sqliteTable(
     {
         id: integer('id').primaryKey({ autoIncrement: true }),
         session_id: integer('session_id').references(() => sessions.id, { onDelete: 'set null' }),
-        model_id: integer('model_id')
-            .notNull()
-            .references(() => models.id, { onDelete: 'cascade' }),
+        model_id: integer('model_id').references(() => models.id, { onDelete: 'set null' }),
+        // Historical names belong to the call, not to mutable model configuration.
+        model_name: text('model_name'),
+        provider_name: text('provider_name'),
         task_id: text('task_id').notNull(),
         execution_mode: text('execution_mode', {
             enum: ['foreground', 'background'],

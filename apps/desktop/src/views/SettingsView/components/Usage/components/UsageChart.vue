@@ -86,7 +86,7 @@
 
             for (const segment of point.segments) {
                 if (series.value.some((entry) => entry.key === segment.name)) {
-                    values[segment.name] = valueOf(segment);
+                    values[segment.name] = (values[segment.name] ?? 0) + valueOf(segment);
                 } else {
                     other += valueOf(segment);
                 }

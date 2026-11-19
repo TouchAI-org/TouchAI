@@ -6,6 +6,7 @@
         getModelRanking,
         getSessionRanking,
         getToolUsageStats,
+        getUsageBaselineTrend,
         getUsageComposition,
         getUsageDashboardSnapshot,
         getUsageFilterOptions,
@@ -38,6 +39,7 @@
     import UsageRanking from './components/UsageRanking.vue';
     import UsageToolbar from './components/UsageToolbar.vue';
     import UsageToolStats from './components/UsageToolStats.vue';
+    import { mergeUsageTrendSources } from './utils/trendMerge';
     import { resolveUsageRange } from './utils/usageRange';
 
     defineOptions({ name: 'SettingsUsageSection' });
@@ -144,6 +146,7 @@
             // archived trend for "all time".
             const useArchive = preset.value === 'all' && canUseUsageArchive(current);
             const [
+                baselineTrend,
                 archiveTrend,
                 nextOptions,
                 nextComposition,
@@ -152,6 +155,7 @@
                 nextModelRanking,
                 nextSessionRanking,
             ] = await Promise.all([
+                useArchive ? getUsageBaselineTrend() : Promise.resolve(null),
                 useArchive ? getUsageTrendFromArchive() : Promise.resolve(null),
                 getUsageFilterOptions(current),
                 getUsageComposition(current),
@@ -163,18 +167,18 @@
 
             if (version !== loadVersion || disposed) return;
 
-            // Live queries cover days that still have detail rows; the archive
-            // only fills in days that were already pruned.
+            // Live detail plus the frozen baseline are additive. Archive rows are
+            // only legacy days that have neither source.
             const nextTrend = dashboard.trend;
-            if (archiveTrend && nextTrend.bucket === 'day') {
-                const rawKeys = new Set(nextTrend.points.map((point) => point.key));
+            if (nextTrend.bucket === 'day' && (baselineTrend || archiveTrend)) {
                 trend.value = {
                     bucket: 'day',
                     bucketMs: 86_400_000,
-                    points: [
-                        ...archiveTrend.points.filter((point) => !rawKeys.has(point.key)),
-                        ...nextTrend.points,
-                    ].sort((left, right) => left.key.localeCompare(right.key)),
+                    points: mergeUsageTrendSources(
+                        nextTrend.points,
+                        baselineTrend?.points ?? [],
+                        archiveTrend?.points ?? []
+                    ),
                 };
             }
             options.value = nextOptions;

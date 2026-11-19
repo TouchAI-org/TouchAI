@@ -59,6 +59,7 @@ function sampleRow(input: SampleInput) {
             `2026-05-${String((input.turnId % 28) + 1).padStart(2, '0')} 10:00:00`,
         modelId: input.modelId ?? 1,
         modelName: input.modelName ?? 'Model A',
+        providerName: 'Provider A',
         window,
         promptTokens: inputTokens + cacheReadTokens,
         cacheReadTokens,

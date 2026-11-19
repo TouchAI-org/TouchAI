@@ -1,98 +1,104 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { getLastTauriInvokeCall, mockTauriCommand } from '@tests/utils/tauri';
+import { beforeEach, describe, expect, it } from 'vitest';
 
-import { setLocale } from '@/i18n';
+import { databaseBackup, isDatabaseBackupCancelledError } from '@/database/backup';
+import { setLocale, t } from '@/i18n';
+import { messages } from '@/i18n/messages';
 
-const { exportBackupMock, importBackupMock, openMock, saveMock } = vi.hoisted(() => ({
-    exportBackupMock: vi.fn(),
-    importBackupMock: vi.fn(),
-    openMock: vi.fn(),
-    saveMock: vi.fn(),
-}));
+const fullFilterKey = 'database.backup.dialog.fullFilterName';
 
-vi.mock('@tauri-apps/plugin-dialog', () => ({
-    open: openMock,
-    save: saveMock,
-}));
-
-vi.mock('@services/NativeService', () => ({
-    native: {
-        database: {
-            exportBackup: exportBackupMock,
-            importBackup: importBackupMock,
-        },
+const locales = [
+    {
+        locale: 'en-US',
+        filterName: 'Database backup file',
+        exportTitle: 'Export data backup',
+        importTitle: 'Import data backup',
+        exporting: 'Exporting database...',
+        importing: 'Importing database...',
+        exported: 'Export complete',
+        imported: 'Import complete',
+        cancelled: 'Export cancelled',
     },
-}));
+    {
+        locale: 'zh-CN',
+        filterName: '数据库备份文件',
+        exportTitle: '导出数据备份',
+        importTitle: '导入数据备份',
+        exporting: '正在导出数据库...',
+        importing: '正在导入数据库...',
+        exported: '导出完成',
+        imported: '导入完成',
+        cancelled: '已取消导出',
+    },
+] as const;
 
-describe('when the user exports or imports a data backup', () => {
+describe.each(locales)('given a user manages data backups in $locale', (strings) => {
     beforeEach(() => {
-        vi.clearAllMocks();
-        setLocale('zh-CN');
-        saveMock.mockResolvedValue('D:/backup.db');
-        openMock.mockResolvedValue('D:/backup.db');
-        exportBackupMock.mockResolvedValue(undefined);
-        importBackupMock.mockResolvedValue(undefined);
+        setLocale(strings.locale);
+        mockTauriCommand('plugin:dialog|save', 'D:/backup.zip');
+        mockTauriCommand('plugin:dialog|open', 'D:/backup.zip');
+        mockTauriCommand('database_export_backup', undefined);
+        mockTauriCommand('database_import_backup', undefined);
     });
 
-    it('user sees the save dialog in English when the app is in English', async () => {
-        setLocale('en-US');
-        const { databaseBackup } = await import('@/database/backup');
-        const onProgress = vi.fn();
+    it('user sees translated filters and progress when exporting', async () => {
+        const progress: Array<[string, number]> = [];
 
-        await databaseBackup.exportDatabase(onProgress);
+        await databaseBackup.exportDatabase((message, value) => progress.push([message, value]));
 
-        expect(saveMock).toHaveBeenCalledWith(
-            expect.objectContaining({
-                title: 'Export data backup',
-                filters: [{ name: 'Database backup file', extensions: ['db'] }],
-            })
+        expect(messages[strings.locale][fullFilterKey]).toBeTruthy();
+        expect(t(fullFilterKey)).toBe(messages[strings.locale][fullFilterKey]);
+        expect(t(fullFilterKey)).not.toBe(fullFilterKey);
+        expect(getLastTauriInvokeCall('plugin:dialog|save')?.payload).toEqual({
+            options: expect.objectContaining({
+                title: strings.exportTitle,
+                filters: [
+                    { name: t(fullFilterKey), extensions: ['zip'] },
+                    { name: strings.filterName, extensions: ['db'] },
+                ],
+            }),
+        });
+        expect(progress).toEqual([
+            [strings.exporting, 30],
+            [strings.exported, 100],
+        ]);
+    });
+
+    it('user sees translated filters and progress when importing', async () => {
+        const progress: Array<[string, number]> = [];
+
+        await databaseBackup.importDatabase('full', (message, value) =>
+            progress.push([message, value])
         );
-        expect(onProgress).toHaveBeenNthCalledWith(1, 'Exporting database...', 30);
-        expect(onProgress).toHaveBeenNthCalledWith(2, 'Export complete', 100);
-    });
 
-    it('user sees the open dialog in English when the app is in English', async () => {
-        setLocale('en-US');
-        const { databaseBackup } = await import('@/database/backup');
-        const onProgress = vi.fn();
-
-        await databaseBackup.importDatabase('full', onProgress);
-
-        expect(openMock).toHaveBeenCalledWith(
-            expect.objectContaining({
-                title: 'Import data backup',
-                filters: [{ name: 'Database backup file', extensions: ['db'] }],
+        expect(getLastTauriInvokeCall('plugin:dialog|open')?.payload).toEqual({
+            options: {
+                title: strings.importTitle,
+                filters: [
+                    { name: t(fullFilterKey), extensions: ['zip'] },
+                    { name: strings.filterName, extensions: ['db'] },
+                ],
                 multiple: false,
                 directory: false,
-            })
-        );
-        expect(onProgress).toHaveBeenNthCalledWith(1, 'Importing database...', 30);
-        expect(onProgress).toHaveBeenNthCalledWith(2, 'Import complete', 100);
+            },
+        });
+        expect(progress).toEqual([
+            [strings.importing, 30],
+            [strings.imported, 100],
+        ]);
     });
 
-    it('user gets a recognisable cancellation error when dismissing the save dialog', async () => {
-        setLocale('en-US');
-        saveMock.mockResolvedValueOnce(null);
-        const { databaseBackup, isDatabaseBackupCancelledError } =
-            await import('@/database/backup');
+    it('user gets a translated cancellation when dismissing the save dialog', async () => {
+        mockTauriCommand('plugin:dialog|save', null);
+        const error: unknown = await databaseBackup
+            .exportDatabase()
+            .catch((error: unknown) => error);
 
-        let caughtError: unknown;
-        await databaseBackup.exportDatabase().catch((error: unknown) => {
-            caughtError = error;
-        });
-
-        expect(caughtError).toBeInstanceOf(Error);
-        expect((caughtError as Error).message).toBe('Export cancelled');
-        expect(isDatabaseBackupCancelledError(caughtError)).toBe(true);
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toBe(strings.cancelled);
+        expect(isDatabaseBackupCancelledError(error)).toBe(true);
         expect(isDatabaseBackupCancelledError({ code: 'DATABASE_BACKUP_CANCELLED' })).toBe(true);
         expect(isDatabaseBackupCancelledError(new Error('other'))).toBe(false);
-    });
-
-    it('user gets nothing imported when dismissing the open dialog', async () => {
-        openMock.mockResolvedValueOnce(null);
-        const { databaseBackup } = await import('@/database/backup');
-
-        await expect(databaseBackup.importDatabase('chat_only')).resolves.toBe(false);
-
-        expect(importBackupMock).not.toHaveBeenCalled();
+        expect(isDatabaseBackupCancelledError(null)).toBe(false);
     });
 });

@@ -182,6 +182,12 @@ impl DriverStorage {
         ))
     }
 
+    pub(crate) fn maintenance(&self) -> Result<RwLockWriteGuard<'_, Option<PathBuf>>, String> {
+        self.directory
+            .try_write()
+            .map_err(|_| "storage_busy".into())
+    }
+
     async fn setting(&self, key: &str) -> Result<Option<String>, String> {
         let result = self
             .database

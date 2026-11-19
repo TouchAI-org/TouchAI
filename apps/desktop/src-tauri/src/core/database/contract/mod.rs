@@ -155,31 +155,109 @@ pub(crate) async fn migrate_database(
             .filter(|statement| !statement.is_empty())
             .collect::<Vec<_>>();
 
-        let mut transaction = sqlx::Connection::begin(&mut *connection)
+        // SQLite ignores foreign_keys changes inside a transaction. Rebuilds must
+        // suspend enforcement first, then validate before committing and restore it.
+        let foreign_keys = if statements
+            .iter()
+            .any(|statement| migration_foreign_keys(statement) == Some(false))
+        {
+            let enabled: i64 = sqlx::query_scalar("PRAGMA foreign_keys")
+                .fetch_one(&mut *connection)
+                .await
+                .map_err(|error| format!("Failed to inspect migration foreign keys: {error}"))?;
+            sqlx::query("PRAGMA foreign_keys=OFF")
+                .execute(&mut *connection)
+                .await
+                .map_err(|error| format!("Failed to prepare migration '{tag}': {error}"))?;
+            Some(enabled != 0)
+        } else {
+            None
+        };
+        let result = apply_migration(connection, tag, &statements, foreign_keys.is_some()).await;
+        let restore = if let Some(enabled) = foreign_keys {
+            sqlx::query(if enabled {
+                "PRAGMA foreign_keys=ON"
+            } else {
+                "PRAGMA foreign_keys=OFF"
+            })
+            .execute(&mut *connection)
             .await
-            .map_err(|error| format!("Failed to begin migration '{tag}': {error}"))?;
+            .map(|_| ())
+            .map_err(|error| format!("Failed to restore migration foreign keys: {error}"))
+        } else {
+            Ok(())
+        };
+        match (result, restore) {
+            (Ok(()), Ok(())) => {}
+            (Err(error), Ok(())) | (Ok(()), Err(error)) => return Err(error),
+            (Err(error), Err(restore)) => return Err(format!("{error}; {restore}")),
+        }
+    }
 
+    Ok(())
+}
+
+fn migration_foreign_keys(statement: &str) -> Option<bool> {
+    let normalized = statement
+        .split_whitespace()
+        .collect::<String>()
+        .to_ascii_lowercase();
+    match normalized.trim_end_matches(';') {
+        "pragmaforeign_keys=off" => Some(false),
+        "pragmaforeign_keys=on" => Some(true),
+        _ => None,
+    }
+}
+
+async fn apply_migration(
+    connection: &mut sqlx::SqliteConnection,
+    tag: &str,
+    statements: &[&str],
+    check_foreign_keys: bool,
+) -> Result<(), String> {
+    let mut transaction = sqlx::Connection::begin(&mut *connection)
+        .await
+        .map_err(|error| format!("Failed to begin migration '{tag}': {error}"))?;
+    let result: Result<(), String> = async {
         for statement in statements {
-            sqlx::raw_sql(sqlx::AssertSqlSafe(statement))
+            if check_foreign_keys && migration_foreign_keys(statement).is_some() {
+                continue;
+            }
+            sqlx::raw_sql(sqlx::AssertSqlSafe(*statement))
                 .execute(&mut *transaction)
                 .await
                 .map_err(|error| format!("Failed to execute migration '{tag}': {error}"))?;
         }
-
+        if check_foreign_keys
+            && sqlx::query("PRAGMA foreign_key_check")
+                .fetch_optional(&mut *transaction)
+                .await
+                .map_err(|error| format!("Failed to check migration '{tag}': {error}"))?
+                .is_some()
+        {
+            return Err(format!(
+                "Migration '{tag}' would leave invalid foreign keys"
+            ));
+        }
         sqlx::query("INSERT INTO migrations (hash, created_at) VALUES (?, ?)")
             .bind(tag)
             .bind(now_millis())
             .execute(&mut *transaction)
             .await
             .map_err(|error| format!("Failed to record migration '{tag}': {error}"))?;
-
-        transaction
+        Ok(())
+    }
+    .await;
+    match result {
+        Ok(()) => transaction
             .commit()
             .await
-            .map_err(|error| format!("Failed to commit migration '{tag}': {error}"))?;
+            .map_err(|error| format!("Failed to commit migration '{tag}': {error}")),
+        Err(error) => match transaction.rollback().await {
+            Ok(()) => Err(error),
+            Err(rollback) => Err(format!("{error}; failed to rollback migration: {rollback}")),
+        },
     }
-
-    Ok(())
 }
 
 /// 运行时保护规则来自数据库工件，而不是 Rust 内嵌业务 SQL。
@@ -276,3 +354,6 @@ async fn ensure_migrations_table(connection: &mut sqlx::SqliteConnection) -> Res
     .map_err(|error| format!("Failed to ensure migrations table: {error}"))?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

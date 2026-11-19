@@ -143,6 +143,15 @@ pub fn run() {
             if webview.label() == "main"
                 && matches!(payload.event(), tauri::webview::PageLoadEvent::Started)
             {
+                if let Some(storage) = webview
+                    .app_handle()
+                    .try_state::<core::storage::StorageRuntime>()
+                {
+                    let storage = storage.inner().clone();
+                    tauri::async_runtime::spawn(async move {
+                        storage.abort_window("main").await;
+                    });
+                }
                 if let Err(error) =
                     core::window::search::surface::register_renderer_load_on_main_thread(
                         webview.app_handle(),
@@ -259,6 +268,16 @@ pub fn run() {
                     {
                         warn!("Failed to clear computer-use feedback on window close: {error}");
                     }
+                }
+                if let Some(storage) = window
+                    .app_handle()
+                    .try_state::<core::storage::StorageRuntime>()
+                {
+                    let storage = storage.inner().clone();
+                    let storage_window = window_label.clone();
+                    tauri::async_runtime::spawn(async move {
+                        storage.abort_window(&storage_window).await;
+                    });
                 }
                 if let Some(runtime) = window.app_handle().try_state::<DatabaseRuntime>() {
                     let runtime = runtime.inner().clone();

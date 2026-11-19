@@ -13,6 +13,8 @@ use super::super::{
     protocol::types::{DatabaseImportMode, DatabaseImportRequest},
 };
 
+const MAX_USAGE_BASELINE_BYTES: i64 = 16 * 1024 * 1024;
+
 /// 原备份只读；所有升级只发生在临时副本，导入不猜测旧字段或中间格式。
 pub(crate) async fn run_import_backup(
     pool: SqlitePool,
@@ -70,26 +72,49 @@ pub(crate) async fn run_import_backup(
                     "数据库存在重复的供应商或模型标识，无法安全导入；请先消除重复项".to_string(),
                 );
             }
-            if matches!(request.mode, DatabaseImportMode::Full) {
+            if request.mode.includes_data() {
+                prepare_usage_merge(&mut connection, &database_contract).await?;
+            }
+            if request.mode.includes_settings() {
                 execute_sql_artifact_on_connection(
                     &mut connection,
                     &database_contract,
                     &["artifacts", "import", "full_prelude.sql"],
                 )
                 .await?;
+                let metadata = if request.mode == DatabaseImportMode::Full {
+                    "full_statistics.sql"
+                } else {
+                    "settings_metadata.sql"
+                };
+                execute_sql_artifact_on_connection(
+                    &mut connection,
+                    &database_contract,
+                    &["artifacts", "import", metadata],
+                )
+                .await?;
             }
-            execute_sql_artifact_on_connection(
-                &mut connection,
-                &database_contract,
-                &["artifacts", "import", "chat_merge.sql"],
-            )
-            .await?;
-            // A full restore carries the consent decision the snapshot preserves,
+            if request.mode.includes_data() {
+                for artifact in [
+                    ["artifacts", "import", "chat_merge.sql"],
+                    ["artifacts", "import", "usage_finish.sql"],
+                    ["artifacts", "storage", "rollup.sql"],
+                    ["artifacts", "import", "search_history.sql"],
+                ] {
+                    execute_sql_artifact_on_connection(
+                        &mut connection,
+                        &database_contract,
+                        &artifact,
+                    )
+                    .await?;
+                }
+            }
+            // Restoring settings carries the consent decision the snapshot preserves,
             // and applying it belongs to this transaction: a failed import must
             // not leave a half-applied choice behind, and a restoring opt-out
             // purges the queue in the same commit. A chat-only import keeps the
             // local consent state untouched.
-            if matches!(request.mode, DatabaseImportMode::Full) {
+            if request.mode.includes_settings() {
                 if let Some(consent) = &restored_consent {
                     adopt_restored_consent(&mut *connection, consent).await?;
                 }
@@ -117,6 +142,45 @@ pub(crate) async fn run_import_backup(
     }
     import_result?;
     detach_result?;
+    Ok(())
+}
+
+async fn prepare_usage_merge(
+    connection: &mut sqlx::pool::PoolConnection<sqlx::Sqlite>,
+    contract: &DatabaseContractSource,
+) -> Result<(), String> {
+    let oversized = sqlx::query_scalar::<_, i64>(
+        "SELECT EXISTS (
+            SELECT 1 FROM main.statistics WHERE key = 'usage_rollup_baseline' AND length(CAST(value AS BLOB)) > ?
+            UNION ALL
+            SELECT 1 FROM imported.statistics WHERE key = 'usage_rollup_baseline' AND length(CAST(value AS BLOB)) > ?
+        )",
+    )
+    .bind(MAX_USAGE_BASELINE_BYTES)
+    .bind(MAX_USAGE_BASELINE_BYTES)
+    .fetch_one(&mut **connection)
+    .await
+    .map_err(|error| format!("Failed to validate archived usage: {error}"))?;
+    if oversized != 0 {
+        return Err("database_import_usage_conflict".into());
+    }
+    execute_sql_artifact_on_connection(
+        connection,
+        contract,
+        &["artifacts", "import", "usage_prepare.sql"],
+    )
+    .await?;
+    let sql = super::super::contract::read_sql_artifact(
+        contract,
+        &["artifacts", "import", "usage_conflict.sql"],
+    )?;
+    let conflict: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
+        .fetch_one(&mut **connection)
+        .await
+        .map_err(|error| format!("Failed to check archived usage overlap: {error}"))?;
+    if conflict != 0 {
+        return Err("database_import_usage_conflict".into());
+    }
     Ok(())
 }
 
