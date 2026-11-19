@@ -61,6 +61,22 @@ function assertBuiltAppExists() {
     return appBinaryPath;
 }
 
+function assertFailedStartupExits() {
+    const result = spawnSync(process.execPath, ['--test', 'startup-failure.test.js'], {
+        cwd: __dirname,
+        stdio: 'inherit',
+        env: {
+            ...process.env,
+            TOUCHAI_STARTUP_TEST_BINARY: assertBuiltAppExists(),
+            TEMP: resolveTempDirectory(),
+            TMP: resolveTempDirectory(),
+        },
+    });
+    if (result.status !== 0) {
+        throw new Error('The startup-failure regression test failed. Check the output above.');
+    }
+}
+
 function resolveTempDirectory() {
     if (process.env.TOUCHAI_TEST_TEMP) {
         return process.env.TOUCHAI_TEST_TEMP;
@@ -274,6 +290,7 @@ export const config = {
             }
             fs.mkdirSync(runtimeRoot, { recursive: true });
             assertBuiltAppExists();
+            assertFailedStartupExits();
             return;
         }
 
@@ -300,6 +317,7 @@ export const config = {
         }
 
         assertBuiltAppExists();
+        assertFailedStartupExits();
     },
     beforeSession: async (_config, _capabilities, specs) => {
         assertBuiltAppExists();

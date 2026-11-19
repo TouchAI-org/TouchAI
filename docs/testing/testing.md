@@ -65,6 +65,13 @@ pnpm test:rust                          # Run Rust tests
 pnpm test:coverage:rust                 # Run Rust tests with coverage (requires cargo-llvm-cov)
 ```
 
+Desktop E2E also launches a separate app with an isolated root whose database path is a directory.
+Before opening a WebDriver session, it verifies that this E2E startup failure reports the SQLite
+error and exits non-zero within 15 seconds. To run only that native regression after building the
+app, set `TOUCHAI_STARTUP_TEST_BINARY` to the built executable and run
+`node --test apps/desktop/e2e-tests/startup-failure.test.js` from the repository root. Keep `TEMP`
+and `TMP` under the task's external scratch directory so the fixture does not use real app data.
+
 CI runs both coverage gates on every desktop change: frontend in `frontend-tests`, Rust in `rust-coverage`. Each publishes a table to the step summary, and each failure blocks the required `CI Required` check.
 
 ## Coverage

@@ -125,29 +125,30 @@ fn initialize_base_directories() -> Result<(), String> {
     Ok(())
 }
 
-fn show_initialization_failed_dialog(app: &tauri::App) {
+pub fn handle_initialization_failure(app: &tauri::App, error: &str) {
+    error!("TouchAI initialization failed: {error}");
+    if !crate::core::system::runtime::can_show_startup_failure_dialog() {
+        eprintln!("TouchAI initialization failed: {error}");
+        app.handle().exit(1);
+        return;
+    }
+
     let app_handle = app.handle().clone();
-    let _ = std::thread::spawn(move || {
-        app_handle
-            .dialog()
-            .message("TouchAI initialization failed. Check filesystem permissions and try again.")
-            .title("TouchAI")
-            .kind(MessageDialogKind::Error)
-            .blocking_show();
-    })
-    .join();
+    app.dialog()
+        .message("TouchAI initialization failed. Check filesystem permissions and try again.")
+        .title("TouchAI")
+        .kind(MessageDialogKind::Error)
+        .show(move |_| app_handle.exit(1));
 }
 
 pub fn setup_app(app: &mut tauri::App) -> Result<(), String> {
     if let Err(error) = migrate_legacy_user_directories() {
         error!("Failed to migrate legacy user directories: {}", error);
-        show_initialization_failed_dialog(app);
         return Err(error);
     }
 
     if let Err(error) = initialize_base_directories() {
         error!("Failed to initialize base directories: {}", error);
-        show_initialization_failed_dialog(app);
         return Err(error);
     }
     info!("Application base directories initialized.");
@@ -169,7 +170,6 @@ pub fn setup_app(app: &mut tauri::App) -> Result<(), String> {
         tauri::async_runtime::block_on(crate::core::database::DatabaseRuntime::initialize(app))
             .map_err(|error| {
                 error!("Failed to initialize database runtime: {}", error);
-                show_initialization_failed_dialog(app);
                 error
             })?;
     // Analytics shares the existing SQLite pool over touchai.db. A configuration
@@ -201,7 +201,6 @@ pub fn setup_app(app: &mut tauri::App) -> Result<(), String> {
     let clipboard_runtime = crate::core::system::clipboard::ClipboardRuntime::initialize()
         .map_err(|error| {
             error!("Failed to initialize clipboard runtime: {}", error);
-            show_initialization_failed_dialog(app);
             error
         })?;
     app.manage(clipboard_runtime);
