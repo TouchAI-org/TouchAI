@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" id="ss-auto-7f3a91" viewBox="0 0 160 120" fill="none" aria-hidden="true" focusable="false" data-theme="light">
+  <metadata>Search, book and code icons: Remix Icon v4.6.0, Copyright Remix Design, Apache-2.0.</metadata>
+  <style>
+    #ss-auto-7f3a91 {
+      color-scheme: only light;
+      --paper: #fff;
+      --stroke: rgba(47, 42, 34, 0.23);
+      --line: #e5e9ef;
+      --title: #cdd4de;
+      --icon: #a3abb7;
+      --accent: #3462ad;
+      --selection: #e6edf9;
+      --chip: #f1f3f6;
+    }
+  </style>
+  <rect x="10" y="10" width="140" height="100" rx="11" fill="var(--paper)" stroke="var(--stroke)"/>
+  <rect x="18" y="18" width="124" height="16" rx="4" fill="var(--chip)" stroke="var(--stroke)"/>
+  <path d="M26 22.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7Zm2.6 6.1 2.1 2.1" stroke="var(--icon)" stroke-width="1.2" stroke-linecap="round"/>
+  <rect x="34" y="24" width="42" height="4" rx="2" fill="var(--title)"/>
+
+  <!-- Content type branches: only the middle source is selected. -->
+  <path d="M34 43h92" stroke="var(--stroke)"/>
+  <path d="M34 43v13M80 43v13M126 43v13" stroke="var(--stroke)" stroke-width="1"/>
+  <path d="M80 34v9" stroke="var(--accent)" stroke-width="1.2"/>
+
+  <g>
+    <rect x="18" y="56" width="32" height="34" rx="5" fill="var(--paper)" stroke="var(--stroke)"/>
+    <circle cx="34" cy="69" r="5" stroke="var(--icon)" stroke-width="1"/>
+    <path d="M29 69h10M34 64c2.5 3 2.5 7 0 10M34 64c-2.5 3-2.5 7 0 10" stroke="var(--icon)" stroke-width=".8"/>
+    <rect x="25" y="80" width="18" height="3" rx="1.5" fill="var(--line)"/>
+  </g>
+
+  <g>
+    <rect x="64" y="56" width="32" height="34" rx="5" fill="var(--selection)" stroke="var(--accent)"/>
+    <path d="M74 63h8a3 3 0 0 1 3 3v10H77a3 3 0 0 1-3-3V63Zm0 3h-4v10a3 3 0 0 0 3 3h4" stroke="var(--accent)" stroke-width="1.1" stroke-linejoin="round"/>
+    <rect x="71" y="80" width="18" height="3" rx="1.5" fill="var(--accent)" opacity=".65"/>
+  </g>
+
+  <g>
+    <rect x="110" y="56" width="32" height="34" rx="5" fill="var(--paper)" stroke="var(--stroke)"/>
+    <path d="m120 66-4 5 4 5M132 66l4 5-4 5M127 64l-3 14" stroke="var(--icon)" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="117" y="80" width="18" height="3" rx="1.5" fill="var(--line)"/>
+  </g>
+</svg>

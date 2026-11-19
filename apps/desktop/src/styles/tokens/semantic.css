@@ -40,6 +40,7 @@
     --color-canvas-sunken: var(--color-ui-200);
     --color-surface-raised: var(--color-ui-50);
     --color-surface-floating: var(--color-white);
+    --color-metric-card: var(--color-ui-50);
     --color-surface-sunken: var(--color-ui-400);
     --color-surface-hover: var(--color-ui-300);
     --color-surface-hover-soft: var(--color-ui-500);

@@ -119,10 +119,7 @@
             :disabled="disabled || option.disabled"
             :class="
                 cn(
-                    'relative z-10 rounded px-1.5 py-0.5 text-2xs transition-colors disabled:cursor-not-allowed disabled:opacity-50',
-                    model === option.value
-                        ? 'text-text-primary'
-                        : 'text-text-tertiary hover:text-text-secondary'
+                    'relative z-10 rounded px-1.5 py-0.5 text-2xs text-settings-text transition-colors disabled:cursor-not-allowed disabled:opacity-50'
                 )
             "
             @click="select(option)"

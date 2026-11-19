@@ -250,10 +250,9 @@ describe('user edits the search settings', () => {
     it('user can choose one of three strategies, enable fusion and configure routing', async () => {
         const wrapper = mount(SearchSettingsView);
         await nextTick();
-        const strategy = wrapper.get('[data-testid="search-strategy-select"]');
-        expect(strategy.findAll('option')).toHaveLength(3);
+        expect(wrapper.findAll('[data-testid^="search-strategy-"]')).toHaveLength(3);
         await wrapper.get('[data-testid="search-source-route-academic"]').setValue('exa');
-        await strategy.setValue('priority');
+        await wrapper.get('[data-testid="search-strategy-priority"]').trigger('click');
         await nextTick();
         const priority = wrapper.get('[data-testid="search-provider-priority"]');
         await wrapper.get('[data-testid="search-priority-top-tavily"]').trigger('click');
@@ -293,18 +292,19 @@ describe('user edits the search settings', () => {
         wrapper.unmount();
     });
 
-    it('user cannot enable fusion with a fixed default engine', async () => {
+    it('user does not see fusion when a fixed default engine is selected', async () => {
         const wrapper = mount(SearchSettingsView);
         await nextTick();
-        const strategy = wrapper.get('[data-testid="search-strategy-select"]');
         await wrapper.get('[data-testid="search-parallel-toggle"]').trigger('click');
         expect(wrapper.find('[data-testid="search-parallel-count-input"]').exists()).toBe(true);
-        await strategy.setValue('manual');
+        await wrapper.get('[data-testid="search-strategy-manual"]').trigger('click');
         await nextTick();
-        expect(
-            wrapper.get('[data-testid="search-parallel-toggle"]').attributes('aria-checked')
-        ).toBe('false');
+        expect(wrapper.find('[data-testid="search-parallel-toggle"]').exists()).toBe(false);
         expect(wrapper.find('[data-testid="search-parallel-count-input"]').exists()).toBe(false);
+        await vi.advanceTimersByTimeAsync(300);
+        expect(updateSearchSettingsMock).toHaveBeenLastCalledWith(
+            expect.objectContaining({ routingStrategy: 'manual', parallelProviders: false })
+        );
         wrapper.unmount();
     });
 

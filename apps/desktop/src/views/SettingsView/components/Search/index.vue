@@ -15,10 +15,8 @@
         SEARCH_PROVIDER_ENDPOINT_REQUIREMENTS,
         SEARCH_PROVIDER_IDS,
         SEARCH_ROUTE_INTENTS,
-        SEARCH_ROUTING_STRATEGIES,
         SEARCH_SOURCES,
         type SearchProviderId,
-        type SearchRoutingStrategy,
         type SearchSettingsConfig,
         type SearchSource,
         serializeSearchSettingsConfig,
@@ -52,6 +50,7 @@
     import { useSettingsStore } from '@/stores/settings';
 
     import { hasSettingsDraftChanges, mergeSettingsDraft } from '../../settingsDraftSync';
+    import SearchStrategyChoices from './components/SearchStrategyChoices.vue';
     import SearchProviderCard from './SearchProviderCard.vue';
 
     defineOptions({ name: 'SettingsSearchSection' });
@@ -277,24 +276,6 @@
         },
     };
 
-    const strategyMessages: Record<
-        SearchRoutingStrategy,
-        { label: MessageKey; description: MessageKey }
-    > = {
-        capability: {
-            label: 'settings.search.strategy.capability',
-            description: 'settings.search.strategy.capability.description',
-        },
-        manual: {
-            label: 'settings.search.strategy.manual',
-            description: 'settings.search.strategy.manual.description',
-        },
-        priority: {
-            label: 'settings.search.strategy.priority',
-            description: 'settings.search.strategy.priority.description',
-        },
-    };
-
     const fetchStrategyMessages: Record<
         WebFetchStrategy,
         { label: MessageKey; description: MessageKey }
@@ -329,17 +310,6 @@
             value: providerId,
             label: t(providerMessages[providerId].label),
         }))
-    );
-
-    const strategyOptions = computed(() =>
-        SEARCH_ROUTING_STRATEGIES.map((strategy) => ({
-            value: strategy,
-            label: t(strategyMessages[strategy].label),
-        }))
-    );
-
-    const strategyDescription = computed(() =>
-        t(strategyMessages[draft.value.routingStrategy].description)
     );
 
     const fetchStrategyOptions = computed(() =>
@@ -661,20 +631,22 @@
                         {{ t('settings.search.section.strategy') }}
                     </h2>
                     <div class="settings-row-group divide-y divide-neutral-200/70">
+                        <div data-settings-search-target="search-strategy" class="px-5 py-5">
+                            <div class="text-compact leading-6 font-normal text-settings-text">
+                                {{ t('settings.search.strategy') }}
+                            </div>
+                            <div class="mt-1 text-xs text-neutral-500">
+                                {{ t('settings.search.strategy.description') }}
+                            </div>
+                            <div class="mt-4">
+                                <SearchStrategyChoices
+                                    v-model="draft.routingStrategy"
+                                    :disabled="!toolEnabled"
+                                />
+                            </div>
+                        </div>
                         <SettingsRow
-                            data-settings-search-target="search-strategy"
-                            control-width="320"
-                            :label="t('settings.search.strategy')"
-                            :description="strategyDescription"
-                        >
-                            <CustomSelect
-                                v-model="draft.routingStrategy"
-                                data-testid="search-strategy-select"
-                                :options="strategyOptions"
-                                :disabled="!toolEnabled"
-                            />
-                        </SettingsRow>
-                        <SettingsRow
+                            v-if="draft.routingStrategy !== 'manual'"
                             data-settings-search-target="search-parallelProviders"
                             control-width="auto"
                             :label="t('settings.search.parallelProviders')"
@@ -685,12 +657,12 @@
                                 size="lg"
                                 :aria-label="t('settings.search.parallelProviders')"
                                 :model-value="draft.parallelProviders"
-                                :disabled="!toolEnabled || draft.routingStrategy === 'manual'"
+                                :disabled="!toolEnabled"
                                 @update:model-value="draft.parallelProviders = $event"
                             />
                         </SettingsRow>
                         <SettingsRow
-                            v-if="draft.parallelProviders && draft.routingStrategy !== 'manual'"
+                            v-if="draft.parallelProviders"
                             control-width="320"
                             :label="t('settings.search.parallelProviderCount')"
                             :description="t('settings.search.parallelProviderCount.description')"

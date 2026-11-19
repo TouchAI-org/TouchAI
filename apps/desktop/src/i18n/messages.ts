@@ -369,6 +369,7 @@ const zhCNMessages = {
     'settings.search.saveError': '搜索设置保存失败，请重试。',
     'settings.search.section.strategy': '选择策略',
     'settings.search.strategy': '搜索引擎选择方式',
+    'settings.search.strategy.description': '决定每次搜索时由谁选择搜索引擎',
     'settings.search.strategy.model': '模型自选',
     'settings.search.strategy.model.description': '由模型按来源选择引擎',
     'settings.search.strategy.intent': '按任务意图',
@@ -1702,6 +1703,8 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.search.saveError': 'Search settings could not be saved. Please retry.',
     'settings.search.section.strategy': 'Strategy',
     'settings.search.strategy': 'Search engine selection',
+    'settings.search.strategy.description':
+        'Choose how the search engine is picked for each request',
     'settings.search.strategy.model': 'Model choice',
     'settings.search.strategy.model.description': 'The model picks the engine',
     'settings.search.strategy.intent': 'By intent',
