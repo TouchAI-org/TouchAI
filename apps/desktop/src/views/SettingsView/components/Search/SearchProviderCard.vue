@@ -39,7 +39,7 @@
     const headerTransition = computed(() =>
         reducedMotion.value
             ? { duration: 0 }
-            : { type: 'tween' as const, duration: 0.5, ease: [0.4, 0, 0.2, 1] }
+            : { type: 'tween' as const, duration: 0.8, ease: [0.4, 0, 0.2, 1] }
     );
 
     const emit = defineEmits<{
