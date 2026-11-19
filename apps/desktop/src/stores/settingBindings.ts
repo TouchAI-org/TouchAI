@@ -19,6 +19,7 @@ export interface GeneralSettingsComputedRefs {
     animationSpeed: ComputedRef<AnimationSpeed>;
     automaticallyReduceMotion: ComputedRef<boolean>;
     outputScrollBehavior: ComputedRef<OutputScrollBehavior>;
+    conversationContentWidth: ComputedRef<number>;
     globalShortcut: ComputedRef<string>;
     searchKeybindings: ComputedRef<SearchKeybindings>;
     searchWindowSizePreset: ComputedRef<SearchWindowSizePreset>;

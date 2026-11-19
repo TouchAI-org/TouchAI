@@ -332,6 +332,45 @@ describe('user scrolls a long conversation', () => {
             'The viewport returned to the selected question after user scrolling.'
         );
     });
+
+    it('user maximizes a conversation and reads a centered column above a full-width input', async () => {
+        await (await browser.$('button[aria-label="Maximize window"]')).click();
+        const restore = await browser.$('button[aria-label="Restore window"]');
+        try {
+            await restore.waitForDisplayed();
+            for (const count of [2, MESSAGE_COUNT]) {
+                await callE2eBridge('setConversation', buildConversation().slice(0, count));
+                await browser.waitUntil(
+                    () =>
+                        browser.execute(() => {
+                            const input = document.querySelector('[data-testid="search-bar"]');
+                            const viewport = document.querySelector(
+                                '[data-slot="message-scroller"] section'
+                            );
+                            const message = viewport?.querySelector('[data-message-id]');
+                            if (!input || !viewport || !message) return false;
+                            const panel = viewport.getBoundingClientRect();
+                            const row = message.getBoundingClientRect();
+                            const style = getComputedStyle(viewport);
+                            const available =
+                                panel.width -
+                                parseFloat(style.paddingLeft) -
+                                parseFloat(style.paddingRight);
+                            return (
+                                Math.abs(row.width - Math.min(880, available)) < 1 &&
+                                (available <= 880 ||
+                                    Math.abs(row.left + row.right - panel.left - panel.right) <
+                                        2) &&
+                                Math.abs(input.getBoundingClientRect().width - panel.width) < 1
+                            );
+                        }),
+                    { timeoutMsg: `Unexpected message or input geometry with ${count} messages.` }
+                );
+            }
+        } finally {
+            await restore.click();
+        }
+    });
 });
 
 async function wheelConversation(deltaY) {

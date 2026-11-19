@@ -3,8 +3,11 @@
   -->
 
 <template>
-    <div
-        class="relative h-full min-h-0 w-full"
+    <ConversationReadingColumn
+        :width="conversationContentWidth"
+        :controls="scrollerId"
+        @commit="saveContentWidth"
+        @scroll-by="scrollByDelta"
         @wheel.capture.passive="cancelNavigation"
         @touchstart.capture.passive="cancelNavigation"
         @pointerdown.capture="cancelNavigation"
@@ -39,6 +42,7 @@
         </span>
 
         <MessageScroller
+            :id="scrollerId"
             ref="conversationScroller"
             :items="messageRailItems"
             :follow-output="outputScrollBehavior === 'follow_output'"
@@ -50,8 +54,8 @@
             :navigation-label="t('conversation.scroller.navigation')"
             :empty-label="t('conversation.scroller.message')"
             class="h-full"
-            viewport-class="bg-background-primary px-10 pt-22 pb-5"
-            content-class="flow-root min-h-0"
+            viewport-class="reading-viewport bg-background-primary pt-22 pb-5"
+            content-class="mx-auto flow-root min-h-0 w-full max-w-(--column-width)"
             :item-scroll-target="scrollToMessageById"
             :item-ranges="railItemRange"
             :rail-inset-top="80"
@@ -164,15 +168,26 @@
                 </button>
             </div>
         </Transition>
-    </div>
+    </ConversationReadingColumn>
 </template>
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
     import { MARKDOWN_SCROLL_ROOT_KEY } from '@components/markdownScrollRoot';
+    import { notify } from '@services/NotificationService';
+    import { log } from '@services/ObservabilityService';
     import { storeToRefs } from 'pinia';
     import { Virtualizer, type VirtualizerHandle } from 'virtua/vue';
-    import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue';
+    import {
+        computed,
+        nextTick,
+        onBeforeUnmount,
+        onMounted,
+        provide,
+        ref,
+        useId,
+        watch,
+    } from 'vue';
     import { VueDraggable } from 'vue-draggable-plus';
 
     import {
@@ -187,6 +202,7 @@
     import { useSettingsStore } from '@/stores/settings';
     import type { ContextCompactionMessagePart, SessionMessage } from '@/types/session';
 
+    import ConversationReadingColumn from './components/ConversationReadingColumn.vue';
     import ConversationToolbar from './components/ConversationToolbar.vue';
     import MessageItem from './components/MessageItem.vue';
     import {
@@ -284,11 +300,21 @@
         getHistoryAnchor: () => HTMLElement | null;
     } | null>(null);
     const settingsStore = useSettingsStore();
-    const { outputScrollBehavior } = storeToRefs(settingsStore);
+    const { conversationContentWidth, outputScrollBehavior } = storeToRefs(settingsStore);
+    const scrollerId = useId();
     const showScrollToBottom = ref(false);
     const USER_MESSAGE_SCROLL_GAP = 12;
     const RAIL_PREVIEW_SOURCE_LENGTH = 320;
     const compactionAnnouncement = ref<ContextCompactionMessagePart['state']>();
+
+    async function saveContentWidth(width: number) {
+        try {
+            await settingsStore.updateConversationContentWidth(width);
+        } catch (error) {
+            log.error('Failed to save conversation content width:', error);
+            notify({ title: 'TouchAI', body: t('settings.general.saveSettingsFailed') });
+        }
+    }
 
     // Keep announcements outside the busy virtual list and ignore restored checkpoints.
     onMounted(() => {
