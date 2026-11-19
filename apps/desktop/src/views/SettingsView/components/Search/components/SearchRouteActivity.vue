@@ -48,6 +48,6 @@
                 <SourceFavicon :source="site" :size="20" />
             </span>
         </div>
-        <span v-else class="size-2 rounded-full bg-text-tertiary" />
+        <span v-else class="size-2 rounded-full bg-muted-foreground" />
     </motion.div>
 </template>
