@@ -2,7 +2,7 @@ import { mountComposable as mountBaseComposable } from '@tests/utils/composables
 import { createStartupNoticeFixture } from '@tests/utils/startupNotices';
 import { mockTauriCommand } from '@tests/utils/tauri';
 import { flushPromises } from '@vue/test-utils';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { nextTick, ref } from 'vue';
 
 import type { SearchSurfaceShownEvent } from '@/app/api/search/events';
@@ -296,51 +296,55 @@ describe('useSearchPageLifecycle', () => {
         mounted.unmount();
     });
 
-    it('user keeps a pinned window visible when blur arrives before pin readback completes', async () => {
-        let nativePinned = false;
+    it('user keeps the window visible while pinned and restores blur-hide after unpinning despite stale readback', async () => {
+        let hideOnAppBlur = true;
         let visible = true;
-        let readback!: (value: boolean) => void;
-        currentWindowMock.isAlwaysOnTop.mockImplementation(() =>
-            nativePinned
-                ? new Promise<boolean>((resolve) => {
-                      readback = resolve;
-                  })
-                : Promise.resolve(false)
-        );
-        currentWindowMock.setAlwaysOnTop.mockImplementation(async (pinned) => {
-            nativePinned = pinned;
+        nativeMock.window.setSearchSurfaceHideOnAppBlur.mockImplementation(async (shouldHide) => {
+            hideOnAppBlur = shouldHide;
         });
         nativeMock.window.hideSearchWindow.mockImplementation(async () => {
             visible = false;
         });
         nativeMock.window.reconcileSearchWindowBlur.mockImplementation(async () => {
-            if (!nativePinned) visible = false;
+            if (hideOnAppBlur) visible = false;
         });
+        const interactionContext = createSearchInteractionContext();
         const mounted = await mountComposable(() => {
             const pin = useSearchWindowPin();
-            useSearchPageLifecycle({
+            const lifecycle = useSearchPageLifecycle({
                 controller: createController() as never,
                 viewReady: ref(true),
                 isDragging: ref(false),
                 isPinned: pin.isPinned,
-                interactionContext: createSearchInteractionContext(),
+                interactionContext,
                 syncWindowPinState: pin.syncWindowPinState,
                 clearSession: vi.fn(),
             });
-            return pin;
+            return { ...pin, ...lifecycle };
         });
+        onTestFinished(mounted.unmount);
         await flushLifecycle();
-        const toggle = mounted.result.toggleWindowPin();
+
+        await mounted.result.toggleWindowPin();
+        await mounted.result.handleSearchSurfaceShown(createShownEvent(1));
         await flushLifecycle();
-        expect(nativePinned).toBe(true);
-        expect(mounted.result.isPinned.value).toBe(false);
+        expect(mounted.result.isPinned.value).toBe(true);
+        expect(interactionContext.state.isPinned).toBe(true);
+        expect(hideOnAppBlur).toBe(false);
+
         window.dispatchEvent(new Event('blur'));
         await vi.advanceTimersByTimeAsync(50);
-        const visibleDuringReadback = visible;
-        readback(true);
-        await toggle;
-        mounted.unmount();
-        expect(visibleDuringReadback).toBe(true);
+        expect(visible).toBe(true);
+
+        window.dispatchEvent(new Event('focus'));
+        await mounted.result.toggleWindowPin();
+        await flushLifecycle();
+        expect(mounted.result.isPinned.value).toBe(false);
+        expect(hideOnAppBlur).toBe(true);
+
+        window.dispatchEvent(new Event('blur'));
+        await vi.advanceTimersByTimeAsync(50);
+        expect(visible).toBe(false);
     });
 
     it('user closes the view during listener registration without leaving active subscriptions', async () => {

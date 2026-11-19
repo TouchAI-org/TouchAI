@@ -85,6 +85,7 @@ function buildSearchSurfaceShortcutEntries(
 export function useSearchWindowPin() {
     const currentWindow = useSearchWindowApi();
     const isPinned = ref(false);
+    let hasPinIntent = false;
     let lastOperation: Promise<void> = Promise.resolve();
 
     function queuePinOperation<T>(operation: () => Promise<T>): Promise<T> {
@@ -98,29 +99,27 @@ export function useSearchWindowPin() {
 
     function syncWindowPinState(): Promise<boolean> {
         return queuePinOperation(async () => {
-            const nextState = await currentWindow.isAlwaysOnTop();
-            isPinned.value = nextState;
-            return nextState;
+            // Platform readback may lag or ignore always-on-top requests on Wayland.
+            if (!hasPinIntent) {
+                isPinned.value = await currentWindow.isAlwaysOnTop();
+            }
+            return isPinned.value;
         });
+    }
+
+    async function applyWindowPinned(value: boolean): Promise<boolean> {
+        await currentWindow.setAlwaysOnTop(value);
+        hasPinIntent = true;
+        isPinned.value = value;
+        return value;
     }
 
     function setWindowPinned(value: boolean): Promise<boolean> {
-        return queuePinOperation(async () => {
-            await currentWindow.setAlwaysOnTop(value);
-            const nextState = await currentWindow.isAlwaysOnTop();
-            isPinned.value = nextState;
-            return nextState;
-        });
+        return queuePinOperation(() => applyWindowPinned(value));
     }
 
     function toggleWindowPin(): Promise<boolean> {
-        return queuePinOperation(async () => {
-            const currentState = await currentWindow.isAlwaysOnTop();
-            await currentWindow.setAlwaysOnTop(!currentState);
-            const nextState = await currentWindow.isAlwaysOnTop();
-            isPinned.value = nextState;
-            return nextState;
-        });
+        return queuePinOperation(() => applyWindowPinned(!isPinned.value));
     }
 
     return {
