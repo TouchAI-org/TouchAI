@@ -166,7 +166,7 @@
 
             <motion.div
                 :initial="false"
-                :animate="{ x: editing ? 0 : 8, y: editing ? 0 : 24 }"
+                :animate="{ x: editing ? 0 : 8, y: editing ? 0 : 6 }"
                 :transition="headerTransition"
                 class="absolute flex min-w-0 items-center gap-1.5"
                 style="left: 90px; top: 18px; right: 100px"
@@ -211,7 +211,7 @@
                     }"
                     :transition="contentEnterTransition"
                     class="absolute m-0 line-clamp-2 overflow-hidden text-caption whitespace-pre-line text-text-secondary"
-                    style="left: 98px; top: 66px; right: 100px"
+                    style="left: 98px; top: 48px; right: 100px"
                     :title="description"
                 >
                     {{ description }}
