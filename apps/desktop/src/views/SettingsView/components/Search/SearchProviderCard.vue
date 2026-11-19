@@ -44,10 +44,24 @@
     const backTransition = computed(() =>
         reducedMotion.value ? { duration: 0 } : { ...transitions.value.quick, delay: 0.66 }
     );
-    const contentTransition = computed(() =>
+    const ease = [0.4, 0, 0.2, 1] as const;
+    const contentEnterTransition = computed(() =>
         reducedMotion.value
             ? { duration: 0 }
-            : { type: 'tween' as const, duration: 0.3, ease: [0.4, 0, 0.2, 1] }
+            : { type: 'tween' as const, duration: 0.28, delay: 0.16, ease }
+    );
+    const contentExitTransition = computed(() =>
+        reducedMotion.value ? { duration: 0 } : { type: 'tween' as const, duration: 0.16, ease }
+    );
+    const tabsEnterTransition = computed(() =>
+        reducedMotion.value
+            ? { duration: 0 }
+            : { type: 'tween' as const, duration: 0.22, delay: 0.2, ease }
+    );
+    const fieldsEnterTransition = computed(() =>
+        reducedMotion.value
+            ? { duration: 0 }
+            : { type: 'tween' as const, duration: 0.3, delay: 0.28, ease }
     );
 
     const emit = defineEmits<{
@@ -169,8 +183,12 @@
                                 key="quota"
                                 :initial="{ opacity: 0, scale: 0.92 }"
                                 :animate="{ opacity: 1, scale: 1 }"
-                                :exit="{ opacity: 0, scale: 0.92 }"
-                                :transition="contentTransition"
+                                :exit="{
+                                    opacity: 0,
+                                    scale: 0.92,
+                                    transition: contentExitTransition,
+                                }"
+                                :transition="contentEnterTransition"
                                 class="shrink-0"
                             >
                                 <Badge
@@ -188,8 +206,13 @@
                             key="description"
                             :initial="{ opacity: 0, height: 0, marginTop: 0 }"
                             :animate="{ opacity: 1, height: 'auto', marginTop: 4 }"
-                            :exit="{ opacity: 0, height: 0, marginTop: 0 }"
-                            :transition="contentTransition"
+                            :exit="{
+                                opacity: 0,
+                                height: 0,
+                                marginTop: 0,
+                                transition: contentExitTransition,
+                            }"
+                            :transition="contentEnterTransition"
                             class="m-0 line-clamp-2 overflow-hidden text-caption whitespace-pre-line text-text-secondary"
                             :title="description"
                         >
@@ -204,8 +227,8 @@
                         key="tabs"
                         :initial="{ opacity: 0, x: 8 }"
                         :animate="{ opacity: 1, x: 0 }"
-                        :exit="{ opacity: 0, x: 8 }"
-                        :transition="contentTransition"
+                        :exit="{ opacity: 0, x: 8, transition: contentExitTransition }"
+                        :transition="tabsEnterTransition"
                         class="shrink-0"
                     >
                         <SegmentedControl
@@ -223,8 +246,8 @@
                         key="actions"
                         :initial="{ opacity: 0, x: 8 }"
                         :animate="{ opacity: 1, x: 0 }"
-                        :exit="{ opacity: 0, x: 8 }"
-                        :transition="contentTransition"
+                        :exit="{ opacity: 0, x: 8, transition: contentExitTransition }"
+                        :transition="contentEnterTransition"
                         class="flex shrink-0 items-center gap-1"
                     >
                         <Switch
@@ -256,8 +279,13 @@
                     key="fields"
                     :initial="{ opacity: 0, height: 0, marginTop: 0 }"
                     :animate="{ opacity: 1, height: 'auto', marginTop: 8 }"
-                    :exit="{ opacity: 0, height: 0, marginTop: 0 }"
-                    :transition="contentTransition"
+                    :exit="{
+                        opacity: 0,
+                        height: 0,
+                        marginTop: 0,
+                        transition: contentExitTransition,
+                    }"
+                    :transition="fieldsEnterTransition"
                     class="flex min-w-0 items-center gap-2 overflow-hidden"
                 >
                     <div class="min-w-0 flex-1">
