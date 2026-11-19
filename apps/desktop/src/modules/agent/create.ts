@@ -15,6 +15,7 @@ import type {
     TaskViewSnapshot,
 } from './contracts/task';
 import { cloneTaskValue } from './contracts/task';
+import { createPendingQueues, type PendingQueue } from './pending';
 import { SessionTaskProjection } from './projection/create';
 import { isTerminalStatus } from './projection/helpers';
 import { NotificationCoalescer } from './projection/notifications';
@@ -140,7 +141,26 @@ export function createAgentSessions(input: AgentSessionHost) {
         task.detach();
         task.subscribers.clear();
         tasks.delete(taskId);
+        queues.release(taskId);
     };
+
+    const queues = createPendingQueues({
+        store: input.pendingMessages,
+        snapshot: (taskId) => tasks.get(taskId)?.snapshot,
+        changed: notify,
+        delivered: (taskId, delivered) =>
+            tasks.get(taskId)?.projection.syncTaskMetadata({
+                type: 'user_messages_delivered',
+                messages: delivered,
+            }),
+        rejected: (taskId, messageIds) =>
+            tasks.get(taskId)?.projection.syncTaskMetadata({
+                type: 'user_messages_rejected',
+                messageIds,
+            }),
+        start: startTask,
+        report,
+    });
 
     const observe = (task: TaskProjection, event: AgentEvent) => {
         if (
@@ -159,6 +179,7 @@ export function createAgentSessions(input: AgentSessionHost) {
                 turnId: numericKey(event.turnKey, 'turn'),
                 model,
             });
+            queues.bind(event.taskId, task.snapshot.sessionId);
         } else if (event.type === 'attempt_started') {
             task.attemptToken = event.attemptToken;
         } else if (event.type === 'attempt_finished') {
@@ -237,24 +258,48 @@ export function createAgentSessions(input: AgentSessionHost) {
                 turnId: numericKey(event.result.turnKey, 'turn'),
                 model,
             });
-        } else if (event.type === 'task_failed')
+        } else if (event.type === 'task_failed') {
+            queues.restoreUncommitted(event.taskId);
             projection.syncTaskMetadata({
                 type: event.type,
                 turnId: task.snapshot.turnId,
                 error: event.errorCode,
             });
-        else if (event.type === 'task_cancelled')
+        } else if (event.type === 'task_cancelled') {
+            queues.restoreUncommitted(event.taskId);
             projection.syncTaskMetadata({ type: event.type, turnId: task.snapshot.turnId });
+        }
     };
 
-    async function startTask(request: StartSessionTaskOptions): Promise<StartedSessionTask> {
+    async function startTask(
+        request: StartSessionTaskOptions,
+        inherited?: PendingQueue
+    ): Promise<StartedSessionTask> {
+        if (disposed) throw new AgentError('AGENT_DISPOSED');
+        const queue = queues.begin(request, inherited);
+        try {
+            return await startPreparedTask(request, queue);
+        } catch (error) {
+            queues.rollback(queue);
+            throw error;
+        }
+    }
+
+    async function startPreparedTask(
+        request: StartSessionTaskOptions,
+        queue: PendingQueue
+    ): Promise<StartedSessionTask> {
         if (disposed) throw new AgentError('AGENT_DISPOSED');
         const options = {
             ...request,
             attachments: request.attachments ? cloneTaskValue(request.attachments) : undefined,
             inputSnapshot: cloneInputHistorySnapshot(request.inputSnapshot) ?? undefined,
         };
-        const combined = combineAbortSignals([options.signal, lifetime.signal]);
+        const combined = combineAbortSignals([
+            options.signal,
+            lifetime.signal,
+            queue.starting?.controller.signal,
+        ]);
         const { signal } = combined;
         let history: Awaited<ReturnType<typeof loadHistory>>;
         try {
@@ -282,11 +327,18 @@ export function createAgentSessions(input: AgentSessionHost) {
                 if (cause instanceof AgentError) throw cause;
                 throw new AgentError('PERSISTENCE_FAILED', false, { cause });
             }
-        } finally {
+        } catch (error) {
             combined.dispose();
+            throw error;
         }
-        if (disposed) throw new AgentError('AGENT_DISPOSED');
-        const started = execution.start(options);
+        let started: ReturnType<typeof execution.start>;
+        try {
+            if (disposed) throw new AgentError('AGENT_DISPOSED');
+            started = execution.start({ ...options, signal }, queues.delivery(queue));
+        } catch (error) {
+            combined.dispose();
+            throw error;
+        }
         const snapshot: TaskViewSnapshot = {
             taskId: started.taskId,
             sessionId: options.sessionId ?? null,
@@ -294,6 +346,7 @@ export function createAgentSessions(input: AgentSessionHost) {
             status: 'running',
             executionMode: options.executionMode ?? 'foreground',
             sessionHistory: [],
+            pendingUserMessages: cloneTaskValue(queue.messages),
             pendingApprovals: [],
             pendingToolApproval: null,
             pendingUserQuestion: null,
@@ -328,10 +381,12 @@ export function createAgentSessions(input: AgentSessionHost) {
                               },
                 };
             })
-            .finally(() => {
+            .finally(async () => {
+                combined.dispose();
                 const task = tasks.get(started.taskId);
                 if (!task) return;
                 task.detach();
+                await queues.settled(started.taskId);
                 if (!disposed)
                     task.releaseTimer = setTimeout(() => release(started.taskId), RETENTION_MS);
             });
@@ -355,13 +410,15 @@ export function createAgentSessions(input: AgentSessionHost) {
             },
         };
         tasks.set(started.taskId, task);
+        queues.attach(started.taskId, queue);
         void task.completion.catch(() => undefined);
         try {
             projection.bootstrap(
                 history,
                 options.prompt,
                 options.attachments,
-                options.inputSnapshot
+                options.inputSnapshot,
+                options.userMessageId
             );
             cleanups.add(
                 execution.subscribe(started.taskId, (event) => {
@@ -416,14 +473,16 @@ export function createAgentSessions(input: AgentSessionHost) {
     };
 
     return Object.freeze({
+        ...queues.commands,
         startTask,
         startForegroundTask: (options: StartSessionTaskOptions) =>
             startTask({ ...options, executionMode: options.executionMode ?? 'foreground' }),
         startBackgroundTask: (options: StartSessionTaskOptions) =>
             startTask({ ...options, executionMode: 'background' }),
-        cancelTask(taskId: string): boolean {
+        cancelTask(taskId: string, options: { preservePending?: boolean } = {}): boolean {
             const task = tasks.get(taskId);
             if (!task) return false;
+            if (options.preservePending === false) queues.commands.clearTaskUserMessages(taskId);
             task.cancelRequested = true;
             const accepted = execution.cancel(taskId);
             if (!accepted) task.cancelRequested = false;
@@ -490,6 +549,7 @@ export function createAgentSessions(input: AgentSessionHost) {
             if (disposed) return;
             disposed = true;
             lifetime.abort();
+            queues.dispose();
             for (const taskId of tasks.keys()) execution.cancel(taskId);
             await Promise.allSettled([...tasks.values()].map((task) => task.completion));
             notifications.dispose();

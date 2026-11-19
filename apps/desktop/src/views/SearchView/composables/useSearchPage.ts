@@ -27,6 +27,7 @@ import { initNotificationPermission, notify } from '@/app/api/windows/notificati
 import { useSearchWindowApi } from '@/app/api/windows/presentation';
 import { isE2eTestMode } from '@/app/api/windows/runtime';
 import {
+    isRendererOnlySearchKeybindingAction,
     SEARCH_KEYBINDING_DEFINITIONS,
     type SearchKeybindingActionId,
     type SearchKeybindings,
@@ -69,7 +70,10 @@ function buildSearchSurfaceShortcutEntries(
     context: SearchSurfaceShortcutSyncContext
 ) {
     return SEARCH_KEYBINDING_DEFINITIONS.flatMap((definition) => {
-        if (!shouldSyncSearchSurfaceShortcutToNative(definition.id, context)) {
+        if (
+            isRendererOnlySearchKeybindingAction(definition.id) ||
+            !shouldSyncSearchSurfaceShortcutToNative(definition.id, context)
+        ) {
             return [];
         }
 

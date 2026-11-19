@@ -42,6 +42,12 @@ function freezeTurn(input: AgentPreparedTurn): AgentPreparedTurn {
         release: input.release.bind(input),
         recovery: input.recovery ? snapshotCheckpoint(input.recovery) : undefined,
         promptFragments: input.promptFragments ? snapshotValue(input.promptFragments) : undefined,
+        pendingMessages: input.pendingMessages
+            ? Object.freeze({
+                  hasImmediate: input.pendingMessages.hasImmediate.bind(input.pendingMessages),
+                  deliver: input.pendingMessages.deliver.bind(input.pendingMessages),
+              })
+            : undefined,
     });
 }
 
@@ -199,8 +205,35 @@ export class TurnExecution {
                                 });
                             }
                         );
-                        if (!step.calls.length) break;
-                        await this.tools(cursor, step, stepScope, persistence);
+                        if (!step.calls.length && !step.steered) break;
+                        if (step.steered) {
+                            if (!persistence.assistant) throw new AgentError('PERSISTENCE_FAILED');
+                            if (step.parts.length) {
+                                const origin = await barrier(() =>
+                                    persistence!.assistant!(step.parts, stepScope)
+                                );
+                                cursor.messages.push({
+                                    role: 'assistant',
+                                    content: step.parts.map((part) => ({
+                                        type: part.type,
+                                        text: part.content,
+                                        ...(part.providerOptions
+                                            ? { providerOptions: part.providerOptions }
+                                            : {}),
+                                    })),
+                                    ...(origin ? { origin } : {}),
+                                });
+                            }
+                            cursor.currentParts = [];
+                        } else await this.tools(cursor, step, stepScope, persistence);
+                        throwIfCancelled(this.signal);
+                        const injected = await this.active.pendingMessages?.deliver(stepScope);
+                        if (injected?.messages.length) {
+                            const offset = cursor.messages.length;
+                            cursor.messages.push(...snapshotMessages(injected.messages));
+                            for (const entry of injected.privateContents ?? [])
+                                cursor.privateContents.set(offset + entry.index, entry.content);
+                        } else if (step.steered) break;
                         cursor.iteration++;
                         const candidate = snapshotCheckpoint(cursor);
                         await barrier(() => persistence!.checkpoint(candidate, stepScope));

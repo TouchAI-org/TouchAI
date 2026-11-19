@@ -42,6 +42,11 @@ const settingDefinitions: Partial<Record<NavigationSection, SearchItemDefinition
         { labelKey: 'settings.general.startOnBoot', targetId: 'start-on-boot' },
         { labelKey: 'settings.general.startMinimized', targetId: 'start-minimized' },
         { labelKey: 'settings.general.windowSize', targetId: 'window-size' },
+        {
+            labelKey: 'settings.general.sendShortcut',
+            descriptionKey: 'settings.general.sendShortcutDescription',
+            targetId: 'send-shortcut',
+        },
         { labelKey: 'settings.general.outputScrollBehavior', targetId: 'output-scroll' },
         { labelKey: 'settings.general.motion.speed', targetId: 'animation-speed' },
         {

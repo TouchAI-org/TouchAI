@@ -27,6 +27,7 @@ export interface GeneralSettingsData {
     startOnBoot: boolean;
     startMinimized: boolean;
     outputScrollBehavior: OutputScrollBehavior;
+    conversationContentWidth: number;
     searchWindowSizePreset: SearchWindowSizePreset;
     searchWindowDefaultSize: SearchWindowDefaultSize;
     language: AppLocale;
@@ -78,6 +79,7 @@ export interface GeneralSettingUpdaters {
     updateStartOnBoot(enabled: boolean): Promise<void>;
     updateStartMinimized(enabled: boolean): Promise<void>;
     updateOutputScrollBehavior(mode: OutputScrollBehavior): Promise<void>;
+    updateConversationContentWidth(width: number): Promise<void>;
     updateSearchWindowSizePreset(preset: SearchWindowSizePreset): Promise<void>;
     updateLanguage(language: AppLocale): Promise<void>;
     updateAppUpdateChannel(channel: AppUpdateChannel): Promise<void>;
@@ -294,6 +296,7 @@ export function cloneGeneralSettingsSnapshot(source: GeneralSettingsData): Gener
         startOnBoot: source.startOnBoot,
         startMinimized: source.startMinimized,
         outputScrollBehavior: source.outputScrollBehavior,
+        conversationContentWidth: source.conversationContentWidth,
         searchWindowSizePreset: source.searchWindowSizePreset,
         language: source.language,
         appUpdateChannel: source.appUpdateChannel,

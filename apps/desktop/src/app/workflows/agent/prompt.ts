@@ -5,6 +5,7 @@ import {
     buildCurrentLanguageSystemPrompt,
     getCurrentModelLanguageContext,
 } from '@/app/workflows/agent/language';
+import { createPromptInputSnapshot } from '@/modules/agent';
 import type {
     InputHistorySnapshot,
     PromptAssembly,
@@ -145,6 +146,7 @@ export async function composePromptSnapshot(
     });
     options.signal?.throwIfAborted();
 
+    const inputSnapshot = createPromptInputSnapshot(options.inputSnapshot);
     const snapshot = {
         id: crypto.randomUUID(),
         createdAt: new Date().toISOString(),
@@ -158,25 +160,7 @@ export async function composePromptSnapshot(
             .map((fragment) => fragment.content)
             .join('\n\n')
             .trim(),
-        ...(options.inputSnapshot?.editorDoc || options.inputSnapshot?.skills?.length
-            ? {
-                  inputSnapshot: {
-                      ...(options.inputSnapshot.skills?.length
-                          ? { skills: options.inputSnapshot.skills }
-                          : {}),
-                      editorDoc: options.inputSnapshot.editorDoc,
-                      ...(options.inputSnapshot.excludeFromHistory
-                          ? { excludeFromHistory: true }
-                          : {}),
-                  },
-              }
-            : options.inputSnapshot?.excludeFromHistory
-              ? {
-                    inputSnapshot: {
-                        excludeFromHistory: true,
-                    },
-                }
-              : {}),
+        ...(inputSnapshot ? { inputSnapshot } : {}),
     };
 
     return snapshot;

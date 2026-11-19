@@ -390,6 +390,28 @@ export async function hydratePersistedAttachments(
 }
 
 /**
+ * Restore one attachment from its content hash.
+ *
+ * Pending queue payloads store hashes instead of local attachment row ids, so
+ * restoring a backup never has to rewrite queued JSON.
+ */
+export async function hydratePersistedAttachmentByHash(
+    hash: string,
+    overrides: {
+        originPath?: string;
+        name?: string;
+    } = {},
+    database: DatabaseExecutor = db
+): Promise<AttachmentIndex | null> {
+    const attachment = await findAttachmentByHash(hash, database);
+    if (!attachment) {
+        return null;
+    }
+
+    return toAttachmentIndex(attachment, overrides);
+}
+
+/**
  * 确保持久化层可识别当前附件引用。
  *
  * 草稿附件在真正发送前不会写入缓存；只有请求开始持久化时，

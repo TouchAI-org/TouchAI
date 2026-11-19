@@ -42,7 +42,6 @@ export async function mountSearchFlow(
                 clearDraft: () => {
                     draftClears++;
                 },
-                getSupportedAttachments: () => [],
                 getUnsupportedAttachmentMessage: () => options.unsupported ?? null,
                 getCurrentInputSnapshot: (text) => createInputHistorySnapshot({ text }),
             }),

@@ -4,6 +4,7 @@ import { type DatabaseExecutor, db } from '@database';
 import { type AnyColumn, type SQL, sql } from '@database/expressions';
 import {
     appendMessagePart,
+    appendSessionTurnInputSnapshot,
     createAttachmentRecord,
     createMessage,
     createMessageAttachment,
@@ -11,6 +12,7 @@ import {
     createSession,
     createSessionTurn,
     createSessionTurnAttempt,
+    deletePendingMessage,
     findAttachmentByHash,
     findLatestContextCompaction,
     findToolCallPartByCallId,
@@ -62,7 +64,8 @@ import type {
     PersistenceProjectorHost,
 } from '../contracts/persistence';
 import { normalizeOutputParts } from '../contracts/persistence';
-import type { TaskExecutionMode } from '../contracts/task';
+import type { DeliveredPendingUserMessage, TaskExecutionMode } from '../contracts/task';
+import { createPromptInputSnapshot } from '../prompt/serialization';
 
 /**
  * 封装轮次尝试状态，确保实体对象与开始时间戳保持一致。
@@ -87,6 +90,7 @@ interface PersistenceProjectorModel {
 export interface PersistenceProjectorOptions {
     prompt: string;
     attachments?: AttachmentIndex[];
+    pendingMessageId?: string;
     model: PersistenceProjectorModel;
     sessionId?: number | null;
     taskId: string;
@@ -163,6 +167,7 @@ function areSamePartDrafts(
 export class PersistenceProjector {
     private readonly prompt: string;
     private readonly attachments: AttachmentIndex[];
+    private readonly pendingMessageId: string | null;
     private readonly model: PersistenceProjectorModel;
     private readonly taskId: string;
     private readonly executionMode: TaskExecutionMode;
@@ -200,6 +205,7 @@ export class PersistenceProjector {
     constructor(options: PersistenceProjectorOptions) {
         this.prompt = options.prompt;
         this.attachments = options.attachments ?? [];
+        this.pendingMessageId = options.pendingMessageId ?? null;
         this.model = options.model;
         this.taskId = options.taskId;
         this.executionMode = options.executionMode;
@@ -285,6 +291,9 @@ export class PersistenceProjector {
                     database: tx,
                     sessionId,
                 }));
+            if (this.pendingMessageId) {
+                await deletePendingMessage(this.pendingMessageId, tx);
+            }
             const turn = await this.ensureTurnRecord(tx, sessionId, userMessageId);
             const attemptState = await this.ensureAttemptRecord(1, initialCheckpoint, tx, turn.id);
 
@@ -784,6 +793,29 @@ export class PersistenceProjector {
         this.deliveryManifestJson = deliveryManifestJson;
     }
 
+    async persistAssistantMessage(
+        outputParts: PersistedOutputPart[]
+    ): Promise<ContextMessageSource> {
+        const result = await this.persistOutputTransaction(async (tx, pendingPartDrafts) => {
+            const messageId = await this.persistMessage({
+                role: 'assistant',
+                outputParts,
+                database: tx,
+                pendingPartDrafts,
+            });
+            const row = (
+                await findContextMessageRows(
+                    await this.ensureSessionId(tx),
+                    { ids: [messageId] },
+                    tx
+                )
+            )[0]!;
+            return { messageId, source: await contextMessageSource(row) };
+        });
+        this.pendingOutputMessageId = result.messageId;
+        return result.source;
+    }
+
     /**
      * 持久化工具调用消息。
      */
@@ -791,9 +823,74 @@ export class PersistenceProjector {
         const messageId = await this.persistOutputTransaction((tx, pendingPartDrafts) =>
             this.persistMessage({ role: 'tool_call', outputParts, database: tx, pendingPartDrafts })
         );
+        this.closeOutputBoundary();
+        return messageId;
+    }
+
+    /**
+     * End the current assistant output row before the next model request.
+     *
+     * Steering interrupts an answer without completing it. Closing the
+     * boundary independently of user-message persistence ensures the next
+     * output creates a new assistant row instead of replacing the interrupted
+     * one through `persistOutputProgress`.
+     */
+    closeOutputBoundary(): void {
         this.pendingOutputMessageId = null;
         this.pendingOutputOffset = 0;
-        return messageId;
+        this.assistantMessageId = null;
+    }
+
+    async discardPendingUserMessage(pendingMessageId: string): Promise<void> {
+        await deletePendingMessage(pendingMessageId);
+    }
+
+    async persistInjectedUserMessages(
+        messages: readonly DeliveredPendingUserMessage[],
+        canCommit: () => boolean = () => true
+    ): Promise<Map<string, ContextMessageSource> | null> {
+        const attachments = messages.flatMap((message) => message.attachments);
+        await this.host.prepareAttachments(attachments);
+        if (!canCommit()) return null;
+
+        const result = await db.transaction(async (tx) => {
+            // Admission may wait behind another write after preparation finishes.
+            if (!canCommit()) return null;
+            const sessionId = await this.ensureSessionId(tx);
+            const sources = new Map<string, ContextMessageSource>();
+            let turn = this.turn;
+            for (const message of messages) {
+                const persistedAttachments = await Promise.all(
+                    message.attachments.map((attachment) => this.persistAttachment(attachment, tx))
+                );
+                const messageId = await this.persistMessage({
+                    role: 'user',
+                    content: message.prompt,
+                    attachments: persistedAttachments,
+                    database: tx,
+                    sessionId,
+                });
+                const inputSnapshot = createPromptInputSnapshot(message.inputSnapshot);
+                if (inputSnapshot) {
+                    turn = await appendSessionTurnInputSnapshot({
+                        id: this.getTurnId(),
+                        messageId,
+                        inputSnapshotJson: JSON.stringify(inputSnapshot),
+                        database: tx,
+                    });
+                }
+                await deletePendingMessage(message.id, tx);
+                const row = (await findContextMessageRows(sessionId, { ids: [messageId] }, tx))[0];
+                if (row) sources.set(message.id, await contextMessageSource(row));
+            }
+            return { sessionId, turn, sources };
+        });
+
+        if (!result) return null;
+        this.sessionId = result.sessionId;
+        this.turn = result.turn;
+        this.closeOutputBoundary();
+        return result.sources;
     }
 
     async getContextMessageSource(

@@ -25,6 +25,7 @@ export {
     createAttachment,
     createPersistedAttachmentFromData,
     ensurePersistedAttachmentIndex,
+    hydratePersistedAttachmentByHash,
     hydratePersistedAttachments,
     persistPreparedAttachment,
     persistPreparedAttachmentWithWriter,

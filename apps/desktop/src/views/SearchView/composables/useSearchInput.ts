@@ -98,10 +98,8 @@ export function useSearchAttachments(options: UseSearchAttachmentsOptions = {}) 
         return attachments.value.filter(isAttachmentSupported);
     }
 
-    function getUnsupportedAttachmentMessage() {
-        const unsupported = attachments.value.filter(
-            (attachment) => !isAttachmentSupported(attachment)
-        );
+    function getUnsupportedAttachmentMessageFor(candidate: Index[]) {
+        const unsupported = candidate.filter((attachment) => !isAttachmentSupported(attachment));
         if (unsupported.length === 0) {
             return null;
         }
@@ -120,6 +118,10 @@ export function useSearchAttachments(options: UseSearchAttachmentsOptions = {}) 
             return t('conversation.attachment.unsupportedImage');
         }
         return t('conversation.attachment.unsupportedFile');
+    }
+
+    function getUnsupportedAttachmentMessage() {
+        return getUnsupportedAttachmentMessageFor(attachments.value);
     }
 
     async function createNormalizedAttachment(type: 'image' | 'file', path: string) {
@@ -157,6 +159,7 @@ export function useSearchAttachments(options: UseSearchAttachmentsOptions = {}) 
         clearAttachments,
         getSupportedAttachments,
         getUnsupportedAttachmentMessage,
+        getUnsupportedAttachmentMessageFor,
     };
 }
 

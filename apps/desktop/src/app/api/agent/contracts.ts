@@ -1,5 +1,6 @@
 import type {
     AskUserAnswer,
+    PendingMessageCommands,
     SessionMessage,
     StartedSessionTask,
     StartSessionTaskOptions,
@@ -11,6 +12,10 @@ export type {
     AskUserAnswer,
     AttachmentReference,
     InputHistorySnapshot,
+    PendingMessageCommands,
+    PendingUserMessage,
+    PendingUserMessageDelivery,
+    PendingUserMessageInput,
     SessionMessage,
     StartedSessionTask,
     StartSessionTaskOptions,
@@ -41,10 +46,10 @@ export interface SessionInformation {
     providerId: number | null;
 }
 
-export interface AgentCommands {
+export interface AgentCommands extends PendingMessageCommands {
     startTask(options: StartSessionTaskOptions): Promise<StartedSessionTask>;
     startBackgroundTask(options: StartSessionTaskOptions): Promise<StartedSessionTask>;
-    cancelTask(taskId: string): boolean;
+    cancelTask(taskId: string, options?: { preservePending?: boolean }): boolean;
     approveTaskToolCall(taskId: string, callId?: string, decisionId?: string): boolean;
     rejectTaskToolCall(taskId: string, callId?: string, decisionId?: string): boolean;
     settleTaskUserQuestion(

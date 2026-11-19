@@ -13,6 +13,7 @@ function fixture(visible = true) {
         status: 'running',
         executionMode: 'foreground',
         sessionHistory: [],
+        pendingUserMessages: [],
         pendingApprovals: [],
         pendingToolApproval: null,
         pendingUserQuestion: null,

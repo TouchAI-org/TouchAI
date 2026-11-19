@@ -6,6 +6,7 @@ import {
     createAttachment,
     createPersistedAttachmentFromData,
     ensurePersistedAttachmentIndex,
+    hydratePersistedAttachmentByHash,
     hydratePersistedAttachments,
     persistPreparedAttachment,
     prepareAttachmentForPersistence,
@@ -183,6 +184,36 @@ describe('user attaches a file to a message', () => {
         const result = await createAttachment('file', '/downloads/report.pdf');
 
         expect(result.supportStatus).toBe('supported');
+    });
+});
+
+describe('user reopens a queued message with an attachment', () => {
+    it('user gets the cached attachment restored from its content hash', async () => {
+        mocks.findAttachmentByHash.mockResolvedValue({
+            id: 21,
+            hash: 'abc123',
+            type: 'file',
+            original_name: 'original.pdf',
+            origin_path: '/old/original.pdf',
+            mime_type: 'application/pdf',
+            size: 1024,
+            created_at: '2026-01-01T00:00:00Z',
+        });
+
+        const restored = await hydratePersistedAttachmentByHash('abc123', {
+            originPath: '/new/original.pdf',
+            name: 'renamed.pdf',
+        });
+
+        expect(restored).toMatchObject({
+            attachmentId: 21,
+            hash: 'abc123',
+            path: '/cache/attachments/files/abc/abc123',
+            originPath: '/new/original.pdf',
+            name: 'renamed.pdf',
+            size: 1024,
+            mimeType: 'application/pdf',
+        });
     });
 });
 

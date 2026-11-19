@@ -81,6 +81,32 @@ function shareUnchangedMessages(
 }
 
 /**
+ * 待发消息不参与流式输出；没有队列变化时复用上一次发布的数组，
+ * 避免每个 token 都让拖拽列表和气泡重新渲染。
+ */
+function shareUnchangedPendingUserMessages(
+    liveMessages: TaskViewSnapshot['pendingUserMessages'],
+    previousMessages: TaskViewSnapshot['pendingUserMessages']
+): TaskViewSnapshot['pendingUserMessages'] {
+    if (
+        previousMessages.length === liveMessages.length &&
+        liveMessages.every((message, index) => isDeepEqual(message, previousMessages[index]))
+    ) {
+        return previousMessages;
+    }
+
+    const previousById = new Map(previousMessages.map((message) => [message.id, message]));
+    return liveMessages.map((message) => {
+        const published = previousById.get(message.id);
+        if (published && isDeepEqual(message, published)) {
+            return published;
+        }
+
+        return cloneTaskValue(message);
+    });
+}
+
+/**
  * 构建发布给 UI 的展示快照。
  *
  * runtime checkpoint 与 prompt 快照不参与展示；传入上次发布结果时，
@@ -99,6 +125,10 @@ export function cloneTaskViewSnapshot(
         sessionHistory: shareUnchangedMessages(
             snapshot.sessionHistory,
             previous?.sessionHistory ?? []
+        ),
+        pendingUserMessages: shareUnchangedPendingUserMessages(
+            snapshot.pendingUserMessages,
+            previous?.pendingUserMessages ?? []
         ),
         pendingToolApproval: cloneTaskValue(snapshot.pendingToolApproval),
         pendingApprovals: cloneTaskValue(snapshot.pendingApprovals),

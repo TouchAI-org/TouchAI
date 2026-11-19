@@ -1,4 +1,5 @@
 import { DEFAULT_APP_UPDATE_CHANNEL, normalizeAppUpdateChannel } from '@/config/appUpdate';
+import { CONVERSATION_WIDTH, normalizeConversationWidth } from '@/config/conversationWidth';
 import { type AppLocale, normalizeLocale, resolveFirstLaunchLocale } from '@/config/locales';
 import { normalizeAnimationSpeed } from '@/config/motion';
 import {
@@ -151,6 +152,19 @@ export const GENERAL_SCALAR_SETTING_SPECS = [
             computedName: 'outputScrollBehavior',
             updaterName: 'updateOutputScrollBehavior',
             normalizeUpdate: String,
+        },
+    },
+    {
+        key: 'conversation_content_width',
+        stateKey: 'conversationContentWidth',
+        defaultValue: CONVERSATION_WIDTH.default,
+        parsePersisted: normalizeConversationWidth,
+        parseUpdate: normalizeConversationWidth,
+        eventValue: Number,
+        store: {
+            computedName: 'conversationContentWidth',
+            updaterName: 'updateConversationContentWidth',
+            normalizeUpdate: normalizeConversationWidth,
         },
     },
     {

@@ -1,7 +1,9 @@
-import type { TaskModelSummary } from './task';
+import type { DeliveredPendingUserMessage, TaskModelSummary } from './task';
 
 /** Presentation metadata, not an execution event or a persisted checkpoint. */
 export type ProjectionTaskEvent =
+    | { type: 'user_messages_delivered'; messages: DeliveredPendingUserMessage[] }
+    | { type: 'user_messages_rejected'; messageIds: string[] }
     | {
           type: 'task_started';
           sessionId: number | null;

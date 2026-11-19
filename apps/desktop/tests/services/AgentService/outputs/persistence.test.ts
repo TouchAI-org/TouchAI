@@ -28,7 +28,11 @@ beforeEach(() => {
 afterEach(closeTestDatabases);
 
 function createProjector(
-    options: { newSession?: boolean; attachments?: AttachmentReference[] } = {}
+    options: {
+        newSession?: boolean;
+        attachments?: AttachmentReference[];
+        pendingMessageId?: string;
+    } = {}
 ) {
     return createTaskPersistence({
         sessionId: options.newSession ? undefined : 1,
@@ -39,6 +43,7 @@ function createProjector(
         maxRetries: 3,
         buildSessionTitle: (prompt) => prompt,
         attachments: options.attachments,
+        pendingMessageId: options.pendingMessageId,
         promptSnapshot: {
             id: 'prompt-1',
             createdAt: '2026-10-08T00:00:00Z',
@@ -579,5 +584,94 @@ describe('user reopens a turn whose bookkeeping was interrupted', () => {
         expect(database.prepare('SELECT id FROM sessions').all()).toHaveLength(2);
         expect(messages()).toHaveLength(1);
         expect(attempts()).toHaveLength(1);
+    });
+});
+
+describe('user delivers a durable queued message', () => {
+    function pending(id: string) {
+        database
+            .prepare(
+                `INSERT INTO session_pending_messages
+            (id, session_id, prompt, payload_version, payload_json, position)
+            VALUES (?, 1, 'queued prompt', 1, '{"attachments":[]}', 0)`
+            )
+            .run(id);
+    }
+    function pendingIds() {
+        return database.prepare('SELECT id FROM session_pending_messages').all();
+    }
+
+    it('user starts a queued turn when history commits then its pending row disappears atomically', async () => {
+        pending('pending-1');
+        const projector = createProjector({ pendingMessageId: 'pending-1' });
+        database.exec(`CREATE TEMP TRIGGER refuse_pending_delete BEFORE DELETE ON session_pending_messages
+            BEGIN SELECT RAISE(ABORT, 'fixture pending delete failure'); END;`);
+        await expect(projector.recordTurnStart(checkpoint())).rejects.toThrow();
+        expect(messages()).toEqual([]);
+        expect(attempts()).toEqual([]);
+        expect(pendingIds()).toEqual([{ id: 'pending-1' }]);
+        database.exec('DROP TRIGGER refuse_pending_delete');
+        await projector.recordTurnStart(checkpoint());
+        expect(messages()).toHaveLength(1);
+        expect(pendingIds()).toEqual([]);
+    });
+
+    it('user delivers a steer when its pending deletion fails then history and input metadata roll back together', async () => {
+        pending('pending-2');
+        const projector = createProjector();
+        await projector.recordTurnStart(checkpoint());
+        database.exec(`CREATE TEMP TRIGGER refuse_pending_delete BEFORE DELETE ON session_pending_messages
+            BEGIN SELECT RAISE(ABORT, 'fixture pending delete failure'); END;`);
+        const inserted = [
+            {
+                id: 'pending-2',
+                prompt: 'Steer this',
+                attachments: [],
+                inputSnapshot: {
+                    text: 'Steer this',
+                    attachments: [],
+                    skills: [{ name: 'skill', path: '/skill/SKILL.md' }],
+                    editorDoc: { type: 'doc', content: [] },
+                    excludeFromHistory: true,
+                },
+            },
+        ];
+        await expect(projector.persistInjectedUserMessages(inserted)).rejects.toThrow();
+        expect(messages()).toHaveLength(1);
+        expect(pendingIds()).toEqual([{ id: 'pending-2' }]);
+        expect(
+            JSON.parse(turn().prompt_snapshot_json as string).messageInputSnapshots
+        ).toBeUndefined();
+        database.exec('DROP TRIGGER refuse_pending_delete');
+        const sources = await projector.persistInjectedUserMessages(inserted);
+        expect(sources?.has('pending-2')).toBe(true);
+        expect(messages()).toHaveLength(2);
+        expect(pendingIds()).toEqual([]);
+        expect(
+            Object.values(JSON.parse(turn().prompt_snapshot_json as string).messageInputSnapshots)
+        ).toEqual([
+            {
+                skills: [{ name: 'skill', path: '/skill/SKILL.md' }],
+                editorDoc: { type: 'doc', content: [] },
+                excludeFromHistory: true,
+            },
+        ]);
+    });
+
+    it('user interrupts an answer when delivery fails then later output preserves the interrupted row', async () => {
+        const projector = createProjector();
+        await projector.recordTurnStart(checkpoint());
+        await progress(projector, 'Interrupted answer');
+        await projector.persistAssistantMessage([{ type: 'text', content: 'Interrupted answer' }]);
+        projector.closeOutputBoundary();
+        database.exec(`CREATE TEMP TRIGGER refuse_user BEFORE INSERT ON messages WHEN NEW.role = 'user'
+            BEGIN SELECT RAISE(ABORT, 'fixture insertion failure'); END;`);
+        await expect(
+            projector.persistInjectedUserMessages([
+                { id: 'pending', prompt: 'steer', attachments: [] },
+            ])
+        ).rejects.toThrow();
+        await projector.markFailed('storage failed', []);
+        expect(parts('text').map((part) => part.content)).toEqual(['hello', 'Interrupted answer']);
     });
 });

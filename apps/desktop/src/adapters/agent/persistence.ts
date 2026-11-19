@@ -21,6 +21,8 @@ type DesktopTaskPersistence = Pick<
     PersistenceProjector,
     | 'recordTurnStart'
     | 'persistOutputProgress'
+    | 'persistAssistantMessage'
+    | 'closeOutputBoundary'
     | 'persistToolCallMessage'
     | 'persistToolResult'
     | 'getContextMessageSource'
@@ -112,6 +114,8 @@ export function createCorePersistenceAdapter(
     const persistence = Object.freeze({
         recordTurnStart: source.recordTurnStart.bind(source),
         persistOutputProgress: source.persistOutputProgress.bind(source),
+        persistAssistantMessage: source.persistAssistantMessage.bind(source),
+        closeOutputBoundary: source.closeOutputBoundary.bind(source),
         persistToolCallMessage: source.persistToolCallMessage.bind(source),
         persistToolResult: source.persistToolResult.bind(source),
         getContextMessageSource: source.getContextMessageSource.bind(source),
@@ -232,6 +236,12 @@ export function createCorePersistenceAdapter(
             assertCurrent(scope);
             activeToolMessageId = messageId;
             return messages.messageReference(messageId);
+        },
+        async assistant(parts, scope) {
+            assertCurrent(scope);
+            const source = await persistence.persistAssistantMessage(parts);
+            persistence.closeOutputBoundary();
+            return messages.toCoreSource(source);
         },
         async toolResult(outcome, scope) {
             assertCurrent(scope);

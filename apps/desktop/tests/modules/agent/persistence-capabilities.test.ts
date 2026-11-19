@@ -3,17 +3,24 @@ import {
     openMigratedDatabase,
     routeQueriesTo,
 } from '@tests/database/sqliteHarness';
-import { afterEach, describe, expect, it } from 'vitest';
+import { deferred } from '@tests/utils/productAnalytics';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { createAgentMessageAdapter } from '@/adapters/agent/messages';
+import { createPendingMessageDelivery } from '@/app/workflows/agent/pending';
 import type { PersistenceCheckpoint } from '@/modules/agent';
 import { PersistenceProjector } from '@/modules/agent';
+import type { PendingUserMessage } from '@/modules/agent/contracts';
 import type { PersistenceProjectorHost } from '@/modules/agent/contracts/persistence';
 
 afterEach(closeTestDatabases);
 
-function fixture() {
+function fixture(
+    overrides: Partial<PersistenceProjectorHost> = {},
+    queries: Parameters<typeof routeQueriesTo>[1] = {}
+) {
     const database = openMigratedDatabase();
-    routeQueriesTo(database);
+    routeQueriesTo(database, queries);
     database.exec(`INSERT INTO providers (id, name, driver, api_endpoint, logo)
         VALUES (1, 'Fixture', 'openai', 'https://fixture.invalid', 'openai');
         INSERT INTO models (id, provider_id, name, model_id) VALUES (1, 1, 'Fixture', 'fixture-model');
@@ -49,6 +56,7 @@ function fixture() {
             parts: [{ data: '{"turnId":1,"costMicros":12}', durationMs: 100, ttftMs: 20 }],
         }),
         diagnostics: { error: () => {}, warn: () => {} },
+        ...overrides,
     };
     const projector = new PersistenceProjector({
         sessionId: 1,
@@ -179,4 +187,115 @@ describe('given agent persistence receives narrow attachment and consumption cap
             database.prepare('SELECT total_cost_micros FROM session_turn_attempts').get()
         ).toEqual({ total_cost_micros: 12 });
     });
+});
+
+describe('user changes pending delivery before its transaction starts', () => {
+    it.each([
+        ['clear', 'attachment preparation'],
+        ['cancel', 'attachment preparation'],
+        ['clear', 'transaction admission'],
+        ['cancel', 'transaction admission'],
+    ] as const)(
+        'user requests %s during %s then no pending input enters history or Core',
+        async (action, stage) => {
+            const entered = deferred<void>();
+            const release = deferred<void>();
+            let started = false;
+            const { database, projector, checkpoint } = fixture(
+                {
+                    async prepareAttachments() {
+                        if (!started || stage !== 'attachment preparation') return;
+                        entered.resolve();
+                        await release.promise;
+                    },
+                },
+                {
+                    async aroundInvoke(call, next) {
+                        if (
+                            started &&
+                            stage === 'transaction admission' &&
+                            call.cmd === 'database_tx_begin'
+                        ) {
+                            entered.resolve();
+                            await release.promise;
+                        }
+                        return next();
+                    },
+                }
+            );
+            await projector.recordTurnStart(checkpoint);
+            started = true;
+            const pending: PendingUserMessage = {
+                id: 'prepared-pending',
+                prompt: 'Still preparing',
+                delivery: 'priority',
+                createdAt: 1,
+                attachments: [
+                    {
+                        id: 'new-file',
+                        type: 'file',
+                        name: 'new.pdf',
+                        path: '/new.pdf',
+                        originPath: '/new.pdf',
+                        mimeType: 'application/pdf',
+                    },
+                ],
+            };
+            database
+                .prepare(
+                    `INSERT INTO session_pending_messages
+                (id, session_id, prompt, payload_version, payload_json, position)
+                VALUES (?, 1, ?, 1, '{"attachments":[]}', 0)`
+                )
+                .run(pending.id, pending.prompt);
+            let current = true;
+            const delivered = vi.fn();
+            const rejected = vi.fn();
+            const delivery = createPendingMessageDelivery({
+                projector,
+                adapter: createAgentMessageAdapter(),
+                capabilities: { supportsFiles: true, supportsImages: true },
+                diagnostics: { error: vi.fn() },
+                queue: {
+                    claimPriority: () => [pending],
+                    releasePriority: vi.fn(),
+                    isClaimCurrent: () => current,
+                    hasImmediate: () => true,
+                    flush: async () => {},
+                    delivered,
+                    rejected,
+                },
+            });
+            const controller = new AbortController();
+            const result = delivery.deliver({
+                taskId: 'fixture-task',
+                attemptToken: 'attempt',
+                attemptGeneration: 1,
+                iteration: 0,
+                signal: controller.signal,
+            });
+            await entered.promise;
+            const outcome = result.catch((error: unknown) => error);
+            if (action === 'cancel') controller.abort();
+            else {
+                current = false;
+                database
+                    .prepare('DELETE FROM session_pending_messages WHERE id = ?')
+                    .run(pending.id);
+            }
+            release.resolve();
+            if (action === 'cancel') expect(await outcome).toMatchObject({ name: 'AbortError' });
+            else expect(await outcome).toEqual({ messages: [] });
+            expect(delivered).not.toHaveBeenCalled();
+            expect(rejected).not.toHaveBeenCalled();
+            expect(
+                database
+                    .prepare('SELECT id FROM message_parts WHERE content = ?')
+                    .all(pending.prompt)
+            ).toEqual([]);
+            expect(database.prepare('SELECT id FROM session_pending_messages').all()).toEqual(
+                action === 'cancel' ? [{ id: pending.id }] : []
+            );
+        }
+    );
 });

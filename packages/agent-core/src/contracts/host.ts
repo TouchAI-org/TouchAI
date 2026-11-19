@@ -31,6 +31,7 @@ export interface AgentPersistence {
         currentUserOrigin?: MessageOrigin;
     }>;
     progress(parts: OutputPart[], target: ProgressTarget): Promise<void>;
+    assistant?(parts: OutputPart[], scope: AgentScope): Promise<MessageOrigin | undefined>;
     toolCalls(
         step: { parts: OutputPart[]; calls: AiToolCall[]; call: AgentCall },
         scope: AgentScope

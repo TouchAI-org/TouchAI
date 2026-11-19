@@ -48,9 +48,15 @@ export interface PromptAssembly {
     skills?: { name: string; path: string; hash: string; activatedBy: 'user_tag' | 'model_tool' }[];
 }
 
+export type PromptInputSnapshot = Pick<
+    InputHistorySnapshot,
+    'skills' | 'editorDoc' | 'excludeFromHistory'
+>;
+
 export interface PromptSnapshot extends PromptAssembly {
     id: string;
     createdAt: string;
     systemPrompt: string;
-    inputSnapshot?: Pick<InputHistorySnapshot, 'skills' | 'editorDoc' | 'excludeFromHistory'>;
+    inputSnapshot?: PromptInputSnapshot;
+    messageInputSnapshots?: Record<string, PromptInputSnapshot>;
 }

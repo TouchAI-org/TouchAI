@@ -10,7 +10,11 @@ import { createTaskStatusPublisher } from '@/app/workflows/agent/notifications';
 import { createMainTaskObservations } from '@/app/workflows/agent/observations';
 import { tt } from '@/i18n';
 import { createAgentSessions } from '@/modules/agent';
-import type { AgentSessionHost, StartSessionTaskOptions } from '@/modules/agent/contracts';
+import type {
+    AgentPendingDelivery,
+    AgentSessionHost,
+    StartSessionTaskOptions,
+} from '@/modules/agent/contracts';
 import type { AnalyticsSink } from '@/modules/analytics';
 import { createModelSelection } from '@/modules/models';
 import { EventTriggerRegistry, TaskScheduler } from '@/modules/scheduler';
@@ -25,7 +29,10 @@ import { assembleMainTools } from './tools';
 
 export interface MainAgentAssembly {
     host: AgentHost;
-    stage(options: StartSessionTaskOptions): AgentStartInput;
+    stage(
+        options: StartSessionTaskOptions,
+        pendingDelivery?: AgentPendingDelivery
+    ): AgentStartInput;
     releaseStaged(input: AgentStartInput): void;
     observe(event: AgentEvent): void;
     releaseTask(taskId: string): Promise<void>;
@@ -46,8 +53,8 @@ export function assembleAgentHost(input: MainAgentAssembly) {
     const sessions = createAgentSessions({
         ...input.sessions,
         execution: {
-            start(options) {
-                const staged = stage(options);
+            start(options, pendingDelivery) {
+                const staged = stage(options, pendingDelivery);
                 let task: ReturnType<typeof core.start>;
                 try {
                     task = core.start(staged);

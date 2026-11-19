@@ -321,6 +321,7 @@ export interface SessionMessage {
     isCancelled?: boolean;
     isError?: boolean;
     isRetrying?: boolean;
+    pendingDelivery?: 'queue' | 'priority';
 }
 
 export interface LoadedSessionInfo {

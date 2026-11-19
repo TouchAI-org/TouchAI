@@ -215,7 +215,41 @@ export function initializeAgentWindow(input: { capabilities?: StartupCapabilitie
     const api = Object.freeze<AgentApi>({
         startTask: (options) => start(options),
         startBackgroundTask: (options) => start(options, true),
-        cancelTask: (taskId) => owner?.sessions.cancelTask(taskId) ?? false,
+        cancelTask: (taskId, options) => owner?.sessions.cancelTask(taskId, options) ?? false,
+        enqueueTaskUserMessage: (...args) =>
+            owner?.sessions.enqueueTaskUserMessage(...args) ?? null,
+        enqueueSessionUserMessage: (...args) =>
+            owner?.sessions.enqueueSessionUserMessage(...args) ?? null,
+        updateTaskUserMessage: (...args) => owner?.sessions.updateTaskUserMessage(...args) ?? false,
+        updateSessionUserMessage: (...args) =>
+            owner?.sessions.updateSessionUserMessage(...args) ?? false,
+        setTaskUserMessageEditing: (...args) =>
+            owner?.sessions.setTaskUserMessageEditing(...args) ?? false,
+        setSessionUserMessageEditing: (...args) =>
+            owner?.sessions.setSessionUserMessageEditing(...args) ?? false,
+        clearUserMessageEditing: (...args) =>
+            owner?.sessions.clearUserMessageEditing(...args) ?? false,
+        removeTaskUserMessage: (...args) => owner?.sessions.removeTaskUserMessage(...args) ?? false,
+        removeSessionUserMessage: (...args) =>
+            owner?.sessions.removeSessionUserMessage(...args) ?? false,
+        promoteTaskUserMessage: (...args) =>
+            owner?.sessions.promoteTaskUserMessage(...args) ?? false,
+        promoteSessionUserMessage: (...args) =>
+            owner?.sessions.promoteSessionUserMessage(...args) ?? false,
+        reorderTaskQueuedMessages: (...args) =>
+            owner?.sessions.reorderTaskQueuedMessages(...args) ?? false,
+        reorderSessionQueuedMessages: (...args) =>
+            owner?.sessions.reorderSessionQueuedMessages(...args) ?? false,
+        clearTaskUserMessages: (...args) => owner?.sessions.clearTaskUserMessages(...args) ?? false,
+        clearSessionUserMessages: (...args) =>
+            owner?.sessions.clearSessionUserMessages(...args) ?? false,
+        updateTaskUserMessageModel: (...args) =>
+            owner?.sessions.updateTaskUserMessageModel(...args) ?? false,
+        async restoreSessionQueue(sessionId) {
+            await ready;
+            return requireOwner().sessions.restoreSessionQueue(sessionId);
+        },
+        resumeSessionQueue: (sessionId) => owner?.sessions.resumeSessionQueue(sessionId),
         approveTaskToolCall: (taskId, callId, decisionId) =>
             owner?.sessions.approveTaskToolCall(taskId, callId, decisionId) ?? false,
         rejectTaskToolCall: (taskId, callId, decisionId) =>

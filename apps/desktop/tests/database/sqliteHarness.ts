@@ -42,7 +42,7 @@ export function openMigratedDatabase(): SqliteDatabase {
 export function routeQueriesTo(
     database: SqliteDatabase,
     options: {
-        beforeCommit?: () => void;
+        beforeCommit?: () => void | Promise<void>;
         beforeQuery?: (request: {
             sql: string;
             params: SQLInputValue[];
@@ -64,7 +64,7 @@ export function routeQueriesTo(
             throw new Error('fixture transaction handle is stale');
         return activeTransaction;
     };
-    const route = (call: TauriInvokeCall, next: () => Promise<unknown>) => {
+    const route = async (call: TauriInvokeCall, next: () => Promise<unknown>) => {
         if (call.cmd === 'database_tx_begin') {
             // Native BEGIN IMMEDIATE waits for the previous writer; a single fixture connection must do the same.
             const previous = transactionTail;
@@ -92,7 +92,7 @@ export function routeQueriesTo(
         }
         if (call.cmd === 'database_tx_commit') {
             const transaction = assertTransaction(call.payload);
-            options.beforeCommit?.();
+            await options.beforeCommit?.();
             database.exec('COMMIT');
             activeTransaction = undefined;
             transaction.release();

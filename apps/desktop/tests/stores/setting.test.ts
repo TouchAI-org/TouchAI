@@ -20,6 +20,36 @@ afterEach(async () => {
 });
 
 describe('given ordinary preferences have public normalization and projection contracts', () => {
+    it.each([
+        [null, 880],
+        ['', 880],
+        ['broken', 880],
+        ['Infinity', 880],
+        ['602', 640],
+        ['1198', 1200],
+        ['2800', 2400],
+    ] as const)(
+        'user loads a saved width of %s and gets a reading limit of %i pixels',
+        (raw, width) => {
+            const settings = createDefaultGeneralSettings();
+            applyPersistedGeneralSettingValue(settings, 'conversation_content_width', raw);
+            expect(settings.conversationContentWidth).toBe(width);
+            expect(cloneGeneralSettingsSnapshot(settings).conversationContentWidth).toBe(width);
+        }
+    );
+
+    it('user changes the reading width and another window receives the normalized saved preference', async () => {
+        fixture = await createSettingsPanelFixture({
+            values: { language: 'en-US', conversation_content_width: '1600' },
+        });
+        expect(fixture.preferences.conversationContentWidth).toBe(1600);
+        await fixture.preferences.updateConversationContentWidth(1198);
+        expect(fixture.saved('conversation_content_width')).toBe('1200');
+        expect(fixture.client.settings.getSnapshot().conversationContentWidth).toBe(1200);
+        expect(fixture.window.settings.getSnapshot().conversationContentWidth).toBe(1200);
+        expect(fixture.preferences.conversationContentWidth).toBe(1200);
+    });
+
     it('user opens preferences without receiving browser or search business configuration', () => {
         const settings = createDefaultGeneralSettings();
         expect(settings).not.toHaveProperty('browserSettings');

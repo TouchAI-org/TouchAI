@@ -12,6 +12,11 @@ export {
     readSessionHistoryData,
 } from './history/session.io';
 export { createHistoryMaintenance } from './maintenance.io';
+export { PendingMessagePersistence } from './pendingMessagePersistence.io';
 export type { PersistenceProjectorOptions } from './persistence/projector.io';
 export { PersistenceProjector } from './persistence/projector.io';
-export { serializePromptSnapshot, summarizePromptSnapshot } from './prompt/serialization';
+export {
+    createPromptInputSnapshot,
+    serializePromptSnapshot,
+    summarizePromptSnapshot,
+} from './prompt/serialization';

@@ -44,6 +44,7 @@ function createSnapshot(overrides: Partial<TaskViewSnapshot> = {}): TaskViewSnap
         status: 'running',
         executionMode: 'background',
         sessionHistory: [],
+        pendingUserMessages: [],
         pendingToolApproval: null,
         pendingApprovals: [],
         pendingUserQuestion: null,
@@ -96,6 +97,25 @@ describe('given task snapshots change inside one rendering tick', () => {
 });
 
 describe('given consecutive published views share unchanged messages', () => {
+    it('user keeps a queued message unchanged while the answer streams then published queue references stay stable', () => {
+        const snapshot = createSnapshot({
+            sessionHistory: [createMessage('assistant-1', 'first')],
+            pendingUserMessages: [
+                {
+                    id: 'queue-1',
+                    prompt: 'queued while streaming',
+                    attachments: [],
+                    delivery: 'queue',
+                    createdAt: 2,
+                },
+            ],
+        });
+        const first = cloneTaskViewSnapshot(snapshot);
+        snapshot.sessionHistory[0]!.content = 'first and another wrapped line';
+        const second = cloneTaskViewSnapshot(snapshot, first);
+        expect(second.pendingUserMessages).toBe(first.pendingUserMessages);
+        expect(second.pendingUserMessages[0]).toBe(first.pendingUserMessages[0]);
+    });
     it('user retains unchanged messages and isolated snapshots when another message changes', () => {
         const unchanged = createMessage('m1', 'first');
         const changed = createMessage('m2', 'before');

@@ -30,6 +30,7 @@ export interface ModelStep {
     parts: OutputPart[];
     calls: AiToolCall[];
     call: AgentCall;
+    steered: boolean;
 }
 
 function mergeOptions(
@@ -167,8 +168,13 @@ export async function consumeStep(
         cursor.messages = snapshotMessages(prepared.messages);
         contextCommitted();
     }
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    if (scope.signal.aborted) abort();
+    else scope.signal.addEventListener('abort', abort, { once: true });
     const modelRequest = {
         ...request,
+        signal: controller.signal,
         messages: prepared.messages.map(project),
         maxOutputTokens: prepared.maxOutputTokens,
     };
@@ -222,10 +228,12 @@ export async function consumeStep(
     };
     let error: unknown;
     let failed = false;
+    let steered = false;
+    let sawToolActivity = false;
     try {
         for await (const chunk of consumeStream(
             binding.stream(transportRequest(modelRequest), scope),
-            scope.signal
+            controller.signal
         )) {
             throwIfCancelled(scope.signal);
             if (chunk.textState === 'start') {
@@ -263,6 +271,7 @@ export async function consumeStep(
                 mark(chunk.content.length, true);
             }
             if (chunk.toolCallDeltas?.length || chunk.toolCalls?.length) {
+                sawToolActivity = true;
                 cursor.hasToolActivity = true;
                 endReasoning();
                 endText();
@@ -284,12 +293,19 @@ export async function consumeStep(
                 chunk,
             });
             if (chunk.done) break;
+            if (!sawToolActivity && binding.pendingMessages?.hasImmediate()) {
+                steered = true;
+                finishReason = 'steered';
+                break;
+            }
         }
     } catch (cause) {
         failed = true;
         error = cause;
         finishReason = scope.signal.aborted ? 'aborted' : 'error';
     } finally {
+        controller.abort();
+        scope.signal.removeEventListener('abort', abort);
         endReasoning();
         endText();
         writer.close();
@@ -321,6 +337,7 @@ export async function consumeStep(
         call,
         parts: snapshotParts(cursor.currentParts),
         calls: call.toolCallsInStep ? toolCalls : [],
+        steered,
     };
 }
 

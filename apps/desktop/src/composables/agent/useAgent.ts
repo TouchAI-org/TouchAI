@@ -6,10 +6,14 @@ import type {
     AskUserAnswer,
     AttachmentReference as Index,
     InputHistorySnapshot,
+    PendingUserMessage,
+    PendingUserMessageDelivery,
+    PendingUserMessageInput,
     SessionInformation as LoadedSessionInfo,
 } from '@/app/api/agent';
 import { useAgentApi } from '@/app/api/agent';
 import { AiError, AiErrorCode } from '@/app/api/agent/errors';
+import { AppEvent, eventService } from '@/app/api/agent/events';
 import { log } from '@/app/api/diagnostics';
 import { notify } from '@/app/api/windows/notifications';
 import { t } from '@/i18n';
@@ -50,6 +54,7 @@ export function useAgent(options: UseAiRequestOptions = {}) {
         currentSessionId,
         sessionHistory,
         attachedTaskId,
+        pendingUserMessages,
         pendingToolApproval,
         pendingApprovalQueue,
         pendingUserQuestion,
@@ -132,10 +137,18 @@ export function useAgent(options: UseAiRequestOptions = {}) {
      * 长会话的渲染开销由布界挂载（窗口化）控制，不会随消息数线性增长 DOM。
      */
     async function loadPersistedSession(sessionId: number): Promise<LoadedSessionInfo> {
-        const loaded = await agent.loadSession(sessionId);
-        sessionHistory.value = loaded.history;
-        currentSessionId.value = loaded.sessionId;
-        resetTransientState();
+        const observationId = requestId;
+        const [loaded, restoredPendingMessages] = await Promise.all([
+            agent.loadSession(sessionId),
+            agent.restoreSessionQueue(sessionId),
+        ]);
+        if (observationId === requestId) {
+            sessionHistory.value = loaded.history;
+            currentSessionId.value = loaded.sessionId;
+            pendingUserMessages.value = restoredPendingMessages;
+            resetTransientState();
+            agent.resumeSessionQueue(sessionId);
+        }
 
         return {
             sessionId: loaded.sessionId,
@@ -333,7 +346,148 @@ export function useAgent(options: UseAiRequestOptions = {}) {
         return agent.settleTaskUserQuestion(attachedTaskId.value, callId, answers, decisionId);
     }
 
+    function enqueueUserMessage(
+        input: PendingUserMessageInput,
+        delivery: PendingUserMessageDelivery
+    ): PendingUserMessage | null {
+        if (attachedTaskId.value) {
+            const message = agent.enqueueTaskUserMessage(attachedTaskId.value, input, delivery);
+            if (message) {
+                return message;
+            }
+        }
+
+        // 上一轮结束到下一条排队任务挂载之间，页面还没有 attachedTaskId，
+        // 但会话已经有待发队列。这里写回会话队列，避免这条消息被当成新请求。
+        if (currentSessionId.value === null) {
+            return null;
+        }
+        return agent.enqueueSessionUserMessage(currentSessionId.value, input, delivery);
+    }
+
+    function removePendingUserMessage(messageId: string): boolean {
+        if (attachedTaskId.value && agent.removeTaskUserMessage(attachedTaskId.value, messageId)) {
+            return true;
+        }
+        return currentSessionId.value === null
+            ? false
+            : agent.removeSessionUserMessage(currentSessionId.value, messageId);
+    }
+
+    function updatePendingUserMessage(messageId: string, input: PendingUserMessageInput): boolean {
+        if (
+            attachedTaskId.value &&
+            agent.updateTaskUserMessage(attachedTaskId.value, messageId, input)
+        ) {
+            return true;
+        }
+        // A run can finish while the user is editing a queued message. The
+        // message may already belong to the session hand-over queue even
+        // though the page still holds the previous task id.
+        return currentSessionId.value !== null
+            ? agent.updateSessionUserMessage(currentSessionId.value, messageId, input)
+            : false;
+    }
+
+    function setPendingUserMessageEditing(messageId: string, editing: boolean): boolean {
+        if (
+            attachedTaskId.value &&
+            agent.setTaskUserMessageEditing(attachedTaskId.value, messageId, editing)
+        ) {
+            return true;
+        }
+        return currentSessionId.value === null
+            ? false
+            : agent.setSessionUserMessageEditing(currentSessionId.value, messageId, editing);
+    }
+
+    function beginPendingMessageEdit(messageId: string): boolean {
+        return setPendingUserMessageEditing(messageId, true);
+    }
+
+    function endPendingMessageEdit(messageId: string): boolean {
+        if (setPendingUserMessageEditing(messageId, false)) {
+            return true;
+        }
+        // The page may have switched sessions while the composer still held an
+        // edit. Clear the flag at its owning task or hand-over queue instead of
+        // leaving that message permanently excluded from delivery.
+        return agent.clearUserMessageEditing(messageId);
+    }
+
+    function promotePendingUserMessage(messageId: string): boolean {
+        if (attachedTaskId.value && agent.promoteTaskUserMessage(attachedTaskId.value, messageId)) {
+            return true;
+        }
+        return currentSessionId.value === null
+            ? false
+            : agent.promoteSessionUserMessage(currentSessionId.value, messageId);
+    }
+
+    function reorderPendingUserMessages(orderedQueueIds: string[]): boolean {
+        if (
+            attachedTaskId.value &&
+            agent.reorderTaskQueuedMessages(attachedTaskId.value, orderedQueueIds)
+        ) {
+            return true;
+        }
+        return currentSessionId.value === null
+            ? false
+            : agent.reorderSessionQueuedMessages(currentSessionId.value, orderedQueueIds);
+    }
+
+    function clearPendingUserMessages(): boolean {
+        if (attachedTaskId.value && agent.clearTaskUserMessages(attachedTaskId.value)) {
+            return true;
+        }
+        return currentSessionId.value === null
+            ? false
+            : agent.clearSessionUserMessages(currentSessionId.value);
+    }
+
+    function updatePendingUserMessagesModel(
+        modelId: string | null,
+        providerId: number | null
+    ): boolean {
+        if (!attachedTaskId.value) {
+            return false;
+        }
+        return agent.updateTaskUserMessageModel(attachedTaskId.value, modelId, providerId);
+    }
+
+    let stopSessionTaskListener: (() => void) | null = null;
+    let sessionTaskListenerDisposed = false;
+    void eventService
+        .on(AppEvent.SESSION_TASK_STATUS_CHANGED, (event) => {
+            if (
+                event.sessionId === null ||
+                event.sessionId !== currentSessionId.value ||
+                (event.status !== 'running' && event.status !== 'waiting_approval') ||
+                attachedTaskId.value === event.taskId
+            ) {
+                return;
+            }
+
+            const activeTask = agent.attachSessionView(event.sessionId);
+            if (activeTask?.taskId === event.taskId) {
+                attachTaskView(activeTask.taskId, activeTask.snapshot);
+            }
+        })
+        .then((unlisten) => {
+            if (sessionTaskListenerDisposed) {
+                unlisten();
+                return;
+            }
+            stopSessionTaskListener = unlisten;
+        })
+        .catch((error) => {
+            log.error('[useAgent] Failed to follow a queued session task:', error);
+        });
+
     onUnmounted(() => {
+        sessionTaskListenerDisposed = true;
+        stopSessionTaskListener?.();
+        stopSessionTaskListener = null;
         invalidateRequestObservation();
         detachTaskView();
     });
@@ -351,6 +505,7 @@ export function useAgent(options: UseAiRequestOptions = {}) {
         openSession,
         currentSessionId,
         sessionHistory,
+        pendingUserMessages,
         clearSession,
         pendingToolApproval,
         pendingApprovalQueue,
@@ -358,5 +513,14 @@ export function useAgent(options: UseAiRequestOptions = {}) {
         approvePendingToolApproval,
         rejectPendingToolApproval,
         settleUserQuestion,
+        enqueueUserMessage,
+        promotePendingUserMessage,
+        removePendingUserMessage,
+        updatePendingUserMessage,
+        beginPendingMessageEdit,
+        endPendingMessageEdit,
+        reorderPendingUserMessages,
+        clearPendingUserMessages,
+        updatePendingUserMessagesModel,
     };
 }

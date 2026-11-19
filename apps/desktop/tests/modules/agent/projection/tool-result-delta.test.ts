@@ -13,6 +13,7 @@ function createSnapshot(): TaskViewSnapshot {
         status: 'running',
         executionMode: 'foreground',
         sessionHistory: [],
+        pendingUserMessages: [],
         pendingToolApproval: null,
         pendingApprovals: [],
         pendingUserQuestion: null,

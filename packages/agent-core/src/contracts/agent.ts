@@ -101,6 +101,13 @@ export interface AgentPreparedTurn {
     release(): Promise<void> | void;
     recovery?: AgentCheckpoint;
     promptFragments?: PromptFragment[];
+    pendingMessages?: {
+        hasImmediate(): boolean;
+        deliver(scope: AgentScope): Promise<{
+            messages: AgentMessage[];
+            privateContents?: Array<{ index: number; content: AiMessage['content'] }>;
+        }>;
+    };
 }
 
 export type PromptSource =

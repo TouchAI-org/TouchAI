@@ -19,6 +19,7 @@ import { createCoreToolsAdapter } from '@/adapters/agent/tools';
 import type { PersistenceProjector } from '@/modules/agent';
 import { createSessionReadModel, summarizePromptSnapshot } from '@/modules/agent';
 import type {
+    AgentPendingDelivery,
     AgentPresentationChunk,
     AgentSessionHost,
     AttachmentReference,
@@ -38,6 +39,11 @@ import { collapseWhitespace, truncateText } from '@/utils/text';
 
 import { findUnsupportedSessionAttachmentTypes } from './historyTransport';
 import type { TaskModelLease } from './modelBindings';
+import {
+    createPendingMessageDelivery,
+    createPendingMessagePersistence,
+    reportQueuedMessageStartFailure,
+} from './pending';
 import { createTaskPersistence } from './persistence';
 import { composePromptSnapshot } from './prompt';
 import { buildPromptTransportMessages } from './transport';
@@ -93,6 +99,8 @@ export interface MainAgentWorkflowOptions {
 }
 
 interface TaskResources {
+    pendingMessageId?: string;
+    pendingDelivery?: AgentPendingDelivery;
     signal: AbortSignal;
     modelKey: string;
     messages: AgentMessageAdapter;
@@ -113,6 +121,7 @@ export function createMainAgentWorkflow(input: MainAgentWorkflowOptions) {
     const createObservations = input.createObservations.bind(input);
     const releaseActivity = input.releaseActivity.bind(input);
     const sessions = Object.freeze({
+        pendingMessages: input.sessions.pendingMessages ?? createPendingMessagePersistence(),
         beforeStart: input.sessions.beforeStart.bind(input.sessions),
         loadHistory: input.sessions.loadHistory.bind(input.sessions),
         messages: Object.freeze({
@@ -140,7 +149,10 @@ export function createMainAgentWorkflow(input: MainAgentWorkflowOptions) {
         disposeTask: input.models.disposeTask.bind(input.models),
     });
     const disposeModels = input.disposeModels.bind(input);
-    const staged = new Map<string, StartSessionTaskOptions>();
+    const staged = new Map<
+        string,
+        { options: StartSessionTaskOptions; pendingDelivery?: AgentPendingDelivery }
+    >();
     const resources = new Map<string, TaskResources>();
     const outputs = new Map<string, MainTaskObservations>();
     const presentation = new Map<string, Set<PresentationListener>>();
@@ -226,11 +238,16 @@ export function createMainAgentWorkflow(input: MainAgentWorkflowOptions) {
             let record = resources.get(scope.taskId);
             let reference: ToolModelReference | undefined;
             let options: StartSessionTaskOptions | undefined;
+            let pendingDelivery: AgentPendingDelivery | undefined;
             if (scope.previousModelKey !== undefined) {
                 if (!record || record.signal !== scope.signal || !request.modelKey)
                     throw new Error('MODEL_BINDING_NOT_FOUND');
             } else {
-                options = request.requestKey ? staged.get(request.requestKey) : undefined;
+                const stagedRequest = request.requestKey
+                    ? staged.get(request.requestKey)
+                    : undefined;
+                options = stagedRequest?.options;
+                pendingDelivery = stagedRequest?.pendingDelivery;
                 if (!options || record) throw new Error('AGENT_REQUEST_NOT_FOUND');
                 staged.delete(request.requestKey!);
                 outputs.set(
@@ -331,6 +348,7 @@ export function createMainAgentWorkflow(input: MainAgentWorkflowOptions) {
                         const executed = new Set<string>();
                         const projector = createTaskPersistence({
                             prompt: options.prompt,
+                            pendingMessageId: options.pendingMessageId,
                             attachments,
                             model: {
                                 id: configured.summary.modelDbId,
@@ -360,6 +378,8 @@ export function createMainAgentWorkflow(input: MainAgentWorkflowOptions) {
                                 createToolAudit({ taskId: scope.taskId, isCurrent }),
                         });
                         record = {
+                            pendingMessageId: options.pendingMessageId,
+                            pendingDelivery,
                             signal: scope.signal,
                             modelKey,
                             projector,
@@ -395,6 +415,14 @@ export function createMainAgentWorkflow(input: MainAgentWorkflowOptions) {
             const source = record.persistence;
             return {
                 ...source,
+                async start(checkpoint, scope) {
+                    try {
+                        return await source.start(checkpoint, scope);
+                    } catch (error) {
+                        if (record.pendingMessageId) reportQueuedMessageStartFailure();
+                        throw error;
+                    }
+                },
                 async retry(retry, scope) {
                     let saved = false;
                     try {
@@ -486,6 +514,15 @@ export function createMainAgentWorkflow(input: MainAgentWorkflowOptions) {
             tools,
             messages: [],
             promptFragments: record.fragments,
+            pendingMessages: record.pendingDelivery
+                ? createPendingMessageDelivery({
+                      queue: record.pendingDelivery,
+                      projector: record.projector,
+                      adapter: record.messages,
+                      capabilities: configured.capabilities,
+                      diagnostics,
+                  })
+                : undefined,
             release: lease.release,
             async *stream(request: AiRequestOptions, scope: AgentScope) {
                 scope.signal.throwIfAborted();
@@ -550,15 +587,23 @@ export function createMainAgentWorkflow(input: MainAgentWorkflowOptions) {
 
     return Object.freeze({
         host,
-        stage(options: StartSessionTaskOptions): AgentStartInput {
+        stage(
+            options: StartSessionTaskOptions,
+            pendingDelivery?: AgentPendingDelivery
+        ): AgentStartInput {
             if (disposed) throw new Error('AGENT_DISPOSED');
             const requestKey = crypto.randomUUID();
             staged.set(requestKey, {
-                ...options,
-                attachments: options.attachments ? structuredClone(options.attachments) : undefined,
-                inputSnapshot: options.inputSnapshot
-                    ? structuredClone(options.inputSnapshot)
-                    : undefined,
+                pendingDelivery,
+                options: {
+                    ...options,
+                    attachments: options.attachments
+                        ? structuredClone(options.attachments)
+                        : undefined,
+                    inputSnapshot: options.inputSnapshot
+                        ? structuredClone(options.inputSnapshot)
+                        : undefined,
+                },
             });
             return {
                 prompt: options.prompt,

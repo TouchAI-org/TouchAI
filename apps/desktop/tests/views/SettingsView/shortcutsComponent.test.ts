@@ -233,6 +233,29 @@ describe('user configures keyboard shortcuts', () => {
             ).value
         ).toBe('Esc');
         expect(
+            (
+                wrapper.get('[data-testid="settings-search-shortcut-input-search.submit.queue"]')
+                    .element as HTMLInputElement
+            ).value
+        ).toBe('Enter');
+        expect(
+            (
+                wrapper.get('[data-testid="settings-search-shortcut-input-search.submit.priority"]')
+                    .element as HTMLInputElement
+            ).value
+        ).toBe('Ctrl+Enter');
+        expect(
+            wrapper
+                .get('[data-testid="settings-search-shortcut-input-search.submit.queue"]')
+                .attributes('title')
+        ).toBe('在“通用”中修改');
+        expect(
+            wrapper
+                .get('[data-testid="settings-search-shortcut-input-search.submit.priority"]')
+                .attributes('title')
+        ).toBe('在“通用”中修改');
+        expect(wrapper.find('[data-testid="settings-submit-intent-trigger"]').exists()).toBe(false);
+        expect(
             wrapper
                 .get('[data-testid="settings-search-shortcut-input-search.history.open"]')
                 .classes()
@@ -695,7 +718,7 @@ describe('user configures keyboard shortcuts', () => {
 
         await flushPromises();
 
-        const input = wrapper.get('[data-testid="settings-search-shortcut-input-search.submit"]');
+        const input = wrapper.get('[data-testid="settings-search-shortcut-input-search.newLine"]');
         expect(input.attributes('title')).toBe('暂不支持修改该快捷键');
         expect(input.attributes('tabindex')).toBe('-1');
 
@@ -705,7 +728,63 @@ describe('user configures keyboard shortcuts', () => {
         await flushPromises();
 
         expect(settingsStoreMock.updateSearchKeybindings).not.toHaveBeenCalled();
-        expect((input.element as HTMLInputElement).value).toBe('Enter');
+        expect((input.element as HTMLInputElement).value).toBe('Shift+Enter');
+    });
+
+    it('user sees submit shortcut rows follow the pair chosen in General', async () => {
+        settingsStoreMock.settings.value.searchKeybindings['search.submit.queue'] = 'Mod+Enter';
+        settingsStoreMock.settings.value.searchKeybindings['search.submit.priority'] = 'Enter';
+        const wrapper = mount(GeneralSection);
+
+        await flushPromises();
+
+        expect(
+            (
+                wrapper.get('[data-testid="settings-search-shortcut-input-search.submit.queue"]')
+                    .element as HTMLInputElement
+            ).value
+        ).toBe('Ctrl+Enter');
+        expect(
+            (
+                wrapper.get('[data-testid="settings-search-shortcut-input-search.submit.priority"]')
+                    .element as HTMLInputElement
+            ).value
+        ).toBe('Enter');
+    });
+
+    it('user cannot edit the submit shortcuts from the shortcuts page', async () => {
+        settingsStoreMock.settings.value.searchKeybindings['search.submit.queue'] = null;
+        const wrapper = mount(GeneralSection);
+
+        await flushPromises();
+
+        const queueInput = wrapper.get(
+            '[data-testid="settings-search-shortcut-input-search.submit.queue"]'
+        );
+        const priorityInput = wrapper.get(
+            '[data-testid="settings-search-shortcut-input-search.submit.priority"]'
+        );
+        expect(queueInput.attributes('title')).toBe('在“通用”中修改');
+        expect(priorityInput.attributes('title')).toBe('在“通用”中修改');
+        expect(queueInput.attributes('tabindex')).toBe('-1');
+        expect(priorityInput.attributes('tabindex')).toBe('-1');
+        expect(
+            wrapper
+                .find('[data-testid="settings-search-shortcut-action-search.submit.queue"]')
+                .exists()
+        ).toBe(false);
+        expect(
+            wrapper
+                .find('[data-testid="settings-search-shortcut-action-search.submit.priority"]')
+                .exists()
+        ).toBe(false);
+
+        await queueInput.trigger('focus');
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F2', code: 'F2' }));
+        await flushPromises();
+
+        expect(settingsStoreMock.updateSearchKeybindings).not.toHaveBeenCalled();
+        expect(alertMessageMock.error).not.toHaveBeenCalled();
     });
 
     it('user uses an inline x icon to clear a default search shortcut', async () => {
@@ -826,6 +905,25 @@ describe('user configures keyboard shortcuts', () => {
         expect(wrapper.find('[data-testid="settings-shortcut-cancel-button"]').exists()).toBe(
             false
         );
+    });
+
+    it('user gets mouse focus and blur to start and stop search shortcut capture', async () => {
+        const wrapper = mount(GeneralSection, { attachTo: document.body });
+
+        await flushPromises();
+
+        const input = wrapper.get(
+            '[data-testid="settings-search-shortcut-input-search.history.open"]'
+        );
+        await input.trigger('mousedown');
+        await flushPromises();
+
+        expect((input.element as HTMLInputElement).value).toBe('请按下快捷键...');
+
+        await input.trigger('blur');
+        await flushPromises();
+
+        expect((input.element as HTMLInputElement).value).toBe('Ctrl+H');
     });
 });
 

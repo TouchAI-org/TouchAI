@@ -341,11 +341,13 @@ describe('given the main window already contains a conversation', () => {
         await flushPromises();
         const bridge = (
             window as Window & {
-                __TOUCHAI_E2E__?: { setConversation: (messages: SessionMessage[]) => void };
+                __TOUCHAI_E2E__?: {
+                    setConversation: (messages: SessionMessage[]) => Promise<void>;
+                };
             }
         ).__TOUCHAI_E2E__;
         expect(bridge).toBeDefined();
-        bridge!.setConversation([
+        await bridge!.setConversation([
             {
                 id: 'existing-message',
                 role: 'user',
@@ -354,6 +356,7 @@ describe('given the main window already contains a conversation', () => {
                 timestamp: 1,
             },
         ]);
+        expect(document.querySelector('[data-testid="conversation-panel-host"]')).not.toBeNull();
         await flushPromises();
         const initialIndexRequests = getTauriInvokeCalls('quick_search_prepare_index').length;
         const input = wrapper.getComponent(SearchBar);

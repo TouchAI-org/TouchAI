@@ -18,6 +18,17 @@ const FILES = Array.from({ length: 36 }, (_, index) => ({
     path: `C:/TouchAI/file-reference-fixture/Document-${index + 1}.md`,
     source: 'file',
 }));
+const PRIOR_MESSAGES = Array.from({ length: 10 }, (_, index) => {
+    const role = index % 2 === 0 ? 'user' : 'assistant';
+    const content = `${role === 'user' ? 'Question' : 'Answer'} ${index + 1}: ${'Existing conversation detail. '.repeat(4)}`;
+    return {
+        id: `prior-${index + 1}`,
+        role,
+        content,
+        parts: [{ id: `prior-${index + 1}-part`, type: 'text', content }],
+        timestamp: index + 1,
+    };
+});
 
 async function typeReferenceQuery(count = FILES.length) {
     const editor = await $('.ProseMirror');
@@ -236,15 +247,9 @@ describe('given @ file references use the existing result panel', () => {
     });
 
     it('user given a conversation when typing @ then sees compact results floating above the editor without moving the conversation', async () => {
-        await callE2eBridge('setConversation', [
-            {
-                id: 'prior',
-                role: 'user',
-                content: 'Existing conversation\n\n'.repeat(30),
-                parts: [],
-                timestamp: 1,
-            },
-        ]);
+        // User bubbles clamp to six lines, so one long message cannot make the
+        // conversation tall enough to verify that the picker leaves it in place.
+        await callE2eBridge('setConversation', PRIOR_MESSAGES);
         await browser.waitUntil(() =>
             browser.execute(() => {
                 const card = document.querySelector('[data-testid="search-view-card"]');

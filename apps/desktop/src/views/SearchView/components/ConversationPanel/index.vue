@@ -3,8 +3,11 @@
   -->
 
 <template>
-    <div
-        class="relative h-full min-h-0 w-full"
+    <ConversationReadingColumn
+        :width="conversationContentWidth"
+        :controls="scrollerId"
+        @commit="saveContentWidth"
+        @scroll-by="scrollByDelta"
         @wheel.capture.passive="cancelNavigation"
         @touchstart.capture.passive="cancelNavigation"
         @pointerdown.capture="cancelNavigation"
@@ -39,6 +42,7 @@
         </span>
 
         <MessageScroller
+            :id="scrollerId"
             ref="conversationScroller"
             :items="messageRailItems"
             :follow-output="outputScrollBehavior === 'follow_output'"
@@ -50,8 +54,8 @@
             :navigation-label="t('conversation.scroller.navigation')"
             :empty-label="t('conversation.scroller.message')"
             class="h-full"
-            viewport-class="bg-background-primary px-10 pt-22 pb-5"
-            content-class="flow-root min-h-0"
+            viewport-class="reading-viewport bg-background-primary pt-22 pb-5"
+            content-class="mx-auto flow-root min-h-0 w-full max-w-(--column-width)"
             :item-scroll-target="scrollToMessageById"
             :item-ranges="railItemRange"
             :rail-inset-top="80"
@@ -66,14 +70,22 @@
                 :data-message-role="message.role"
                 :data-message-scroller-item="message.id"
             >
-                <MessageItem :message="message" @regenerate="handleRegenerateMessage" />
+                <MessageItem
+                    :message="message"
+                    :editing="message.id === editingPendingMessageId"
+                    :actions-disabled="
+                        Boolean(editingPendingMessageId) && message.id !== editingPendingMessageId
+                    "
+                    @regenerate="handleRegenerateMessage"
+                    @pending-action="handlePendingAction"
+                />
             </div>
             <!-- virtua binds scrollRef on mount; wait for the actual scrolling viewport. -->
             <Virtualizer
                 v-if="virtualizeMessages && scrollViewport"
-                :key="messages[0]?.id"
+                :key="conversationMessages[0]?.id"
                 ref="messageVirtualizer"
-                :data="messages"
+                :data="conversationMessages"
                 :scroll-ref="scrollViewport"
                 :buffer-size="Math.max(200, viewportHeight)"
                 :keep-mounted="navigationMountedIndexes"
@@ -85,10 +97,60 @@
                         :data-message-role="item.role"
                         :data-message-scroller-item="item.id"
                     >
-                        <MessageItem :message="item" @regenerate="handleRegenerateMessage" />
+                        <MessageItem
+                            :message="item"
+                            :editing="item.id === editingPendingMessageId"
+                            :actions-disabled="
+                                Boolean(editingPendingMessageId) &&
+                                item.id !== editingPendingMessageId
+                            "
+                            @regenerate="handleRegenerateMessage"
+                            @pending-action="handlePendingAction"
+                        />
                     </div>
                 </template>
             </Virtualizer>
+            <VueDraggable
+                v-if="queuedDisplayMessages.length > 0"
+                v-model="queuedDisplayMessages"
+                data-testid="pending-queue-list"
+                tag="div"
+                draggable="[data-queue-message]"
+                handle="[data-queue-drag-handle]"
+                filter="button, a, img"
+                :animation="160"
+                :disabled="queuedDisplayMessages.length < 2 || Boolean(editingPendingMessageId)"
+                :force-fallback="true"
+                :fallback-on-body="true"
+                :fallback-tolerance="4"
+                ghost-class="invisible"
+                @start="cancelNavigation"
+            >
+                <div
+                    v-for="message in queuedDisplayMessages"
+                    :key="message.id"
+                    :data-queue-message="message.id"
+                    :data-message-id="message.id"
+                    :data-message-role="message.role"
+                    :data-message-scroller-item="message.id"
+                    :class="
+                        queuedDisplayMessages.length > 1
+                            ? 'queue-message-item--sortable'
+                            : undefined
+                    "
+                >
+                    <MessageItem
+                        :message="message"
+                        :editing="message.id === editingPendingMessageId"
+                        :actions-disabled="
+                            Boolean(editingPendingMessageId) &&
+                            message.id !== editingPendingMessageId
+                        "
+                        @regenerate="handleRegenerateMessage"
+                        @pending-action="handlePendingAction"
+                    />
+                </div>
+            </VueDraggable>
         </MessageScroller>
 
         <Transition name="t-fade">
@@ -106,7 +168,7 @@
                 </button>
             </div>
         </Transition>
-    </div>
+    </ConversationReadingColumn>
 </template>
 
 <script setup lang="ts">
@@ -114,9 +176,22 @@
     import { MARKDOWN_SCROLL_ROOT_KEY } from '@components/markdownScrollRoot';
     import { storeToRefs } from 'pinia';
     import { Virtualizer, type VirtualizerHandle } from 'virtua/vue';
-    import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue';
+    import {
+        computed,
+        nextTick,
+        onBeforeUnmount,
+        onMounted,
+        provide,
+        ref,
+        useId,
+        watch,
+    } from 'vue';
+    import { VueDraggable } from 'vue-draggable-plus';
 
+    import type { PendingUserMessage } from '@/app/api/agent/contracts';
     import type { ContextCompactionMessagePart, SessionMessage } from '@/app/api/agent/history';
+    import { log } from '@/app/api/diagnostics';
+    import { notify } from '@/app/api/windows/notifications';
     import {
         MessageScroller,
         type MessageScrollerHandle,
@@ -127,6 +202,7 @@
     import { t, tt } from '@/i18n';
     import { useSettingsStore } from '@/stores/settings';
 
+    import ConversationReadingColumn from './components/ConversationReadingColumn.vue';
     import ConversationToolbar from './components/ConversationToolbar.vue';
     import MessageItem from './components/MessageItem.vue';
     import {
@@ -134,6 +210,7 @@
         resolveDesiredOffset,
         resolveNavigationCorrection,
     } from './navigationAnchor';
+    import { buildConversationDisplayMessages, toPendingSessionMessage } from './pendingMessages';
 
     defineOptions({
         name: 'SearchConversationPanel',
@@ -141,6 +218,8 @@
 
     interface Props {
         messages: SessionMessage[];
+        pendingMessages?: PendingUserMessage[];
+        editingPendingMessageId?: string | null;
         isLoading: boolean;
         error: Error | null;
         isPinned: boolean;
@@ -151,6 +230,8 @@
     }
 
     const props = withDefaults(defineProps<Props>(), {
+        pendingMessages: () => [],
+        editingPendingMessageId: null,
         toolbarDisabled: false,
         isMaximized: false,
     });
@@ -166,20 +247,50 @@
         dragEnd: [];
         latestContentVisibilityChange: [visible: boolean];
         contentResize: [height: number];
+        pendingAction: [action: 'sendNow' | 'edit' | 'remove' | 'cancelEdit', messageId: string];
+        reorderPendingMessages: [orderedMessageIds: string[]];
     }>();
+
+    function handlePendingAction(
+        action: 'sendNow' | 'edit' | 'remove' | 'cancelEdit',
+        messageId: string
+    ): void {
+        emit('pendingAction', action, messageId);
+    }
 
     const conversationScroller = ref<MessageScrollerHandle | null>(null);
     const messageVirtualizer = ref<VirtualizerHandle | null>(null);
     const scrollViewport = ref<HTMLElement | null>(null);
     const viewportHeight = ref(0);
     provide(MARKDOWN_SCROLL_ROOT_KEY, () => scrollViewport.value);
-    const virtualizeMessages = computed(() => props.messages.length >= 12);
+    const virtualizeMessages = computed(() => displayMessages.value.length >= 12);
+    const displayMessages = computed<SessionMessage[]>(() =>
+        buildConversationDisplayMessages(props.messages, props.pendingMessages)
+    );
+    const conversationMessages = computed(() =>
+        displayMessages.value.filter((message) => message.pendingDelivery !== 'queue')
+    );
+    const queuedDisplayMessages = computed<SessionMessage[]>({
+        // Derive from the pending collection itself. Streaming history updates
+        // every frame; recomputing the queue from displayMessages would hand
+        // VueDraggable a new array on each line and make the whole tail twitch.
+        get: () =>
+            props.pendingMessages
+                .filter((message) => message.delivery === 'queue')
+                .map(toPendingSessionMessage),
+        set: (messages) => {
+            emit(
+                'reorderPendingMessages',
+                messages.map((message) => message.id)
+            );
+        },
+    });
     const messagesWithoutVirtualization = computed(() =>
-        virtualizeMessages.value ? [] : props.messages
+        virtualizeMessages.value ? [] : conversationMessages.value
     );
     const navigationTarget = ref<NavigationTarget | null>(null);
     const navigationMountedIndexes = computed(() => {
-        const index = props.messages.findIndex(
+        const index = displayMessages.value.findIndex(
             (message) => message.id === navigationTarget.value?.id
         );
         return index < 0 ? [] : [index];
@@ -189,17 +300,30 @@
         getHistoryAnchor: () => HTMLElement | null;
     } | null>(null);
     const settingsStore = useSettingsStore();
-    const { outputScrollBehavior } = storeToRefs(settingsStore);
+    const { conversationContentWidth, outputScrollBehavior } = storeToRefs(settingsStore);
+    const scrollerId = useId();
     const showScrollToBottom = ref(false);
     const USER_MESSAGE_SCROLL_GAP = 12;
     const RAIL_PREVIEW_SOURCE_LENGTH = 320;
     const compactionAnnouncement = ref<ContextCompactionMessagePart['state']>();
+
+    async function saveContentWidth(width: number) {
+        try {
+            await settingsStore.updateConversationContentWidth(width);
+        } catch (error) {
+            log.error('Failed to save conversation content width:', error);
+            notify({ title: 'TouchAI', body: t('settings.general.saveSettingsFailed') });
+        }
+    }
 
     // Keep announcements outside the busy virtual list and ignore restored checkpoints.
     onMounted(() => {
         let announcedCompaction: { messageId: string; id: string } | undefined;
         watch(
             () => {
+                // Pending queue cards are appended after the assistant, but
+                // they have no output parts. Read the conversation source so a
+                // queued message cannot hide an active compaction announcement.
                 const message = props.messages[props.messages.length - 1];
                 let compaction: ContextCompactionMessagePart | undefined;
                 if (message) {
@@ -252,7 +376,7 @@
         let currentTurn: MessageScrollerItem | undefined;
         let currentTurnHasAssistant = false;
 
-        for (const message of props.messages) {
+        for (const message of conversationMessages.value) {
             if (message.role === 'user') {
                 currentTurn = {
                     id: message.id,
@@ -284,7 +408,7 @@
     const turnIndexes = computed(() => {
         const turns = new Map<string, { first: number; last: number }>();
         let turn: { first: number; last: number } | undefined;
-        props.messages.forEach((message, index) => {
+        conversationMessages.value.forEach((message, index) => {
             if (message.role === 'user') {
                 turn = { first: index, last: index };
                 turns.set(message.id, turn);
@@ -362,7 +486,10 @@
         messageId: string,
         options: MessageScrollerScrollOptions = {}
     ): boolean {
-        if (!messageVirtualizer.value || !props.messages.some(({ id }) => id === messageId)) {
+        if (
+            !messageVirtualizer.value ||
+            !conversationMessages.value.some(({ id }) => id === messageId)
+        ) {
             return false;
         }
         conversationScroller.value?.setFollowing(false);
@@ -442,41 +569,40 @@
         showScrollToBottom.value = false;
     }
 
-    watch(() => props.messages[0]?.id, cancelNavigation);
+    watch(() => displayMessages.value[0]?.id, cancelNavigation);
 
-    watch(
-        () => props.messages.length,
-        async (newLength, oldLength) => {
-            if (newLength === 0 && oldLength > 0) {
-                showScrollToBottom.value = false;
-                await nextTick();
-                refreshScrollToBottomVisibility();
-                return;
-            }
-
-            if (newLength <= oldLength) return;
-
-            const appendedMessages = props.messages.slice(oldLength, newLength);
-            const latestAppendedUserMessage = [...appendedMessages]
-                .reverse()
-                .find((message) => message.role === 'user');
-
+    watch(displayMessages, async (messages, previousMessages) => {
+        const newLength = messages.length;
+        const oldLength = previousMessages.length;
+        if (newLength === 0 && oldLength > 0) {
+            showScrollToBottom.value = false;
             await nextTick();
-
-            if (outputScrollBehavior.value === 'follow_output') {
-                if (latestAppendedUserMessage) {
-                    revealLatestContent();
-                }
-                return;
-            }
-
-            if (outputScrollBehavior.value === 'jump_to_top' && latestAppendedUserMessage) {
-                scrollToUserMessageTop(latestAppendedUserMessage.id);
-            }
-
             refreshScrollToBottomVisibility();
+            return;
         }
-    );
+
+        if (newLength <= oldLength) return;
+
+        const previousIds = new Set(previousMessages.map((message) => message.id));
+        const latestAppendedUserMessage = [...messages]
+            .reverse()
+            .find((message) => message.role === 'user' && !previousIds.has(message.id));
+
+        await nextTick();
+
+        if (outputScrollBehavior.value === 'follow_output') {
+            if (latestAppendedUserMessage) {
+                revealLatestContent();
+            }
+            return;
+        }
+
+        if (outputScrollBehavior.value === 'jump_to_top' && latestAppendedUserMessage) {
+            scrollToUserMessageTop(latestAppendedUserMessage.id);
+        }
+
+        refreshScrollToBottomVisibility();
+    });
 
     watch(
         outputScrollBehavior,
@@ -506,6 +632,19 @@
 </script>
 
 <style scoped>
+    .queue-message-item--sortable :deep([data-queue-drag-handle]) {
+        cursor: grab;
+        user-select: none;
+    }
+
+    .queue-message-item--sortable :deep([data-queue-drag-handle] .user-text) {
+        user-select: none;
+    }
+
+    .queue-message-item--sortable :deep([data-queue-drag-handle]):active {
+        cursor: grabbing;
+    }
+
     .scroll-fade-overlay {
         background: linear-gradient(to bottom, transparent 0%, var(--color-overlay-fade) 100%);
     }

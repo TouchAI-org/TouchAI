@@ -1598,3 +1598,87 @@ failed because reasoning-end metadata was discarded. Core now retains closing
 OpenAI encrypted content and Anthropic signatures in the next tool round,
 checkpoint and terminal output, with visible or empty reasoning. Focused Core
 (56 tests), Models (42 tests), package source/test types and scoped lint pass.
+
+
+### Current-main Integration Acceptance
+
+The delivery branch incorporates `main@3e3c5560e3a697472cb38ced8d1feca4984759cf`,
+including conversation reading width (#803) and queue/steer (#796). The Core
+extraction must preserve those already-shipped contracts. Migration `0006`, its
+journal/snapshot, the database schema and the pending-message queries are copied
+unchanged from that main commit; this integration introduces no new stored shape.
+
+- Given a saved reading width, when another window loads a settings snapshot,
+  then it receives the same width and the conversation uses that width.
+- Given a running response, when the user queues, edits, reorders, promotes,
+  removes or clears pending messages, then the main-owned queue preserves the
+  published command semantics and persists the same pending-message payload.
+- Given immediate steering, when the next safe non-tool chunk arrives, then Core
+  closes the current model request, saves the partial assistant segment and
+  starts the continuation without cancelling the task. An already-started tool
+  call and all sibling tools/approvals finish before priority delivery.
+- Given failed queue storage or cancelled startup, when the user explicitly
+  resumes or clears the queue, then a stale asynchronous write cannot duplicate,
+  lose or resurrect a message. Retired empty sessions and disposed asynchronous
+  loads release their in-memory state.
+- Given selected skills in a queued message, when delivery retries or the task
+  restores history, then private skill content stays transport-only while the
+  existing input snapshot remains recoverable.
+- Given an isolated native E2E application, when the harness changes a model or
+  shortcut, then it uses the same Settings-to-main administration and settings
+  commands as the product; it cannot write directly to SQL from SearchView or
+  register an OS shortcut behind the settings owner's snapshot.
+
+Verification results for this integration are recorded separately from the
+pre-integration full-coverage and native results above. Earlier passing counts
+are not evidence for the newly merged queue paths.
+
+
+### Parent current-main validation
+
+- Core 9 files / 82 tests, backend 13 files / 229 tests and UI 26 files /
+  480 tests pass across the recorded focused batches. Repository CI passes
+  16 files / 495 tests, including the old PR review regressions.
+- The real dependency graph covers 1681 files with zero boundary violations,
+  unresolved source/parse errors or runtime cycles. Drizzle error unwrapping
+  now belongs to `database/errors.ts`; pending-message persistence consumes that
+  capability instead of importing the ORM exception into the module.
+- All 18 obsolete source/test files restored by the main merge were removed
+  only after mapping their new assertions to Core, bootstrap, session and
+  projection suites. Real SQLite output and attachment/storage regressions
+  remain. Upstream queue payloads and migration 0006 are preserved unchanged.
+- Production frontend and native Debug builds pass. The final integrated native run
+  passes eight Core scenarios, all three MCP scenarios, all seven data management
+  scenarios and all three queue-recovery scenarios. One queue/steer scenario
+  passes before dragging and cleanup fail, preventing the remaining 18 cases.
+- Native acceptance remains incomplete: Linux/WebKit drag text selection,
+  expanded-window cleanup and a model selector outside the viewport fail.
+  Drag CSS and the Rust resize owner match main; the resize composable now uses
+  injected window APIs. These remain open
+  acceptance findings, not waived checks. Exact results and reproduction are
+  in `docs/testing/rfc710-e2e-results.md`.
+- Earlier full frontend and coverage totals describe the pre-integration
+  candidate. Published-head CI must rerun the complete matrix, including
+  coverage, native Windows E2E and visual assertions. Release P50/P95 and
+  memory acceptance against the 5% budget remains unmeasured.
+
+
+### Final review: pending preparation cancellation
+
+Given a claimed pending input is awaiting attachment or selected-skill I/O, when
+the user cancels or closes its owner, then cancellation retains the durable input
+and does not report it as invalid. Given the user clears a claimed input while
+attachment persistence preparation is pending, when preparation completes, then
+no transaction inserts that input and Core receives no delivered message. Claim
+and cancellation checks occur immediately before the delivery transaction starts;
+a delivery already accepted into a transaction retains its atomic settlement.
+
+Four new real-workflow/SQLite regressions reproduced both review findings before
+the fix. Cancellation is now checked before classifying preparation errors as
+invalid inputs. The persistence owner rechecks the claim after attachment I/O
+and again after transaction admission. Two further admission-wait cases cover
+clear/cancel while waiting for another transaction. All 101 tests in the four
+affected suites pass; the aggregate backend evidence is 13 files / 229 tests.
+The rebuilt final candidate passes 22 native cases; dragging and cleanup
+fail and stop the remaining queue/steer cases. Native acceptance remains
+explicitly failing/incomplete.

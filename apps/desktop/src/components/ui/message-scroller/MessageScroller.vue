@@ -248,7 +248,11 @@
 
         const { scrollHeight, scrollTop, clientHeight } = element;
         const distance = Math.max(0, scrollHeight - scrollTop - clientHeight);
-        const nextFollowing = distance <= props.followThreshold;
+        // Resuming follow only at the true end keeps a small upward wheel from
+        // being undone by the scroll event that follows it.
+        const nextFollowing = following.value
+            ? distance <= props.followThreshold
+            : distance <= END_TOLERANCE;
 
         if (updateFollowing) {
             setFollowing(nextFollowing);
@@ -268,6 +272,7 @@
     }
 
     function setFollowing(next: boolean): void {
+        if (!next) measureUpdatesFollowing = false;
         if (following.value === next) return;
         following.value = next;
         emit('followChange', next);
@@ -392,7 +397,7 @@
             // Publish the settled layout, so a resize cannot flash an "away from bottom" state.
             if (shouldFollowOutput && props.followOutput && following.value) {
                 if (shouldUpdateFollowing) readState(true);
-                if (following.value) scrollToEnd(defaultFollowBehavior());
+                if (following.value) scrollToEndIfNeeded(defaultFollowBehavior());
                 measure(false);
             } else {
                 measure(shouldUpdateFollowing);
@@ -443,6 +448,20 @@
         scrollViewportTo(element.scrollHeight, behavior);
     }
 
+    function scrollToEndIfNeeded(
+        behavior: MessageScrollerScrollBehavior = defaultFollowBehavior()
+    ): void {
+        const element = viewport.value;
+        if (!element) return;
+
+        const end = Math.max(0, element.scrollHeight - element.clientHeight);
+        if (Math.abs(element.scrollTop - end) <= 1) {
+            setFollowing(true);
+            return;
+        }
+        scrollToEnd(behavior);
+    }
+
     function scrollToItem(id: string, options: MessageScrollerScrollOptions = {}): boolean {
         if (props.itemScrollTarget?.(id, options)) return true;
         const element = viewport.value;
@@ -473,7 +492,7 @@
         interruptProgrammaticScroll();
         if (deltaY < 0) setFollowing(false);
         element.scrollTop += deltaY;
-        scheduleMeasure(true);
+        scheduleMeasure(deltaY > 0);
     }
 
     function isAtEnd(): boolean {
@@ -505,15 +524,21 @@
             measuredState?.scrollHeight !== element.scrollHeight ||
             measuredState?.clientHeight !== element.clientHeight;
         const positionChanged = measuredState?.scrollTop !== element.scrollTop;
-        scheduleMeasure(
-            !programmaticScroll && positionChanged && (!following.value || !layoutChanged),
-            layoutChanged
-        );
+        const scrolledDown = element.scrollTop > (measuredState?.scrollTop ?? element.scrollTop);
+        if (!programmaticScroll && positionChanged && !layoutChanged) {
+            if (scrolledDown) {
+                readState(true);
+            } else {
+                setFollowing(false);
+            }
+        }
+        scheduleMeasure(false, layoutChanged);
     }
 
     function handleWheel(event: WheelEvent): void {
         interruptProgrammaticScroll();
         if (event.deltaY < 0) setFollowing(false);
+        else if (event.deltaY > 0 && readState().atEnd) setFollowing(true);
     }
 
     function handleTouchStart(): void {
@@ -540,10 +565,18 @@
             (event.key === ' ' && event.shiftKey)
         ) {
             setFollowing(false);
+        } else if (['ArrowDown', 'PageDown', 'End', ' '].includes(event.key) && readState().atEnd) {
+            setFollowing(true);
         }
     }
 
     function handleResize(): void {
+        // A streaming line wrap grows the content between layout and paint.
+        // Pin synchronously so following output never shows the old scroll
+        // position for one frame before the deferred measurement catches up.
+        if (props.followOutput && following.value) {
+            scrollToEndIfNeeded('auto');
+        }
         scheduleMeasure(false, true);
     }
 
@@ -663,7 +696,7 @@
         getViewportElement: () => viewport.value,
         getContentHeight,
         isAtEnd,
-        recalculate: () => measure(true),
+        recalculate: () => measure(false),
         scrollBy,
         scrollToEnd,
         scrollToItem,

@@ -61,6 +61,7 @@ export function useAgentState(options: UseAgentStateOptions = {}) {
     const attachedTaskId = ref<string | null>(null);
     const taskStatus = ref<TaskViewSnapshot['status'] | null>(null);
     const currentModel = ref<TaskViewSnapshot['currentModel']>(null);
+    const pendingUserMessages = ref<TaskViewSnapshot['pendingUserMessages']>([]);
     const pendingToolApproval = ref<TaskViewSnapshot['pendingToolApproval']>(null);
     const pendingApprovalQueue = ref<TaskViewSnapshot['pendingApprovals']>([]);
     const pendingUserQuestion = ref<TaskViewSnapshot['pendingUserQuestion']>(null);
@@ -77,6 +78,7 @@ export function useAgentState(options: UseAgentStateOptions = {}) {
         attachedTaskId.value = null;
         taskStatus.value = null;
         currentModel.value = null;
+        pendingUserMessages.value = [];
         pendingToolApproval.value = null;
         pendingApprovalQueue.value = [];
         pendingUserQuestion.value = null;
@@ -102,6 +104,7 @@ export function useAgentState(options: UseAgentStateOptions = {}) {
         pendingToolApproval.value = snapshot.pendingToolApproval;
         pendingApprovalQueue.value = snapshot.pendingApprovals;
         pendingUserQuestion.value = snapshot.pendingUserQuestion;
+        pendingUserMessages.value = snapshot.pendingUserMessages;
         taskStatus.value = snapshot.status;
         currentModel.value = snapshot.currentModel;
         isLoading.value = snapshot.status === 'running' || snapshot.status === 'waiting_approval';
@@ -210,6 +213,7 @@ export function useAgentState(options: UseAgentStateOptions = {}) {
         attachedTaskId,
         taskStatus,
         currentModel,
+        pendingUserMessages,
         pendingToolApproval,
         pendingApprovalQueue,
         pendingUserQuestion,

@@ -22,7 +22,8 @@ import type {
     ConversationSemantic as BuiltInToolConversationSemantic,
     WidgetPayload as ShowWidgetPayload,
 } from '../contracts/presentation';
-import type { PromptSnapshot } from '../contracts/prompt';
+import type { PromptInputSnapshot, PromptSnapshot } from '../contracts/prompt';
+import { createPromptInputSnapshot } from '../prompt/serialization';
 import { createReasoningPart, createTextPart, createToolCallPart, selectToolCalls } from './parts';
 import {
     ensureAssistantWidgets,
@@ -413,7 +414,7 @@ export function createSessionHistory(host: SessionHistoryHost) {
 
     function convertEntriesToSessionHistory(
         entries: PersistedHistoryEntry[],
-        promptSnapshotsByMessageId: Map<number, PromptSnapshot>
+        inputSnapshotsByMessageId: Map<number, PromptInputSnapshot>
     ): SessionHistoryBuildResult {
         const history: SessionMessage[] = [];
         const historyIndexByPersistedMessageId = new Map<number, number>();
@@ -569,7 +570,7 @@ export function createSessionHistory(host: SessionHistoryHost) {
         for (const entry of entries) {
             if (entry.role === 'user') {
                 flushAssistantMessage();
-                const promptSnapshot = promptSnapshotsByMessageId.get(entry.id);
+                const inputSnapshot = inputSnapshotsByMessageId.get(entry.id);
                 const historyIndex = history.length;
                 const content = getMessageText(entry.parts);
                 history.push({
@@ -580,9 +581,9 @@ export function createSessionHistory(host: SessionHistoryHost) {
                     inputSnapshot: createInputHistorySnapshot({
                         text: content,
                         attachments: entry.attachments ?? [],
-                        skills: getPromptSnapshotInputSkills(promptSnapshot),
-                        editorDoc: promptSnapshot?.inputSnapshot?.editorDoc,
-                        excludeFromHistory: promptSnapshot?.inputSnapshot?.excludeFromHistory,
+                        skills: inputSnapshot?.skills ?? [],
+                        editorDoc: inputSnapshot?.editorDoc,
+                        excludeFromHistory: inputSnapshot?.excludeFromHistory,
                     }),
                     parts: [],
                     timestamp: parseDbDateTimestamp(entry.created_at),
@@ -971,15 +972,35 @@ export function createSessionHistory(host: SessionHistoryHost) {
         options: BuildSessionHistoryOptions
     ): Promise<SessionMessage[]> {
         const { messages, turns, attempts, resolveServerName } = options;
-        const promptSnapshotsByMessageId = new Map<number, PromptSnapshot>();
+        const inputSnapshotsByMessageId = new Map<number, PromptInputSnapshot>();
         for (const turn of turns) {
-            if (turn.prompt_message_id === null) {
-                continue;
-            }
-
             try {
                 const promptSnapshot = JSON.parse(turn.prompt_snapshot_json) as PromptSnapshot;
-                promptSnapshotsByMessageId.set(turn.prompt_message_id, promptSnapshot);
+                if (turn.prompt_message_id !== null) {
+                    inputSnapshotsByMessageId.set(turn.prompt_message_id, {
+                        ...promptSnapshot.inputSnapshot,
+                        skills: getPromptSnapshotInputSkills(promptSnapshot),
+                    });
+                }
+                for (const [messageId, input] of Object.entries(
+                    promptSnapshot.messageInputSnapshots ?? {}
+                )) {
+                    const persistedMessageId = Number(messageId);
+                    if (!Number.isSafeInteger(persistedMessageId) || persistedMessageId <= 0) {
+                        continue;
+                    }
+                    try {
+                        const inputSnapshot = createPromptInputSnapshot(input);
+                        if (inputSnapshot)
+                            inputSnapshotsByMessageId.set(persistedMessageId, inputSnapshot);
+                    } catch (error) {
+                        log.error('[SessionHistory] Failed to read message input snapshot:', {
+                            turnId: turn.id,
+                            messageId,
+                            errorType: error instanceof Error ? error.name : typeof error,
+                        });
+                    }
+                }
             } catch (error) {
                 log.error('[SessionHistory] Failed to parse prompt snapshot JSON:', error);
             }
@@ -987,7 +1008,7 @@ export function createSessionHistory(host: SessionHistoryHost) {
 
         const buildResult = convertEntriesToSessionHistory(
             await buildPersistedEntries(messages, resolveServerName),
-            promptSnapshotsByMessageId
+            inputSnapshotsByMessageId
         );
         return injectDerivedRequestStatuses(buildResult, turns, attempts);
     }

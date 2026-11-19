@@ -37,6 +37,8 @@ export interface TaskResult {
 
 export interface StartSessionTaskOptions {
     prompt: string;
+    userMessageId?: string;
+    pendingMessageId?: string;
     sessionId?: number;
     modelId?: string;
     providerId?: number;
@@ -44,6 +46,74 @@ export interface StartSessionTaskOptions {
     inputSnapshot?: InputHistorySnapshot;
     executionMode?: TaskExecutionMode;
     signal?: AbortSignal;
+    pendingUserMessages?: PendingUserMessage[];
+}
+
+export type PendingUserMessageDelivery = 'queue' | 'priority';
+
+export interface PendingUserMessageInput {
+    prompt: string;
+    attachments?: AttachmentReference[];
+    inputSnapshot?: InputHistorySnapshot;
+    modelId?: string;
+    providerId?: number;
+}
+
+export interface PendingUserMessage extends PendingUserMessageInput {
+    id: string;
+    delivery: PendingUserMessageDelivery;
+    editing?: boolean;
+    immediate?: boolean;
+    attachments: AttachmentReference[];
+    createdAt: number;
+}
+
+export interface DeliveredPendingUserMessage {
+    id: string;
+    prompt: string;
+    attachments: AttachmentReference[];
+    inputSnapshot?: InputHistorySnapshot;
+}
+
+export interface PendingMessageCommands {
+    enqueueTaskUserMessage(
+        taskId: string,
+        input: PendingUserMessageInput,
+        delivery: PendingUserMessageDelivery
+    ): PendingUserMessage | null;
+    enqueueSessionUserMessage(
+        sessionId: number,
+        input: PendingUserMessageInput,
+        delivery: PendingUserMessageDelivery
+    ): PendingUserMessage | null;
+    updateTaskUserMessage(
+        taskId: string,
+        messageId: string,
+        input: PendingUserMessageInput
+    ): boolean;
+    updateSessionUserMessage(
+        sessionId: number,
+        messageId: string,
+        input: PendingUserMessageInput
+    ): boolean;
+    setTaskUserMessageEditing(taskId: string, messageId: string, editing: boolean): boolean;
+    setSessionUserMessageEditing(sessionId: number, messageId: string, editing: boolean): boolean;
+    clearUserMessageEditing(messageId: string): boolean;
+    removeTaskUserMessage(taskId: string, messageId: string): boolean;
+    removeSessionUserMessage(sessionId: number, messageId: string): boolean;
+    promoteTaskUserMessage(taskId: string, messageId: string): boolean;
+    promoteSessionUserMessage(sessionId: number, messageId: string): boolean;
+    reorderTaskQueuedMessages(taskId: string, orderedQueueIds: readonly string[]): boolean;
+    reorderSessionQueuedMessages(sessionId: number, orderedQueueIds: readonly string[]): boolean;
+    clearTaskUserMessages(taskId: string): boolean;
+    clearSessionUserMessages(sessionId: number): boolean;
+    updateTaskUserMessageModel(
+        taskId: string,
+        modelId: string | null,
+        providerId: number | null
+    ): boolean;
+    restoreSessionQueue(sessionId: number): Promise<PendingUserMessage[]>;
+    resumeSessionQueue(sessionId: number): void;
 }
 
 export interface PendingUserQuestionView {
@@ -61,6 +131,7 @@ export interface TaskViewSnapshot {
     status: SessionTaskStatus;
     executionMode: TaskExecutionMode;
     sessionHistory: SessionMessage[];
+    pendingUserMessages: PendingUserMessage[];
     pendingToolApproval: PendingToolApproval | null;
     pendingApprovals: PendingToolApproval[];
     pendingUserQuestion: PendingUserQuestionView | null;
