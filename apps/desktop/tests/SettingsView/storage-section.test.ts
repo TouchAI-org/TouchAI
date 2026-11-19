@@ -132,15 +132,16 @@ describe('given managed storage contains both unused files and retained user dat
         expect(view.find('summary').exists()).toBe(false);
         expect(chart.get('ul').findAll('li')).toHaveLength(9);
         const browser = chart.get('[data-testid="settings-storage-category-browser"]');
-        expect(browser.text()).toContain('5 files');
+        expect(browser.get('button').attributes('title')).toContain('5 files');
         expect(browser.text()).toContain('40 MiB');
-        expect(browser.text()).toContain('32.3%');
+        expect(browser.text()).not.toContain('32.3%');
         const small = chart.get('[data-testid="settings-storage-category-thumbnails"]');
-        expect(small.text()).toContain('8 files');
-        expect(small.text()).toContain('1.6%');
         await small.get('button[aria-pressed]').trigger('click');
         expect(small.get('button').attributes('aria-pressed')).toBe('true');
-        expect(chart.get('svg + div').text()).toContain('Thumbnails');
+        const readout = chart.get('svg + div');
+        expect(readout.text()).toContain('Thumbnails');
+        expect(readout.text()).toContain('8 files');
+        expect(readout.text()).toContain('1.6%');
         expect(document.querySelector('[role=alertdialog]')).toBeNull();
     });
 
@@ -194,8 +195,8 @@ describe('given managed storage contains both unused files and retained user dat
         await vi.advanceTimersByTimeAsync(1000);
 
         expect(chart.get('svg + div').text()).toContain('122 MiB');
-        expect(temporary.text()).toContain('0 files');
-        const remaining = chart.findAll('path');
+        expect(temporary.get('button').attributes('title')).toContain('0 files');
+        const remaining = chart.findAll('svg[role="img"] path');
         expect(remaining.length).toBeGreaterThan(0);
         expect(remaining.every((path) => path.attributes('opacity') === '1')).toBe(true);
     });
@@ -214,7 +215,7 @@ describe('given managed storage contains both unused files and retained user dat
         const view = await openStorage();
 
         const cleanup = view.get('figure [data-settings-search-target="storage-cleanup"]');
-        expect(cleanup.text()).toContain('6 MiB reclaimable');
+        expect(cleanup.get('button').text()).toBe('Clean up 6 MiB');
         await action(view, 'cleanup').trigger('click');
         await flushPromises();
 
@@ -316,9 +317,9 @@ describe('given managed storage contains both unused files and retained user dat
         mockTauriCommand('storage_cleanup', () => cleanupResult({ releasedBytes: 0 }));
         const view = await openStorage();
         const logs = view.get('figure [data-testid="settings-storage-category-logs"]');
-        expect(logs.text()).toContain('1 file');
+        expect(logs.get('button').attributes('title')).toContain('1 file');
         expect(logs.text()).toContain('0 B');
-        expect(logs.text()).toContain('0.0%');
+        expect(logs.get('button').attributes('title')).toContain('0.0%');
         expect(action(view, 'logs').element.disabled).toBe(false);
         await action(view, 'logs').trigger('click');
         await flushPromises();
@@ -344,7 +345,7 @@ describe('given managed storage contains both unused files and retained user dat
         const view = await openStorage();
         const database = view.get('figure [data-testid="settings-storage-category-database"]');
         expect(database.text()).toContain('8 MiB');
-        expect(database.text()).toContain('Up to 2 MiB can be freed');
+        expect(action(view, 'compact').attributes('title')).toContain('Up to 2 MiB can be freed');
         expect(database.get('[data-testid="settings-storage-compact"]').isVisible()).toBe(true);
         expect(getTauriInvokeCalls('storage_compact_database')).toEqual([]);
         await action(view, 'compact').trigger('click');
@@ -395,7 +396,7 @@ describe('given storage cannot be changed safely yet', () => {
         mockTauriCommand('storage_scan', () => scan.promise);
         const view = await openStorage();
 
-        expect(view.text()).toContain('Scanning storage...');
+        expect(action(view, 'refresh').attributes('aria-label')).toBe('Scanning storage...');
         expect(action(view, 'refresh').element.disabled).toBe(true);
         expect(view.find('[data-testid="settings-storage-compact"]').exists()).toBe(false);
         for (const name of FILE_ACTIONS) {
@@ -405,7 +406,7 @@ describe('given storage cannot be changed safely yet', () => {
         scan.resolve(usage());
         await flushPromises();
 
-        expect(view.text()).not.toContain('Scanning storage...');
+        expect(action(view, 'refresh').attributes('aria-label')).toBe('Refresh');
         expect(action(view, 'cleanup').element.disabled).toBe(false);
     });
 

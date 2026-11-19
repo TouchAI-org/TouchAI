@@ -14,7 +14,7 @@ let pinia: ReturnType<typeof createPinia>;
 
 function clickButton(container: ParentNode, text: string) {
     const button = [...container.querySelectorAll<HTMLButtonElement>('button')].find(
-        (element) => element.textContent?.trim() === text
+        (element) => (element.getAttribute('aria-label') ?? element.textContent?.trim()) === text
     );
     expect(button, `button ${text}`).toBeDefined();
     button!.click();

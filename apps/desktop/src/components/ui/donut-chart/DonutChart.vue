@@ -462,6 +462,7 @@
                     >
                         {{ centerMeta }}
                     </span>
+                    <slot name="center-detail" :active-key="activeSlice?.key" />
                 </div>
             </div>
             <slot name="caption" />

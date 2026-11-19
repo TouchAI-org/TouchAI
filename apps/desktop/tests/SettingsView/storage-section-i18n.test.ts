@@ -63,21 +63,31 @@ afterEach(async () => {
 
 describe('given storage settings are available in either supported interface language', () => {
     it.each([
-        ['en-US', 'Storage', 'Clean up unused files', 'Free up space', 'Delete recordings'],
-        ['zh-CN', '存储空间', '清理未使用的文件', '释放空间', '删除录制文件'],
+        [
+            'en-US',
+            'Storage',
+            'Clean up 4 KiB',
+            'Free up database space',
+            'Delete recordings',
+            'Delete logs',
+            'Refresh',
+        ],
+        ['zh-CN', '存储空间', '清理 4 KiB', '释放数据库空间', '删除录制文件', '删除日志', '刷新'],
     ] as const)(
         'user opens storage in %s and reads localized categories and actions',
-        async (locale, title, safeCleanup, compact, recordings) => {
+        async (locale, title, safeCleanup, compact, recordings, logs, refresh) => {
             setLocale(locale);
             wrapper = mount(StorageSection, { attachTo: host });
             await flushPromises();
 
             expect(wrapper.text()).toContain(title);
             expect(wrapper.text()).toContain(safeCleanup);
-            expect(wrapper.text()).toContain(compact);
-            expect(
-                wrapper.get('[data-testid="settings-storage-recordings"]').attributes('aria-label')
-            ).toBe(recordings);
+            for (const [action, label] of Object.entries({ compact, recordings, logs, refresh })) {
+                const control = wrapper.get(`[data-testid="settings-storage-${action}"]`);
+                expect(control.text()).toBe('');
+                expect(control.attributes('title')).toContain(label);
+                expect(control.attributes('aria-label')).toContain(label);
+            }
             expect(wrapper.text()).not.toContain('settings.storage.');
             for (const category of categories) {
                 expect(

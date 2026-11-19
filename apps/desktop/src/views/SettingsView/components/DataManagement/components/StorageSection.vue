@@ -1,4 +1,5 @@
 <script setup lang="ts">
+    import AppIcon from '@components/AppIcon.vue';
     import { Button } from '@components/ui/button';
     import DonutChart from '@components/ui/donut-chart/DonutChart.vue';
     import { useAlert } from '@composables/useAlert';
@@ -119,6 +120,22 @@
             errorKey.value !== null
     );
     const actionsDisabled = computed(() => operation.value !== null || unavailable.value);
+    const refreshLabel = computed(() =>
+        t(operation.value === 'scan' ? 'settings.storage.scanning' : 'settings.storage.refresh')
+    );
+    const compactLabel = computed(() =>
+        t(
+            operation.value === 'compact' && !confirming.value
+                ? 'settings.storage.compacting'
+                : 'settings.storage.compactDatabase'
+        )
+    );
+    const compactTitle = computed(
+        () =>
+            `${compactLabel.value} · ${t('settings.storage.databaseFree', {
+                size: formatBytes(summary.value?.databaseFreeBytes ?? 0),
+            })}`
+    );
     const visibleWarnings = computed(() => summary.value?.warnings.slice(0, 5) ?? []);
     const visibleFailures = computed(() => cleanupResult.value?.failures.slice(0, 5) ?? []);
     const resultMessage = computed(() => {
@@ -306,17 +323,19 @@
         <div class="flex items-center justify-between gap-4">
             <h2 class="settings-section-title">{{ t('settings.storage.title') }}</h2>
             <Button
-                variant="ghost"
-                size="sm"
+                variant="ghost-neutral"
                 data-testid="settings-storage-refresh"
+                :aria-label="refreshLabel"
+                :title="refreshLabel"
                 :disabled="props.disabled || operation !== null"
                 @click="refresh"
             >
-                {{
-                    operation === 'scan'
-                        ? t('settings.storage.scanning')
-                        : t('settings.storage.refresh')
-                }}
+                <AppIcon
+                    name="refresh"
+                    class="size-4"
+                    :class="{ 'motion-safe:animate-spin': operation === 'scan' }"
+                    aria-hidden="true"
+                />
             </Button>
         </div>
 
@@ -361,32 +380,37 @@
             :size="176"
             :thickness="22"
         >
+            <template #center-detail="{ activeKey }">
+                <span v-if="activeKey" class="text-2xs text-text-secondary">
+                    {{
+                        tp(
+                            'settings.storage.files',
+                            categories.find((category) => category.key === activeKey)?.fileCount ??
+                                0
+                        )
+                    }}
+                </span>
+            </template>
             <template #caption>
-                <div
-                    class="grid justify-items-center gap-1.5"
-                    data-settings-search-target="storage-cleanup"
-                >
+                <div data-settings-search-target="storage-cleanup">
                     <Button
                         variant="strong"
                         data-testid="settings-storage-cleanup"
+                        :title="t('settings.storage.cleanupConfirmTitle')"
+                        :aria-description="t('settings.storage.cleanupConfirmTitle')"
                         :disabled="actionsDisabled || safeBytes === 0"
                         @click="cleanup('safe')"
                     >
                         {{
                             operation === 'safe' && !confirming
                                 ? t('settings.storage.cleaning')
-                                : t('settings.storage.cleanupConfirmTitle')
+                                : safeBytes > 0
+                                  ? t('settings.storage.cleanupSize', {
+                                        size: formatBytes(safeBytes),
+                                    })
+                                  : t('settings.storage.noReclaimable')
                         }}
                     </Button>
-                    <span class="text-xs text-text-secondary tabular-nums">
-                        {{
-                            safeBytes > 0
-                                ? t('settings.storage.reclaimable', {
-                                      size: formatBytes(safeBytes),
-                                  })
-                                : t('settings.storage.noReclaimable')
-                        }}
-                    </span>
                 </div>
             </template>
             <template #legend="{ colorOf, shareOf, bindItem, activeKey }">
@@ -400,8 +424,10 @@
                     >
                         <button
                             type="button"
-                            class="col-span-3 grid min-w-0 grid-cols-subgrid items-center rounded-action px-1 py-1.5 text-left enabled:hover:bg-surface-hover"
+                            class="col-span-2 grid min-w-0 grid-cols-subgrid items-center rounded-action px-1 py-1.5 text-left enabled:hover:bg-surface-hover"
                             :class="{ 'bg-surface-hover': activeKey === category.key }"
+                            :title="`${tp('settings.storage.files', category.fileCount)} · ${shareOf(category.value)}`"
+                            :aria-description="`${tp('settings.storage.files', category.fileCount)} · ${shareOf(category.value)}`"
                             :disabled="category.value === 0"
                             :data-settings-search-target="
                                 category.key === 'database' ? 'storage-compaction' : undefined
@@ -418,30 +444,8 @@
                                     "
                                     aria-hidden="true"
                                 />
-                                <span
-                                    class="grid min-w-0 @2xl:flex @2xl:flex-wrap @2xl:items-baseline @2xl:gap-x-2"
-                                >
-                                    <span
-                                        class="text-compact leading-5 font-medium text-settings-text"
-                                    >
-                                        {{ category.label }}
-                                    </span>
-                                    <span class="text-xs text-text-secondary">
-                                        {{ tp('settings.storage.files', category.fileCount) }}
-                                    </span>
-                                    <span
-                                        v-if="
-                                            category.key === 'database' &&
-                                            summary.databaseFreeBytes > 0
-                                        "
-                                        class="text-xs text-text-secondary @2xl:basis-full"
-                                    >
-                                        {{
-                                            t('settings.storage.databaseFree', {
-                                                size: formatBytes(summary.databaseFreeBytes),
-                                            })
-                                        }}
-                                    </span>
+                                <span class="text-compact leading-5 font-medium text-settings-text">
+                                    {{ category.label }}
                                 </span>
                             </span>
                             <span
@@ -449,41 +453,53 @@
                             >
                                 {{ formatBytes(category.value) }}
                             </span>
-                            <span class="text-right text-xs text-text-secondary tabular-nums">
-                                {{ shareOf(category.value) }}
-                            </span>
                         </button>
                         <Button
                             v-if="category.key === 'database' && summary.databaseFreeBytes > 0"
-                            class="col-span-3 justify-self-end @xs:col-span-1 @xs:justify-self-stretch"
-                            variant="link"
-                            size="sm"
+                            variant="ghost-neutral"
                             data-testid="settings-storage-compact"
+                            :aria-label="compactLabel"
+                            :title="compactTitle"
                             :disabled="actionsDisabled"
                             @click="compactDatabase"
                         >
-                            {{
-                                operation === 'compact' && !confirming
-                                    ? t('settings.storage.compacting')
-                                    : t('settings.storage.compact')
-                            }}
+                            <AppIcon
+                                :name="
+                                    operation === 'compact' && !confirming ? 'loader' : 'compress'
+                                "
+                                class="size-4"
+                                :class="{
+                                    'motion-safe:animate-spin':
+                                        operation === 'compact' && !confirming,
+                                }"
+                                aria-hidden="true"
+                            />
                         </Button>
                         <Button
                             v-if="category.key === 'recordings' || category.key === 'logs'"
-                            class="col-span-3 justify-self-end @xs:col-span-1 @xs:justify-self-stretch"
-                            variant="link"
-                            size="sm"
-                            :aria-label="t(CLEANUP_CONFIRMATIONS[category.key].action)"
+                            variant="ghost-neutral"
+                            :aria-label="
+                                operation === category.key && !confirming
+                                    ? t('settings.storage.cleaning')
+                                    : t(CLEANUP_CONFIRMATIONS[category.key].action)
+                            "
+                            :title="t(CLEANUP_CONFIRMATIONS[category.key].action)"
                             :data-testid="`settings-storage-${category.key}`"
                             :data-settings-search-target="`storage-${category.key}`"
                             :disabled="actionsDisabled || category.fileCount === 0"
                             @click="cleanup(category.key)"
                         >
-                            {{
-                                operation === category.key && !confirming
-                                    ? t('settings.storage.cleaning')
-                                    : t('common.delete')
-                            }}
+                            <AppIcon
+                                :name="
+                                    operation === category.key && !confirming ? 'loader' : 'trash'
+                                "
+                                class="size-4"
+                                :class="{
+                                    'motion-safe:animate-spin':
+                                        operation === category.key && !confirming,
+                                }"
+                                aria-hidden="true"
+                            />
                         </Button>
                     </li>
                 </ul>
@@ -531,6 +547,6 @@
 
 <style scoped>
     .settings-storage-legend {
-        grid-template-columns: minmax(0, 1fr) repeat(3, max-content);
+        grid-template-columns: minmax(0, 1fr) repeat(2, max-content);
     }
 </style>
