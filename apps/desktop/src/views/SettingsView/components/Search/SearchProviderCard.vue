@@ -191,7 +191,7 @@
                             transition: contentExitTransition,
                         }"
                         :transition="contentEnterTransition"
-                        class="shrink-0"
+                        class="shrink-0 -translate-y-px"
                     >
                         <Badge variant="source" :data-testid="`search-provider-quota-${id}`">
                             {{ quota }}
