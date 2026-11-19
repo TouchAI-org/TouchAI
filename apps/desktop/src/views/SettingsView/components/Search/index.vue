@@ -294,6 +294,23 @@
         },
     };
 
+    const sourcePreviewProvider: Record<SearchSource, SearchProviderId> = {
+        general: 'anysearch',
+        news: 'brave',
+        community: 'zhihu',
+        academic: 'openalex',
+        code: 'github',
+        official: 'keenable',
+        realtime: 'grok',
+    };
+
+    function routePreviewProvider(source: SearchSource): SearchProviderId {
+        const routed = draft.value.sourceRoutes[source];
+        if (routed !== 'auto') return routed;
+        const preferred = sourcePreviewProvider[source];
+        return providerConfig(preferred).enabled ? preferred : draft.value.defaultProvider;
+    }
+
     const providerOptions = computed(() =>
         SEARCH_PROVIDER_IDS.filter(
             (providerId) => providerId === 'auto' || draft.value.providers[providerId].enabled
@@ -746,8 +763,8 @@
                                 "
                             >
                                 <img
-                                    v-if="draft.sourceRoutes[branch.source] !== 'auto'"
-                                    :src="providerLogos[draft.sourceRoutes[branch.source]]"
+                                    v-if="routePreviewProvider(branch.source) !== 'auto'"
+                                    :src="providerLogos[routePreviewProvider(branch.source)]"
                                     alt=""
                                     class="size-6 object-contain"
                                 />
