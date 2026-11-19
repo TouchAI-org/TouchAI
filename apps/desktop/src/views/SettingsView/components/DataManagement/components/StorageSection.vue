@@ -428,6 +428,7 @@
                 </p>
             </details>
         </div>
+        <slot />
     </section>
 </template>
 

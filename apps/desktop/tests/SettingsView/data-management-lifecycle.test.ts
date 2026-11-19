@@ -32,6 +32,25 @@ async function openDataManagement() {
     return wrapper;
 }
 
+async function chooseHistoryAction(view: VueWrapper, target: string) {
+    await view.get('[data-testid="settings-storage-cleanup"]').trigger('click');
+    await flushPromises();
+    document.querySelector<HTMLButtonElement>('[data-testid="storage-choice-database"]')!.click();
+    await flushPromises();
+    if (target === 'data-clear-sessions') return;
+    document
+        .querySelector<HTMLButtonElement>('[data-testid="storage-database-scope"]')!
+        .dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await flushPromises();
+    const label = target === 'data-clear-messages' ? 'Clear all messages' : 'Clear call details';
+    const choice = [...document.querySelectorAll<HTMLElement>('[role=option]')].find((option) =>
+        option.textContent?.includes(label)
+    );
+    expect(choice).toBeDefined();
+    choice!.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+    await flushPromises();
+}
+
 beforeEach(() => {
     pinia = createPinia();
     setLocale('en-US');
@@ -45,8 +64,8 @@ beforeEach(() => {
         };
     });
     mockTauriCommand('storage_scan', () => ({
-        categories: [],
-        totalBytes: 0,
+        categories: [{ id: 'database', bytes: 1024, reclaimableBytes: 0, fileCount: 1 }],
+        totalBytes: 1024,
         reclaimableBytes: 0,
         databaseFreeBytes: 0,
         warnings: [],
@@ -62,6 +81,12 @@ beforeEach(() => {
     }));
     mockTauriCommand('obs_diagnostic_mode_status', () => ({ enabled: false, expiresAtMs: 0 }));
     mockTauriCommand('obs_preview_bundle', () => ({ files: [], totalBytes: 0, truncated: false }));
+    mockTauriCommand('storage_get_location', () => ({
+        currentPath: 'C:/fixture',
+        pendingPath: null,
+        notice: null,
+        previousPath: null,
+    }));
 });
 
 afterEach(async () => {
@@ -96,13 +121,7 @@ describe('given history controls are shown alongside storage maintenance', () =>
             busy: true,
         }));
         const view = await openDataManagement();
-        for (const target of [
-            'data-clear-sessions',
-            'data-clear-messages',
-            'data-clear-turns',
-            'export-settings',
-            'import-settings',
-        ]) {
+        for (const target of ['storage-cleanup', 'export-settings', 'import-settings']) {
             expect(
                 view.get<HTMLButtonElement>(`[data-settings-search-target="${target}"] button`)
                     .element.disabled
@@ -121,56 +140,50 @@ describe('given history controls are shown alongside storage maintenance', () =>
         await flushPromises();
 
         expect(
-            view.get<HTMLButtonElement>(
-                '[data-settings-search-target="data-clear-sessions"] button'
-            ).element.disabled
+            view.get<HTMLButtonElement>('[data-settings-search-target="storage-cleanup"] button')
+                .element.disabled
         ).toBe(false);
     });
 
-    it('user sees deleted history counts and a reclaim warning when file cleanup fails after deletion committed', async () => {
+    it('user clears history and sees the committed result with a file cleanup warning', async () => {
         const warning = vi.spyOn(toast, 'warning');
         const view = await openDataManagement();
-        mockTauriCommand('storage_clear_history', () => {
-            mockTauriCommand('database_query', (payload: unknown) => {
-                const { request } = payload as { request: DatabaseQueryRequest };
-                return {
-                    rows: request.sql.includes('count(') ? [{ count: 0 }] : [],
-                    rowsAffected: 0,
-                    lastInsertId: null,
-                };
-            });
-            throw 'storage_history_committed:storage_io_failed';
+        mockTauriCommand('storage_cleanup_selected', () => ({
+            removedFiles: 1,
+            releasedBytes: 0,
+            pendingBytes: 0,
+            failedFiles: 1,
+            failures: [{ path: 'fixture/locked.png', code: 'storage_io_failed' }],
+            summary: {
+                categories: [],
+                totalBytes: 0,
+                reclaimableBytes: 0,
+                databaseFreeBytes: 0,
+                warnings: [],
+                busy: false,
+            },
+        }));
+        await chooseHistoryAction(view, 'data-clear-sessions');
+        clickButton(document.querySelector('[role=dialog]')!, 'Delete selected');
+        await flushPromises();
+        expect(view.text()).toContain('Files removed: 1.');
+        expect(warning).toHaveBeenCalledWith(expect.stringContaining('Failed files: 1.'), {
+            duration: 3000,
         });
-        await view
-            .get('[data-settings-search-target="data-clear-sessions"] button')
-            .trigger('click');
-        await flushPromises();
-        clickButton(document.querySelector('[role=alertdialog]')!, 'Confirm');
-        await flushPromises();
-        expect(
-            view.get<HTMLButtonElement>(
-                '[data-settings-search-target="data-clear-sessions"] button'
-            ).element.disabled
-        ).toBe(true);
-        expect(warning).toHaveBeenCalledWith(
-            expect.stringContaining('History was deleted, but some files could not be reclaimed'),
-            { duration: 3000 }
-        );
         warning.mockRestore();
     });
 
     it.each([
         ['conversation sessions', 'data-clear-sessions'],
         ['messages', 'data-clear-messages'],
-        ['conversation records', 'data-clear-turns'],
+        ['call details', 'data-clear-turns'],
     ])(
         'user cancels the %s history action and no native data mutation starts',
         async (_label, target) => {
             const view = await openDataManagement();
-            await view.get(`[data-settings-search-target="${target}"] button`).trigger('click');
-            await flushPromises();
+            await chooseHistoryAction(view, target);
             const requests = getTauriInvokeCalls();
-            const dialog = document.querySelector('[role=alertdialog]')!;
+            const dialog = document.querySelector('[role=dialog]')!;
             expect(dialog).not.toBeNull();
 
             clickButton(dialog, 'Cancel');
@@ -178,8 +191,9 @@ describe('given history controls are shown alongside storage maintenance', () =>
 
             expect(getTauriInvokeCalls()).toEqual(requests);
             expect(
-                view.get<HTMLButtonElement>(`[data-settings-search-target="${target}"] button`)
-                    .element.disabled
+                view.get<HTMLButtonElement>(
+                    '[data-settings-search-target="storage-cleanup"] button'
+                ).element.disabled
             ).toBe(false);
         }
     );
@@ -187,26 +201,66 @@ describe('given history controls are shown alongside storage maintenance', () =>
     it.each([
         ['conversation sessions', 'data-clear-sessions'],
         ['messages', 'data-clear-messages'],
-        ['conversation records', 'data-clear-turns'],
+        ['call details', 'data-clear-turns'],
     ])(
-        'user confirms the %s history action then immediately leaves and no detached deletion starts',
+        'user selects the %s history action then leaves before confirmation and no detached deletion starts',
         async (_label, target) => {
             const view = await openDataManagement();
-            await view.get(`[data-settings-search-target="${target}"] button`).trigger('click');
-            await flushPromises();
+            await chooseHistoryAction(view, target);
             const requests = getTauriInvokeCalls();
-            const dialog = document.querySelector('[role=alertdialog]')!;
+            const dialog = document.querySelector('[role=dialog]')!;
             expect(dialog).not.toBeNull();
 
-            clickButton(dialog, 'Confirm');
             view.unmount();
             wrapper = undefined;
+            clickButton(dialog, 'Delete selected');
             await flushPromises();
 
-            expect(document.querySelector('[role=alertdialog]')).toBeNull();
+            expect(document.querySelector('[role=dialog]')).toBeNull();
             expect(getTauriInvokeCalls()).toEqual(requests);
         }
     );
+
+    it.each([
+        ['data-clear-sessions', 'sessions'],
+        ['data-clear-messages', 'messages'],
+        ['data-clear-turns', 'turns'],
+    ])(
+        'user chooses %s and confirms then only the selected history scope is cleared',
+        async (target, kind) => {
+            mockTauriCommand('storage_cleanup_selected', () => ({
+                removedFiles: 0,
+                releasedBytes: 0,
+                pendingBytes: 0,
+                failedFiles: 0,
+                failures: [],
+                summary: {
+                    categories: [],
+                    totalBytes: 0,
+                    reclaimableBytes: 0,
+                    databaseFreeBytes: 0,
+                    warnings: [],
+                    busy: false,
+                },
+            }));
+            const view = await openDataManagement();
+            await chooseHistoryAction(view, target);
+            expect(getTauriInvokeCalls('storage_cleanup_selected')).toEqual([]);
+            clickButton(document.querySelector('[role=dialog]')!, 'Delete selected');
+            await flushPromises();
+            expect(
+                getTauriInvokeCalls('storage_cleanup_selected').map((call) => call.payload)
+            ).toEqual([{ selection: { unused: false, categories: ['database'], history: kind } }]);
+        }
+    );
+
+    it('user chooses call details and sees that messages and daily totals are retained', async () => {
+        const view = await openDataManagement();
+        await chooseHistoryAction(view, 'data-clear-turns');
+        expect(
+            document.querySelector('#storage-choice-database-description')?.textContent
+        ).toContain('keep messages and daily usage totals');
+    });
 });
 
 describe('user opens and closes data-management dialogs', () => {

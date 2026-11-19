@@ -99,31 +99,40 @@ describe('given local data settings and dialogs are displayed in English', () =>
         wrappers.push(wrapper);
         await flushPromises();
 
-        expect(wrapper.text()).toContain('Data & privacy');
+        expect(wrapper.text()).toContain('Data & storage');
         expect(wrapper.text()).not.toContain('Data statistics');
         expect(wrapper.text()).not.toContain('Conversation sessions');
         expect(searchSettings('Data statistics').map((result) => result.label)).not.toContain(
             'Data statistics'
         );
         expect(wrapper.text()).toContain('Storage');
-        expect(wrapper.text()).toContain('Clear all conversation history');
-        expect(wrapper.text()).toContain('Data updates');
-        expect(wrapper.text()).toContain('Model database');
-        expect(wrapper.text()).toContain('Last updated:');
-        expect(wrapper.text()).toContain('Data backup & restore');
+        expect(wrapper.find('[data-settings-search-target="data-clear-sessions"]').exists()).toBe(
+            false
+        );
+        expect(wrapper.text()).not.toContain('Data updates');
+        expect(wrapper.find('[data-settings-search-target="model-database"]').exists()).toBe(false);
+        expect(searchSettings('Model catalog')[0]?.section).toBe('ai-services');
+        expect(wrapper.text()).toContain('Backup & restore');
         expect(wrapper.text()).toContain('Export backup');
         expect(wrapper.text()).toContain('Import backup');
         expect(wrapper.text()).toContain('Diagnostics and support');
         expect(wrapper.text()).toContain('Privacy and product analytics');
-        expect(wrapper.text().indexOf('Diagnostics and support')).toBeLessThan(
-            wrapper.text().indexOf('Privacy and product analytics')
-        );
-        expect(wrapper.text()).toContain('Clear');
-        expect(wrapper.text()).toContain('Update');
+        expect(wrapper.findAll('h2').map((heading) => heading.text())).toEqual([
+            'Storage',
+            'Backup & restore',
+            'Privacy and product analytics',
+            'Diagnostics and support',
+        ]);
+        for (const query of [
+            'Delete all conversations',
+            'Clear all messages',
+            'Clear call details',
+        ]) {
+            expect(searchSettings(query)[0]?.targetId).toBe('storage-cleanup');
+        }
+        expect(wrapper.text()).toContain('Clean up space');
         expect(wrapper.text()).toContain('Export');
         expect(wrapper.text()).toContain('Import');
-        expect(wrapper.text()).toMatch(/May|5/);
-        expect(wrapper.text()).not.toContain('最近更新');
         expect(wrapper.text()).not.toContain('数据与隐私');
     });
 

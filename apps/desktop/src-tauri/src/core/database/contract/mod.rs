@@ -9,7 +9,6 @@ use std::{
     borrow::Cow,
     fs,
     path::{Path, PathBuf},
-    str::FromStr,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -94,8 +93,8 @@ pub(crate) async fn create_sqlite_pool(path: &Path) -> Result<SqlitePool, String
             .map_err(|error| format!("Failed to create database directory: {error}"))?;
     }
 
-    let options = SqliteConnectOptions::from_str(&format!("sqlite://{}", path.display()))
-        .map_err(|error| format!("Failed to create sqlite connect options: {error}"))?
+    let options = SqliteConnectOptions::new()
+        .filename(path)
         .create_if_missing(true)
         .journal_mode(SqliteJournalMode::Wal)
         .synchronous(SqliteSynchronous::Normal)

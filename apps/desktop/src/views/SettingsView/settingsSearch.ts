@@ -72,6 +72,7 @@ const settingDefinitions: Partial<Record<NavigationSection, SearchItemDefinition
         })),
     ],
     'ai-services': [
+        { labelKey: 'settings.dataManagement.modelDatabase', targetId: 'model-database' },
         { labelKey: 'settings.ai.providerConfigTitle', targetId: 'provider-config' },
         { labelKey: 'settings.ai.apiEndpoint', targetId: 'provider-endpoint' },
         { labelKey: 'settings.ai.apiKey', targetId: 'provider-api-key' },
@@ -135,10 +136,11 @@ const settingDefinitions: Partial<Record<NavigationSection, SearchItemDefinition
     ],
     'data-management': [
         ...STORAGE_SETTINGS_SEARCH_ITEMS,
-        { labelKey: 'settings.dataManagement.clearAllSessions', targetId: 'data-clear-sessions' },
-        { labelKey: 'settings.dataManagement.clearAllMessages', targetId: 'data-clear-messages' },
-        { labelKey: 'settings.dataManagement.clearSessionTurns', targetId: 'data-clear-turns' },
-        { labelKey: 'settings.dataManagement.modelDatabase', targetId: 'model-database' },
+        { labelKey: 'settings.dataManagement.clearAllSessions', targetId: 'storage-cleanup' },
+        { labelKey: 'settings.dataManagement.clearAllMessages', targetId: 'storage-cleanup' },
+        { labelKey: 'settings.dataManagement.clearSessionTurns', targetId: 'storage-cleanup' },
+        { labelKey: 'settings.dataManagement.retention.label', targetId: 'data-retention' },
+        { labelKey: 'settings.storage.location.title', targetId: 'data-location' },
         { labelKey: 'settings.dataManagement.exportSettings', targetId: 'export-settings' },
         { labelKey: 'settings.dataManagement.importSettings', targetId: 'import-settings' },
         {
@@ -155,7 +157,7 @@ const settingDefinitions: Partial<Record<NavigationSection, SearchItemDefinition
         },
         {
             labelKey: 'settings.diagnostics.crashRecords',
-            targetId: 'diagnostic-crashes',
+            targetId: 'storage-cleanup',
         },
         {
             labelKey: 'settings.analytics.title',

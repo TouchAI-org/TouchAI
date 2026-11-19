@@ -2,6 +2,9 @@ import { storage } from '@services/NativeService/storage';
 import { log } from '@services/ObservabilityService';
 
 export const storageService = {
+    getLocation: () => storage.getLocation(),
+    scheduleMove: (destination: string) => storage.scheduleMove(destination),
+    cancelMove: () => storage.cancelMove(),
     scan: () => storage.scan(),
     cleanup: (categories?: Parameters<typeof storage.cleanup>[0]) => storage.cleanup(categories),
     cleanupSelected: (selection: Parameters<typeof storage.cleanupSelected>[0]) =>

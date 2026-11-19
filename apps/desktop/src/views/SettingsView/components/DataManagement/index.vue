@@ -1,8 +1,8 @@
 <script setup lang="ts">
     import CustomSelect from '@components/CustomSelect.vue';
+    import SettingsRow from '@components/SettingsRow.vue';
     import { Button } from '@components/ui/button';
     import { useAlert } from '@composables/useAlert';
-    import { useConfirm } from '@composables/useConfirm';
     import {
         databaseBackup,
         DatabaseBackupCancelledError,
@@ -10,24 +10,15 @@
         isDatabaseBackupCancelledError,
         isDatabaseBackupCommittedError,
     } from '@database/backup';
-    import {
-        countMessages,
-        countSessions,
-        countSessionTurns,
-        getStatistic,
-    } from '@database/queries';
     import { setMeta } from '@database/queries/touchaiMeta';
-    import { MetaKey, StatisticKey } from '@database/schema';
+    import { MetaKey } from '@database/schema';
     import { log } from '@services/ObservabilityService';
     import { relaunch } from '@tauri-apps/plugin-process';
     import { useStateMachine } from 'reka-ui';
-    import { computed, onMounted, onUnmounted, ref } from 'vue';
+    import { computed, onUnmounted, ref } from 'vue';
 
     import { t, tt } from '@/i18n';
-    import { formatDateTime } from '@/i18n/format';
-    import { updateModelMetadata } from '@/services/AgentService/infrastructure/modelMetadata';
     import { serializeImportSuccessStartupPayload } from '@/services/StartupService';
-    import { storageService } from '@/services/StorageService';
     import { useSettingsStore } from '@/stores/settings';
 
     defineOptions({
@@ -36,21 +27,10 @@
 
     import AnalyticsSection from './components/AnalyticsSection.vue';
     import BackupScopeDialog from './components/BackupScopeDialog.vue';
+    import DataLocationRow from './components/DataLocationRow.vue';
     import DiagnosticsSection from './components/DiagnosticsSection.vue';
     import ProgressDialog from './components/ProgressDialog.vue';
     import StorageSection from './components/StorageSection.vue';
-
-    interface DataStats {
-        sessions: number;
-        messages: number;
-        sessionTurns: number;
-    }
-
-    const stats = ref<DataStats>({
-        sessions: 0,
-        messages: 0,
-        sessionTurns: 0,
-    });
 
     // Dialog states
     const DIALOG_LIFECYCLE = {
@@ -86,15 +66,16 @@
     const restartCountdown = ref<number | null>(null);
 
     const isLoading = ref(false);
-    const storageSection = ref<InstanceType<typeof StorageSection> | null>(null);
     const storageBusy = ref(false);
-    const dataActionsDisabled = computed(() => isLoading.value || storageBusy.value);
-    const modelMetadataLastUpdatedAt = ref<string | null>(null);
+    const locationBusy = ref(false);
+    const cleanupVersion = ref(0);
+    const dataActionsDisabled = computed(
+        () => isLoading.value || storageBusy.value || locationBusy.value
+    );
     let countdownTimer: ReturnType<typeof setInterval> | null = null;
     let disposed = false;
 
     const alert = useAlert();
-    const { confirm } = useConfirm();
     const settingsStore = useSettingsStore();
 
     /** 调用明细保留策略，默认永久（0） */
@@ -123,69 +104,7 @@
         }
     }
 
-    const modelMetadataUpdatedText = computed(() => {
-        if (!modelMetadataLastUpdatedAt.value) {
-            return t('settings.dataManagement.lastUpdatedNone');
-        }
-
-        const date = new Date(modelMetadataLastUpdatedAt.value);
-        if (Number.isNaN(date.getTime())) {
-            return t('settings.dataManagement.lastUpdated', {
-                time: modelMetadataLastUpdatedAt.value,
-            });
-        }
-
-        return t('settings.dataManagement.lastUpdated', {
-            time: formatDateTime(date),
-        });
-    });
-
     const translateDataManagementMessage = (text: string) => tt(text);
-
-    const loadMetadataUpdatedAt = async () => {
-        const value = await getStatistic({
-            key: StatisticKey.MODEL_METADATA_LAST_UPDATED_AT,
-        });
-        if (!disposed) modelMetadataLastUpdatedAt.value = value;
-    };
-
-    const loadStats = async () => {
-        if (disposed) return;
-        try {
-            const [sessionsCount, messagesCount, sessionTurnsCount] = await Promise.all([
-                countSessions(),
-                countMessages(),
-                countSessionTurns(),
-            ]);
-            if (disposed) return;
-
-            stats.value = {
-                sessions: sessionsCount,
-                messages: messagesCount,
-                sessionTurns: sessionTurnsCount,
-            };
-        } catch (error) {
-            if (disposed) return;
-            log.error('Failed to load stats:', error);
-            alert.error(t('settings.dataManagement.loadStatsFailed'));
-        }
-    };
-
-    async function recoverCommittedClear(error: unknown): Promise<boolean> {
-        const message =
-            typeof error === 'string' ? error : error instanceof Error ? error.message : '';
-        if (!message.startsWith('storage_history_committed:')) return false;
-        if (!disposed) {
-            await loadStats();
-            await storageSection.value?.refresh();
-            alert.warning(t('settings.storage.historyCleanupPending'));
-        }
-        return true;
-    }
-
-    onMounted(async () => {
-        await Promise.all([loadStats(), loadMetadataUpdatedAt()]);
-    });
 
     onUnmounted(() => {
         disposed = true;
@@ -201,87 +120,6 @@
             );
         }
     });
-
-    const handleClearSessions = async () => {
-        if (disposed || dataActionsDisabled.value) return;
-        const confirmed = await confirm({
-            title: t('settings.dataManagement.clearAllSessions'),
-            message: t('settings.dataManagement.clearAllSessionsConfirm'),
-            type: 'danger',
-        });
-
-        if (confirmed && !disposed && !dataActionsDisabled.value) {
-            try {
-                isLoading.value = true;
-                await storageService.clearHistory('sessions');
-                if (disposed) return;
-                alert.success(t('settings.dataManagement.clearSessionsSuccess'));
-                await loadStats();
-                await storageSection.value?.refresh();
-            } catch (error) {
-                log.error('Failed to clear sessions:', error);
-                if (disposed) return;
-                if (await recoverCommittedClear(error)) return;
-                alert.error(t('settings.dataManagement.clearSessionsFailed'));
-            } finally {
-                if (!disposed) isLoading.value = false;
-            }
-        }
-    };
-
-    const handleClearMessages = async () => {
-        if (disposed || dataActionsDisabled.value) return;
-        const confirmed = await confirm({
-            title: t('settings.dataManagement.clearAllMessages'),
-            message: t('settings.dataManagement.clearAllMessagesConfirm'),
-            type: 'danger',
-        });
-
-        if (confirmed && !disposed && !dataActionsDisabled.value) {
-            try {
-                isLoading.value = true;
-                await storageService.clearHistory('messages');
-                if (disposed) return;
-                alert.success(t('settings.dataManagement.clearMessagesSuccess'));
-                await loadStats();
-                await storageSection.value?.refresh();
-            } catch (error) {
-                log.error('Failed to clear messages:', error);
-                if (disposed) return;
-                if (await recoverCommittedClear(error)) return;
-                alert.error(t('settings.dataManagement.clearMessagesFailed'));
-            } finally {
-                if (!disposed) isLoading.value = false;
-            }
-        }
-    };
-
-    const handleClearSessionTurns = async () => {
-        if (disposed || dataActionsDisabled.value) return;
-        const confirmed = await confirm({
-            title: t('settings.dataManagement.clearSessionTurns'),
-            message: t('settings.dataManagement.clearSessionTurnsConfirm'),
-            type: 'danger',
-        });
-
-        if (confirmed && !disposed && !dataActionsDisabled.value) {
-            try {
-                isLoading.value = true;
-                await storageService.clearHistory('turns');
-                if (disposed) return;
-                alert.success(t('settings.dataManagement.clearSessionTurnsSuccess'));
-                await loadStats();
-                await storageSection.value?.refresh();
-            } catch (error) {
-                log.error('Failed to clear session turns:', error);
-                if (disposed) return;
-                if (await recoverCommittedClear(error)) return;
-                alert.error(t('settings.dataManagement.clearSessionTurnsFailed'));
-            } finally {
-                if (!disposed) isLoading.value = false;
-            }
-        }
-    };
 
     // 更新进度弹窗
     const updateProgress = (message: string, progress: number = 0) => {
@@ -467,25 +305,6 @@
             if (!disposed) isLoading.value = false;
         }
     };
-
-    const handleUpdateModelMetadata = async () => {
-        try {
-            isLoading.value = true;
-
-            const result = await updateModelMetadata();
-            await loadMetadataUpdatedAt();
-            alert.success(
-                result.status === 'unchanged'
-                    ? t('settings.dataManagement.modelDatabaseAlreadyUpToDate')
-                    : t('settings.dataManagement.modelDatabaseUpdated')
-            );
-        } catch (error) {
-            log.error('Failed to update model metadata:', error);
-            alert.error(t('settings.dataManagement.updateModelDatabaseFailed'));
-        } finally {
-            isLoading.value = false;
-        }
-    };
 </script>
 
 <template>
@@ -496,172 +315,45 @@
             </header>
 
             <StorageSection
-                ref="storageSection"
-                :disabled="isLoading"
+                :disabled="isLoading || locationBusy"
                 @busy-change="storageBusy = $event"
-                @cleaned="loadStats"
-            />
-
-            <section class="space-y-4">
-                <h2 class="settings-section-title">{{ t('settings.dataManagement.history') }}</h2>
-                <div
-                    data-testid="settings-data-history-list"
-                    class="settings-row-group divide-y divide-neutral-200/70"
-                >
-                    <div
-                        data-testid="settings-data-history-item"
-                        data-settings-search-target="data-clear-sessions"
-                        class="flex items-center justify-between gap-5 rounded-none bg-transparent px-5 py-4"
-                    >
-                        <div>
-                            <div class="text-sm font-medium text-neutral-950">
-                                {{ t('settings.dataManagement.clearAllSessions') }}
-                            </div>
-                            <div class="mt-1 text-xs text-neutral-500">
-                                {{ t('settings.dataManagement.clearAllSessionsDescription') }}
-                            </div>
-                        </div>
-                        <Button
-                            variant="danger"
-                            :disabled="dataActionsDisabled || stats.sessions === 0"
-                            @click="handleClearSessions"
-                        >
-                            {{ t('common.clear') }}
-                        </Button>
-                    </div>
-
-                    <div
-                        data-testid="settings-data-history-item"
-                        data-settings-search-target="data-clear-messages"
-                        class="flex items-center justify-between gap-5 rounded-none bg-transparent px-5 py-4"
-                    >
-                        <div>
-                            <div class="text-sm font-medium text-neutral-950">
-                                {{ t('settings.dataManagement.clearAllMessages') }}
-                            </div>
-                            <div class="mt-1 text-xs text-neutral-500">
-                                {{ t('settings.dataManagement.clearAllMessagesDescription') }}
-                            </div>
-                        </div>
-                        <Button
-                            variant="danger"
-                            :disabled="dataActionsDisabled || stats.messages === 0"
-                            @click="handleClearMessages"
-                        >
-                            {{ t('common.clear') }}
-                        </Button>
-                    </div>
-
-                    <div
-                        data-testid="settings-data-history-item"
-                        data-settings-search-target="data-clear-turns"
-                        class="flex items-center justify-between gap-5 rounded-none bg-transparent px-5 py-4"
-                    >
-                        <div>
-                            <div class="text-sm font-medium text-neutral-950">
-                                {{ t('settings.dataManagement.clearSessionTurns') }}
-                            </div>
-                            <div class="mt-1 text-xs text-neutral-500">
-                                {{ t('settings.dataManagement.clearSessionTurnsDescription') }}
-                            </div>
-                        </div>
-                        <Button
-                            variant="danger"
-                            :disabled="dataActionsDisabled || stats.sessionTurns === 0"
-                            @click="handleClearSessionTurns"
-                        >
-                            {{ t('common.clear') }}
-                        </Button>
-                    </div>
-                </div>
-            </section>
-
-            <section class="space-y-4">
-                <div>
-                    <h2 class="settings-section-title">
-                        {{ t('settings.dataManagement.retention.title') }}
-                    </h2>
-                    <p class="settings-section-description">
-                        {{ t('settings.dataManagement.retention.description') }}
-                    </p>
-                </div>
-
-                <div class="settings-row-group">
-                    <div
+                @cleaned="cleanupVersion++"
+            >
+                <div class="settings-row-group divide-y divide-border-subtle">
+                    <DataLocationRow
+                        :disabled="isLoading || storageBusy"
+                        @busy-change="locationBusy = $event"
+                    />
+                    <SettingsRow
                         data-testid="settings-data-retention-row"
-                        class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_180px] sm:items-center"
+                        data-settings-search-target="data-retention"
+                        control-width="180"
+                        :label="t('settings.dataManagement.retention.label')"
+                        :description="t('settings.dataManagement.retention.description')"
                     >
-                        <div>
-                            <div class="text-sm font-medium text-neutral-950">
-                                {{ t('settings.dataManagement.retention.label') }}
-                            </div>
-                            <div class="mt-1 text-xs text-neutral-500">
-                                {{ t('settings.dataManagement.retention.hint') }}
-                            </div>
-                        </div>
-                        <div class="ml-auto w-[180px]">
-                            <CustomSelect
-                                :model-value="settingsStore.usageDetailRetentionDays"
-                                :options="retentionOptions"
-                                :disabled="savingRetention || dataActionsDisabled"
-                                trigger-test-id="settings-data-retention-trigger"
-                                @update:model-value="saveRetention"
-                            />
-                        </div>
-                    </div>
+                        <CustomSelect
+                            :model-value="settingsStore.usageDetailRetentionDays"
+                            :options="retentionOptions"
+                            :disabled="savingRetention || dataActionsDisabled"
+                            trigger-test-id="settings-data-retention-trigger"
+                            @update:model-value="saveRetention"
+                        />
+                    </SettingsRow>
                 </div>
-            </section>
-
-            <section class="space-y-4">
-                <h2 class="settings-section-title">
-                    {{ t('settings.dataManagement.dataUpdates') }}
-                </h2>
-                <div class="settings-row-group">
-                    <div
-                        data-testid="settings-data-plain-row"
-                        data-settings-search-target="model-database"
-                        class="flex items-center justify-between gap-5 rounded-none bg-transparent px-5 py-4"
-                    >
-                        <div>
-                            <div class="text-sm font-medium text-neutral-950">
-                                {{ t('settings.dataManagement.modelDatabase') }}
-                            </div>
-                            <div class="mt-1 text-xs text-neutral-500">
-                                {{ t('settings.dataManagement.modelDatabaseDescription') }}
-                            </div>
-                            <div class="mt-1 text-xs text-neutral-500">
-                                {{ modelMetadataUpdatedText }}
-                            </div>
-                        </div>
-                        <Button
-                            variant="strong"
-                            :disabled="dataActionsDisabled"
-                            @click="handleUpdateModelMetadata"
-                        >
-                            {{ t('common.update') }}
-                        </Button>
-                    </div>
-                </div>
-            </section>
+            </StorageSection>
 
             <section class="space-y-4">
                 <h2 class="settings-section-title">
                     {{ t('settings.dataManagement.settingsBackup') }}
                 </h2>
-                <div class="settings-row-group divide-y divide-neutral-200/70">
-                    <div
+                <div class="settings-row-group divide-y divide-border-subtle">
+                    <SettingsRow
                         data-testid="settings-data-plain-row"
                         data-settings-search-target="export-settings"
-                        class="flex items-center justify-between gap-5 rounded-none bg-transparent px-5 py-4"
+                        control-width="auto"
+                        :label="t('settings.dataManagement.exportSettings')"
+                        :description="t('settings.dataManagement.exportSettingsDescription')"
                     >
-                        <div>
-                            <div class="text-sm font-medium text-neutral-950">
-                                {{ t('settings.dataManagement.exportSettings') }}
-                            </div>
-                            <div class="mt-1 text-xs text-neutral-500">
-                                {{ t('settings.dataManagement.exportSettingsDescription') }}
-                            </div>
-                        </div>
                         <Button
                             variant="strong"
                             :disabled="dataActionsDisabled"
@@ -669,21 +361,15 @@
                         >
                             {{ t('common.export') }}
                         </Button>
-                    </div>
+                    </SettingsRow>
 
-                    <div
+                    <SettingsRow
                         data-testid="settings-data-plain-row"
                         data-settings-search-target="import-settings"
-                        class="flex items-center justify-between gap-5 rounded-none bg-transparent px-5 py-4"
+                        control-width="auto"
+                        :label="t('settings.dataManagement.importSettings')"
+                        :description="t('settings.dataManagement.importSettingsDescription')"
                     >
-                        <div>
-                            <div class="text-sm font-medium text-neutral-950">
-                                {{ t('settings.dataManagement.importSettings') }}
-                            </div>
-                            <div class="mt-1 text-xs text-neutral-500">
-                                {{ t('settings.dataManagement.importSettingsDescription') }}
-                            </div>
-                        </div>
                         <Button
                             variant="strong"
                             :disabled="dataActionsDisabled"
@@ -691,13 +377,13 @@
                         >
                             {{ t('common.import') }}
                         </Button>
-                    </div>
+                    </SettingsRow>
                 </div>
             </section>
 
-            <DiagnosticsSection />
-
             <AnalyticsSection />
+
+            <DiagnosticsSection :refresh-token="cleanupVersion" />
 
             <BackupScopeDialog
                 v-if="isImportModeDialogMounted"

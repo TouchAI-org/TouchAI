@@ -17,6 +17,7 @@ export interface StorageCategoryUsage {
     bytes: number;
     reclaimableBytes: number;
     fileCount: number;
+    olderThanDays?: Partial<Record<7 | 30 | 90, number>>;
 }
 
 export interface StorageSummary {
@@ -41,12 +42,22 @@ export interface StorageCleanupResult {
 export interface StorageCleanupSelection {
     unused: boolean;
     categories: StorageCategory[];
+    olderThanDays?: Partial<Record<StorageCategory, 7 | 30 | 90>>;
+    history?: StorageHistoryKind;
+    logScope?: 'activity' | 'crashes';
 }
 
 export interface StorageCompactionResult {
     beforeBytes: number;
     afterBytes: number;
     releasedBytes: number;
+}
+
+export interface DataLocationInfo {
+    currentPath: string;
+    pendingPath: string | null;
+    notice: string | null;
+    previousPath: string | null;
 }
 
 export interface StoragePublishedAttachment {
@@ -63,6 +74,15 @@ export const SAFE_STORAGE_CATEGORIES: readonly StorageCategory[] = [
 ];
 
 export const storage = {
+    getLocation(): Promise<DataLocationInfo> {
+        return invoke('storage_get_location');
+    },
+    scheduleMove(destination: string): Promise<DataLocationInfo> {
+        return invoke('storage_schedule_move', { destination });
+    },
+    cancelMove(): Promise<DataLocationInfo> {
+        return invoke('storage_cancel_move');
+    },
     scan(): Promise<StorageSummary> {
         return invoke('storage_scan');
     },

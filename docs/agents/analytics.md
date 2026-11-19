@@ -150,7 +150,8 @@ location from it for abuse prevention and aggregate geographic usage analysis.
 That receiver-side processing is outside the analytics envelope and must be
 described accurately in the user-facing privacy disclosure.
 
-The user-facing analytics description must state that events are linked to a
+The user-facing analytics setting uses a concise summary and an adjacent privacy
+details action. The full disclosure must state that events are linked to a
 random installation id, that the receiver may associate IP address and coarse
 location for abuse prevention and geographic usage analysis, and that disabling
 analytics stops event delivery while pseudonymous installation and observation

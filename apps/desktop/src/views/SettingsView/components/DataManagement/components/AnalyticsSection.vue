@@ -1,5 +1,8 @@
 <script setup lang="ts">
+    import DialogShell from '@components/DialogShell.vue';
     import SettingsRow from '@components/SettingsRow.vue';
+    import { Button } from '@components/ui/button';
+    import { DialogDescription, DialogTitle } from '@components/ui/dialog';
     import { Switch } from '@components/ui/switch';
     import { native } from '@services/NativeService';
     import type { AnalyticsState } from '@services/NativeService/types';
@@ -20,6 +23,7 @@
         buildEligible: false,
         transportReady: false,
     });
+    const detailsOpen = ref(false);
 
     function logState() {
         log.debug('[Analytics] State', {
@@ -64,6 +68,16 @@
                 :label="t('settings.analytics.share')"
                 :description="t('settings.analytics.shareDescription')"
             >
+                <template #description>
+                    <Button
+                        variant="link"
+                        size="sm"
+                        data-testid="settings-analytics-details"
+                        @click="detailsOpen = true"
+                    >
+                        {{ t('settings.analytics.privacyDetails') }}
+                    </Button>
+                </template>
                 <Switch
                     size="lg"
                     data-testid="settings-analytics-toggle"
@@ -77,5 +91,9 @@
                 />
             </SettingsRow>
         </div>
+        <DialogShell :open="detailsOpen" dismissible @close="detailsOpen = false">
+            <DialogTitle>{{ t('settings.analytics.privacyDetails') }}</DialogTitle>
+            <DialogDescription>{{ t('settings.analytics.fullDisclosure') }}</DialogDescription>
+        </DialogShell>
     </section>
 </template>

@@ -8,4 +8,5 @@ mod runtime;
 
 pub use protocol::types;
 
+pub(crate) use runtime::relocation::remap as remap_storage_paths;
 pub use runtime::DatabaseRuntime;

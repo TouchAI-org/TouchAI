@@ -6,6 +6,7 @@ mod analytics_snapshot;
 mod bundle;
 mod executor;
 mod import;
+pub(crate) mod relocation;
 
 use std::{
     collections::HashMap,

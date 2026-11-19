@@ -97,6 +97,17 @@ async function confirm() {
     await flushPromises();
 }
 
+async function chooseOption(trigger: string, label: string) {
+    control(trigger).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await flushPromises();
+    const option = [...document.querySelectorAll<HTMLElement>('[role=option]')].find((option) =>
+        option.textContent?.includes(label)
+    );
+    expect(option).toBeDefined();
+    option!.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+    await flushPromises();
+}
+
 beforeEach(() => {
     vi.useFakeTimers();
     setLocale('en-US');
@@ -221,6 +232,28 @@ describe('given storage contains unused files and retained user data', () => {
         );
     });
 
+    it('user selects logs older than thirty days and sees only that range in the estimate and deletion request', async () => {
+        mockTauriCommand('storage_scan', () =>
+            usage({
+                categories: usage().categories.map((category) =>
+                    category.id === 'logs'
+                        ? { ...category, olderThanDays: { 7: 5 * MIB, 30: MIB, 90: 0 } }
+                        : category
+                ),
+            })
+        );
+        await openCleanup(await openStorage());
+        control('storage-choice-unused').click();
+        control('storage-choice-logs').click();
+        await flushPromises();
+        await chooseOption('storage-range-logs', 'Older than 30 days');
+        expect(dialog().textContent).toContain('Up to 1 MiB');
+        await confirm();
+        expect(getLastTauriInvokeCall('storage_cleanup_selected')?.payload).toEqual({
+            selection: { unused: false, categories: ['logs'], olderThanDays: { logs: 30 } },
+        });
+    });
+
     it('user deselects all categories and returns to only unused files', async () => {
         await openCleanup(await openStorage());
         control('storage-choice-all').click();
@@ -229,6 +262,24 @@ describe('given storage contains unused files and retained user data', () => {
         await flushPromises();
         expect(dialog().textContent).toContain('Up to 8 MiB');
         expect(control('storage-cleanup-confirm').textContent).toContain('Clean up');
+    });
+
+    it('user selects old crash records then sends both log type and time range', async () => {
+        await openCleanup(await openStorage());
+        control('storage-choice-unused').click();
+        control('storage-choice-logs').click();
+        await flushPromises();
+        await chooseOption('storage-log-scope', 'Crash records');
+        await chooseOption('storage-range-logs', 'Older than 7 days');
+        await confirm();
+        expect(getLastTauriInvokeCall('storage_cleanup_selected')?.payload).toEqual({
+            selection: {
+                unused: false,
+                categories: ['logs'],
+                olderThanDays: { logs: 7 },
+                logScope: 'crashes',
+            },
+        });
     });
 
     it('user cancels a destructive selection and reopening restores the unused default', async () => {
@@ -468,6 +519,7 @@ describe('given cleanup reports partial results or requires restart', () => {
         await openCleanup(view);
         control('storage-choice-database').click();
         await flushPromises();
+        await chooseOption('storage-database-scope', 'All local data and settings');
         await confirm();
         expect(getTauriInvokeCalls('plugin:process|restart')).toHaveLength(1);
         expect(view.emitted('cleaned')).toBeUndefined();

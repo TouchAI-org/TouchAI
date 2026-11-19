@@ -6,11 +6,19 @@ The maintainer authorized the complete storage design without a separate issue o
 
 The maintainer also explicitly authorized deletion of every managed storage category, including conversations and other important data after a warning. The selection-dialog revision changes deletion behavior without adding or modifying a migration.
 
+The maintainer subsequently requested partial cleanup ranges, consolidation of overlapping history deletion controls into storage cleanup, and moving the data location. This authorizes those deletion and relocation behaviors without a schema migration. Relocation must stage and verify an independent copy, rewrite managed path references in the copied database, switch the root only after success, and preserve the source on failure.
+
 ## Acceptance scenarios
 
 - Given the storage overview, when the user chooses Clean up space, then one dialog lists every managed category with checkboxes; the overview has no per-category maintenance buttons.
 - Given the cleanup dialog, when the user reviews any item before selecting it, then gray text beside its name explains its contents and any material deletion consequence; low-risk items have no extra warning.
-- Given Data & privacy settings, when the user opens the page or searches settings, then the duplicate data statistics block and its search result are absent; the storage overview and history controls remain available.
+- Given Data & storage settings, when the user opens the page or searches settings, then the duplicate data statistics block and its search result are absent; the storage overview and history controls remain available.
+- Given the data settings page, when the user reads from top to bottom, then storage and retention, backup and restore, privacy, and diagnostics are grouped by purpose; history deletion is part of storage cleanup and model catalog updates live under Providers & models.
+- Given storage cleanup, when the user selects Database, then they can choose conversations, messages, call details, or all local data; consequences appear with the choice before explicit confirmation.
+- Given files with different modification dates, when the user chooses an older-than range, then only files within that range are deleted; invalid ranges are rejected and recent file references remain valid.
+- Given a new data location, when the user confirms and restarts, then all managed directories and their path references move together; occupied destinations, overlapping paths, redirects, insufficient space, and copy failures leave the original usable.
+- Given the product analytics choice, when the user reads its description, then a two-sentence summary explains what is shared and how to stop sharing; the full privacy disclosure is available without changing consent.
+- Given a settings search for a moved or consolidated action, when the user selects its result, then it leads to a visible control in the owning section.
 - Given selected categories contain personal data, when the user reviews the selection, then the dialog describes the loss and still allows explicit deletion. Database deletion clears conversations, usage and local configuration, then requires a restart; it never deletes the live SQLite file or schema.
 - Given referenced attachments or managed screenshots are explicitly selected for deletion, when cleanup completes, then their managed bytes and matching file references are removed without erasing unrelated conversation text or touching external originals. Subsequent backups remain valid.
 - Given browser data or installed resources are selected, when cleanup starts, then the corresponding managed runtimes stop and their writers cannot race the deletion. Files outside the measured managed roots remain untouched.
@@ -50,7 +58,7 @@ Rust owns filesystem publication, physical identity accounting, cleanup and the 
 
 Hard links are not snapshots and are never used to adopt external user files. Published attachment content is immutable: no truncate-and-write of an existing hash path. A hard link is permitted only between managed, verified, byte-identical files within one trust domain; paths exposed as editable outputs need independent copies. Original and normalized images remain distinct when their bytes differ. Business references, not link counts, determine whether content may be removed.
 
-The default unused-file cleanup processes recognized files under managed roots, protects attachment rows and referenced app-owned originals, and recovers reusable database space. Explicit category selection removes all files in that category, including referenced and recent files, after displaying the consequences. Both paths reject reparse points and unknown filesystem identities, scan before mutation, and run under the storage and database maintenance gates. Native removal still validates every file's physical identity.
+The default unused-file cleanup processes recognized files under managed roots, protects attachment rows and referenced app-owned originals, and recovers reusable database space. Explicit category selection removes files in the chosen category and range, including referenced files, after displaying the consequences. The default range is all time; file categories other than browser data and installed resources also offer files modified more than 7, 30 or 90 days ago. Logs additionally distinguish application activity and crash records. Both paths reject reparse points and unknown filesystem identities, scan before mutation, and run under the storage and database maintenance gates. Native removal still validates every file's physical identity.
 
 Explicit file deletion prunes attachment associations and matching metadata paths in messages, prompt snapshots and recovery attempts while retaining conversation text. Removing an app-owned original alone updates its attachment row to the saved cached copy. JSON processing uses bounded pages and depth/node budgets. Database deletion runs a transaction that clears user rows without altering the schema or migration history, compacts the remaining database, then closes the shared pool to prevent stale windows from rewriting deleted data before restart. Font and driver deletion also requires restart. Filesystem or compaction failures after committed metadata changes remain visible in the result.
 
@@ -60,13 +68,41 @@ Full backups use an independent compressed archive, a versioned manifest and SHA
 
 The ring shows total physical usage. Its legend lists every category once, largest first, with its occupied bytes. Hovering or selecting an occupied category shows its size, share and file count in the ring; the category tooltip also exposes the count and share. Empty categories stay in the list, including files that occupy zero bytes.
 
-The button under the ring reads Clean up space. A shadcn/vue-style Dialog with Reka UI Checkbox primitives contains the unused-file option, every measured category and select-all. Each name is followed by a gray description of its contents and any material deletion consequence, visible before selection and associated with the checkbox for assistive technology. Low-risk items have no extra warning, and there is no separate warning block at the bottom. Database and installed-resource selections change the final action to Delete and restart. Refresh remains an icon; the category rows have no maintenance icons. Typography inherits the Settings window's Source Han Serif font. Data & privacy no longer repeats the session, message and turn counts already covered by Usage.
+The button under the ring reads Clean up space. A shadcn/vue-style Dialog with Reka UI Checkbox primitives contains the unused-file option, every measured category and select-all. Each name is followed by a gray description of its contents and any material deletion consequence, visible before selection and associated with the checkbox for assistive technology. Low-risk items have no extra warning, and there is no separate warning block at the bottom. Database offers conversations, messages, call details or all local data and settings. Only the full database reset and installed-resource selections require restart. Refresh remains an icon; the category rows have no maintenance icons. Typography inherits the Settings window's Source Han Serif font. Data & storage no longer repeats the session, message and turn counts already covered by Usage.
 
 ![Storage overview with a 2 GiB sample dataset](images/storage-overview-zh.png)
 
 ![Cleanup selection with gray descriptions beside each item](images/storage-cleanup-zh.png)
 
+Current settings and partial cleanup (real Vue components, synthetic storage data, product font):
+
+![Data and storage settings with data location and retention](images/data-storage-settings-zh.png)
+
+![Cleanup filtered to older crash records](images/storage-cleanup-range-zh.png)
+
+![English settings at the narrow content width](images/data-storage-settings-en-narrow.png)
+
 Component references: [shadcn/vue Dialog](https://www.shadcn-vue.com/docs/components/dialog) and [Checkbox](https://www.shadcn-vue.com/docs/components/checkbox). Both patterns reuse the installed Reka UI dependency.
+
+## Settings organization and product references
+
+The layout follows the actions users take: inspect and reclaim space, choose its location and retention, back up or restore, decide whether to share product statistics, and export diagnostics for troubleshooting. Model catalog maintenance belongs with providers and models. Crash deletion and the three history deletion buttons are consolidated into the cleanup dialog.
+
+- [Chrome: delete browsing data](https://support.google.com/chrome/answer/2392709?hl=en) uses one deletion flow with data types and a time range. TouchAI applies that pattern to file categories; its ranges mean older files, so they are labeled explicitly as “Older than”.
+- [VS Code: telemetry](https://code.visualstudio.com/docs/configure/telemetry) separates the consent control from detailed explanations of collection. TouchAI keeps a two-sentence summary and an adjacent full privacy disclosure.
+- [Obsidian: manage vaults](https://help.obsidian.md/manage-vaults), verified against its [official documentation source](https://github.com/obsidianmd/obsidian-help/blob/master/en/Files%20and%20folders/Manage%20vaults.md), exposes moving a data folder and requires its active window to close. TouchAI schedules relocation for the next restart before opening its database and log writers.
+
+## Moving the data location
+
+The native directory picker selects an empty destination. Confirmation shows its path and explains the restart. Scheduling holds the storage maintenance gate, validates non-overlapping physical paths and sufficient space, and persists a pending destination. Cancelling before restart removes only that pending choice.
+
+A small `data-location.json` and a lifetime profile lock remain in the original platform data directory. Startup waits at most five seconds for the previous process to release that lock, so Tauri's spawn-before-exit restart cannot race relocation. The database, logging and other writers start after the location is resolved. A missing active database stops initialization rather than creating an empty profile.
+
+Migration copies `data`, `cache`, `logs`, `assets`, `computer-use` and app-local `skills` into a private staging directory on the destination volume. External originals, separately configured external driver directories, shared home-directory skills and Tauri's platform WebView state stay in their existing locations. Copying uses existing bounded, redirect-rejecting filesystem helpers, SHA-256 checks and physical identity rechecks; hard links are recreated only between destination copies of an existing alias. File permissions, modification times and empty directories are preserved. There is no database schema change.
+
+The copied SQLite database passes integrity checking; managed absolute paths in attachment metadata, settings and recovery records are rewritten in a transaction, then WAL is checkpointed. Message text and external paths are preserved. Both the physical and platform logical source prefixes are handled. Publishing the destination precedes atomically persisting the active pointer; only then are verified source files removed. Copy, validation and pre-switch failures retain the source. Cleanup failure after switching reports the old directory while using the new data.
+
+The relocation coordinator is application code because a generic directory-copy library does not own SQLite references, the profile lock, physical alias preservation or the commit boundary. It reuses `tempfile`, `sqlx`, SHA-256 and the existing storage filesystem utilities. It conservatively requires twice the logical source size plus 64 MiB free on the destination, refuses redirects within managed directories, and bounds traversal to 100,000 entries. A process or power interruption can leave staging or published copies before pointer commit; these are not automatically swept because ownership must be established before deletion. The original pointer remains authoritative. The old app version does not understand relocation, so downgrade requires moving data back or restoring a backup.
 
 Export and restore each offer two selections, Settings and Data. Settings includes preferences and provider, model and tool configuration, including credentials. Data includes conversations, usage, search history and managed attachments. A partial ZIP carries its content scope in a version 2 manifest and contains a newly projected database with just the selected content. The file picker reads the manifest before displaying restore choices. A full ZIP keeps the version 1 format, and legacy database-only `.db` backups remain available for both scopes together on export and selective restore on import.
 
@@ -93,6 +129,10 @@ Imports match existing turns by their stable task identity, which survives messa
 ## Verification and budgets
 
 Behavior tests use synthetic databases and private fixtures, never the live application database or clipboard. The implementation is checked locally with TypeScript production/test type checks, ESLint, source formatting, and targeted database/storage/settings tests. Full `pnpm test:pr`, Rust coverage, desktop E2E, a realistic large-database migration rehearsal and installed-release measurements remain CI/release evidence; they are not claimed as locally run.
+
+For the settings/range/relocation revision, 114 frontend tests across 10 targeted suites pass (112 in the initial combined selection plus the two added location-display/diagnostics-refresh cases, with affected suites rerun after fixes). Production and test type checks, changed-file ESLint and Prettier pass. A direct `rustc --test --emit=metadata` check reused existing matching dependencies and passed for the native crate; this is not a replacement for Cargo's build-script and dependency gate. A linked native run executed all 45 storage tests: 44 passed and one fixture failed because `compact.exe` rejects a Windows canonical path. The fixture now passes a relative filename from its directory; that command was verified independently, but relinking the full suite was interrupted by insufficient disk space. The focused native executable then ran eight relocation tests and two real database migration contract tests successfully with the final source. These tests use the production SQL artifacts, connection setup, filesystem operations and relocation code.
+
+The page and expanded cleanup dialog were checked in Chinese and English at 850 and 620 CSS-pixel content widths, corresponding to the normal and minimum settings content area. All selected options remain scrollable to the footer with no horizontal overflow. Product font bytes and painted Chinese glyphs match an independent Source Han Serif reference. The running desktop preview still uses the earlier native executable; these latest screenshots are layout fixtures, not installed-app migration evidence. Full native startup/IPC/relaunch and cross-volume interruption cases remain required in CI before release.
 
 Before release, run `pnpm test:pr` and `pnpm test:e2e`, including Windows NTFS hard links, cross-volume/non-link fallback, open-handle deletion, reparse-point escape, interrupted publication, shared-attachment deletion, full backup restore and legacy `.db` restore. Check settings at minimum/default widths and both locales.
 

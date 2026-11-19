@@ -10,11 +10,26 @@ impl StorageRuntime {
     ) -> Result<StorageCleanupResult, String> {
         if selection.categories.len() > CATEGORIES.len()
             || (!selection.unused && selection.categories.is_empty())
+            || (selection.history.is_some()
+                && !selection.categories.contains(&StorageCategory::Database))
+            || (selection.log_scope.is_some()
+                && !selection.categories.contains(&StorageCategory::Logs))
+            || selection.older_than_days.iter().any(|(category, days)| {
+                !selection.categories.contains(category)
+                    || matches!(
+                        category,
+                        StorageCategory::Database
+                            | StorageCategory::Assets
+                            | StorageCategory::Browser
+                    )
+                    || !matches!(days, 7 | 30 | 90)
+            })
         {
             return Err("storage_invalid_path".into());
         }
         let _database_lease = self.database.maintenance().await?;
-        let reset = selection.categories.contains(&StorageCategory::Database);
+        let reset = selection.categories.contains(&StorageCategory::Database)
+            && selection.history.is_none();
         let physical_cache = self.physical_cache_root().await?;
         let references = if selection.unused {
             self.references(extra.clone(), false, &physical_cache)
@@ -34,12 +49,37 @@ impl StorageRuntime {
             return Err("storage_scan_incomplete".into());
         }
         let before = summarize(&entries, Vec::new(), false, 0);
+        let now = SystemTime::now();
         for entry in &mut entries {
+            let mut in_range = selection
+                .older_than_days
+                .get(&entry.category)
+                .is_none_or(|days| {
+                    now.duration_since(entry.modified).unwrap_or_default()
+                        >= Duration::from_secs(u64::from(*days) * 86_400)
+                });
+            if entry.category == StorageCategory::Logs {
+                let crash = entry
+                    .path
+                    .strip_prefix(&entry.root)
+                    .ok()
+                    .is_some_and(|relative| {
+                        relative
+                            .components()
+                            .any(|part| part.as_os_str() == "crashes")
+                    });
+                in_range &= match selection.log_scope {
+                    Some(LogScope::Crashes) => crash,
+                    Some(LogScope::Activity) => !crash,
+                    None => true,
+                };
+            }
             entry.candidate = entry.category != StorageCategory::Database
-                && (selection.categories.contains(&entry.category)
-                    || (selection.unused
-                        && SAFE_CATEGORIES.contains(&entry.category)
-                        && entry.candidate));
+                && (if selection.categories.contains(&entry.category) {
+                    in_range
+                } else {
+                    selection.unused && SAFE_CATEGORIES.contains(&entry.category) && entry.candidate
+                });
         }
         let paths = entries
             .iter()
@@ -59,11 +99,27 @@ impl StorageRuntime {
                 .await
                 .map_err(|_| "storage_io_failed")?;
         } else {
+            if let Some(kind) = selection.history {
+                let rollup = self.database.storage_artifact("rollup.sql")?;
+                let clear = self.database.storage_artifact(match kind {
+                    HistoryKind::Sessions => "clear_sessions.sql",
+                    HistoryKind::Messages => "clear_messages.sql",
+                    HistoryKind::Turns => "clear_turns.sql",
+                })?;
+                sqlx::raw_sql(sqlx::AssertSqlSafe(rollup))
+                    .execute(&mut *transaction)
+                    .await
+                    .map_err(|_| "storage_io_failed")?;
+                sqlx::raw_sql(sqlx::AssertSqlSafe(clear))
+                    .execute(&mut *transaction)
+                    .await
+                    .map_err(|_| "storage_io_failed")?;
+            }
             for id in references.orphan_ids {
                 sqlx::query("DELETE FROM attachments WHERE id = ? AND NOT EXISTS (SELECT 1 FROM message_parts WHERE attachment_id = ?)")
                     .bind(id).bind(id).execute(&mut *transaction).await.map_err(|_| "storage_io_failed")?;
             }
-            self.prune_selected_references(&mut transaction, &selection, paths, &physical_cache)
+            self.prune_selected_references(&mut transaction, paths, &physical_cache)
                 .await?;
         }
         transaction
@@ -75,7 +131,8 @@ impl StorageRuntime {
             remove_entries(entries, &CATEGORIES, &physical_cache, false)
         })
         .await;
-        let (removed_files, mut released_bytes, pending_bytes, mut failures) = match removed {
+        let (mut removed_files, mut released_bytes, mut pending_bytes, mut failures) = match removed
+        {
             Ok(Ok(result)) => result,
             _ => (
                 0,
@@ -87,7 +144,29 @@ impl StorageRuntime {
                 }],
             ),
         };
-        if reset || selection.unused {
+        if selection.history.is_some() {
+            match self
+                .cleanup_unlocked(
+                    vec![StorageCategory::Attachments, StorageCategory::Clipboard],
+                    extra.clone(),
+                    true,
+                    false,
+                )
+                .await
+            {
+                Ok(result) => {
+                    removed_files += result.removed_files;
+                    released_bytes = released_bytes.saturating_add(result.released_bytes);
+                    pending_bytes = pending_bytes.saturating_add(result.pending_bytes);
+                    failures.extend(result.failures);
+                }
+                Err(code) => failures.push(StorageFailure {
+                    path: self.cache.to_string_lossy().into_owned(),
+                    code,
+                }),
+            }
+        }
+        if reset || selection.unused || selection.history.is_some() {
             match self.compact_unlocked().await {
                 Ok(result) => released_bytes = released_bytes.saturating_add(result.released_bytes),
                 Err(code) => failures.push(StorageFailure {
@@ -120,7 +199,6 @@ impl StorageRuntime {
     async fn prune_selected_references(
         &self,
         transaction: &mut Transaction<'_, Sqlite>,
-        selection: &StorageCleanupSelection,
         paths: HashSet<String>,
         physical_cache: &Path,
     ) -> Result<(), String> {
@@ -152,9 +230,7 @@ impl StorageRuntime {
                 let hash: String = row.try_get("hash").map_err(|_| "storage_io_failed")?;
                 let kind: String = row.try_get("type").map_err(|_| "storage_io_failed")?;
                 let cached = files::attachment_path(physical_cache, &kind, &hash)?;
-                if selection.categories.contains(&StorageCategory::Attachments)
-                    || removed.paths.contains(&path_key(&cached))
-                {
+                if removed.paths.contains(&path_key(&cached)) {
                     removed.ids.insert(cursor);
                     removed.hashes.insert(hash);
                     removed.paths.insert(path_key(&cached));

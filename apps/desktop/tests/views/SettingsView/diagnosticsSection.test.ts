@@ -98,17 +98,13 @@ describe('user exports and controls diagnostics', () => {
         document.body.innerHTML = '';
     });
 
-    it('user sees crash records and can dismiss them', async () => {
+    it('user reviews diagnostics and sees crash counts without a duplicate cleanup action', async () => {
         const wrapper = mount(DiagnosticsSection);
         await flushPromises();
 
         expect(wrapper.text()).toContain('1 records');
         const dismiss = wrapper.findAll('button').find((button) => button.text() === 'Dismiss');
-        await dismiss!.trigger('click');
-        await flushPromises();
-
-        expect(mocks.dismissCrashes).toHaveBeenCalledOnce();
-        expect(mocks.previewBundle).toHaveBeenCalledTimes(2);
+        expect(dismiss).toBeUndefined();
     });
 
     it('user receives a time-limited debug mode toggle', async () => {
@@ -120,6 +116,16 @@ describe('user exports and controls diagnostics', () => {
 
         expect(mocks.setDiagnosticMode).toHaveBeenCalledWith(true);
         expect(wrapper.text()).toMatch(/(29|30):\d{2}/);
+    });
+
+    it('user deletes crash records in storage then sees the updated diagnostic count', async () => {
+        const wrapper = mount(DiagnosticsSection, { props: { refreshToken: 0 } });
+        await flushPromises();
+        expect(wrapper.text()).toContain('1 records');
+        mocks.previewBundle.mockResolvedValue({ ...mocks.preview, files: [] });
+        await wrapper.setProps({ refreshToken: 1 });
+        await flushPromises();
+        expect(wrapper.text()).not.toContain('1 records');
     });
 
     it('user confirms the file list before exporting diagnostics', async () => {

@@ -1,6 +1,7 @@
 //! App-owned storage accounting, publication and explicit maintenance.
 
 pub(crate) mod files;
+pub(crate) mod location;
 mod selection;
 
 use std::{
@@ -71,6 +72,7 @@ pub struct StorageCategoryUsage {
     pub bytes: u64,
     pub reclaimable_bytes: u64,
     pub file_count: usize,
+    pub older_than_days: HashMap<u32, u64>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -103,11 +105,24 @@ pub struct StorageCleanupResult {
     pub restart_required: bool,
 }
 
-#[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct StorageCleanupSelection {
     pub unused: bool,
     pub categories: Vec<StorageCategory>,
+    #[serde(default)]
+    pub older_than_days: HashMap<StorageCategory, u32>,
+    #[serde(default)]
+    pub history: Option<HistoryKind>,
+    #[serde(default)]
+    pub log_scope: Option<LogScope>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LogScope {
+    Activity,
+    Crashes,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -1068,6 +1083,7 @@ fn summarize(
             bytes: 0,
             reclaimable_bytes: 0,
             file_count: 0,
+            older_than_days: HashMap::from([(7, 0), (30, 0), (90, 0)]),
         })
         .collect();
     let mut seen = HashSet::new();
@@ -1085,6 +1101,15 @@ fn summarize(
             .is_none_or(|id| seen.insert(id.clone()))
         {
             usage.bytes = usage.bytes.saturating_add(entry.physical.allocated);
+            for (days, bytes) in &mut usage.older_than_days {
+                if SystemTime::now()
+                    .duration_since(entry.modified)
+                    .unwrap_or_default()
+                    >= Duration::from_secs(u64::from(*days) * 86_400)
+                {
+                    *bytes = bytes.saturating_add(entry.physical.allocated);
+                }
+            }
         }
         if let Some(id) = &entry.physical.identity {
             groups.entry(id.clone()).or_default().push(entry);

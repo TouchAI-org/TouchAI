@@ -94,7 +94,7 @@ pub fn run() {
     core::analytics::mark_process_start(std::time::Instant::now());
     velopack::VelopackApp::build().run();
 
-    let builder = tauri::Builder::default().plugin(core::system::logging::build_plugin());
+    let builder = tauri::Builder::default();
 
     let builder = if core::system::runtime::should_enable_single_instance() {
         builder.plugin(tauri_plugin_single_instance::init(
@@ -304,6 +304,19 @@ pub fn run() {
 
     let app = builder
         .setup(|app| {
+            let location = tauri::async_runtime::block_on(
+                core::storage::location::DataLocationRuntime::initialize(
+                    core::system::paths::resolve_default_user_data_root_directory()?,
+                ),
+            )
+            .map_err(|error| {
+                eprintln!("Failed to resolve data location: {error}");
+                setup::show_initialization_failed_dialog(app);
+                error
+            })?;
+            core::system::paths::set_user_data_root(location.current().to_path_buf())?;
+            app.manage(location);
+            app.handle().plugin(core::system::logging::build_plugin())?;
             let version = app.package_info().version.to_string();
             core::observability::panic::install_panic_hook(&version);
             if let Err(err) = setup::setup_app(app) {
@@ -325,6 +338,7 @@ pub fn run() {
 
     app.run(|app_handle, event| {
         if matches!(event, tauri::RunEvent::Exit) {
+            app_handle.state::<core::browser::BrowserRuntime>().stop();
             core::computer_use::cua_driver::cancel_all();
             core::computer_use::agent_desktop::cancel_all();
             let result = tauri::async_runtime::block_on(async {

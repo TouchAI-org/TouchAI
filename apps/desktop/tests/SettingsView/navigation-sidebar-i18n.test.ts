@@ -54,7 +54,7 @@ describe('user navigates the settings sections', () => {
         );
         expect(
             wrapper.get('[data-testid="settings-nav-data-management"]').attributes('title')
-        ).toBe('Data & privacy');
+        ).toBe('Data & storage');
         expect(wrapper.find('[data-testid="settings-nav-about"]').exists()).toBe(false);
     });
 
@@ -73,7 +73,7 @@ describe('user navigates the settings sections', () => {
             'Computer control',
             'Skills',
             'MCP tools',
-            'Data & privacy',
+            'Data & storage',
         ]);
         expect(getSettingsNavigationItem('mcp-tools')?.description).toBe(
             'External MCP servers and tool call logs'

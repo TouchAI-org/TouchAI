@@ -389,6 +389,14 @@ pub(crate) fn available_space(path: &Path) -> Result<u64, String> {
 
 /// No reparse point is traversed. An incomplete walk must never become a deletion plan.
 pub(crate) fn walk(root: &Path, limit: usize) -> Result<Vec<PathBuf>, String> {
+    walk_entries(root, limit, false)
+}
+
+pub(crate) fn walk_entries(
+    root: &Path,
+    limit: usize,
+    include_directories: bool,
+) -> Result<Vec<PathBuf>, String> {
     validate_path(root)?;
     if !root.exists() {
         return Ok(Vec::new());
@@ -408,6 +416,9 @@ pub(crate) fn walk(root: &Path, limit: usize) -> Result<Vec<PathBuf>, String> {
         if metadata.is_file() {
             files.push(path);
         } else if metadata.is_dir() {
+            if include_directories {
+                files.push(path.clone());
+            }
             for entry in fs::read_dir(&path).map_err(|_| "storage_scan_incomplete")? {
                 let entry = entry.map_err(|_| "storage_scan_incomplete")?;
                 stack.push((entry.path(), depth + 1));

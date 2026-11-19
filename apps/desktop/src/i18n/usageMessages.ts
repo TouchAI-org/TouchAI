@@ -14,7 +14,7 @@ export const usageMessagesZhCN = {
     // Retention lives under data management
     'settings.dataManagement.retention.title': '调用明细保留',
     'settings.dataManagement.retention.description':
-        '按此策略清理历史调用明细；日汇总永久保留，「全部时间」趋势不受影响。',
+        '下次启动时清理过期明细，保留对话消息和每日用量汇总。',
     'settings.dataManagement.retention.label': '保留调用明细',
     'settings.dataManagement.retention.hint': '默认不删除任何数据，清理在下次启动时生效',
     'settings.dataManagement.retention.forever': '永久保留',
@@ -168,7 +168,7 @@ export const usageMessagesEnUS = {
 
     'settings.dataManagement.retention.title': 'Call detail retention',
     'settings.dataManagement.retention.description':
-        'Historical call detail is pruned by this policy. Daily rollups are kept forever, so the All time trend is unaffected.',
+        'Expired details are removed on the next start. Messages and daily usage totals are kept.',
     'settings.dataManagement.retention.label': 'Keep call detail for',
     'settings.dataManagement.retention.hint':
         'Nothing is deleted by default; pruning takes effect on the next start',

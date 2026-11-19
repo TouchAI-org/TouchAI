@@ -401,14 +401,6 @@
             "count": 7
         }
     },
-    "src/views/SettingsView/components/DataManagement/index.vue": {
-        "tailwindcss/no-arbitrary-value": {
-            "count": 2
-        },
-        "vue/no-restricted-class": {
-            "count": 17
-        }
-    },
     "src/views/SettingsView/components/General/GeneralShortcutSettings.vue": {
         "tailwindcss/no-arbitrary-value": {
             "count": 5

@@ -15,6 +15,7 @@ const queries = vi.hoisted(() => ({
     findDefaultModel: vi.fn(),
     findModelsWithProvider: vi.fn(),
     findProviderById: vi.fn(),
+    getStatistic: vi.fn().mockResolvedValue(null),
     setDefaultModel: vi.fn(),
     updateModel: vi.fn(),
     updateProvider: vi.fn(),
@@ -205,6 +206,8 @@ describe('user manages providers and models', () => {
         llmMetadataMock.isLlmMetadataAliasEmpty.mockResolvedValue(false);
         llmMetadataMock.isLlmMetadataEmpty.mockResolvedValue(false);
         modelMetadataMock.refreshModelMetadataIfStale.mockResolvedValue({ status: 'skipped' });
+        modelMetadataMock.updateModelMetadata.mockReset().mockResolvedValue({ status: 'updated' });
+        queries.getStatistic.mockResolvedValue(null);
     });
 
     it('user omits custom-only controls for builtin providers', async () => {
@@ -701,6 +704,34 @@ describe('user manages providers and models', () => {
 
         expect(queries.findAllProvidersSorted).toHaveBeenCalledTimes(2);
         expect(wrapper.get('[data-testid="set-default-model"]').text()).toContain('default: 20');
+    });
+
+    it('user updates the model catalog then sees the refreshed model list and update date', async () => {
+        const wrapper = await mountDefaultModelSelection(1);
+        queries.findModelsWithProvider.mockResolvedValue([
+            { id: 30, provider_id: 2, is_default: 0, provider_enabled: 1 },
+        ]);
+        queries.getStatistic.mockResolvedValue('2026-11-20T10:00:00Z');
+        const section = wrapper.get('[data-settings-search-target="model-database"]');
+        await section.get('button').trigger('click');
+        await flushPromises();
+        expect(wrapper.find('[data-testid="model-30"]').exists()).toBe(true);
+        expect(wrapper.find('[data-testid="model-10"]').exists()).toBe(false);
+        expect(section.text()).toContain('2026');
+        expect(section.get('button').element.disabled).toBe(false);
+        wrapper.unmount();
+    });
+
+    it('user cannot update the catalog then keeps local models and can try again', async () => {
+        const wrapper = await mountDefaultModelSelection(1);
+        modelMetadataMock.updateModelMetadata.mockRejectedValueOnce(new Error('offline'));
+        const section = wrapper.get('[data-settings-search-target="model-database"]');
+        await section.get('button').trigger('click');
+        await flushPromises();
+        expect(wrapper.find('[data-testid="model-10"]').exists()).toBe(true);
+        expect(section.get('button').element.disabled).toBe(false);
+        expect(alertMock.error).toHaveBeenCalledWith('更新模型资料库失败');
+        wrapper.unmount();
     });
 
     it('user keeps the previous default and disabled state when enabling fails', async () => {

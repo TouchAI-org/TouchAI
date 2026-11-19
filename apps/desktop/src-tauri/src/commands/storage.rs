@@ -7,6 +7,7 @@ use crate::core::{
     browser::BrowserRuntime,
     computer_use::{agent_desktop, cua_driver, storage::DriverStorage},
     storage::{
+        location::{DataLocationInfo, DataLocationRuntime},
         HistoryKind, PublishedAttachment, StorageCategory, StorageCleanupResult,
         StorageCleanupSelection, StorageCompactionResult, StorageRuntime, StorageSummary,
     },
@@ -19,6 +20,41 @@ fn allow_settings<R: Runtime>(window: &WebviewWindow<R>) -> Result<(), String> {
     } else {
         Err("storage_invalid_path".into())
     }
+}
+
+#[tauri::command]
+pub async fn storage_get_location<R: Runtime>(
+    window: WebviewWindow<R>,
+    location: State<'_, DataLocationRuntime>,
+) -> Result<DataLocationInfo, String> {
+    allow_settings(&window)?;
+    location.info()
+}
+
+#[tauri::command]
+pub async fn storage_schedule_move<R: Runtime>(
+    app: AppHandle<R>,
+    window: WebviewWindow<R>,
+    storage: State<'_, StorageRuntime>,
+    destination: PathBuf,
+) -> Result<DataLocationInfo, String> {
+    allow_settings(&window)?;
+    let lease = storage.exclusive().await?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _lease = lease;
+        app.state::<DataLocationRuntime>().schedule(destination)
+    })
+    .await
+    .map_err(|_| "storage_io_failed".to_string())?
+}
+
+#[tauri::command]
+pub async fn storage_cancel_move<R: Runtime>(
+    window: WebviewWindow<R>,
+    location: State<'_, DataLocationRuntime>,
+) -> Result<DataLocationInfo, String> {
+    allow_settings(&window)?;
+    location.cancel()
 }
 
 pub(crate) fn protected_paths<R: Runtime>(app: &AppHandle<R>) -> Result<Vec<PathBuf>, String> {

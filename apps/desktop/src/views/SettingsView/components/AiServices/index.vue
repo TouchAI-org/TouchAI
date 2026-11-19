@@ -5,6 +5,7 @@
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
     import LoadingState from '@components/LoadingState.vue';
+    import SettingsRow from '@components/SettingsRow.vue';
     import { Button } from '@components/ui/button';
     import { useAlert } from '@composables/useAlert.ts';
     import { useContextMenu } from '@composables/useContextMenu.ts';
@@ -19,6 +20,7 @@
         findDefaultModel,
         findModelsWithProvider,
         findProviderById,
+        getStatistic,
         setDefaultModel,
         updateModel,
         updateProvider,
@@ -26,6 +28,7 @@
     import { isLlmMetadataAliasEmpty, isLlmMetadataEmpty } from '@database/queries/llmMetadata.ts';
     import type { ModelWithProvider } from '@database/queries/models.ts';
     import type { Model, NewModel, NewProvider, Provider } from '@database/schema.ts';
+    import { StatisticKey } from '@database/schema.ts';
     import { AppEvent, eventService } from '@services/EventService';
     import { log } from '@services/ObservabilityService';
     import {
@@ -39,9 +42,11 @@
     } from 'vue';
 
     import { locale, t } from '@/i18n';
+    import { formatDateTime } from '@/i18n/format';
     import {
         persistRefreshedModels,
         refreshModelMetadataIfStale,
+        updateModelMetadata,
     } from '@/services/AgentService/infrastructure/modelMetadata';
     import { getProviderDriverDefinition } from '@/services/AgentService/infrastructure/providers/driverCatalog';
     import type { ProviderConfigurationAttempt } from '@/services/AnalyticsService/productInteractions';
@@ -113,6 +118,9 @@
     const pendingAddConfiguration = ref<ProviderConfigurationAttempt | null>(null);
     const refreshing = ref(false);
     const refreshingProviderId = ref<number | null>(null);
+    const updatingMetadata = ref(false);
+    const metadataUpdatedAt = ref<string | null>(null);
+    let disposed = false;
     const instanceId = crypto.randomUUID();
     let unlistenAiModelsUpdated: (() => void) | null = null;
 
@@ -777,13 +785,26 @@
         }
     };
 
-    async function refreshMetadataInBackground() {
+    const metadataUpdatedText = computed(() => {
+        if (!metadataUpdatedAt.value) return t('settings.dataManagement.lastUpdatedNone');
+        const date = new Date(metadataUpdatedAt.value);
+        return t('settings.dataManagement.lastUpdated', {
+            time: Number.isNaN(date.getTime()) ? metadataUpdatedAt.value : formatDateTime(date),
+        });
+    });
+
+    async function refreshMetadata(manual = false) {
+        if (disposed || updatingMetadata.value) return;
+        updatingMetadata.value = true;
         try {
             const [metadataEmpty, aliasesEmpty] = await Promise.all([
                 isLlmMetadataEmpty(),
                 isLlmMetadataAliasEmpty(),
             ]);
-            const result = await refreshModelMetadataIfStale();
+            const result = manual
+                ? await updateModelMetadata()
+                : await refreshModelMetadataIfStale();
+            if (disposed) return;
 
             if (result.status === 'updated') {
                 const providerIds = [...modelsCache.value.keys()];
@@ -794,18 +815,37 @@
                     }))
                 );
                 for (const { providerId, models } of refreshedModels) {
+                    if (disposed) return;
                     if (modelsCache.value.has(providerId)) setCachedModels(providerId, models);
                 }
             } else if (metadataEmpty || aliasesEmpty) {
                 log.warn('[AiServicesView] llm-metadata is still empty');
             }
+            const updatedAt = await getStatistic({
+                key: StatisticKey.MODEL_METADATA_LAST_UPDATED_AT,
+            });
+            if (disposed) return;
+            metadataUpdatedAt.value = updatedAt;
+            if (manual) {
+                alert.success(
+                    t(
+                        result.status === 'unchanged'
+                            ? 'settings.dataManagement.modelDatabaseAlreadyUpToDate'
+                            : 'settings.dataManagement.modelDatabaseUpdated'
+                    )
+                );
+            }
         } catch (error) {
             log.error('[AiServicesView] Failed to check or update llm-metadata:', error);
+            if (manual && !disposed)
+                alert.error(t('settings.dataManagement.updateModelDatabaseFailed'));
+        } finally {
+            if (!disposed) updatingMetadata.value = false;
         }
     }
 
     onMounted(async () => {
-        void refreshMetadataInBackground();
+        void refreshMetadata();
         unlistenAiModelsUpdated = await eventService.on(
             AppEvent.AI_MODELS_UPDATED,
             async (payload) => {
@@ -819,6 +859,7 @@
     });
 
     onUnmounted(() => {
+        disposed = true;
         const editAttempt = pendingEditConfiguration.value;
         const addAttempt = pendingAddConfiguration.value;
         pendingEditConfiguration.value = null;
@@ -933,6 +974,25 @@
                         @set-default="handleSetDefaultModel"
                         @refresh="handleRefreshModels"
                     />
+
+                    <section class="space-y-4" data-settings-search-target="model-database">
+                        <h2 class="settings-section-title">
+                            {{ t('settings.dataManagement.modelDatabase') }}
+                        </h2>
+                        <SettingsRow
+                            control-width="auto"
+                            :label="t('settings.dataManagement.modelDatabaseDescription')"
+                            :description="metadataUpdatedText"
+                        >
+                            <Button
+                                variant="outline-neutral"
+                                :disabled="updatingMetadata"
+                                @click="refreshMetadata(true)"
+                            >
+                                {{ t('common.update') }}
+                            </Button>
+                        </SettingsRow>
+                    </section>
                 </div>
             </div>
         </div>

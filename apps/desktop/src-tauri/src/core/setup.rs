@@ -125,7 +125,7 @@ fn initialize_base_directories() -> Result<(), String> {
     Ok(())
 }
 
-fn show_initialization_failed_dialog(app: &tauri::App) {
+pub(crate) fn show_initialization_failed_dialog(app: &tauri::App) {
     let app_handle = app.handle().clone();
     let _ = std::thread::spawn(move || {
         app_handle
@@ -139,7 +139,14 @@ fn show_initialization_failed_dialog(app: &tauri::App) {
 }
 
 pub fn setup_app(app: &mut tauri::App) -> Result<(), String> {
-    if let Err(error) = migrate_legacy_user_directories() {
+    let relocated = app
+        .try_state::<crate::core::storage::location::DataLocationRuntime>()
+        .is_some_and(|location| location.relocated());
+    if let Err(error) = if relocated {
+        Ok(())
+    } else {
+        migrate_legacy_user_directories()
+    } {
         error!("Failed to migrate legacy user directories: {}", error);
         show_initialization_failed_dialog(app);
         return Err(error);

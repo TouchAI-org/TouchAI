@@ -119,6 +119,7 @@ async fn user_given_a_database_reset_and_unused_cleanup_when_attachments_are_not
             StorageCleanupSelection {
                 unused: true,
                 categories: vec![StorageCategory::Database],
+                ..Default::default()
             },
             Vec::new(),
             lease,
@@ -214,11 +215,203 @@ async fn selected_cleanup(
             StorageCleanupSelection {
                 unused: false,
                 categories,
+                ..Default::default()
             },
             Vec::new(),
             lease,
         )
         .await
+}
+
+#[tokio::test]
+async fn user_given_old_and_recent_logs_when_clearing_older_than_a_week_then_keeps_recent_logs() {
+    let (root, database, storage) = fixture().await;
+    let logs = root.path().join("logs");
+    fs::create_dir(&logs).expect("logs");
+    let older = logs.join("old.log");
+    let recent = logs.join("recent.log");
+    fs::write(&older, b"old").expect("old log");
+    fs::write(&recent, b"recent").expect("recent log");
+    old(&older);
+    let lease = storage.exclusive().await.expect("lease");
+    let result = storage
+        .cleanup_selected(
+            StorageCleanupSelection {
+                categories: vec![StorageCategory::Logs],
+                older_than_days: HashMap::from([(StorageCategory::Logs, 7)]),
+                ..Default::default()
+            },
+            Vec::new(),
+            lease,
+        )
+        .await
+        .expect("cleanup");
+    assert_eq!(result.removed_files, 1);
+    assert!(!older.exists());
+    assert_eq!(fs::read(recent).expect("recent log"), b"recent");
+    database.pool().close().await;
+}
+
+#[tokio::test]
+async fn user_given_conversations_when_clearing_only_messages_in_storage_then_keeps_sessions_and_settings(
+) {
+    let (_root, database, storage) = fixture().await;
+    sqlx::raw_sql("INSERT INTO sessions(id,session_id,title,model) VALUES(1,'keep','Keep','test'); INSERT INTO messages(id,session_id,role) VALUES(1,1,'user');")
+        .execute(database.pool()).await.expect("history");
+    let lease = storage.exclusive().await.expect("lease");
+    let result = storage
+        .cleanup_selected(
+            StorageCleanupSelection {
+                categories: vec![StorageCategory::Database],
+                history: Some(HistoryKind::Messages),
+                ..Default::default()
+            },
+            Vec::new(),
+            lease,
+        )
+        .await
+        .expect("cleanup");
+    assert!(!result.restart_required);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM sessions")
+            .fetch_one(database.pool())
+            .await
+            .expect("sessions"),
+        1
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM messages")
+            .fetch_one(database.pool())
+            .await
+            .expect("messages"),
+        0
+    );
+    database.pool().close().await;
+}
+
+#[tokio::test]
+async fn user_given_old_activity_and_crash_logs_when_clearing_old_crashes_then_keeps_activity_and_recent_crashes(
+) {
+    let (root, database, storage) = fixture().await;
+    let logs = root.path().join("logs");
+    fs::create_dir_all(logs.join("crashes")).expect("logs");
+    let activity = logs.join("old.log");
+    let crash = logs.join("crashes/old.json");
+    let recent = logs.join("crashes/recent.json");
+    for path in [&activity, &crash, &recent] {
+        fs::write(path, b"log").expect("fixture");
+    }
+    old(&activity);
+    old(&crash);
+    let result = storage
+        .cleanup_selected(
+            StorageCleanupSelection {
+                unused: true,
+                categories: vec![StorageCategory::Logs],
+                log_scope: Some(LogScope::Crashes),
+                older_than_days: HashMap::from([(StorageCategory::Logs, 30)]),
+                ..Default::default()
+            },
+            Vec::new(),
+            storage.exclusive().await.expect("lease"),
+        )
+        .await
+        .expect("cleanup");
+    assert_eq!(result.removed_files, 1);
+    assert!(!crash.exists());
+    assert!(activity.exists());
+    assert!(recent.exists());
+    database.pool().close().await;
+}
+
+#[tokio::test]
+async fn user_given_unsupported_cleanup_ranges_when_confirming_then_no_files_or_references_are_removed(
+) {
+    let (root, database, storage) = fixture().await;
+    fs::create_dir_all(root.path().join("logs")).expect("logs");
+    let log = root.path().join("logs/keep.log");
+    fs::write(&log, b"keep").expect("fixture");
+    old(&log);
+    for (category, days) in [
+        (StorageCategory::Logs, 0),
+        (StorageCategory::Logs, 1),
+        (StorageCategory::Attachments, 7),
+        (StorageCategory::Database, 30),
+    ] {
+        let result = storage
+            .cleanup_selected(
+                StorageCleanupSelection {
+                    categories: vec![StorageCategory::Logs],
+                    older_than_days: HashMap::from([(category, days)]),
+                    ..Default::default()
+                },
+                Vec::new(),
+                storage.exclusive().await.expect("lease"),
+            )
+            .await;
+        assert_eq!(
+            result.expect_err("invalid selection"),
+            "storage_invalid_path"
+        );
+        assert_eq!(fs::read(&log).expect("retained"), b"keep");
+    }
+    database.pool().close().await;
+}
+
+#[tokio::test]
+async fn user_given_old_and_recent_attachments_when_deleting_old_files_then_keeps_recent_message_references(
+) {
+    let (root, database, storage) = fixture().await;
+    let source = root.path().join("older.png");
+    fs::write(&source, b"old saved bytes").expect("old source");
+    let (older_id, older_file) = attach(&database, &storage, &source).await;
+    let mut permissions = fs::metadata(&older_file)
+        .expect("permissions")
+        .permissions();
+    permissions.set_readonly(false);
+    fs::set_permissions(&older_file, permissions).expect("test-owned permissions");
+    old(&older_file);
+    files::mark_immutable(&older_file).expect("immutable");
+    let source_recent = root.path().join("recent.png");
+    fs::write(&source_recent, b"recent saved bytes").expect("recent source");
+    let (recent_id, recent_file) = attach(&database, &storage, &source_recent).await;
+    messages(&database, recent_id).await;
+    let result = storage
+        .cleanup_selected(
+            StorageCleanupSelection {
+                categories: vec![StorageCategory::Attachments],
+                older_than_days: HashMap::from([(StorageCategory::Attachments, 7)]),
+                ..Default::default()
+            },
+            Vec::new(),
+            storage.exclusive().await.expect("lease"),
+        )
+        .await
+        .expect("cleanup");
+    assert_eq!(result.failed_files, 0);
+    assert!(!older_file.exists());
+    assert_eq!(
+        fs::read(recent_file).expect("recent content"),
+        b"recent saved bytes"
+    );
+    assert!(source.exists());
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM attachments WHERE id=?")
+            .bind(older_id)
+            .fetch_one(database.pool())
+            .await
+            .expect("removed row"),
+        0
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM message_parts WHERE attachment_id=?")
+            .bind(recent_id)
+            .fetch_one(database.pool())
+            .await
+            .expect("recent associations"),
+        2
+    );
+    database.pool().close().await;
 }
 
 #[tokio::test]
@@ -448,6 +641,7 @@ async fn user_given_overlapping_unused_and_selected_categories_when_deleting_the
             StorageCleanupSelection {
                 unused: true,
                 categories: vec![StorageCategory::Thumbnails],
+                ..Default::default()
             },
             Vec::new(),
             lease,
@@ -1012,7 +1206,8 @@ async fn user_given_compressed_cache_files_when_scanning_then_sees_compressed_al
     fs::write(&image, vec![0_u8; 1024 * 1024]).expect("compressible fixture");
     let compressed = std::process::Command::new("compact.exe")
         .args(["/C", "/F", "/Q"])
-        .arg(&image)
+        .current_dir(&directory)
+        .arg(image.file_name().expect("fixture name"))
         .output()
         .expect("Windows file compression");
     assert!(

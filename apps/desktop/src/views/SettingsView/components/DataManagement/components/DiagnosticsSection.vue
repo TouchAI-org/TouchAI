@@ -8,13 +8,14 @@
     import type { DiagnosticBundlePreview } from '@services/NativeService/types';
     import { log } from '@services/ObservabilityService';
     import { save } from '@tauri-apps/plugin-dialog';
-    import { computed, onMounted, onUnmounted, ref } from 'vue';
+    import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
     import { t } from '@/i18n';
 
     defineOptions({
         name: 'SettingsDiagnosticsSection',
     });
+    const props = defineProps<{ refreshToken?: number }>();
 
     const alert = useAlert();
     const { confirm } = useConfirm();
@@ -49,6 +50,11 @@
             log.error('[Diagnostics] Failed to load diagnostics status:', error);
         }
     }
+
+    watch(
+        () => props.refreshToken,
+        () => void loadStatus()
+    );
 
     async function toggleDiagnosticMode(nextEnabled: boolean) {
         enabled.value = nextEnabled;
@@ -97,15 +103,6 @@
             alert.error(t('settings.diagnostics.exportFailed'));
         } finally {
             exporting.value = false;
-        }
-    }
-
-    async function dismissCrashes() {
-        try {
-            await native.observability.dismissCrashes();
-            await refreshPreview();
-        } catch (error) {
-            log.error('[Diagnostics] Failed to dismiss crash records:', error);
         }
     }
 
@@ -187,9 +184,6 @@
                     <span class="text-xs text-text-tertiary">
                         {{ t('settings.diagnostics.crashRecordsCount', { count: crashCount }) }}
                     </span>
-                    <Button variant="outline-neutral" @click="dismissCrashes">
-                        {{ t('settings.diagnostics.dismissCrashes') }}
-                    </Button>
                 </div>
             </SettingsRow>
         </div>

@@ -76,7 +76,7 @@ fn bundled_app_identifier() -> Result<&'static str, String> {
         .map_err(Clone::clone)
 }
 
-fn resolve_user_data_root_directory() -> Result<PathBuf, String> {
+pub(crate) fn resolve_default_user_data_root_directory() -> Result<PathBuf, String> {
     if let Some(path) = crate::core::system::runtime::resolve_app_root_override() {
         return Ok(path);
     }
@@ -116,10 +116,17 @@ fn program_root_directory() -> Result<PathBuf, String> {
 }
 
 fn user_data_root_directory() -> Result<PathBuf, String> {
-    static USER_DATA_ROOT: OnceLock<Result<PathBuf, String>> = OnceLock::new();
     USER_DATA_ROOT
-        .get_or_init(resolve_user_data_root_directory)
+        .get_or_init(resolve_default_user_data_root_directory)
         .clone()
+}
+
+static USER_DATA_ROOT: OnceLock<Result<PathBuf, String>> = OnceLock::new();
+
+pub(crate) fn set_user_data_root(path: PathBuf) -> Result<(), String> {
+    USER_DATA_ROOT
+        .set(Ok(path))
+        .map_err(|_| "storage_busy".into())
 }
 
 fn directory_relative_path(directory: AppDirectory) -> Result<&'static str, String> {
