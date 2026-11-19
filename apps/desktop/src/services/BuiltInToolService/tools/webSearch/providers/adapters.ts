@@ -1,6 +1,6 @@
 import {
+    isSearchProviderReady,
     SEARCH_PROVIDER_IDS,
-    SEARCH_PROVIDER_METADATA,
     type SearchProviderId,
     type SearchSettingsConfig,
 } from '@services/SettingsService/domain';
@@ -26,29 +26,11 @@ import { wikipediaAdapter } from './wikipedia';
 import { yuanbaoAdapter } from './yuanbao';
 import { zhihuAdapter } from './zhihu';
 
-function requiresApiKey(provider: SearchProviderId): boolean {
-    return SEARCH_PROVIDER_METADATA[provider].apiKeyRequirement === 'required';
-}
-
-function requiresEndpoint(provider: SearchProviderId): boolean {
-    return SEARCH_PROVIDER_METADATA[provider].endpointRequirement === 'required';
-}
-
 function isConcreteProviderConfigured(
     provider: SearchProviderId,
     settings: SearchSettingsConfig
 ): boolean {
-    const config = settings.providers[provider];
-    if (!config?.enabled) {
-        return false;
-    }
-    if (requiresApiKey(provider) && !config.apiKey.trim()) {
-        return false;
-    }
-    if (requiresEndpoint(provider) && !config.endpoint.trim()) {
-        return false;
-    }
-    return true;
+    return isSearchProviderReady(provider, settings.providers[provider]);
 }
 
 function isAutoProviderConfigured(settings: SearchSettingsConfig): boolean {

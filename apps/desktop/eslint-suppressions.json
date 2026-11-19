@@ -31,9 +31,6 @@
         }
     },
     "src/components/CustomSelect.vue": {
-        "tailwindcss/no-arbitrary-value": {
-            "count": 2
-        },
         "vue/no-restricted-class": {
             "count": 9
         }
@@ -535,7 +532,7 @@
     },
     "src/views/SettingsView/components/Search/index.vue": {
         "vue/no-restricted-class": {
-            "count": 6
+            "count": 3
         }
     },
     "src/views/SettingsView/components/SectionTabs.vue": {

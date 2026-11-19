@@ -8,6 +8,7 @@
     import { findBuiltInToolByToolId, updateBuiltInTool } from '@database/queries';
     import { log } from '@services/ObservabilityService';
     import {
+        isSearchProviderReady,
         parseSearchSettingsConfig,
         SEARCH_FETCH_PROVIDERS,
         SEARCH_PARALLEL_MAX,
@@ -18,7 +19,6 @@
         SEARCH_SOURCES,
         type SearchProviderId,
         type SearchSettingsConfig,
-        type SearchSource,
         serializeSearchSettingsConfig,
         WEB_FETCH_STRATEGIES,
         type WebFetchStrategy,
@@ -50,6 +50,7 @@
     import { useSettingsStore } from '@/stores/settings';
 
     import { hasSettingsDraftChanges, mergeSettingsDraft } from '../../settingsDraftSync';
+    import SearchRoutingDiagram from './components/SearchRoutingDiagram.vue';
     import SearchStrategyChoices from './components/SearchStrategyChoices.vue';
     import SearchProviderCard from './SearchProviderCard.vue';
 
@@ -95,15 +96,6 @@
         qianfan: qianfanLogo,
         tinyfish: tinyfishLogo,
         serper: serperLogo,
-    };
-    const sourceMessages: Record<SearchSource, MessageKey> = {
-        general: 'settings.search.source.general',
-        news: 'settings.search.source.news',
-        community: 'settings.search.source.community',
-        academic: 'settings.search.source.academic',
-        code: 'settings.search.source.code',
-        official: 'settings.search.source.official',
-        realtime: 'settings.search.source.realtime',
     };
     const providersWithEndpoint = new Set<SearchProviderId>([
         'exa',
@@ -294,38 +286,15 @@
         },
     };
 
-    const sourcePreviewProvider: Record<SearchSource, SearchProviderId> = {
-        general: 'anysearch',
-        news: 'brave',
-        community: 'zhihu',
-        academic: 'openalex',
-        code: 'github',
-        official: 'keenable',
-        realtime: 'grok',
-    };
-
-    function routePreviewProvider(source: SearchSource): SearchProviderId {
-        const routed = draft.value.sourceRoutes[source];
-        if (routed !== 'auto') return routed;
-        const preferred = sourcePreviewProvider[source];
-        return providerConfig(preferred).enabled ? preferred : draft.value.defaultProvider;
-    }
-
     const providerOptions = computed(() =>
         SEARCH_PROVIDER_IDS.filter(
-            (providerId) => providerId === 'auto' || draft.value.providers[providerId].enabled
+            (providerId) =>
+                providerId === 'auto' ||
+                isSearchProviderReady(providerId, draft.value.providers[providerId])
         ).map((providerId) => ({
             value: providerId,
             label: t(providerMessages[providerId].label),
-        }))
-    );
-
-    const enabledProviderOptions = computed(() =>
-        SEARCH_PROVIDER_IDS.filter(
-            (providerId) => providerId === 'auto' || draft.value.providers[providerId].enabled
-        ).map((providerId) => ({
-            value: providerId,
-            label: t(providerMessages[providerId].label),
+            iconSrc: providerLogos[providerId],
         }))
     );
 
@@ -339,15 +308,6 @@
     const fetchStrategyDescription = computed(() =>
         t(fetchStrategyMessages[draft.value.fetchStrategy].description)
     );
-
-    const routeBranches = SEARCH_SOURCES.map((source, index) => {
-        const x = ((index + 0.5) / SEARCH_SOURCES.length) * 1000;
-        return {
-            source,
-            left: `${((index + 0.5) / SEARCH_SOURCES.length) * 100}%`,
-            path: `M500 56 C500 125 ${x} 150 ${x} 238`,
-        };
-    });
 
     const priorityRows = computed<SearchProviderId[]>({
         get: () => draft.value.providerPriority.filter((id) => providerConfig(id).enabled),
@@ -721,72 +681,12 @@
                     <h2 class="settings-section-title">
                         {{ t('settings.search.section.routing') }}
                     </h2>
-                    <div
-                        class="relative h-80 overflow-hidden rounded-card border border-border-subtle bg-surface-floating"
-                    >
-                        <div
-                            class="absolute top-5 left-1/2 z-10 flex size-9 -translate-x-1/2 items-center justify-center rounded-full border border-border-subtle bg-surface-floating"
-                        >
-                            <AppIcon name="search" class="size-4 text-text-tertiary" />
-                        </div>
-                        <svg
-                            class="pointer-events-none absolute inset-0 h-full w-full"
-                            viewBox="0 0 1000 320"
-                            preserveAspectRatio="none"
-                            aria-hidden="true"
-                        >
-                            <path
-                                v-for="branch in routeBranches"
-                                :key="branch.source"
-                                :d="branch.path"
-                                fill="none"
-                                stroke="#ded9d1"
-                                stroke-width="1"
-                            />
-                        </svg>
-                        <div
-                            v-for="branch in routeBranches"
-                            :key="branch.source"
-                            class="absolute flex w-20 -translate-x-1/2 flex-col items-center gap-1"
-                            style="top: 238px"
-                            :style="{ left: branch.left }"
-                        >
-                            <span
-                                class="w-full truncate text-center text-caption text-settings-text"
-                            >
-                                {{ t(sourceMessages[branch.source]) }}
-                            </span>
-                            <span
-                                class="relative flex size-8 items-center justify-center rounded-lg bg-surface-floating"
-                                :title="
-                                    t(providerMessages[draft.sourceRoutes[branch.source]].label)
-                                "
-                            >
-                                <img
-                                    v-if="routePreviewProvider(branch.source) !== 'auto'"
-                                    :src="providerLogos[routePreviewProvider(branch.source)]"
-                                    alt=""
-                                    class="size-6 object-contain"
-                                />
-                                <AppIcon v-else name="search" class="size-4 text-text-tertiary" />
-                                <select
-                                    v-model="draft.sourceRoutes[branch.source]"
-                                    :data-testid="`search-source-route-${branch.source}`"
-                                    :aria-label="t(sourceMessages[branch.source])"
-                                    class="absolute inset-0 cursor-pointer opacity-0"
-                                    :disabled="!toolEnabled"
-                                >
-                                    <option
-                                        v-for="option in enabledProviderOptions"
-                                        :key="option.value"
-                                        :value="option.value"
-                                    >
-                                        {{ option.label }}
-                                    </option>
-                                </select>
-                            </span>
-                        </div>
-                    </div>
+                    <SearchRoutingDiagram
+                        :settings="draft"
+                        :options="providerOptions"
+                        :disabled="!toolEnabled"
+                        @select="(source, provider) => (draft.sourceRoutes[source] = provider)"
+                    />
                 </section>
 
                 <section
@@ -812,7 +712,7 @@
                         v-model="priorityRows"
                         tag="ol"
                         data-testid="search-provider-priority"
-                        class="max-h-96 overflow-x-hidden overflow-y-auto rounded-card border border-border-subtle bg-surface-floating"
+                        class="custom-scrollbar max-h-96 overflow-x-hidden overflow-y-auto rounded-card border border-border-subtle bg-surface-floating"
                         handle="[data-search-priority-handle]"
                         :animation="160"
                         :force-fallback="true"

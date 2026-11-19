@@ -326,6 +326,53 @@ describe('user edits the search settings', () => {
         wrapper.unmount();
     });
 
+    it('user toggles academic engines and immediately sees specialist then general replacements', async () => {
+        const wrapper = mount(SearchSettingsView);
+        await nextTick();
+        const route = () => wrapper.get('[data-testid="search-source-route-academic"]');
+        expect(route().attributes('aria-label')).toContain('OpenAlex');
+        await wrapper.get('[data-testid="search-provider-toggle-openalex"]').trigger('click');
+        expect(route().attributes('aria-label')).toContain('Semantic Scholar');
+        await wrapper
+            .get('[data-testid="search-provider-toggle-semantic_scholar"]')
+            .trigger('click');
+        expect(route().attributes('aria-label')).toContain('Brave');
+        await wrapper.get('[data-testid="search-provider-toggle-brave"]').trigger('click');
+        expect(route().attributes('aria-label')).toContain('AnySearch');
+        await wrapper.get('[data-testid="search-provider-toggle-openalex"]').trigger('click');
+        expect(route().attributes('aria-label')).toContain('OpenAlex');
+        wrapper.unmount();
+    });
+
+    it('user keeps a chosen route when another specialist becomes available', async () => {
+        const wrapper = mount(SearchSettingsView);
+        await nextTick();
+        await wrapper.get('[data-testid="search-source-route-academic"]').setValue('exa');
+        await wrapper.get('[data-testid="search-provider-toggle-openalex"]').trigger('click');
+        await wrapper.get('[data-testid="search-provider-toggle-openalex"]').trigger('click');
+        expect(
+            wrapper.get('[data-testid="search-source-route-academic"]').attributes('aria-label')
+        ).toContain('Exa');
+        wrapper.unmount();
+    });
+
+    it('user disables all engines and sees an unavailable route instead of a disabled recommendation', async () => {
+        updateStoredSearchSettings({
+            providers: Object.fromEntries(
+                Object.entries(DEFAULT_SEARCH_SETTINGS.providers).map(([id, config]) => [
+                    id,
+                    { ...config, enabled: false },
+                ])
+            ),
+        });
+        const wrapper = mount(SearchSettingsView);
+        await nextTick();
+        expect(
+            wrapper.get('[data-testid="search-source-route-academic"]').attributes('aria-label')
+        ).toContain('暂无可用引擎');
+        wrapper.unmount();
+    });
+
     it('user keeps a pending edit without reverting another window search change', async () => {
         const wrapper = mount(SearchSettingsView);
         await nextTick();

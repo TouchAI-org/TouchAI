@@ -72,6 +72,32 @@ export type WebFetchStrategy = (typeof WEB_FETCH_STRATEGIES)[number];
 export type SearchProviderApiKeyRequirement = 'none' | 'optional' | 'required';
 export type SearchProviderEndpointRequirement = 'none' | 'required';
 
+/** Shared by runtime routing and the settings recommendations. */
+export const SEARCH_SOURCE_PRIORITY: Record<SearchSource, SearchProviderId[]> = {
+    general: [
+        'anysearch',
+        'keenable',
+        'tavily',
+        'exa',
+        'brave',
+        'firecrawl',
+        'serper',
+        'tinyfish',
+        'doubao',
+        'qianfan',
+        'grok',
+        'yuanbao',
+        'deepseek',
+        'searxng',
+    ],
+    news: ['brave', 'yuanbao', 'grok', 'tavily', 'serper', 'tinyfish', 'doubao', 'qianfan'],
+    community: ['zhihu', 'yuanbao', 'deepseek', 'grok'],
+    academic: ['openalex', 'semantic_scholar', 'tinyfish'],
+    code: ['github'],
+    official: ['keenable', 'yuanbao', 'brave', 'doubao', 'qianfan'],
+    realtime: ['grok', 'yuanbao', 'brave'],
+};
+
 export interface SearchProviderMetadata {
     id: SearchProviderId;
     enabledByDefault: boolean;
@@ -315,6 +341,49 @@ export interface SearchSettingsConfig {
     sourceRoutes: Record<SearchSource, SearchProviderId>;
     intentRoutes: Record<SearchRouteIntent, SearchProviderId>;
     parallelProviderCount: number;
+}
+
+export function isSearchProviderReady(
+    provider: SearchProviderId,
+    config: SearchProviderConfig
+): boolean {
+    return (
+        provider !== 'auto' &&
+        config.enabled &&
+        (SEARCH_PROVIDER_API_KEY_REQUIREMENTS[provider] !== 'required' || !!config.apiKey.trim()) &&
+        (SEARCH_PROVIDER_ENDPOINT_REQUIREMENTS[provider] !== 'required' || !!config.endpoint.trim())
+    );
+}
+
+export function resolveSearchSourceProviders(
+    source: SearchSource,
+    settings: SearchSettingsConfig,
+    language: 'any' | 'zh' | 'en' = 'any'
+): SearchProviderId[] {
+    const available = SEARCH_PROVIDER_IDS.filter((id) =>
+        isSearchProviderReady(id, settings.providers[id])
+    );
+    const languagePreference: SearchProviderId[] =
+        language === 'zh'
+            ? ['yuanbao', 'deepseek', 'doubao', 'qianfan']
+            : language === 'en'
+              ? ['keenable', 'brave', 'grok']
+              : [];
+    const general = SEARCH_SOURCE_PRIORITY.general;
+    const preferredDefault =
+        general.includes(settings.defaultProvider) || source === 'general'
+            ? [settings.defaultProvider]
+            : [];
+    const candidates = [
+        settings.sourceRoutes[source],
+        ...(source === 'news' && language === 'zh' ? ['yuanbao' as const] : []),
+        ...(source === 'general' ? languagePreference : SEARCH_SOURCE_PRIORITY[source]),
+        ...preferredDefault,
+        ...general,
+    ];
+    const ready = [...new Set(candidates)].filter((id) => available.includes(id));
+    // Preserve the last-resort behavior when only an unrelated specialist remains enabled.
+    return ready.length ? ready : available.slice(0, 1);
 }
 
 const providerIdSchema = z.enum(SEARCH_PROVIDER_IDS);

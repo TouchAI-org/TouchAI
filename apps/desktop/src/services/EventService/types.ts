@@ -4,7 +4,12 @@ import type {
     AppUpdateCheckResult,
     AppUpdateNotificationAction,
 } from '@services/NativeService/types';
-import type { GeneralSettingKey, GeneralSettingValue } from '@services/SettingsService/domain';
+import type {
+    GeneralSettingKey,
+    GeneralSettingValue,
+    SearchProviderId,
+    SearchSource,
+} from '@services/SettingsService/domain';
 
 import type { SearchKeybindingActionId } from '@/config/searchKeybindings';
 import type { SessionStatusReminderKind } from '@/utils/session';
@@ -51,6 +56,7 @@ export enum AppEvent {
     COMPUTER_USE_STOPPED = 'computer-use-stopped',
     /** 流式响应过程中的用量进度（节流发送，仅供实时面板使用） */
     SESSION_TASK_USAGE_PROGRESS = 'session:task:usage-progress',
+    WEB_SEARCH_ACTIVITY = 'web-search:activity',
     SESSION_STATUS_REMINDER_ACTION = 'session-status-reminder:action',
 
     // 快捷键捕获事件
@@ -219,6 +225,16 @@ export interface SessionTaskUsageProgressEvent {
     streaming: boolean;
 }
 
+/** Transient display data; no query text or result content crosses this channel. */
+export interface WebSearchActivityEvent {
+    id: string;
+    source: SearchSource;
+    provider: SearchProviderId;
+    phase: 'searching' | 'results' | 'stopped';
+    sites: Array<{ url: string; favicon?: string }>;
+    timeoutMs: number;
+}
+
 // ==================== 事件映射 ====================
 
 /**
@@ -250,6 +266,7 @@ export interface AppEventMap {
     [AppEvent.SESSION_TASK_STATUS_CHANGED]: SessionTaskStatusChangedEvent;
     [AppEvent.COMPUTER_USE_STOPPED]: string[];
     [AppEvent.SESSION_TASK_USAGE_PROGRESS]: SessionTaskUsageProgressEvent;
+    [AppEvent.WEB_SEARCH_ACTIVITY]: WebSearchActivityEvent;
     [AppEvent.SESSION_STATUS_REMINDER_ACTION]: SessionStatusReminderActionEvent;
 
     // 快捷键捕获事件

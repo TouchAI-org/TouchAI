@@ -69,9 +69,33 @@ describe('user lets the source capability pick a provider', () => {
         config.providers.zhihu.enabled = false;
         config.providers.yuanbao.enabled = false;
         config.providers.deepseek.enabled = false;
+        config.providers.grok.enabled = false;
 
         const plan = resolveSearchProviders(request({ source: 'community' }), config);
         expect(plan[0]).toBe('anysearch');
+    });
+
+    it('user disables community specialists and gets the next Chinese engine before a general engine', () => {
+        const config = settings();
+        config.providers.zhihu.enabled = false;
+        config.providers.yuanbao.enabled = false;
+        expect(resolveSearchProviders(request({ source: 'community' }), config)[0]).toBe(
+            'deepseek'
+        );
+    });
+
+    it('user disables academic engines and gets a general engine instead of an unrelated default', () => {
+        const config = settings({ defaultProvider: 'github', fallbackEnabled: false });
+        for (const provider of [
+            'openalex',
+            'semantic_scholar',
+            'tinyfish',
+            'anysearch',
+            'keenable',
+        ] as const) {
+            config.providers[provider].enabled = false;
+        }
+        expect(resolveSearchProviders(request({ source: 'academic' }), config)[0]).toBe('tavily');
     });
 
     it('user gets the engine named by providerOptions even when provider is auto', () => {

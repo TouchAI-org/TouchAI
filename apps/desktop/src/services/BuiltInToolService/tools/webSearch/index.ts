@@ -17,6 +17,7 @@ import {
     type BuiltInToolExecutionResult,
     type BuiltInToolGroup,
 } from '../../types';
+import { startSearchActivity } from './activity';
 import {
     buildWebSearchToolDescription,
     buildWebSearchToolInputSchema,
@@ -335,6 +336,7 @@ async function runSearchProvider(
     }
 
     const attempt = createSearchSignal(signal, request.timeoutMs);
+    const finishActivity = startSearchActivity(request, provider);
     try {
         attempt.signal.throwIfAborted();
         const results = await adapter.search({
@@ -345,8 +347,10 @@ async function runSearchProvider(
             fetchText,
         });
         attempt.signal.throwIfAborted();
+        finishActivity(results);
         return results.map((result) => ({ ...result, provider }));
     } catch (error) {
+        finishActivity();
         if (attempt.signal.aborted) throw attempt.signal.reason;
         throw error;
     } finally {

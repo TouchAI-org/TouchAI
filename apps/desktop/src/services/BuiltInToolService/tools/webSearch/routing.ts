@@ -1,46 +1,11 @@
-import type {
-    SearchProviderId,
-    SearchSettingsConfig,
-    SearchSource,
+import {
+    resolveSearchSourceProviders,
+    type SearchProviderId,
+    type SearchSettingsConfig,
 } from '@services/SettingsService/domain';
 
 import type { WebSearchRequest, WebSearchResult } from './helper';
 import { getAvailableSearchProviders } from './providers/adapters';
-
-/**
- * 能力路由表：只看“需要什么来源”，不看引擎品牌。
- * 顺序即优先级；未启用的会被 resolveSearchProviders 过滤。
- */
-export const SEARCH_SOURCE_PRIORITY: Record<SearchSource, SearchProviderId[]> = {
-    general: [
-        'anysearch',
-        'keenable',
-        'tavily',
-        'exa',
-        'brave',
-        'firecrawl',
-        'serper',
-        'tinyfish',
-        'doubao',
-        'qianfan',
-    ],
-    news: [
-        'brave',
-        'yuanbao',
-        'grok',
-        'tavily',
-        'serper',
-        'tinyfish',
-        'doubao',
-        'qianfan',
-        'anysearch',
-    ],
-    community: ['zhihu', 'yuanbao', 'anysearch', 'deepseek'],
-    academic: ['openalex', 'semantic_scholar', 'tinyfish', 'anysearch'],
-    code: ['github', 'anysearch', 'keenable'],
-    official: ['keenable', 'yuanbao', 'brave', 'doubao', 'qianfan', 'anysearch'],
-    realtime: ['grok', 'yuanbao', 'brave', 'anysearch'],
-};
 
 const CHINESE_PREFERENCE: SearchProviderId[] = [
     'yuanbao',
@@ -101,14 +66,7 @@ export function resolveSearchProviders(
             push(intentRoute);
         }
         if (request.source) {
-            const sourceRoute = settings.sourceRoutes[request.source];
-            if (sourceRoute !== 'auto') {
-                push(sourceRoute);
-            }
-            if (request.source !== 'general') {
-                if (request.language === 'zh' && request.source === 'news') push('yuanbao');
-                SEARCH_SOURCE_PRIORITY[request.source].forEach(push);
-            }
+            resolveSearchSourceProviders(request.source, settings, request.language).forEach(push);
         }
         const languagePreference =
             request.language === 'zh'
