@@ -135,6 +135,27 @@ describe('user changes a setting through the single owner', () => {
         expect(dbMock.values.get('output_scroll_behavior')).toBe('stay_position');
     });
 
+    it('user changes the reading width in either window and keeps it after reopening', async () => {
+        const owner = createOwner(createEffects());
+        await owner.initialize();
+        const settings = createClient('settings', createEffects());
+        await settings.initialize();
+        expect(settings.getSnapshot().conversationContentWidth).toBe(880);
+
+        await settings.mutate('conversation_content_width', 1200);
+        expect(owner.getSnapshot().conversationContentWidth).toBe(1200);
+        await owner.mutate('conversation_content_width', 1440);
+        await flush();
+        expect(settings.getSnapshot().conversationContentWidth).toBe(1440);
+
+        settings.dispose();
+        owner.dispose();
+        const reopened = createOwner(createEffects());
+        await reopened.initialize();
+        expect(reopened.getSnapshot().conversationContentWidth).toBe(1440);
+        reopened.dispose();
+    });
+
     describe('given a global shortcut is already used by a search action', () => {
         it('user cannot save the conflicting global shortcut', async () => {
             dbMock.values.set(
