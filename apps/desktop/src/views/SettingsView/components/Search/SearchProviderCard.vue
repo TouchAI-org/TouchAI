@@ -9,7 +9,7 @@
     import { SegmentedControl } from '@components/ui/segmented-control';
     import { Switch } from '@components/ui/switch';
     import { useMotion } from '@composables/useMotion';
-    import { motion } from 'motion-v';
+    import { AnimatePresence, motion } from 'motion-v';
     import { computed, ref, watch } from 'vue';
 
     import { t } from '@/i18n';
@@ -43,6 +43,11 @@
     );
     const backTransition = computed(() =>
         reducedMotion.value ? { duration: 0 } : { ...transitions.value.quick, delay: 0.66 }
+    );
+    const contentTransition = computed(() =>
+        reducedMotion.value
+            ? { duration: 0 }
+            : { type: 'tween' as const, duration: 0.3, ease: [0.4, 0, 0.2, 1] }
     );
 
     const emit = defineEmits<{
@@ -97,23 +102,27 @@
             :class="editing ? 'flex-col p-3.5' : ''"
             :data-testid="editing ? 'search-provider-editor' : undefined"
         >
-            <motion.div
-                v-if="editing"
-                :initial="{ opacity: 0 }"
-                :animate="{ opacity: 1 }"
-                :transition="backTransition"
-                class="absolute top-3.5 left-3.5 z-20"
-            >
-                <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    data-testid="search-provider-editor-back"
-                    :aria-label="t('settings.search.editor.back')"
-                    @click="emit('cancel')"
+            <AnimatePresence :initial="false">
+                <motion.div
+                    v-if="editing"
+                    key="back"
+                    :initial="{ opacity: 0 }"
+                    :animate="{ opacity: 1 }"
+                    :exit="{ opacity: 0, transition: { duration: 0.15 } }"
+                    :transition="backTransition"
+                    class="absolute top-3.5 left-3.5 z-20"
                 >
-                    <AppIcon name="arrow-left" class="size-4" />
-                </Button>
-            </motion.div>
+                    <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        data-testid="search-provider-editor-back"
+                        :aria-label="t('settings.search.editor.back')"
+                        @click="emit('cancel')"
+                    >
+                        <AppIcon name="arrow-left" class="size-4" />
+                    </Button>
+                </motion.div>
+            </AnimatePresence>
             <div
                 class="flex min-w-0 items-center gap-3"
                 :class="editing ? 'w-full' : 'h-full flex-1 px-3.5'"
@@ -139,7 +148,8 @@
                     </span>
                     <span
                         v-else
-                        class="flex size-full items-center justify-center overflow-hidden rounded-xl bg-surface-floating p-0.5"
+                        class="flex size-full items-center justify-center overflow-hidden rounded-xl bg-surface-floating"
+                        :class="editing ? 'p-0.5' : 'p-1.5'"
                     >
                         <img :src="logo" alt="" class="size-full rounded-lg object-contain" />
                     </span>
@@ -153,93 +163,135 @@
                         >
                             {{ label }}
                         </h3>
-                        <Badge
-                            v-if="!editing && quota"
-                            variant="source"
-                            :data-testid="`search-provider-quota-${id}`"
-                            class="shrink-0"
-                        >
-                            {{ quota }}
-                        </Badge>
+                        <AnimatePresence :initial="false">
+                            <motion.span
+                                v-if="!editing && quota"
+                                key="quota"
+                                :initial="{ opacity: 0, scale: 0.92 }"
+                                :animate="{ opacity: 1, scale: 1 }"
+                                :exit="{ opacity: 0, scale: 0.92 }"
+                                :transition="contentTransition"
+                                class="shrink-0"
+                            >
+                                <Badge
+                                    variant="source"
+                                    :data-testid="`search-provider-quota-${id}`"
+                                >
+                                    {{ quota }}
+                                </Badge>
+                            </motion.span>
+                        </AnimatePresence>
                     </div>
-                    <p
+                    <AnimatePresence :initial="false">
+                        <motion.p
+                            v-if="!editing"
+                            key="description"
+                            :initial="{ opacity: 0, height: 0, marginTop: 0 }"
+                            :animate="{ opacity: 1, height: 'auto', marginTop: 4 }"
+                            :exit="{ opacity: 0, height: 0, marginTop: 0 }"
+                            :transition="contentTransition"
+                            class="m-0 line-clamp-2 overflow-hidden text-caption whitespace-pre-line text-text-secondary"
+                            :title="description"
+                        >
+                            {{ description }}
+                        </motion.p>
+                    </AnimatePresence>
+                </div>
+
+                <AnimatePresence :initial="false">
+                    <motion.div
+                        v-if="editing && supportsEndpoint && !endpointRequired"
+                        key="tabs"
+                        :initial="{ opacity: 0, x: 8 }"
+                        :animate="{ opacity: 1, x: 0 }"
+                        :exit="{ opacity: 0, x: 8 }"
+                        :transition="contentTransition"
+                        class="shrink-0"
+                    >
+                        <SegmentedControl
+                            v-model="field"
+                            data-testid="search-provider-credential-tabs"
+                            :options="fieldOptions"
+                            :aria-label="t('settings.search.provider.credentialType')"
+                        />
+                    </motion.div>
+                </AnimatePresence>
+
+                <AnimatePresence :initial="false">
+                    <motion.div
                         v-if="!editing"
-                        class="m-0 mt-1 line-clamp-2 text-caption whitespace-pre-line text-text-secondary"
-                        :title="description"
+                        key="actions"
+                        :initial="{ opacity: 0, x: 8 }"
+                        :animate="{ opacity: 1, x: 0 }"
+                        :exit="{ opacity: 0, x: 8 }"
+                        :transition="contentTransition"
+                        class="flex shrink-0 items-center gap-1"
                     >
-                        {{ description }}
-                    </p>
-                </div>
-
-                <SegmentedControl
-                    v-if="editing && supportsEndpoint && !endpointRequired"
-                    v-model="field"
-                    data-testid="search-provider-credential-tabs"
-                    :options="fieldOptions"
-                    :aria-label="t('settings.search.provider.credentialType')"
-                />
-
-                <div v-else-if="!editing" class="flex shrink-0 items-center gap-1">
-                    <Switch
-                        :data-testid="`search-provider-toggle-${id}`"
-                        :aria-label="label"
-                        :model-value="enabled"
-                        :disabled="disabled"
-                        @update:model-value="emit('enabled', $event)"
-                    />
-                    <Button
-                        v-if="editable"
-                        variant="ghost"
-                        size="icon-sm"
-                        :data-testid="`search-provider-edit-${id}`"
-                        :aria-label="t('settings.search.editProvider', { name: label })"
-                        :disabled="disabled"
-                        @click="emit('edit')"
-                    >
-                        <AppIcon name="edit" class="size-4" />
-                    </Button>
-                    <span v-else class="size-7 shrink-0" aria-hidden="true" />
-                </div>
+                        <Switch
+                            :data-testid="`search-provider-toggle-${id}`"
+                            :aria-label="label"
+                            :model-value="enabled"
+                            :disabled="disabled"
+                            @update:model-value="emit('enabled', $event)"
+                        />
+                        <Button
+                            v-if="editable"
+                            variant="ghost"
+                            size="icon-sm"
+                            :data-testid="`search-provider-edit-${id}`"
+                            :aria-label="t('settings.search.editProvider', { name: label })"
+                            :disabled="disabled"
+                            @click="emit('edit')"
+                        >
+                            <AppIcon name="edit" class="size-4" />
+                        </Button>
+                        <span v-else class="size-7 shrink-0" aria-hidden="true" />
+                    </motion.div>
+                </AnimatePresence>
             </div>
 
-            <motion.div
-                v-if="editing"
-                :initial="{ opacity: 0, y: -4 }"
-                :animate="{ opacity: 1, y: 0 }"
-                :transition="transitions.quick"
-                class="mt-2 flex min-w-0 items-center gap-2"
-            >
-                <div class="min-w-0 flex-1">
-                    <Input
-                        v-if="field === 'endpoint'"
-                        v-model="endpointDraft"
-                        variant="filled"
-                        class="h-9 text-xs"
-                        type="url"
-                        :data-testid="`search-${id}-base-url-input`"
-                        :placeholder="endpointPlaceholder"
-                        spellcheck="false"
-                    />
-                    <PasswordInput
-                        v-else
-                        v-model="keyDraft"
-                        variant="filled"
-                        :input-test-id="`search-${id}-api-key-input`"
-                        :placeholder="keyPlaceholder"
-                        class="!mt-0"
-                        input-class="h-9 py-0 pr-10 text-xs"
-                    />
-                </div>
-                <Button
-                    variant="strong"
-                    class="h-9 shrink-0"
-                    data-testid="search-provider-editor-save"
-                    :disabled="!canSave"
-                    @click="save"
+            <AnimatePresence :initial="false">
+                <motion.div
+                    v-if="editing"
+                    key="fields"
+                    :initial="{ opacity: 0, height: 0, marginTop: 0 }"
+                    :animate="{ opacity: 1, height: 'auto', marginTop: 8 }"
+                    :exit="{ opacity: 0, height: 0, marginTop: 0 }"
+                    :transition="contentTransition"
+                    class="flex min-w-0 items-center gap-2 overflow-hidden"
                 >
-                    {{ t('settings.search.editor.save') }}
-                </Button>
-            </motion.div>
+                    <div class="min-w-0 flex-1">
+                        <Input
+                            v-if="field === 'endpoint'"
+                            v-model="endpointDraft"
+                            variant="filled"
+                            class="h-9 text-xs"
+                            type="url"
+                            :data-testid="`search-${id}-base-url-input`"
+                            :placeholder="endpointPlaceholder"
+                            spellcheck="false"
+                        />
+                        <PasswordInput
+                            v-else
+                            v-model="keyDraft"
+                            variant="filled"
+                            :input-test-id="`search-${id}-api-key-input`"
+                            :placeholder="keyPlaceholder"
+                            class="!mt-0"
+                            input-class="h-9 py-0 pr-10 text-xs"
+                        />
+                    </div>
+                    <Button
+                        variant="strong"
+                        class="h-9 shrink-0"
+                        data-testid="search-provider-editor-save"
+                        :disabled="!canSave"
+                        @click="save"
+                    >
+                        {{ t('settings.search.editor.save') }}
+                    </Button>
+                </motion.div>
+            </AnimatePresence>
         </div>
     </article>
 </template>
