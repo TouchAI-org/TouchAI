@@ -502,7 +502,7 @@ const zhCNMessages = {
     'settings.search.provider.urlField': 'URL',
     'settings.search.provider.fetchTab': '抓取',
     'settings.search.provider.fetchEnabled': '用于内容抓取',
-    'settings.search.provider.fetchEnabled.description': '允许 WebFetch 使用此引擎读取网页正文',
+    'settings.search.provider.fetchEnabled.description': '允许此引擎用于读取网页正文',
     'settings.search.provider.credentialType': '凭据类型',
     'settings.search.provider.baseUrlPlaceholder': '可选 Base URL，留空使用官方地址',
     'settings.search.provider.apiKeyRequired': '填写 API Key 后才能启用',
@@ -1848,8 +1848,7 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.search.provider.urlField': 'URL',
     'settings.search.provider.fetchTab': 'Fetch',
     'settings.search.provider.fetchEnabled': 'Use for content fetching',
-    'settings.search.provider.fetchEnabled.description':
-        'Allow WebFetch to read page content with this engine',
+    'settings.search.provider.fetchEnabled.description': 'Allow this engine to read page content',
     'settings.search.provider.credentialType': 'Credential type',
     'settings.search.editor.back': 'Back',
     'settings.search.editor.apiKey': 'API Key',
