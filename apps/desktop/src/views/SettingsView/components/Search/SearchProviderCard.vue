@@ -109,13 +109,9 @@
     <article
         data-testid="search-provider-row"
         :data-provider="id"
-        class="relative h-26 min-w-0 rounded-card border border-border-subtle bg-surface-floating"
+        class="relative h-26 min-w-0 overflow-hidden rounded-card border border-border-subtle bg-surface-floating"
     >
-        <div
-            class="flex h-full min-w-0"
-            :class="editing ? 'flex-col p-3.5' : ''"
-            :data-testid="editing ? 'search-provider-editor' : undefined"
-        >
+        <div class="relative h-full" :data-testid="editing ? 'search-provider-editor' : undefined">
             <AnimatePresence :initial="false">
                 <motion.div
                     v-if="editing"
@@ -124,7 +120,7 @@
                     :animate="{ opacity: 1 }"
                     :exit="{ opacity: 0, transition: { duration: 0.15 } }"
                     :transition="backTransition"
-                    class="absolute top-3.5 left-3.5 z-20"
+                    class="absolute top-3.5 left-3.5 z-30"
                 >
                     <Button
                         variant="ghost"
@@ -137,156 +133,151 @@
                     </Button>
                 </motion.div>
             </AnimatePresence>
-            <div
-                class="flex min-w-0 items-center gap-3"
-                :class="editing ? 'w-full' : 'h-full flex-1 px-3.5'"
+
+            <motion.span
+                v-if="logo"
+                :initial="false"
+                :animate="{
+                    x: editing ? 0 : -36,
+                    y: editing ? 0 : 2,
+                    width: editing ? 28 : 72,
+                    height: editing ? 28 : 72,
+                    padding: editing ? 2 : 8,
+                    borderRadius: editing ? 8 : 16,
+                }"
+                :transition="headerTransition"
+                class="absolute flex items-center justify-center bg-surface-sunken"
+                style="left: 50px; top: 14px"
             >
-                <motion.span
-                    v-if="logo"
-                    :initial="false"
-                    :animate="{
-                        width: editing ? 28 : 72,
-                        height: editing ? 28 : 72,
-                        marginLeft: editing ? 36 : 0,
-                        padding: editing ? 2 : 8,
-                        borderRadius: editing ? 8 : 16,
-                    }"
-                    :transition="headerTransition"
-                    class="flex shrink-0 items-center justify-center bg-surface-sunken"
+                <span
+                    v-if="logoHasBackground"
+                    class="flex size-full items-center justify-center overflow-hidden rounded-xl"
                 >
-                    <span
-                        v-if="logoHasBackground"
-                        class="flex size-full items-center justify-center overflow-hidden rounded-xl"
-                    >
-                        <img :src="logo" alt="" class="size-full rounded-xl object-cover" />
-                    </span>
-                    <span
-                        v-else
-                        class="flex size-full items-center justify-center overflow-hidden rounded-xl bg-surface-floating"
-                        :class="editing ? 'p-0.5' : 'p-1.5'"
-                    >
-                        <img :src="logo" alt="" class="size-full rounded-lg object-contain" />
-                    </span>
-                </motion.span>
+                    <img :src="logo" alt="" class="size-full rounded-xl object-cover" />
+                </span>
+                <span
+                    v-else
+                    class="flex size-full items-center justify-center overflow-hidden rounded-xl bg-surface-floating"
+                    :class="editing ? 'p-0.5' : 'p-1.5'"
+                >
+                    <img :src="logo" alt="" class="size-full rounded-lg object-contain" />
+                </span>
+            </motion.span>
 
-                <div class="min-w-0 flex-1" :class="editing ? 'flex items-center' : ''">
-                    <div class="flex min-w-0 items-center gap-1.5">
-                        <h3
-                            class="min-w-0 truncate text-compact leading-5 font-medium text-settings-text"
-                            :title="label"
-                        >
-                            {{ label }}
-                        </h3>
-                        <AnimatePresence :initial="false">
-                            <motion.span
-                                v-if="!editing && quota"
-                                key="quota"
-                                :initial="{ opacity: 0, scale: 0.92 }"
-                                :animate="{ opacity: 1, scale: 1 }"
-                                :exit="{
-                                    opacity: 0,
-                                    scale: 0.92,
-                                    transition: contentExitTransition,
-                                }"
-                                :transition="contentEnterTransition"
-                                class="shrink-0"
-                            >
-                                <Badge
-                                    variant="source"
-                                    :data-testid="`search-provider-quota-${id}`"
-                                >
-                                    {{ quota }}
-                                </Badge>
-                            </motion.span>
-                        </AnimatePresence>
-                    </div>
-                    <AnimatePresence :initial="false">
-                        <motion.p
-                            v-if="!editing"
-                            key="description"
-                            :initial="{ opacity: 0, height: 0, marginTop: 0 }"
-                            :animate="{ opacity: 1, height: 'auto', marginTop: 4 }"
-                            :exit="{
-                                opacity: 0,
-                                height: 0,
-                                marginTop: 0,
-                                transition: contentExitTransition,
-                            }"
-                            :transition="contentEnterTransition"
-                            class="m-0 line-clamp-2 overflow-hidden text-caption whitespace-pre-line text-text-secondary"
-                            :title="description"
-                        >
-                            {{ description }}
-                        </motion.p>
-                    </AnimatePresence>
-                </div>
-
+            <motion.div
+                :initial="false"
+                :animate="{ x: editing ? 0 : 8, y: editing ? 0 : 24 }"
+                :transition="headerTransition"
+                class="absolute flex min-w-0 items-center gap-1.5"
+                style="left: 90px; top: 18px; right: 100px"
+            >
+                <h3
+                    class="min-w-0 truncate text-compact leading-5 font-medium text-settings-text"
+                    :title="label"
+                >
+                    {{ label }}
+                </h3>
                 <AnimatePresence :initial="false">
-                    <motion.div
-                        v-if="editing && supportsEndpoint && !endpointRequired"
-                        key="tabs"
-                        :initial="{ opacity: 0, x: 8 }"
-                        :animate="{ opacity: 1, x: 0 }"
-                        :exit="{ opacity: 0, x: 8, transition: contentExitTransition }"
-                        :transition="tabsEnterTransition"
+                    <motion.span
+                        v-if="!editing && quota"
+                        key="quota"
+                        :initial="{ opacity: 0, scale: 0.92 }"
+                        :animate="{ opacity: 1, scale: 1 }"
+                        :exit="{
+                            opacity: 0,
+                            scale: 0.92,
+                            transition: contentExitTransition,
+                        }"
+                        :transition="contentEnterTransition"
                         class="shrink-0"
                     >
-                        <SegmentedControl
-                            v-model="field"
-                            data-testid="search-provider-credential-tabs"
-                            :options="fieldOptions"
-                            :aria-label="t('settings.search.provider.credentialType')"
-                        />
-                    </motion.div>
+                        <Badge variant="source" :data-testid="`search-provider-quota-${id}`">
+                            {{ quota }}
+                        </Badge>
+                    </motion.span>
                 </AnimatePresence>
+            </motion.div>
 
-                <AnimatePresence :initial="false">
-                    <motion.div
-                        v-if="!editing"
-                        key="actions"
-                        :initial="{ opacity: 0, x: 8 }"
-                        :animate="{ opacity: 1, x: 0 }"
-                        :exit="{ opacity: 0, x: 8, transition: contentExitTransition }"
-                        :transition="contentEnterTransition"
-                        class="flex shrink-0 items-center gap-1"
+            <AnimatePresence :initial="false">
+                <motion.p
+                    v-if="!editing"
+                    key="description"
+                    :initial="{ opacity: 0, y: -4 }"
+                    :animate="{ opacity: 1, y: 0 }"
+                    :exit="{
+                        opacity: 0,
+                        y: -4,
+                        transition: contentExitTransition,
+                    }"
+                    :transition="contentEnterTransition"
+                    class="absolute m-0 line-clamp-2 overflow-hidden text-caption whitespace-pre-line text-text-secondary"
+                    style="left: 98px; top: 66px; right: 100px"
+                    :title="description"
+                >
+                    {{ description }}
+                </motion.p>
+            </AnimatePresence>
+
+            <AnimatePresence :initial="false">
+                <motion.div
+                    v-if="editing && supportsEndpoint && !endpointRequired"
+                    key="tabs"
+                    :initial="{ opacity: 0, x: 8 }"
+                    :animate="{ opacity: 1, x: 0 }"
+                    :exit="{ opacity: 0, x: 8, transition: contentExitTransition }"
+                    :transition="tabsEnterTransition"
+                    class="absolute top-3.5 right-3.5 z-20"
+                >
+                    <SegmentedControl
+                        v-model="field"
+                        data-testid="search-provider-credential-tabs"
+                        :options="fieldOptions"
+                        :aria-label="t('settings.search.provider.credentialType')"
+                    />
+                </motion.div>
+            </AnimatePresence>
+
+            <AnimatePresence :initial="false">
+                <motion.div
+                    v-if="!editing"
+                    key="actions"
+                    :initial="{ opacity: 0, x: 8 }"
+                    :animate="{ opacity: 1, x: 0 }"
+                    :exit="{ opacity: 0, x: 8, transition: contentExitTransition }"
+                    :transition="contentEnterTransition"
+                    class="absolute top-9 right-3.5 flex items-center gap-1"
+                >
+                    <Switch
+                        :data-testid="`search-provider-toggle-${id}`"
+                        :aria-label="label"
+                        :model-value="enabled"
+                        :disabled="disabled"
+                        @update:model-value="emit('enabled', $event)"
+                    />
+                    <Button
+                        v-if="editable"
+                        variant="ghost"
+                        size="icon-sm"
+                        :data-testid="`search-provider-edit-${id}`"
+                        :aria-label="t('settings.search.editProvider', { name: label })"
+                        :disabled="disabled"
+                        @click="emit('edit')"
                     >
-                        <Switch
-                            :data-testid="`search-provider-toggle-${id}`"
-                            :aria-label="label"
-                            :model-value="enabled"
-                            :disabled="disabled"
-                            @update:model-value="emit('enabled', $event)"
-                        />
-                        <Button
-                            v-if="editable"
-                            variant="ghost"
-                            size="icon-sm"
-                            :data-testid="`search-provider-edit-${id}`"
-                            :aria-label="t('settings.search.editProvider', { name: label })"
-                            :disabled="disabled"
-                            @click="emit('edit')"
-                        >
-                            <AppIcon name="edit" class="size-4" />
-                        </Button>
-                        <span v-else class="size-7 shrink-0" aria-hidden="true" />
-                    </motion.div>
-                </AnimatePresence>
-            </div>
+                        <AppIcon name="edit" class="size-4" />
+                    </Button>
+                    <span v-else class="size-7 shrink-0" aria-hidden="true" />
+                </motion.div>
+            </AnimatePresence>
 
             <AnimatePresence :initial="false">
                 <motion.div
                     v-if="editing"
                     key="fields"
-                    :initial="{ opacity: 0, height: 0, marginTop: 0 }"
-                    :animate="{ opacity: 1, height: 'auto', marginTop: 8 }"
-                    :exit="{
-                        opacity: 0,
-                        height: 0,
-                        marginTop: 0,
-                        transition: contentExitTransition,
-                    }"
+                    :initial="{ opacity: 0, y: 8 }"
+                    :animate="{ opacity: 1, y: 0 }"
+                    :exit="{ opacity: 0, y: 8, transition: contentExitTransition }"
                     :transition="fieldsEnterTransition"
-                    class="flex min-w-0 items-center gap-2 overflow-hidden"
+                    class="absolute inset-x-3.5 bottom-3.5 flex items-center gap-2"
                 >
                     <div class="min-w-0 flex-1">
                         <Input
