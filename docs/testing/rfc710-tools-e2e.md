@@ -95,3 +95,16 @@ A blocked catalog, unacquired write lock, absent failure UI, or unexpected
 continuation is a test failure, never a skipped scenario. All three scenarios
 passed against the Linux Debug application on 2026-11-19. The combined run and
 remaining platform limits are recorded in [E2E results](rfc710-e2e-results.md).
+
+## Tool-result inspection across native drivers
+
+Given a completed or failed MCP tool card in the conversation, when the user
+opens that card, the result must be readable and agree with the persisted audit.
+The existing retry and disconnected-effect scenarios cover both outcomes and
+continue to assert that the effect was performed only once.
+
+Windows/WebView2 exposed a harness failure in both scenarios on `b8bcad6`:
+`getAttribute('textContent')` returns null because the button has no such HTML
+attribute. Select the card using its DOM text property, then scroll it into view
+and click the real expand control. Keep the result, durable-audit, retry-count,
+and recovery assertions intact; missing cards must still fail the test.

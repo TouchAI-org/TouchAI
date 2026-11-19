@@ -101,7 +101,7 @@ async function connectInSettings(fixture, mcp) {
 async function openToolResult(mcp) {
     const buttons = await $$('.tool-call-toggle');
     for (const button of buttons) {
-        const text = await button.getAttribute('textContent');
+        const text = await button.getProperty('textContent');
         if (!text.includes(mcp.toolName)) continue;
         await button.scrollIntoView();
         await button.waitForDisplayed();

@@ -131,9 +131,9 @@ Tooling/CI logs live in the sibling `logs/` directory.
 
 ## Scope limits
 
-- The full Windows/WebView2 CI run, including the original visual specifications,
-  has not yet been executed for this integrated candidate. Local functional success
-  does not establish a passing remote CI result.
+- Windows/WebView2 on `b8bcad6` passes 101 cases and fails two MCP result-card
+  inspections. The fourth, data-management group does not run after that failure.
+  The DOM text-property repair below still requires a fresh Windows CI result.
 - Backup/import bypass the OS file picker and send the real Settings-to-main
   command. Native backup/import, transactions and database contents are exercised.
   Picker widgets, import-mode selection, progress/toast behavior and the automatic
@@ -166,3 +166,27 @@ two successive model configurations in one driver session return to main and
 release both Settings windows. This is harness validation against the existing
 integration binary; it does not replace a rebuilt candidate, the Windows suite,
 or the unresolved Linux queue/steer acceptance findings above.
+
+## Windows MCP result-card inspection
+
+The next Windows run on `b8bcad6` confirms the Settings lifecycle repair: the
+first group passes all 92 cases, including the 20 queue/steer cases and three
+queue-recovery cases. All eight Agent Core cases also pass. The MCP group passes
+its persistence-error case, but its retry and uncertain-effect cases stop when
+opening their result cards. The suite reports 101 passes and two failures; the
+data-management group does not run after the MCP group fails.
+
+Both failures read the missing HTML attribute `textContent`, which WebView2
+returns as null. The shared card lookup now uses WebDriver's DOM property read.
+The same two existing E2E scenarios retain their result, audit, effect-count and
+recovery assertions as the regression checks. No product code or test scope,
+assertion, timeout, baseline, threshold or skip changes are needed for this fix.
+
+A focused Linux/WebKit run with the corrected helper passes all three MCP and
+seven data-management cases (two spec files, WDIO exit 0). It uses the retained
+`564f94ed` Debug binary, SHA-256
+`1139cef0905f5ff9a989588e845b823810d58283df117c7264d5fe1ba4ef87b3`;
+only the external test harness changed. This confirms the helper and retained
+production flow locally, not a rebuilt candidate or a Windows pass. Evidence is
+in `/dev/shm/touchai-710-9049b4ad/ci-b8bcad6/native-mcp`, including the exact
+configuration, commands, binary reference, fixture state and `native-mcp.log`.
