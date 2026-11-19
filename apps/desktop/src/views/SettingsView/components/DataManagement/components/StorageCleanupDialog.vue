@@ -58,23 +58,17 @@
         if (selected.value.length === 0) return false;
         return selected.value.length === available.value.length ? true : 'indeterminate';
     });
-    const warningKeys: Partial<Record<StorageCategory, MessageKey>> = {
-        attachments: 'settings.storage.selection.warnAttachments',
-        clipboard: 'settings.storage.selection.warnClipboard',
-        temporary: 'settings.storage.selection.warnTemporary',
-        recordings: 'settings.storage.selection.warnRecordings',
-        database: 'settings.storage.selection.warnDatabase',
-        assets: 'settings.storage.selection.warnAssets',
-        browser: 'settings.storage.selection.warnBrowser',
+    const descriptionKeys: Record<StorageCategory, MessageKey> = {
+        attachments: 'settings.storage.selection.descriptionAttachments',
+        clipboard: 'settings.storage.selection.descriptionClipboard',
+        thumbnails: 'settings.storage.selection.descriptionThumbnails',
+        temporary: 'settings.storage.selection.descriptionTemporary',
+        recordings: 'settings.storage.selection.descriptionRecordings',
+        logs: 'settings.storage.selection.descriptionLogs',
+        database: 'settings.storage.selection.descriptionDatabase',
+        assets: 'settings.storage.selection.descriptionAssets',
+        browser: 'settings.storage.selection.descriptionBrowser',
     };
-    const warnings = computed(() =>
-        selected.value
-            .filter(
-                (category) => category !== 'attachments' || !selected.value.includes('database')
-            )
-            .map((category) => warningKeys[category])
-            .filter((key): key is MessageKey => key !== undefined)
-    );
     watch(
         () => props.open,
         (open) => {
@@ -104,7 +98,7 @@
     <DialogShell
         :open="open"
         :dismissible="!busy"
-        max-width-class="max-w-lg"
+        max-width-class="max-w-2xl"
         @close="emit('close')"
     >
         <DialogTitle>{{ t('settings.storage.selection.title') }}</DialogTitle>
@@ -117,14 +111,26 @@
                     id="storage-choice-unused"
                     v-model="unused"
                     data-testid="storage-choice-unused"
+                    aria-labelledby="storage-choice-unused-label"
+                    aria-describedby="storage-choice-unused-description"
                     :disabled="disabled || unusedBytes === 0"
                 />
                 <label
                     for="storage-choice-unused"
-                    class="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-4 text-compact"
+                    class="flex min-w-0 flex-1 cursor-pointer items-baseline justify-between gap-4 text-compact"
                 >
-                    <span>{{ t('settings.storage.safeCleanup') }}</span>
-                    <span class="whitespace-nowrap text-text-secondary tabular-nums">
+                    <span class="min-w-0">
+                        <span id="storage-choice-unused-label" class="mr-2">
+                            {{ t('settings.storage.safeCleanup') }}
+                        </span>
+                        <span
+                            id="storage-choice-unused-description"
+                            class="text-caption text-text-secondary"
+                        >
+                            {{ t('settings.storage.selection.descriptionUnused') }}
+                        </span>
+                    </span>
+                    <span class="shrink-0 whitespace-nowrap text-text-secondary tabular-nums">
                         {{ formatBytes(unusedBytes) }}
                     </span>
                 </label>
@@ -154,29 +160,32 @@
                 <Checkbox
                     :id="`storage-choice-${category.key}`"
                     :data-testid="`storage-choice-${category.key}`"
+                    :aria-labelledby="`storage-choice-${category.key}-label`"
+                    :aria-describedby="`storage-choice-${category.key}-description`"
                     :model-value="selected.includes(category.key)"
                     :disabled="disabled || (category.fileCount === 0 && category.value === 0)"
                     @update:model-value="selectCategory(category.key, $event)"
                 />
                 <label
                     :for="`storage-choice-${category.key}`"
-                    class="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-4 text-compact"
+                    class="flex min-w-0 flex-1 cursor-pointer items-baseline justify-between gap-4 text-compact"
                 >
-                    <span>{{ category.label }}</span>
-                    <span class="whitespace-nowrap text-text-secondary tabular-nums">
+                    <span class="min-w-0">
+                        <span :id="`storage-choice-${category.key}-label`" class="mr-2">
+                            {{ category.label }}
+                        </span>
+                        <span
+                            :id="`storage-choice-${category.key}-description`"
+                            class="text-caption text-text-secondary"
+                        >
+                            {{ t(descriptionKeys[category.key]) }}
+                        </span>
+                    </span>
+                    <span class="shrink-0 whitespace-nowrap text-text-secondary tabular-nums">
                         {{ formatBytes(category.value) }}
                     </span>
                 </label>
             </div>
-        </div>
-        <div
-            v-if="selected.length"
-            class="mb-4 space-y-1 text-caption text-text-warning"
-            role="status"
-            aria-live="polite"
-        >
-            <p>{{ t('settings.storage.selection.irreversible') }}</p>
-            <p v-for="key in warnings" :key="key">{{ t(key) }}</p>
         </div>
         <div class="flex flex-wrap items-center justify-between gap-3">
             <span class="text-caption text-text-secondary tabular-nums">

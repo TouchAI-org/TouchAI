@@ -406,7 +406,7 @@
             "count": 2
         },
         "vue/no-restricted-class": {
-            "count": 26
+            "count": 17
         }
     },
     "src/views/SettingsView/components/General/GeneralShortcutSettings.vue": {

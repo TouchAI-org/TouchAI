@@ -82,15 +82,35 @@ function choose(dialog: HTMLElement, key: string) {
 }
 
 describe('given every managed storage category can be explicitly removed', () => {
-    it('user opens cleanup and gets one selection dialog without category action buttons', async () => {
+    it('user opens cleanup and can read each item description before choosing what to delete', async () => {
         const dialog = await openSelection();
         expect(wrapper!.find('[data-testid="settings-storage-recordings"]').exists()).toBe(false);
         expect(wrapper!.find('[data-testid="settings-storage-compact"]').exists()).toBe(false);
-        for (const category of categories) {
+        const descriptions = {
+            unused: 'Unreferenced attachments, caches and unused database space',
+            attachments: 'Conversation images and files; unavailable after deletion',
+            clipboard: 'Copied images; deleting them may remove images used in conversations',
+            thumbnails: 'Image previews in search results',
+            temporary: 'Temporary screenshots and files; history links may stop working',
+            recordings: 'Saved operation recordings; deletion cannot be undone',
+            logs: 'App activity and crash records',
+            database:
+                'Conversations, usage and settings (models, providers and API keys); permanently cleared, then the app restarts',
+            assets: 'Fonts and drivers; the app restarts and downloads them again when needed',
+            browser: 'Sign-in state, cookies and history; closes the browser and signs you out',
+        };
+        for (const [category, description] of Object.entries(descriptions)) {
+            const checkbox = dialog.querySelector(`[data-testid="storage-choice-${category}"]`);
+            expect(checkbox).not.toBeNull();
+            const descriptionId = checkbox!.getAttribute('aria-describedby');
+            expect(descriptionId).toBeTruthy();
+            const explanation = document.getElementById(descriptionId!);
+            expect(explanation?.textContent?.trim()).toBe(description);
             expect(
-                dialog.querySelector(`[data-testid="storage-choice-${category}"]`)
-            ).not.toBeNull();
+                dialog.querySelector(`label[for="${checkbox!.id}"]`)?.contains(explanation!)
+            ).toBe(true);
         }
+        expect(dialog.textContent).not.toContain('All files in the selected categories');
         expect(getTauriInvokeCalls('storage_cleanup_selected')).toEqual([]);
     });
 
@@ -100,8 +120,8 @@ describe('given every managed storage category can be explicitly removed', () =>
         choose(dialog, 'attachments');
         choose(dialog, 'browser');
         await flushPromises();
-        expect(dialog.textContent).toContain('Attachments in past conversations');
-        expect(dialog.textContent).toContain('sign-in');
+        expect(dialog.textContent).toContain('Conversation images and files');
+        expect(dialog.textContent).toContain('signs you out');
         expect(getTauriInvokeCalls('storage_cleanup_selected')).toEqual([]);
         dialog.querySelector<HTMLButtonElement>('[data-testid="storage-cleanup-confirm"]')!.click();
         await flushPromises();
@@ -114,7 +134,9 @@ describe('given every managed storage category can be explicitly removed', () =>
         const dialog = await openSelection();
         choose(dialog, 'database');
         await flushPromises();
-        expect(dialog.textContent).toContain('conversations, usage and local settings');
+        expect(dialog.textContent).toContain(
+            'Conversations, usage and settings (models, providers and API keys)'
+        );
         const confirm = dialog.querySelector<HTMLButtonElement>(
             '[data-testid="storage-cleanup-confirm"]'
         )!;

@@ -10,6 +10,7 @@ import BadgedLogo from '@/views/SettingsView/components/AiServices/components/Ba
 import BackupScopeDialog from '@/views/SettingsView/components/DataManagement/components/BackupScopeDialog.vue';
 import ProgressDialog from '@/views/SettingsView/components/DataManagement/components/ProgressDialog.vue';
 import DataManagement from '@/views/SettingsView/components/DataManagement/index.vue';
+import { searchSettings } from '@/views/SettingsView/settingsSearch';
 
 import { getLastTauriInvokeCall, mockTauriCommand } from '../utils/tauri';
 
@@ -89,7 +90,7 @@ afterEach(async () => {
 });
 
 describe('given local data settings and dialogs are displayed in English', () => {
-    it('user opens data settings and sees model metadata dates and the additive storage section localized', async () => {
+    it('user opens data settings and sees localized storage without duplicate usage statistics', async () => {
         setLocale('en-US');
         const wrapper = mount(DataManagement, {
             attachTo: host,
@@ -99,8 +100,11 @@ describe('given local data settings and dialogs are displayed in English', () =>
         await flushPromises();
 
         expect(wrapper.text()).toContain('Data & privacy');
-        expect(wrapper.text()).toContain('Data statistics');
-        expect(wrapper.text()).toContain('Conversation sessions');
+        expect(wrapper.text()).not.toContain('Data statistics');
+        expect(wrapper.text()).not.toContain('Conversation sessions');
+        expect(searchSettings('Data statistics').map((result) => result.label)).not.toContain(
+            'Data statistics'
+        );
         expect(wrapper.text()).toContain('Storage');
         expect(wrapper.text()).toContain('Clear all conversation history');
         expect(wrapper.text()).toContain('Data updates');

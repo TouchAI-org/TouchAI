@@ -495,39 +495,6 @@
                 <h1 class="settings-page-title">{{ t('settings.nav.dataManagement.label') }}</h1>
             </header>
 
-            <section class="space-y-4">
-                <h2 class="settings-section-title">{{ t('settings.dataManagement.stats') }}</h2>
-
-                <div class="settings-row-group p-4" data-settings-search-target="data-stats">
-                    <div class="grid grid-cols-3 gap-3">
-                        <div class="rounded-control bg-neutral-50/80 p-4 text-center">
-                            <div class="text-lg font-semibold text-neutral-950">
-                                {{ stats.sessions }}
-                            </div>
-                            <div class="mt-1.5 text-xs text-neutral-500">
-                                {{ t('settings.dataManagement.sessions') }}
-                            </div>
-                        </div>
-                        <div class="rounded-control bg-neutral-50/80 p-4 text-center">
-                            <div class="text-lg font-semibold text-neutral-950">
-                                {{ stats.messages }}
-                            </div>
-                            <div class="mt-1.5 text-xs text-neutral-500">
-                                {{ t('settings.dataManagement.messages') }}
-                            </div>
-                        </div>
-                        <div class="rounded-control bg-neutral-50/80 p-4 text-center">
-                            <div class="text-lg font-semibold text-neutral-950">
-                                {{ stats.sessionTurns }}
-                            </div>
-                            <div class="mt-1.5 text-xs text-neutral-500">
-                                {{ t('settings.dataManagement.sessionTurns') }}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
             <StorageSection
                 ref="storageSection"
                 :disabled="isLoading"

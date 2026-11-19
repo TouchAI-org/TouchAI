@@ -9,6 +9,8 @@ The maintainer also explicitly authorized deletion of every managed storage cate
 ## Acceptance scenarios
 
 - Given the storage overview, when the user chooses Clean up space, then one dialog lists every managed category with checkboxes; the overview has no per-category maintenance buttons.
+- Given the cleanup dialog, when the user reviews any item before selecting it, then gray text beside its name explains its contents and any material deletion consequence; low-risk items have no extra warning.
+- Given Data & privacy settings, when the user opens the page or searches settings, then the duplicate data statistics block and its search result are absent; the storage overview and history controls remain available.
 - Given selected categories contain personal data, when the user reviews the selection, then the dialog describes the loss and still allows explicit deletion. Database deletion clears conversations, usage and local configuration, then requires a restart; it never deletes the live SQLite file or schema.
 - Given referenced attachments or managed screenshots are explicitly selected for deletion, when cleanup completes, then their managed bytes and matching file references are removed without erasing unrelated conversation text or touching external originals. Subsequent backups remain valid.
 - Given browser data or installed resources are selected, when cleanup starts, then the corresponding managed runtimes stop and their writers cannot race the deletion. Files outside the measured managed roots remain untouched.
@@ -58,11 +60,11 @@ Full backups use an independent compressed archive, a versioned manifest and SHA
 
 The ring shows total physical usage. Its legend lists every category once, largest first, with its occupied bytes. Hovering or selecting an occupied category shows its size, share and file count in the ring; the category tooltip also exposes the count and share. Empty categories stay in the list, including files that occupy zero bytes.
 
-The button under the ring reads Clean up space. A shadcn/vue-style Dialog with Reka UI Checkbox primitives contains the unused-file option, every measured category and select-all. Important choices show the relevant warning without preventing deletion; database and installed-resource selections change the final action to Delete and restart. Refresh remains an icon; the category rows have no maintenance icons. Typography inherits the Settings window's Source Han Serif font.
+The button under the ring reads Clean up space. A shadcn/vue-style Dialog with Reka UI Checkbox primitives contains the unused-file option, every measured category and select-all. Each name is followed by a gray description of its contents and any material deletion consequence, visible before selection and associated with the checkbox for assistive technology. Low-risk items have no extra warning, and there is no separate warning block at the bottom. Database and installed-resource selections change the final action to Delete and restart. Refresh remains an icon; the category rows have no maintenance icons. Typography inherits the Settings window's Source Han Serif font. Data & privacy no longer repeats the session, message and turn counts already covered by Usage.
 
 ![Storage overview with a 2 GiB sample dataset](images/storage-overview-zh.png)
 
-![Cleanup selection with the database warning](images/storage-cleanup-zh.png)
+![Cleanup selection with gray descriptions beside each item](images/storage-cleanup-zh.png)
 
 Component references: [shadcn/vue Dialog](https://www.shadcn-vue.com/docs/components/dialog) and [Checkbox](https://www.shadcn-vue.com/docs/components/checkbox). Both patterns reuse the installed Reka UI dependency.
 

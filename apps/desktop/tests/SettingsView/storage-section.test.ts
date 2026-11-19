@@ -189,7 +189,13 @@ describe('given storage contains unused files and retained user data', () => {
             control('storage-choice-unused').click();
             control(`storage-choice-${category}`).click();
             await flushPromises();
-            expect(dialog().textContent).toContain('deleted permanently');
+            expect(
+                dialog().querySelector(`#storage-choice-${category}-description`)?.textContent
+            ).toContain(
+                category === 'recordings'
+                    ? 'Saved operation recordings; deletion cannot be undone'
+                    : 'App activity and crash records'
+            );
             expect(control('storage-cleanup-confirm').textContent).toContain('Delete selected');
             await confirm();
             expect(getLastTauriInvokeCall('storage_cleanup_selected')?.payload).toEqual({
