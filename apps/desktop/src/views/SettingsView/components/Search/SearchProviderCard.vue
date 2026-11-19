@@ -41,6 +41,9 @@
             ? { duration: 0 }
             : { type: 'tween' as const, duration: 0.8, ease: [0.4, 0, 0.2, 1] }
     );
+    const backTransition = computed(() =>
+        reducedMotion.value ? { duration: 0 } : { ...transitions.value.quick, delay: 0.66 }
+    );
 
     const emit = defineEmits<{
         enabled: [value: boolean];
@@ -98,7 +101,7 @@
                 v-if="editing"
                 :initial="{ opacity: 0 }"
                 :animate="{ opacity: 1 }"
-                :transition="{ ...transitions.quick, delay: 0.14 }"
+                :transition="backTransition"
                 class="absolute top-3.5 left-3.5 z-20"
             >
                 <Button
@@ -122,10 +125,11 @@
                         width: editing ? 28 : 72,
                         height: editing ? 28 : 72,
                         marginLeft: editing ? 36 : 0,
+                        padding: editing ? 2 : 8,
+                        borderRadius: editing ? 8 : 16,
                     }"
                     :transition="headerTransition"
                     class="flex shrink-0 items-center justify-center bg-surface-sunken"
-                    :class="editing ? 'rounded-lg p-0.5' : 'rounded-2xl p-2'"
                 >
                     <span
                         v-if="logoHasBackground"
