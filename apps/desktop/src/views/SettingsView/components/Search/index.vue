@@ -578,7 +578,21 @@
             </header>
 
             <fieldset :disabled="!toolEnabled" class="contents">
-                <section class="space-y-4">
+                <section class="mt-10 space-y-4" data-settings-search-target="search-strategy">
+                    <h2 class="settings-section-title">
+                        {{ t('settings.search.section.strategy') }}
+                    </h2>
+                    <div class="settings-row-group">
+                        <div class="px-5 py-5">
+                            <SearchStrategyChoices
+                                v-model="draft.routingStrategy"
+                                :disabled="!toolEnabled"
+                            />
+                        </div>
+                    </div>
+                </section>
+
+                <section class="mt-10 space-y-4">
                     <h2 class="settings-section-title">{{ t('settings.search.section.basic') }}</h2>
                     <div class="settings-row-group divide-y divide-neutral-200/70">
                         <SettingsRow
@@ -679,20 +693,6 @@
                                 :disabled="!toolEnabled"
                             />
                         </SettingsRow>
-                    </div>
-                </section>
-
-                <section class="mt-10 space-y-4" data-settings-search-target="search-strategy">
-                    <h2 class="settings-section-title">
-                        {{ t('settings.search.section.strategy') }}
-                    </h2>
-                    <div class="settings-row-group">
-                        <div class="px-5 py-5">
-                            <SearchStrategyChoices
-                                v-model="draft.routingStrategy"
-                                :disabled="!toolEnabled"
-                            />
-                        </div>
                     </div>
                 </section>
 
