@@ -14,6 +14,7 @@ import {
 } from '../support/data-management.js';
 import {
     callE2eBridge,
+    closeSettingsWindow,
     SETTINGS_WINDOW_DEFAULT_SIZE,
     switchToWindowContaining,
     switchToWindowWithE2eBridge,
@@ -79,7 +80,7 @@ describe('user manages independently saved history in Settings with main running
     after(async () => {
         if (settingsWindowHandle) {
             await browser.switchToWindow(settingsWindowHandle);
-            await browser.closeWindow();
+            await closeSettingsWindow();
         }
         if (mainWindowHandle) await switchToWindowWithE2eBridge(mainWindowHandle);
         if (previousScriptTimeout !== undefined) {

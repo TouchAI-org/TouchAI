@@ -1,5 +1,6 @@
 import {
     callE2eBridge,
+    closeSettingsWindow,
     switchToWindowContaining,
     switchToWindowWithE2eBridge,
     waitForTestIdDisplayed,
@@ -119,7 +120,7 @@ export async function configureE2eModel(endpoint, modelId, modelName) {
         try {
             if (settingsHandle) {
                 await browser.switchToWindow(settingsHandle);
-                await browser.closeWindow();
+                await closeSettingsWindow();
             }
         } finally {
             await switchToWindowWithE2eBridge(mainHandle);

@@ -13,6 +13,7 @@ import {
 
 const desktop = vi.hoisted(() => ({
     callE2eBridge: vi.fn(),
+    closeSettingsWindow: vi.fn(),
     switchToWindowContaining: vi.fn(),
     switchToWindowWithE2eBridge: vi.fn(),
     waitForTestIdDisplayed: vi.fn(),

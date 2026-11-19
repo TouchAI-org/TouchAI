@@ -2,17 +2,15 @@
  * User flows in the settings window: opening it, changing a persisted
  * preference, moving between sections, and finding a setting by search.
  *
- * The window is opened once for the whole spec and closed at the end. Reopening
- * it inside one WebDriver session does not surface a new window handle: the app
- * reuses the existing `settings` window (see
- * apps/desktop/src-tauri/src/core/window/settings/mod.rs), and the driver keeps
- * addressing the handle it closed. Persistence is therefore proven by leaving
- * the section and coming back, which reads the value from the settings store
- * rather than from component-local state.
+ * The window is opened once for this spec and closed through its native title-bar
+ * control. WebDriver closeWindow detaches only the WebView2 target and can strand
+ * the native Settings owner, preventing later model and queue scenarios from
+ * opening it again in the same driver session.
  */
 import {
     assertVisible,
     callE2eBridge,
+    closeSettingsWindow,
     getAriaChecked,
     SETTINGS_WINDOW_DEFAULT_SIZE,
     switchToWindowContaining,
@@ -51,7 +49,7 @@ describe('user works in the settings window', () => {
     });
 
     after(async () => {
-        await browser.closeWindow();
+        await closeSettingsWindow();
         await switchToWindowWithE2eBridge(mainWindowHandle);
     });
 

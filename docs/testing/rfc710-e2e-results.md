@@ -146,3 +146,23 @@ Tooling/CI logs live in the sibling `logs/` directory.
 
 Scenario details: [Agent](rfc710-agent-e2e.md), [MCP tools](rfc710-tools-e2e.md),
 [data management](rfc710-data-management-e2e.md).
+
+## Published Windows run and setup repair
+
+The Windows run for `564f94ed` failed with 67 passing and 28 failing cases/hooks.
+The streaming-scroll setup still called the removed direct model-configuration
+bridge. The later queue setup could not reopen Settings after WebDriver closed
+its WebView2 target while Tauri still retained the native window. The first
+specification group failed, so the other three groups did not execute.
+
+Streaming-scroll now uses the same Settings-to-main model administration helper
+as queue/steer and recovery. All Settings cleanup paths use the visible product
+close button and wait for the window handle to disappear. Three boundary
+regressions first reproduced the failure, then passed after the change, including
+owner rejection recovery and a native-close failure that still restores main.
+
+A focused native Linux/WebKit check using the retained `564f94ed` binary passes:
+two successive model configurations in one driver session return to main and
+release both Settings windows. This is harness validation against the existing
+integration binary; it does not replace a rebuilt candidate, the Windows suite,
+or the unresolved Linux queue/steer acceptance findings above.

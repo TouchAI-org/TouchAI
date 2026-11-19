@@ -5,7 +5,9 @@ import type { ReasoningProtocol } from '../contracts/reasoning';
 
 /** Base normalization never appends a provider-specific path. */
 export function normalizeProviderBaseUrl(baseUrl: string): string {
-    return baseUrl.replace(/\/+$/, '');
+    let end = baseUrl.length;
+    while (end > 0 && baseUrl[end - 1] === '/') end -= 1;
+    return baseUrl.slice(0, end);
 }
 
 export function resolveOpenAiStyleSdkBaseUrl(normalizedBaseUrl: string): string {

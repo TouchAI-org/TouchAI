@@ -1682,3 +1682,48 @@ affected suites pass; the aggregate backend evidence is 13 files / 229 tests.
 The rebuilt final candidate passes 22 native cases; dragging and cleanup
 fail and stop the remaining queue/steer cases. Native acceptance remains
 explicitly failing/incomplete.
+
+
+### Published-head CI follow-up: endpoint and resolver safety
+
+- Given a saved Provider endpoint contains a long run of internal slashes, when
+  the caller previews its API targets, then the gateway path stays exact and
+  normalization completes in bounded linear work.
+- Given a TypeScript glob alias contains literal replacement metacharacters,
+  when the architecture gate expands it, then only the literal target directory
+  is scanned. Unsupported multiple-wildcard alias targets fail closed.
+- Given a transient model response arrives after the initial virtual-clock
+  advance, when the production task retries, then the regression follows its
+  observable completion and still verifies frozen prompts and durable attempts.
+
+The delayed-response and long-path regressions failed before the fixes, and all
+43 tests in their two suites pass with the CI shard coverage configuration.
+Three resolver regressions first failed on literal substitution, exact aliases,
+and invalid wildcard targets; all 94 architecture tests now pass. The Models
+suite passes all 77 tests, and CI/workspace test typechecks pass. The endpoint
+normalizer uses a three-line suffix scan instead of adding a string utility
+dependency; the resolver reuses the installed TypeScript pattern parser.
+Existing coverage floors and native acceptance requirements remain unchanged.
+
+
+### Published-head Windows E2E setup recovery
+
+Given multiple specifications configure models through Settings in one native
+WebDriver session, when each setup closes Settings through its visible close
+button, then a later setup can open a fresh native Settings window, configure
+the model through main, and return to the main window. Closing only the WebView
+through WebDriver must not leave a native window that later setups cannot reach.
+The existing streaming-scroll scenario uses the same Settings-owned model
+administration helper as the queue scenarios.
+
+The first published Windows run on `564f94ed` reports 67 passing and 28 failing
+cases/hooks; the setup failures prevented the remaining specification groups
+from running. Three boundary regressions reproduce the stranded-window and
+cleanup failure behaviors before the fix and pass afterward. A real
+Linux/WebKit smoke on the existing `564f94ed` integration binary also completes
+two successive model configurations and verifies that both Settings windows are
+released. This confirms the changed E2E harness, not the full new product build
+or Windows acceptance; CI must rebuild and rerun the complete matrix.
+
+The full E2E/preview tooling suite passes 21 files / 244 tests after the harness
+repair. Final Windows execution and CodeQL confirmation remain pending CI.

@@ -155,10 +155,11 @@ describe('given a production main task with actual Provider, Core and committed 
     it('user retries a temporary failure with one frozen prompt and sees changed language only on the following task', async () => {
         vi.useFakeTimers();
         vi.spyOn(Math, 'random').mockReturnValue(0);
+        const firstResponse = Promise.withResolvers<Response>();
         network.respondToGeneration = async () => {
             if (network.requests.length === 1) {
                 setLocale('en-US');
-                return Response.json({ error: { message: 'HTTP 503' } }, { status: 503 });
+                return firstResponse.promise;
             }
             return response('after a temporary failure');
         };
@@ -169,6 +170,12 @@ describe('given a production main task with actual Provider, Core and committed 
         );
         try {
             await vi.advanceTimersByTimeAsync(2000);
+            firstResponse.resolve(
+                Response.json({ error: { message: 'HTTP 503' } }, { status: 503 })
+            );
+            await vi.waitFor(() =>
+                expect(fixture.window.api.getTaskSnapshot(started.taskId)?.status).toBe('completed')
+            );
             expect((await started.completion).response).toBe('after a temporary failure');
             expect(network.requests).toHaveLength(2);
             expect(network.requests[1]?.messages).toEqual(network.requests[0]?.messages);
@@ -211,9 +218,10 @@ describe('given a production main task with actual Provider, Core and committed 
         const failure = expect(started.completion).rejects.toMatchObject({
             code: 'REQUEST_CANCELLED',
         });
-        await vi.advanceTimersByTimeAsync(100);
-        expect(text(fixture.window.api.getTaskSnapshot(started.taskId))).toContain(
-            tt('重试中...({attempt}/{maxRetries})', { attempt: 1, maxRetries: 5 })
+        await vi.waitFor(() =>
+            expect(text(fixture.window.api.getTaskSnapshot(started.taskId))).toContain(
+                tt('重试中...({attempt}/{maxRetries})', { attempt: 1, maxRetries: 5 })
+            )
         );
         expect(fixture.window.api.cancelTask(started.taskId)).toBe(true);
         await failure;
@@ -230,7 +238,10 @@ describe('given a production main task with actual Provider, Core and committed 
         const started = await fixture.window.api.startTask({ prompt: 'bounded retry' });
         const failure = expect(started.completion).rejects.toMatchObject({ code: 'RATE_LIMIT' });
         void failure.catch(() => undefined);
-        await vi.advanceTimersByTimeAsync(30_000);
+        await vi.waitFor(async () => {
+            await vi.advanceTimersByTimeAsync(30_000);
+            expect(fixture.window.api.getTaskSnapshot(started.taskId)?.status).toBe('failed');
+        });
         await failure;
         expect(network.requests).toHaveLength(6);
         expect(
@@ -278,7 +289,9 @@ describe('given a production main task with actual Provider, Core and committed 
         const started = await fixture.window.api.startTask({
             prompt: 'resume safely after the read',
         });
-        await vi.advanceTimersByTimeAsync(2000);
+        await vi.waitFor(() =>
+            expect(fixture.window.api.getTaskSnapshot(started.taskId)?.status).toBe('completed')
+        );
         expect((await started.completion).response).toBe('answer from the safe checkpoint');
         expect(getTauriInvokeCalls('mcp_call_tool')).toHaveLength(1);
         expect(network.requests).toHaveLength(3);

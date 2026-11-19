@@ -46,6 +46,20 @@ describe('given an explicit Provider driver and saved endpoint', () => {
         }
     );
 
+    it('user previews an endpoint with many internal slashes promptly without changing its gateway path', () => {
+        const base = `https://fixture.invalid/${'/'.repeat(65_536)}gateway`;
+        const started = performance.now();
+        const result = getProviderApiTargets('openai-compatible', `${base}///`);
+        const elapsed = performance.now() - started;
+        expect(result).toEqual({
+            normalizedBaseUrl: base,
+            sdkBaseUrl: base,
+            generationTarget: `${base}/chat/completions`,
+            discoveryTarget: `${base}/models`,
+        });
+        expect(elapsed).toBeLessThan(500);
+    });
+
     it('user sees no fabricated endpoint when the saved endpoint is empty', () => {
         expect(getProviderApiTargets('openai', '')).toEqual({
             normalizedBaseUrl: '',

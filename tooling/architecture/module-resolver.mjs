@@ -312,9 +312,18 @@ export function createModuleResolver(projectRoot, { srcRoot } = {}) {
         if (!Array.isArray(alias.targets) || alias.targets.length === 0) {
             throw new Error(`[invalid-glob-alias] ${specifier} has no alias targets`);
         }
-        return alias.targets.map((target) =>
-            path.resolve(pathBase, target.replace('*', alias.remainder))
-        );
+        return alias.targets.map((target) => {
+            const pattern = ts.tryParsePattern(target);
+            if (pattern === undefined) {
+                throw new Error(`[invalid-glob-alias] ${target} has multiple wildcards`);
+            }
+            return path.resolve(
+                pathBase,
+                typeof pattern === 'string'
+                    ? pattern
+                    : `${pattern.prefix}${alias.remainder}${pattern.suffix}`
+            );
+        });
     }
 
     function expandGlob(specifier, importerAbsolute) {
@@ -326,7 +335,7 @@ export function createModuleResolver(projectRoot, { srcRoot } = {}) {
                 const wildcardIndex = normalizedPattern.search(/[*?[\]{}]/);
                 const staticPrefix =
                     wildcardIndex === -1
-                        ? path.dirname(normalizedPattern)
+                        ? normalizedPattern
                         : normalizedPattern.slice(0, wildcardIndex);
                 const searchRoot = staticPrefix.endsWith('/')
                     ? path.resolve(staticPrefix)

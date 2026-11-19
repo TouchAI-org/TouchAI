@@ -533,6 +533,17 @@ export async function switchToWindowWithE2eBridge(handle, timeoutMs = DEFAULT_TI
     throw new Error('The search window did not become current after closing settings.');
 }
 
+/** Close the native Settings owner; WebDriver closeWindow only detaches its WebView2 target. */
+export async function closeSettingsWindow() {
+    const handle = await browser.getWindowHandle();
+    const close = await waitForTestIdDisplayed('settings-window-close');
+    await close.click();
+    await browser.waitUntil(async () => !(await browser.getWindowHandles()).includes(handle), {
+        timeout: DEFAULT_TIMEOUT_MS,
+        timeoutMsg: 'The native Settings window did not close after its close button was clicked.',
+    });
+}
+
 export async function getAriaChecked(element) {
     return element.getAttribute('aria-checked');
 }

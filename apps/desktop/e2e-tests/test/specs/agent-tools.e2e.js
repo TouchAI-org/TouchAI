@@ -4,6 +4,7 @@ import { getAgentFixture } from '../support/agent-fixture.js';
 import { focusMain, submitPrompt, waitForAnswer, waitForTurn } from '../support/agent-ui.js';
 import {
     callE2eBridge,
+    closeSettingsWindow,
     switchToWindowContaining,
     switchToWindowWithE2eBridge,
     useInterfaceLanguage,
@@ -92,7 +93,7 @@ async function connectInSettings(fixture, mcp) {
     await connect.waitForEnabled();
     await connect.click();
     await waitForCatalog(fixture, mcp);
-    await browser.closeWindow();
+    await closeSettingsWindow();
     await switchToWindowWithE2eBridge(main);
     await focusMain();
 }
