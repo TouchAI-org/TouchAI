@@ -12,6 +12,8 @@ import {
 } from '../../utils/toolSchema';
 
 export const WEB_FETCH_MODES = ['reader', 'page_markdown', 'page_text'] as const;
+/** Model-facing modes. page_markdown remains accepted for old calls and internal fallback. */
+export const WEB_FETCH_USER_MODES = ['reader', 'page_text'] as const;
 export const SUPPORTED_PROTOCOLS = new Set(['http:', 'https:']);
 export const DEFAULT_TIMEOUT_MS = 20_000;
 export const DEFAULT_SOURCE_CHAR_LIMIT = 1_500_000;
@@ -70,11 +72,10 @@ export const WEB_FETCH_TOOL_INPUT_SCHEMA: AiToolDefinition['input_schema'] = {
         },
         mode: {
             type: 'string',
-            enum: [...WEB_FETCH_MODES],
+            enum: [...WEB_FETCH_USER_MODES],
             description: withExamples(
-                'Required extraction mode. reader prefers main article content, page_markdown converts the visible page to Markdown, and page_text returns normalized plain text.',
+                'Required extraction mode. reader extracts the main article as Markdown, falling back to the cleaned page; page_text returns the cleaned page as plain text.',
                 '"reader"',
-                '"page_markdown"',
                 '"page_text"'
             ),
         },

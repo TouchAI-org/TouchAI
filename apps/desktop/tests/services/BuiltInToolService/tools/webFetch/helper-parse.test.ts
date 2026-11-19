@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { WEB_FETCH_TOOL_INPUT_SCHEMA } from '@/services/BuiltInToolService/tools/webFetch/constants';
+
 import { setLocale, tt } from '@/i18n';
 import {
     buildPageMarkdown,
@@ -131,6 +133,11 @@ describe('user gets an unsafe address refused before the assistant fetches it', 
         expect(request.mode).toBe('reader');
         expect(request.maxChars).toBe(5000);
         expect(request.url.toString()).toBe('https://example.com/article');
+    });
+
+    it('user is only offered the two distinct extraction modes', () => {
+        const mode = WEB_FETCH_TOOL_INPUT_SCHEMA.properties.mode as { enum: string[] };
+        expect(mode.enum).toEqual(['reader', 'page_text']);
     });
 
     it('user can request a specific fetch engine', () => {

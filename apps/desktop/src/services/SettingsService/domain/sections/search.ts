@@ -36,7 +36,7 @@ export const SEARCH_SOURCES = [
     'realtime',
 ] as const;
 
-export const WEB_FETCH_STRATEGIES = ['direct', 'fallback', 'prefer'] as const;
+export const WEB_FETCH_STRATEGIES = ['prefer', 'fallback', 'direct'] as const;
 
 export const SEARCH_FETCH_PROVIDERS = [
     'anysearch',
@@ -383,7 +383,7 @@ function createDefaultProviders(): Record<SearchProviderId, SearchProviderConfig
 export const DEFAULT_SEARCH_SETTINGS: SearchSettingsConfig = {
     version: SEARCH_SETTINGS_VERSION,
     routingStrategy: 'capability',
-    fetchStrategy: 'fallback',
+    fetchStrategy: 'prefer',
     defaultProvider: 'anysearch',
     maxResults: 0,
     timeoutMs: 15000,

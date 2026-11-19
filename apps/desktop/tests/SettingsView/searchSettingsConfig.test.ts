@@ -65,6 +65,7 @@ describe('user edits the search settings', () => {
         expect(DEFAULT_SEARCH_SETTINGS.version).toBe(1);
         expect(DEFAULT_SEARCH_SETTINGS.defaultProvider).toBe('anysearch');
         expect(DEFAULT_SEARCH_SETTINGS.maxResults).toBe(0);
+        expect(DEFAULT_SEARCH_SETTINGS.fetchStrategy).toBe('prefer');
         expect(DEFAULT_SEARCH_SETTINGS.timeoutMs).toBe(15000);
         expect(DEFAULT_SEARCH_SETTINGS.preferOfficialSources).toBe(true);
         expect(parseSearchSettingsConfig('{bad json')).toEqual(DEFAULT_SEARCH_SETTINGS);
