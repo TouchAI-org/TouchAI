@@ -42,6 +42,28 @@ describe('user manages application storage', () => {
         });
     });
 
+    it('user selects retained categories and the native boundary receives only that selection', async () => {
+        mockTauriCommand('storage_cleanup_selected', {
+            removedFiles: 2,
+            releasedBytes: 40,
+            pendingBytes: 0,
+            failedFiles: 0,
+            failures: [],
+            summary,
+        });
+        expect(
+            (
+                await storageService.cleanupSelected({
+                    unused: false,
+                    categories: ['browser', 'assets'],
+                })
+            ).removedFiles
+        ).toBe(2);
+        expect(getLastTauriInvokeCall('storage_cleanup_selected')?.payload).toEqual({
+            selection: { unused: false, categories: ['browser', 'assets'] },
+        });
+    });
+
     it('user releases file protection after a failed task without hiding the task error', async () => {
         mockTauriCommand('storage_hold', 'activity-1');
         mockTauriCommand('storage_release', undefined);

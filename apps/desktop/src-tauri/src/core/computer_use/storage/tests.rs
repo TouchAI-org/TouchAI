@@ -21,6 +21,24 @@ fn seed(root: &Path, driver: &str) -> PathBuf {
 }
 
 #[tokio::test]
+async fn user_given_uninitialized_drivers_when_cleaning_storage_then_no_driver_files_are_created_or_migrated(
+) {
+    let (temporary, database, storage) = fixture().await;
+    let lease = storage.maintenance().expect("idle maintenance");
+    assert!(!temporary.path().join("assets").exists());
+    assert!(!temporary.path().join("computer-use").exists());
+    drop(lease);
+    let reader = storage.read().await.expect("installed driver operation");
+    assert_eq!(
+        storage.maintenance().expect_err("driver busy"),
+        "storage_busy"
+    );
+    drop(reader);
+    assert!(storage.maintenance().is_ok());
+    database.pool().close().await;
+}
+
+#[tokio::test]
 async fn user_given_no_custom_location_when_opening_then_keeps_drivers_beside_bundled_tools() {
     let (temporary, _, storage) = fixture().await;
     assert_eq!(

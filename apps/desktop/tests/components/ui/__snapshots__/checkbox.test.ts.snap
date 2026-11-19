@@ -1,0 +1,73 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`given a selection checkbox > user sees the selection state and consistent styling when checked is false 1`] = `
+[
+  "bg-surface-floating",
+  "border",
+  "border-border-strong",
+  "data-[state=checked]:bg-primary",
+  "data-[state=checked]:border-primary",
+  "data-[state=indeterminate]:bg-primary",
+  "data-[state=indeterminate]:border-primary",
+  "disabled:cursor-not-allowed",
+  "disabled:opacity-50",
+  "flex",
+  "focus-visible:outline-2",
+  "focus-visible:outline-focus",
+  "focus-visible:outline-offset-2",
+  "items-center",
+  "justify-center",
+  "rounded-xs",
+  "shrink-0",
+  "size-4",
+  "text-text-inverse",
+]
+`;
+
+exports[`given a selection checkbox > user sees the selection state and consistent styling when checked is indeterminate 1`] = `
+[
+  "bg-surface-floating",
+  "border",
+  "border-border-strong",
+  "data-[state=checked]:bg-primary",
+  "data-[state=checked]:border-primary",
+  "data-[state=indeterminate]:bg-primary",
+  "data-[state=indeterminate]:border-primary",
+  "disabled:cursor-not-allowed",
+  "disabled:opacity-50",
+  "flex",
+  "focus-visible:outline-2",
+  "focus-visible:outline-focus",
+  "focus-visible:outline-offset-2",
+  "items-center",
+  "justify-center",
+  "rounded-xs",
+  "shrink-0",
+  "size-4",
+  "text-text-inverse",
+]
+`;
+
+exports[`given a selection checkbox > user sees the selection state and consistent styling when checked is true 1`] = `
+[
+  "bg-surface-floating",
+  "border",
+  "border-border-strong",
+  "data-[state=checked]:bg-primary",
+  "data-[state=checked]:border-primary",
+  "data-[state=indeterminate]:bg-primary",
+  "data-[state=indeterminate]:border-primary",
+  "disabled:cursor-not-allowed",
+  "disabled:opacity-50",
+  "flex",
+  "focus-visible:outline-2",
+  "focus-visible:outline-focus",
+  "focus-visible:outline-offset-2",
+  "items-center",
+  "justify-center",
+  "rounded-xs",
+  "shrink-0",
+  "size-4",
+  "text-text-inverse",
+]
+`;

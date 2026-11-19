@@ -4,9 +4,11 @@ use std::path::PathBuf;
 use tauri::{AppHandle, Manager, Runtime, State, WebviewWindow};
 
 use crate::core::{
+    browser::BrowserRuntime,
+    computer_use::{agent_desktop, cua_driver, storage::DriverStorage},
     storage::{
         HistoryKind, PublishedAttachment, StorageCategory, StorageCleanupResult,
-        StorageCompactionResult, StorageRuntime, StorageSummary,
+        StorageCleanupSelection, StorageCompactionResult, StorageRuntime, StorageSummary,
     },
     system::clipboard::ClipboardRuntime,
 };
@@ -55,6 +57,44 @@ pub async fn storage_compact_database<R: Runtime>(
 ) -> Result<StorageCompactionResult, String> {
     allow_settings(&window)?;
     storage.compact_database().await
+}
+
+#[tauri::command]
+pub async fn storage_cleanup_selected<R: Runtime>(
+    app: AppHandle<R>,
+    window: WebviewWindow<R>,
+    storage: State<'_, StorageRuntime>,
+    selection: StorageCleanupSelection,
+) -> Result<StorageCleanupResult, String> {
+    allow_settings(&window)?;
+    let storage = storage.inner().clone();
+    tauri::async_runtime::spawn(async move {
+        let lease = storage.exclusive().await?;
+        let drivers = app.state::<DriverStorage>();
+        let _drivers = if selection.categories.iter().any(|category| {
+            matches!(
+                category,
+                StorageCategory::Assets | StorageCategory::Recordings | StorageCategory::Database
+            )
+        }) {
+            let guard = drivers.maintenance()?;
+            cua_driver::shutdown();
+            agent_desktop::shutdown()
+                .await
+                .map_err(|_| "storage_busy")?;
+            Some(guard)
+        } else {
+            None
+        };
+        if selection.categories.contains(&StorageCategory::Browser) {
+            app.state::<BrowserRuntime>().stop();
+        }
+        storage
+            .cleanup_selected(selection, protected_paths(&app)?, lease)
+            .await
+    })
+    .await
+    .map_err(|_| "storage_io_failed".to_string())?
 }
 
 #[tauri::command]

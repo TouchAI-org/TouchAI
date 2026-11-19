@@ -311,6 +311,9 @@ async fn download_font_rounds() -> Result<(), String> {
 /// 下载成功后会发送 `font:ready` 事件通知前端。
 /// 下载失败会返回错误，但不会阻止应用启动。
 pub async fn initialize_font(app_handle: tauri::AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+    let storage = app_handle.state::<crate::core::storage::StorageRuntime>();
+    let _storage = storage.access().await;
     // 检查字体是否已存在
     if font_exists().await? {
         info!("Font already exists, notifying frontend");

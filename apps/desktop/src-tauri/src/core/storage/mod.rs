@@ -1,6 +1,7 @@
 //! App-owned storage accounting, publication and explicit maintenance.
 
 pub(crate) mod files;
+mod selection;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -99,6 +100,14 @@ pub struct StorageCleanupResult {
     pub failed_files: usize,
     pub failures: Vec<StorageFailure>,
     pub summary: StorageSummary,
+    pub restart_required: bool,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StorageCleanupSelection {
+    pub unused: bool,
+    pub categories: Vec<StorageCategory>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -506,6 +515,7 @@ impl StorageRuntime {
             failed_files: removed.3.len(),
             failures: removed.3,
             summary,
+            restart_required: false,
         })
     }
 
@@ -519,6 +529,10 @@ impl StorageRuntime {
     async fn compact_owned(&self) -> Result<StorageCompactionResult, String> {
         let _guard = self.exclusive().await?;
         let _database_guard = self.database.maintenance().await?;
+        self.compact_unlocked().await
+    }
+
+    async fn compact_unlocked(&self) -> Result<StorageCompactionResult, String> {
         let path = self.database.database_path().to_path_buf();
         let page_count: i64 = sqlx::query_scalar("PRAGMA page_count")
             .fetch_one(self.database.pool())
@@ -687,6 +701,7 @@ impl StorageRuntime {
         let root = cache.parent().unwrap_or(cache);
         vec![
             (cache.join("attachments"), StorageCategory::Attachments),
+            (cache.join("originals"), StorageCategory::Attachments),
             (cache.join("clipboard"), StorageCategory::Clipboard),
             (cache.join("icons"), StorageCategory::Thumbnails),
             (cache.join("temporary"), StorageCategory::Temporary),
@@ -898,6 +913,11 @@ fn recognized(path: &Path, root: &Path, category: StorageCategory) -> bool {
         .and_then(|name| name.to_str())
         .unwrap_or_default();
     match category {
+        StorageCategory::Attachments
+            if root.file_name().is_some_and(|name| name == "originals") =>
+        {
+            files::is_hash(name, 64)
+        }
         StorageCategory::Attachments => path.strip_prefix(root).ok().is_some_and(|relative| {
             let parts: Vec<_> = relative
                 .components()
@@ -1173,9 +1193,16 @@ fn remove_entries(
         .map(|(_, _, bytes)| *bytes)
         .sum();
     // A removed name may still have an open handle; report only the observed allocation return.
-    let observed = files::available_space(cache)?
-        .saturating_sub(available_before)
-        .min(expected);
+    let observed = match files::available_space(cache) {
+        Ok(available) => available.saturating_sub(available_before).min(expected),
+        Err(code) => {
+            failures.push(StorageFailure {
+                path: cache.to_string_lossy().into_owned(),
+                code,
+            });
+            0
+        }
+    };
     Ok((
         removed_files,
         observed,

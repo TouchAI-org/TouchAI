@@ -40,7 +40,7 @@ beforeEach(() => {
     host = document.createElement('div');
     document.body.appendChild(host);
     mockTauriCommand('storage_scan', () => summary);
-    mockTauriCommand('storage_cleanup', () => ({
+    mockTauriCommand('storage_cleanup_selected', () => ({
         removedFiles: 1,
         releasedBytes: 1024,
         pendingBytes: 512,
@@ -63,26 +63,18 @@ afterEach(async () => {
 
 describe('given storage settings are available in either supported interface language', () => {
     it.each([
-        [
-            'en-US',
-            'Storage',
-            'Clean up 4 KiB',
-            'Free up database space',
-            'Delete recordings',
-            'Delete logs',
-            'Refresh',
-        ],
-        ['zh-CN', '存储空间', '清理 4 KiB', '释放数据库空间', '删除录制文件', '删除日志', '刷新'],
+        ['en-US', 'Storage', 'Clean up space', 'Refresh'],
+        ['zh-CN', '存储空间', '清理空间', '刷新'],
     ] as const)(
         'user opens storage in %s and reads localized categories and actions',
-        async (locale, title, safeCleanup, compact, recordings, logs, refresh) => {
+        async (locale, title, safeCleanup, refresh) => {
             setLocale(locale);
             wrapper = mount(StorageSection, { attachTo: host });
             await flushPromises();
 
             expect(wrapper.text()).toContain(title);
             expect(wrapper.text()).toContain(safeCleanup);
-            for (const [action, label] of Object.entries({ compact, recordings, logs, refresh })) {
+            for (const [action, label] of Object.entries({ refresh })) {
                 const control = wrapper.get(`[data-testid="settings-storage-${action}"]`);
                 expect(control.text()).toBe('');
                 expect(control.attributes('title')).toContain(label);
@@ -103,7 +95,7 @@ describe('given storage settings are available in either supported interface lan
         await flushPromises();
         await wrapper.get('[data-testid="settings-storage-cleanup"]').trigger('click');
         await flushPromises();
-        const dialog = document.querySelector<HTMLElement>('[role=alertdialog]')!;
+        const dialog = document.querySelector<HTMLElement>('[role=dialog]')!;
         const confirm = [...dialog.querySelectorAll<HTMLButtonElement>('button')].find(
             (button) => button.textContent?.trim() === 'Clean up'
         );

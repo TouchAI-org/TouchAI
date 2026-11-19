@@ -77,6 +77,7 @@ pub fn invoke_handler<R: tauri::Runtime>(
         database::database_import_backup,
         storage::storage_scan,
         storage::storage_cleanup,
+        storage::storage_cleanup_selected,
         storage::storage_compact_database,
         storage::storage_clear_history,
         storage::storage_hold,

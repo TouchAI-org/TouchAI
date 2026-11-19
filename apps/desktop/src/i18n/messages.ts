@@ -688,6 +688,26 @@ const zhCNMessages = {
     'settings.storage.safeCleanup': '未使用的文件',
     'settings.storage.cleanup': '清理',
     'settings.storage.cleanupSize': '清理 {size}',
+    'settings.storage.selection.title': '清理空间',
+    'settings.storage.selection.description': '选择要清理的内容，确认后执行。',
+    'settings.storage.selection.selectAll': '选择全部类别',
+    'settings.storage.selection.estimate': '预计最多释放 {size}',
+    'settings.storage.selection.deleteSelected': '删除所选项',
+    'settings.storage.selection.deleteAndRestart': '删除并重启',
+    'settings.storage.selection.irreversible': '所选类别将全部删除，无法撤销。外部原文件不受影响。',
+    'settings.storage.selection.warnAttachments': '历史会话中的附件将被移除，对话文字保留。',
+    'settings.storage.selection.warnClipboard': '剪贴板图片副本将被删除，包括会话使用的原图。',
+    'settings.storage.selection.warnTemporary':
+        '临时截图和文件将被删除，包括历史记录中引用的文件。',
+    'settings.storage.selection.warnRecordings': '已保存的操作录制文件将永久删除。',
+    'settings.storage.selection.warnDatabase':
+        '将清空会话、用量和本地设置，包括模型、服务商与密钥配置，并重启应用。',
+    'settings.storage.selection.warnAssets':
+        '字体和驱动将被删除并重启应用，下次使用时需要重新下载。',
+    'settings.storage.selection.warnBrowser':
+        '将关闭托管浏览器，清除其登录状态、Cookie 和浏览记录。',
+    'settings.storage.selection.restartRequired': '清理已执行，请重启应用以使用更新后的数据。',
+    'settings.storage.selection.restart': '重新启动',
     'settings.storage.cleaning': '正在清理...',
     'settings.storage.reclaimable': '可回收 {size}',
     'settings.storage.noReclaimable': '没有可回收的文件',
@@ -2042,6 +2062,31 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.storage.safeCleanup': 'Unused files',
     'settings.storage.cleanup': 'Clean up',
     'settings.storage.cleanupSize': 'Clean up {size}',
+    'settings.storage.selection.title': 'Clean up space',
+    'settings.storage.selection.description': 'Choose what to clean up, then confirm.',
+    'settings.storage.selection.selectAll': 'Select all categories',
+    'settings.storage.selection.estimate': 'Up to {size}',
+    'settings.storage.selection.deleteSelected': 'Delete selected',
+    'settings.storage.selection.deleteAndRestart': 'Delete and restart',
+    'settings.storage.selection.irreversible':
+        'All files in the selected categories will be deleted permanently. External originals are kept.',
+    'settings.storage.selection.warnAttachments':
+        'Attachments in past conversations will be removed. Conversation text is kept.',
+    'settings.storage.selection.warnClipboard':
+        'Clipboard image copies will be deleted, including originals used by conversations.',
+    'settings.storage.selection.warnTemporary':
+        'Temporary screenshots and files will be deleted, including files referenced by history.',
+    'settings.storage.selection.warnRecordings':
+        'Saved operation recordings will be permanently deleted.',
+    'settings.storage.selection.warnDatabase':
+        'This clears conversations, usage and local settings, including models, providers and API keys, then restarts the app.',
+    'settings.storage.selection.warnAssets':
+        'Fonts and drivers will be deleted and the app will restart. They must be downloaded again when needed.',
+    'settings.storage.selection.warnBrowser':
+        'The managed browser will close and lose its sign-in state, cookies and browsing history.',
+    'settings.storage.selection.restartRequired':
+        'Cleanup has been applied. Restart the app to use the updated data.',
+    'settings.storage.selection.restart': 'Restart',
     'settings.storage.cleaning': 'Cleaning up...',
     'settings.storage.reclaimable': '{size} reclaimable',
     'settings.storage.noReclaimable': 'No reclaimable files',

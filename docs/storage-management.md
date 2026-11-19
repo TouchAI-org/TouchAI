@@ -4,11 +4,19 @@
 
 The maintainer authorized the complete storage design without a separate issue or RFC, and approved one migration correcting historical turn ownership. This change reuses existing tables, indexes, attachment hashes and historical paths. It adds no separate accounting table. User content is deleted only by the explicit history controls or a confirmed storage cleanup action.
 
+The maintainer also explicitly authorized deletion of every managed storage category, including conversations and other important data after a warning. The selection-dialog revision changes deletion behavior without adding or modifying a migration.
+
 ## Acceptance scenarios
 
+- Given the storage overview, when the user chooses Clean up space, then one dialog lists every managed category with checkboxes; the overview has no per-category maintenance buttons.
+- Given selected categories contain personal data, when the user reviews the selection, then the dialog describes the loss and still allows explicit deletion. Database deletion clears conversations, usage and local configuration, then requires a restart; it never deletes the live SQLite file or schema.
+- Given referenced attachments or managed screenshots are explicitly selected for deletion, when cleanup completes, then their managed bytes and matching file references are removed without erasing unrelated conversation text or touching external originals. Subsequent backups remain valid.
+- Given browser data or installed resources are selected, when cleanup starts, then the corresponding managed runtimes stop and their writers cannot race the deletion. Files outside the measured managed roots remain untouched.
+- Given unused-file cleanup and overlapping categories are selected together, when the estimate is shown and cleanup runs, then each managed file is counted and processed once. Database free-space recovery runs inside the same maintenance operation.
+- Given any selected operation partially fails, when the user sees the result, then committed deletion, remaining failures and restart requirements remain visible.
 - Given a storage scan, when the user opens the overview, then a compact list shows each category and its occupied size. Inspecting a category shows its share and file count, including for zero-byte files.
-- Given a user points at a storage action or navigates by keyboard, when they identify the icon, then its localized name describes the action and the destructive confirmation names the affected files.
-- Given a category supports maintenance, when the user selects its name, then the ring shows its usage. A separate action on that row opens the confirmation. The unused-file cleanup beside the ring shows its own reclaimable estimate.
+- Given a user navigates by keyboard, when they open cleanup, then the dialog traps focus, exposes labeled checkboxes and allows cancellation before deletion starts.
+- Given a category supports maintenance, when the user selects its name in the overview, then the ring shows its usage. Deletion choices and the combined estimate appear in the cleanup dialog.
 - Given a backup containing settings and conversation data, when the user selects either or both during export or restore, then the selected settings, conversations, usage and managed attachments travel with their respective scope. Restoring just settings preserves local history and its files; restoring just data preserves local configuration.
 - Given two conversations share an attachment, when one conversation is removed, then the other conversation's attachment and original image remain readable.
 - Given a user changes an external source file after sending it, when the conversation is reopened, then the saved attachment still contains the bytes captured at send time.
@@ -40,15 +48,23 @@ Rust owns filesystem publication, physical identity accounting, cleanup and the 
 
 Hard links are not snapshots and are never used to adopt external user files. Published attachment content is immutable: no truncate-and-write of an existing hash path. A hard link is permitted only between managed, verified, byte-identical files within one trust domain; paths exposed as editable outputs need independent copies. Original and normalized images remain distinct when their bytes differ. Business references, not link counts, determine whether content may be removed.
 
-Cleanup is conservative: it processes recognized files under managed roots only, rejects reparse points and unknown filesystem identities, protects all attachment rows plus referenced app-owned originals, and rechecks references under the database maintenance gate. The default cleanup excludes recordings, logs, browser profiles and installed assets. Those categories are measured separately. Explicit recording/log cleanup is a destructive action with its own confirmation.
+The default unused-file cleanup processes recognized files under managed roots, protects attachment rows and referenced app-owned originals, and recovers reusable database space. Explicit category selection removes all files in that category, including referenced and recent files, after displaying the consequences. Both paths reject reparse points and unknown filesystem identities, scan before mutation, and run under the storage and database maintenance gates. Native removal still validates every file's physical identity.
+
+Explicit file deletion prunes attachment associations and matching metadata paths in messages, prompt snapshots and recovery attempts while retaining conversation text. Removing an app-owned original alone updates its attachment row to the saved cached copy. JSON processing uses bounded pages and depth/node budgets. Database deletion runs a transaction that clears user rows without altering the schema or migration history, compacts the remaining database, then closes the shared pool to prevent stale windows from rewriting deleted data before restart. Font and driver deletion also requires restart. Filesystem or compaction failures after committed metadata changes remain visible in the result.
+
+Managed originals restored under `cache/originals` count toward Attachments and can be deleted with that category. When Database and Unused files are selected together, the unused-file plan uses references from before the reset; previously referenced attachments are not silently added to the selection. Partial deletion requiring restart stays on screen with a Restart action so the failure details remain reviewable.
 
 Full backups use an independent compressed archive, a versioned manifest and SHA-256 verification. Import validates paths, entry types, sizes and hashes before publication. Restored files are independent copies, not hard links to archive blobs or to another restored path. Old database imports remain available. Cache format or backup manifest changes do not change database structure.
 
 The ring shows total physical usage. Its legend lists every category once, largest first, with its occupied bytes. Hovering or selecting an occupied category shows its size, share and file count in the ring; the category tooltip also exposes the count and share. Empty categories stay in the list, including files that occupy zero bytes.
 
-The unused-file cleanup button under the ring includes the estimated reclaimable bytes. Refresh, database space recovery and recording/log deletion use icons with localized accessible names and tooltips. Each maintenance action keeps its confirmation. The database recovery icon appears only when the scan finds reusable space. Typography inherits the Settings window's Source Han Serif font.
+The button under the ring reads Clean up space. A shadcn/vue-style Dialog with Reka UI Checkbox primitives contains the unused-file option, every measured category and select-all. Important choices show the relevant warning without preventing deletion; database and installed-resource selections change the final action to Delete and restart. Refresh remains an icon; the category rows have no maintenance icons. Typography inherits the Settings window's Source Han Serif font.
 
 ![Storage overview with a 2 GiB sample dataset](images/storage-overview-zh.png)
+
+![Cleanup selection with the database warning](images/storage-cleanup-zh.png)
+
+Component references: [shadcn/vue Dialog](https://www.shadcn-vue.com/docs/components/dialog) and [Checkbox](https://www.shadcn-vue.com/docs/components/checkbox). Both patterns reuse the installed Reka UI dependency.
 
 Export and restore each offer two selections, Settings and Data. Settings includes preferences and provider, model and tool configuration, including credentials. Data includes conversations, usage, search history and managed attachments. A partial ZIP carries its content scope in a version 2 manifest and contains a newly projected database with just the selected content. The file picker reads the manifest before displaying restore choices. A full ZIP keeps the version 1 format, and legacy database-only `.db` backups remain available for both scopes together on export and selective restore on import.
 

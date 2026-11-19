@@ -532,6 +532,7 @@
                 ref="storageSection"
                 :disabled="isLoading"
                 @busy-change="storageBusy = $event"
+                @cleaned="loadStats"
             />
 
             <section class="space-y-4">

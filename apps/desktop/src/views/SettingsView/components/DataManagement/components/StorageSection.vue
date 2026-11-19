@@ -3,31 +3,30 @@
     import { Button } from '@components/ui/button';
     import DonutChart from '@components/ui/donut-chart/DonutChart.vue';
     import { useAlert } from '@composables/useAlert';
-    import { useConfirm } from '@composables/useConfirm';
     import { log } from '@services/ObservabilityService';
+    import { relaunch } from '@tauri-apps/plugin-process';
     import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
     import { getLocale, type MessageKey, t, tp } from '@/i18n';
     import {
-        SAFE_STORAGE_CATEGORIES,
         type StorageCategory,
         type StorageCleanupResult,
-        type StorageCompactionResult,
+        type StorageCleanupSelection,
         type StorageSummary,
     } from '@/services/NativeService/storage';
     import { storageService } from '@/services/StorageService';
+
+    import StorageCleanupDialog from './StorageCleanupDialog.vue';
 
     defineOptions({
         name: 'SettingsStorageSection',
     });
 
     const props = withDefaults(defineProps<{ disabled?: boolean }>(), { disabled: false });
-    const emit = defineEmits<{ busyChange: [busy: boolean] }>();
+    const emit = defineEmits<{ busyChange: [busy: boolean]; cleaned: [] }>();
 
-    type CleanupKind = 'safe' | 'recordings' | 'logs';
-    type Operation = CleanupKind | 'scan' | 'compact';
+    type Operation = 'cleanup' | 'scan' | 'restart';
 
-    const SAFE_CATEGORIES: readonly StorageCategory[] = SAFE_STORAGE_CATEGORIES;
     const CATEGORY_LABELS: Record<StorageCategory, MessageKey> = {
         attachments: 'settings.storage.category.attachments',
         clipboard: 'settings.storage.category.clipboard',
@@ -54,35 +53,13 @@
         ['storage_io_failed', 'settings.storage.errors.ioFailed'],
         ['storage_corrupt_attachment', 'settings.storage.errors.corruptAttachment'],
     ]);
-    const CLEANUP_CONFIRMATIONS: Record<
-        CleanupKind,
-        { title: MessageKey; message: MessageKey; action: MessageKey }
-    > = {
-        safe: {
-            title: 'settings.storage.cleanupConfirmTitle',
-            message: 'settings.storage.cleanupConfirm',
-            action: 'settings.storage.cleanup',
-        },
-        recordings: {
-            title: 'settings.storage.deleteRecordings',
-            message: 'settings.storage.recordingsConfirm',
-            action: 'settings.storage.deleteRecordings',
-        },
-        logs: {
-            title: 'settings.storage.deleteLogs',
-            message: 'settings.storage.logsConfirm',
-            action: 'settings.storage.deleteLogs',
-        },
-    };
-
     const alert = useAlert();
-    const { confirm } = useConfirm();
     const summary = ref<StorageSummary | null>(null);
     const operation = ref<Operation | null>(null);
-    const confirming = ref(false);
+    const selectionOpen = ref(false);
+    const restartRequired = ref(false);
     const errorKey = ref<MessageKey | null>(null);
     const cleanupResult = ref<StorageCleanupResult | null>(null);
-    const compactionResult = ref<StorageCompactionResult | null>(null);
     let disposed = false;
 
     const numberFormatter = computed(
@@ -101,19 +78,13 @@
     const occupiedSlices = computed(() =>
         categories.value.filter((category) => category.value > 0)
     );
-    const safeBytes = computed(() =>
-        (summary.value?.categories ?? []).reduce(
-            (total, category) =>
-                total + (SAFE_CATEGORIES.includes(category.id) ? category.reclaimableBytes : 0),
-            0
-        )
-    );
     const scanIncomplete = computed(
         () => summary.value?.warnings.includes('storage_scan_incomplete') ?? false
     );
     const unavailable = computed(
         () =>
             props.disabled ||
+            restartRequired.value ||
             !summary.value ||
             summary.value.busy ||
             scanIncomplete.value ||
@@ -122,19 +93,6 @@
     const actionsDisabled = computed(() => operation.value !== null || unavailable.value);
     const refreshLabel = computed(() =>
         t(operation.value === 'scan' ? 'settings.storage.scanning' : 'settings.storage.refresh')
-    );
-    const compactLabel = computed(() =>
-        t(
-            operation.value === 'compact' && !confirming.value
-                ? 'settings.storage.compacting'
-                : 'settings.storage.compactDatabase'
-        )
-    );
-    const compactTitle = computed(
-        () =>
-            `${compactLabel.value} · ${t('settings.storage.databaseFree', {
-                size: formatBytes(summary.value?.databaseFreeBytes ?? 0),
-            })}`
     );
     const visibleWarnings = computed(() => summary.value?.warnings.slice(0, 5) ?? []);
     const visibleFailures = computed(() => cleanupResult.value?.failures.slice(0, 5) ?? []);
@@ -145,13 +103,6 @@
                 released: formatBytes(cleanupResult.value.releasedBytes),
                 pending: formatBytes(cleanupResult.value.pendingBytes),
                 failed: cleanupResult.value.failedFiles,
-            });
-        }
-        if (compactionResult.value) {
-            return t('settings.storage.results.compaction', {
-                before: formatBytes(compactionResult.value.beforeBytes),
-                after: formatBytes(compactionResult.value.afterBytes),
-                released: formatBytes(compactionResult.value.releasedBytes),
             });
         }
         return '';
@@ -223,83 +174,51 @@
         }
     }
 
-    async function cleanup(kind: CleanupKind) {
-        const category = categories.value.find((item) => item.key === kind);
-        const estimate = kind === 'safe' ? safeBytes.value : (category?.value ?? 0);
-        const hasFiles = kind === 'safe' ? estimate > 0 : (category?.fileCount ?? 0) > 0;
-        if (disposed || actionsDisabled.value || !hasFiles) return;
-        const options = CLEANUP_CONFIRMATIONS[kind];
-        operation.value = kind;
-        confirming.value = true;
+    async function restart() {
+        operation.value = 'restart';
         try {
-            const confirmed = await confirm({
-                title: t(options.title),
-                message: t(options.message, { size: formatBytes(estimate) }),
-                confirmText: t(options.action),
-                type: kind === 'safe' ? 'info' : 'danger',
-            });
-            if (disposed || !confirmed || unavailable.value) return;
-            confirming.value = false;
-            cleanupResult.value = null;
-            compactionResult.value = null;
-
-            const result = await storageService.cleanup(
-                kind === 'safe' ? [...SAFE_CATEGORIES] : [kind]
-            );
-            if (disposed) return;
-            summary.value = result.summary;
-            cleanupResult.value = result;
-            if (result.failedFiles > 0 || result.pendingBytes > 0) {
-                alert.warning(resultMessage.value);
-            } else {
-                alert.success(resultMessage.value);
-            }
+            await relaunch();
         } catch (error) {
-            reportError(error, 'settings.storage.cleanupFailed', kind);
+            log.error('[Storage] Cleanup requires a manual restart', error);
+            if (!disposed) alert.warning(t('settings.storage.selection.restartRequired'));
         } finally {
-            if (!disposed) {
-                confirming.value = false;
-                operation.value = null;
-            }
+            if (!disposed) operation.value = null;
         }
     }
 
-    async function compactDatabase() {
-        if (disposed || actionsDisabled.value || !summary.value?.databaseFreeBytes) return;
-        operation.value = 'compact';
-        confirming.value = true;
+    async function cleanup(selection: StorageCleanupSelection) {
+        if (disposed || actionsDisabled.value || !selectionOpen.value) return;
+        operation.value = 'cleanup';
         try {
-            const confirmed = await confirm({
-                title: t('settings.storage.compactDatabase'),
-                message: t('settings.storage.compactConfirm', {
-                    size: formatBytes(summary.value.databaseFreeBytes),
-                }),
-                confirmText: t('settings.storage.compact'),
-                type: 'warning',
-            });
-            if (disposed || !confirmed || unavailable.value) return;
-            confirming.value = false;
             cleanupResult.value = null;
-            compactionResult.value = null;
-
-            const result = await storageService.compactDatabase();
-            if (disposed) return;
-            compactionResult.value = result;
-            alert.success(resultMessage.value);
-            await readSummary();
-        } catch (error) {
-            reportError(error, 'settings.storage.compactionFailed', 'compact');
-        } finally {
+            const result = await storageService.cleanupSelected(selection);
+            const incomplete =
+                result.failedFiles > 0 ||
+                result.pendingBytes > 0 ||
+                result.summary.warnings.length > 0;
             if (!disposed) {
-                confirming.value = false;
-                operation.value = null;
+                selectionOpen.value = false;
+                summary.value = result.summary;
+                cleanupResult.value = result;
+                restartRequired.value = result.restartRequired === true;
+                if (!result.restartRequired) emit('cleaned');
+                if (incomplete) alert.warning(resultMessage.value);
+                else alert.success(resultMessage.value);
             }
+            if (result.restartRequired && (!incomplete || disposed)) await restart();
+        } catch (error) {
+            if (!disposed) selectionOpen.value = false;
+            reportError(error, 'settings.storage.cleanupFailed', 'cleanup');
+        } finally {
+            if (!disposed) operation.value = null;
         }
     }
 
     watch(
         () =>
             operation.value !== null ||
+            selectionOpen.value ||
+            restartRequired.value ||
             summary.value?.busy === true ||
             errorKey.value === 'settings.storage.errors.busy',
         (busy) => emit('busyChange', busy),
@@ -318,7 +237,7 @@
         class="@container space-y-4"
         data-testid="settings-storage-section"
         data-settings-search-target="storage"
-        :aria-busy="operation !== null && !confirming"
+        :aria-busy="operation !== null"
     >
         <div class="flex items-center justify-between gap-4">
             <h2 class="settings-section-title">{{ t('settings.storage.title') }}</h2>
@@ -327,7 +246,7 @@
                 data-testid="settings-storage-refresh"
                 :aria-label="refreshLabel"
                 :title="refreshLabel"
-                :disabled="props.disabled || operation !== null"
+                :disabled="props.disabled || operation !== null || selectionOpen || restartRequired"
                 @click="refresh"
             >
                 <AppIcon
@@ -396,20 +315,10 @@
                     <Button
                         variant="strong"
                         data-testid="settings-storage-cleanup"
-                        :title="t('settings.storage.cleanupConfirmTitle')"
-                        :aria-description="t('settings.storage.cleanupConfirmTitle')"
-                        :disabled="actionsDisabled || safeBytes === 0"
-                        @click="cleanup('safe')"
+                        :disabled="actionsDisabled"
+                        @click="selectionOpen = true"
                     >
-                        {{
-                            operation === 'safe' && !confirming
-                                ? t('settings.storage.cleaning')
-                                : safeBytes > 0
-                                  ? t('settings.storage.cleanupSize', {
-                                        size: formatBytes(safeBytes),
-                                    })
-                                  : t('settings.storage.noReclaimable')
-                        }}
+                        {{ t('settings.storage.selection.title') }}
                     </Button>
                 </div>
             </template>
@@ -424,13 +333,17 @@
                     >
                         <button
                             type="button"
-                            class="col-span-2 grid min-w-0 grid-cols-subgrid items-center rounded-action px-1 py-1.5 text-left enabled:hover:bg-surface-hover"
+                            class="col-span-full grid min-w-0 grid-cols-subgrid items-center rounded-action px-1 py-1.5 text-left enabled:hover:bg-surface-hover"
                             :class="{ 'bg-surface-hover': activeKey === category.key }"
                             :title="`${tp('settings.storage.files', category.fileCount)} · ${shareOf(category.value)}`"
                             :aria-description="`${tp('settings.storage.files', category.fileCount)} · ${shareOf(category.value)}`"
                             :disabled="category.value === 0"
                             :data-settings-search-target="
-                                category.key === 'database' ? 'storage-compaction' : undefined
+                                category.key === 'database'
+                                    ? 'storage-compaction'
+                                    : category.key === 'recordings' || category.key === 'logs'
+                                      ? `storage-${category.key}`
+                                      : undefined
                             "
                             v-bind="category.value > 0 ? bindItem(category.key) : {}"
                         >
@@ -454,57 +367,22 @@
                                 {{ formatBytes(category.value) }}
                             </span>
                         </button>
-                        <Button
-                            v-if="category.key === 'database' && summary.databaseFreeBytes > 0"
-                            variant="ghost-neutral"
-                            data-testid="settings-storage-compact"
-                            :aria-label="compactLabel"
-                            :title="compactTitle"
-                            :disabled="actionsDisabled"
-                            @click="compactDatabase"
-                        >
-                            <AppIcon
-                                :name="
-                                    operation === 'compact' && !confirming ? 'loader' : 'compress'
-                                "
-                                class="size-4"
-                                :class="{
-                                    'motion-safe:animate-spin':
-                                        operation === 'compact' && !confirming,
-                                }"
-                                aria-hidden="true"
-                            />
-                        </Button>
-                        <Button
-                            v-if="category.key === 'recordings' || category.key === 'logs'"
-                            variant="ghost-neutral"
-                            :aria-label="
-                                operation === category.key && !confirming
-                                    ? t('settings.storage.cleaning')
-                                    : t(CLEANUP_CONFIRMATIONS[category.key].action)
-                            "
-                            :title="t(CLEANUP_CONFIRMATIONS[category.key].action)"
-                            :data-testid="`settings-storage-${category.key}`"
-                            :data-settings-search-target="`storage-${category.key}`"
-                            :disabled="actionsDisabled || category.fileCount === 0"
-                            @click="cleanup(category.key)"
-                        >
-                            <AppIcon
-                                :name="
-                                    operation === category.key && !confirming ? 'loader' : 'trash'
-                                "
-                                class="size-4"
-                                :class="{
-                                    'motion-safe:animate-spin':
-                                        operation === category.key && !confirming,
-                                }"
-                                aria-hidden="true"
-                            />
-                        </Button>
                     </li>
                 </ul>
             </template>
         </DonutChart>
+
+        <StorageCleanupDialog
+            v-if="summary"
+            :open="selectionOpen"
+            :disabled="actionsDisabled"
+            :busy="operation === 'cleanup'"
+            :summary="summary"
+            :categories="categories"
+            :format-bytes="formatBytes"
+            @close="selectionOpen = false"
+            @confirm="cleanup"
+        />
 
         <div v-if="resultMessage" class="space-y-3">
             <p
@@ -515,6 +393,14 @@
             >
                 {{ resultMessage }}
             </p>
+            <div v-if="restartRequired" class="flex flex-wrap items-center gap-3">
+                <p class="text-caption text-text-warning">
+                    {{ t('settings.storage.selection.restartRequired') }}
+                </p>
+                <Button variant="strong" :disabled="operation !== null" @click="restart">
+                    {{ t('settings.storage.selection.restart') }}
+                </Button>
+            </div>
             <details
                 v-if="visibleFailures.length"
                 class="text-compact text-text-secondary"
@@ -547,6 +433,6 @@
 
 <style scoped>
     .settings-storage-legend {
-        grid-template-columns: minmax(0, 1fr) repeat(2, max-content);
+        grid-template-columns: minmax(0, 1fr) max-content;
     }
 </style>

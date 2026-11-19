@@ -4,6 +4,8 @@ import { log } from '@services/ObservabilityService';
 export const storageService = {
     scan: () => storage.scan(),
     cleanup: (categories?: Parameters<typeof storage.cleanup>[0]) => storage.cleanup(categories),
+    cleanupSelected: (selection: Parameters<typeof storage.cleanupSelected>[0]) =>
+        storage.cleanupSelected(selection),
     compactDatabase: () => storage.compactDatabase(),
     clearHistory: (kind: Parameters<typeof storage.clearHistory>[0]) => storage.clearHistory(kind),
 } as const;

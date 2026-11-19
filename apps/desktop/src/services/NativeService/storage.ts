@@ -35,6 +35,12 @@ export interface StorageCleanupResult {
     failedFiles: number;
     failures: { path: string; code: string }[];
     summary: StorageSummary;
+    restartRequired?: boolean;
+}
+
+export interface StorageCleanupSelection {
+    unused: boolean;
+    categories: StorageCategory[];
 }
 
 export interface StorageCompactionResult {
@@ -64,6 +70,9 @@ export const storage = {
         categories: StorageCategory[] = [...SAFE_STORAGE_CATEGORIES]
     ): Promise<StorageCleanupResult> {
         return invoke('storage_cleanup', { categories });
+    },
+    cleanupSelected(selection: StorageCleanupSelection): Promise<StorageCleanupResult> {
+        return invoke('storage_cleanup_selected', { selection });
     },
     compactDatabase(): Promise<StorageCompactionResult> {
         return invoke('storage_compact_database');

@@ -3,20 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { toast } from 'vue-sonner';
 
 import { setLocale } from '@/i18n';
-import type {
-    StorageCategory,
-    StorageCleanupResult,
-    StorageCompactionResult,
-    StorageSummary,
-} from '@/services/NativeService/storage';
+import type { StorageCleanupResult, StorageSummary } from '@/services/NativeService/storage';
 import StorageSection from '@/views/SettingsView/components/DataManagement/components/StorageSection.vue';
 
 import { getLastTauriInvokeCall, getTauriInvokeCalls, mockTauriCommand } from '../utils/tauri';
 
 const MIB = 1024 * 1024;
-const SAFE_CATEGORIES: StorageCategory[] = ['attachments', 'clipboard', 'thumbnails', 'temporary'];
-const FILE_ACTIONS = ['cleanup', 'recordings', 'logs'] as const;
-const ACTIONS = [...FILE_ACTIONS, 'compact'] as const;
 
 function usage(patch: Partial<StorageSummary> = {}): StorageSummary {
     return {
@@ -40,7 +32,7 @@ function usage(patch: Partial<StorageSummary> = {}): StorageSummary {
     };
 }
 
-function cleanupResult(patch: Partial<StorageCleanupResult> = {}): StorageCleanupResult {
+function result(patch: Partial<StorageCleanupResult> = {}): StorageCleanupResult {
     return {
         removedFiles: 3,
         releasedBytes: 2 * MIB,
@@ -73,28 +65,36 @@ function deferred<T>() {
 let wrapper: VueWrapper | undefined;
 let host: HTMLDivElement;
 
-async function openStorage(disabled = false) {
-    wrapper = mount(StorageSection, { attachTo: host, props: { disabled } });
+async function openStorage() {
+    wrapper = mount(StorageSection, { attachTo: host });
     await flushPromises();
     return wrapper;
 }
 
-function action(view: VueWrapper, name: (typeof ACTIONS)[number] | 'refresh') {
+function action(view: VueWrapper, name: 'cleanup' | 'refresh') {
     return view.get<HTMLButtonElement>(`[data-testid="settings-storage-${name}"]`);
 }
 
-function confirmation() {
-    const dialog = document.querySelector<HTMLElement>('[role=alertdialog]');
-    expect(dialog).not.toBeNull();
-    return dialog!;
+function dialog() {
+    const element = document.querySelector<HTMLElement>('[role=dialog]');
+    expect(element).not.toBeNull();
+    return element!;
 }
 
-function chooseConfirmation(text: string) {
-    const button = [...confirmation().querySelectorAll<HTMLButtonElement>('button')].find(
-        (element) => element.textContent?.trim() === text
-    );
-    expect(button, `confirmation action ${text}`).toBeDefined();
-    button!.click();
+function control(id: string) {
+    const element = dialog().querySelector<HTMLButtonElement>(`[data-testid="${id}"]`);
+    expect(element, id).not.toBeNull();
+    return element!;
+}
+
+async function openCleanup(view: VueWrapper) {
+    await action(view, 'cleanup').trigger('click');
+    await flushPromises();
+}
+
+async function confirm() {
+    control('storage-cleanup-confirm').click();
+    await flushPromises();
 }
 
 beforeEach(() => {
@@ -104,12 +104,8 @@ beforeEach(() => {
     host = document.createElement('div');
     document.body.appendChild(host);
     mockTauriCommand('storage_scan', () => usage());
-    mockTauriCommand('storage_cleanup', () => cleanupResult());
-    mockTauriCommand('storage_compact_database', () => ({
-        beforeBytes: 8 * MIB,
-        afterBytes: 6 * MIB,
-        releasedBytes: 2 * MIB,
-    }));
+    mockTauriCommand('storage_cleanup_selected', () => result());
+    mockTauriCommand('plugin:process|restart', undefined);
 });
 
 afterEach(async () => {
@@ -123,190 +119,124 @@ afterEach(async () => {
     setLocale('zh-CN');
 });
 
-describe('given managed storage contains both unused files and retained user data', () => {
-    it('user opens the overview and can read and select every category in one visible list', async () => {
+describe('given storage contains unused files and retained user data', () => {
+    it('user opens the overview and selects any occupied category to read its usage and file count', async () => {
         const view = await openStorage();
         const chart = view.get('figure');
-        expect(chart.get('[role="img"]').attributes('aria-label')).toBe('Used space');
+        expect(chart.get('[role=img]').attributes('aria-label')).toBe('Used space');
         expect(chart.text()).toContain('124 MiB');
-        expect(view.find('summary').exists()).toBe(false);
         expect(chart.get('ul').findAll('li')).toHaveLength(9);
-        const browser = chart.get('[data-testid="settings-storage-category-browser"]');
+        expect(view.find('summary').exists()).toBe(false);
+        const browser = chart.get('[data-testid=settings-storage-category-browser]');
         expect(browser.get('button').attributes('title')).toContain('5 files');
         expect(browser.text()).toContain('40 MiB');
         expect(browser.text()).not.toContain('32.3%');
-        const small = chart.get('[data-testid="settings-storage-category-thumbnails"]');
-        await small.get('button[aria-pressed]').trigger('click');
-        expect(small.get('button').attributes('aria-pressed')).toBe('true');
-        const readout = chart.get('svg + div');
-        expect(readout.text()).toContain('Thumbnails');
-        expect(readout.text()).toContain('8 files');
-        expect(readout.text()).toContain('1.6%');
-        expect(document.querySelector('[role=alertdialog]')).toBeNull();
+        await chart
+            .get('[data-testid=settings-storage-category-thumbnails] button')
+            .trigger('click');
+        expect(chart.get('svg + div').text()).toContain('Thumbnails');
+        expect(chart.get('svg + div').text()).toContain('8 files');
+        expect(chart.get('svg + div').text()).toContain('1.6%');
+        expect(document.querySelector('[role=dialog]')).toBeNull();
     });
 
-    it('user opens storage settings and sees native physical totals and every category', async () => {
-        mockTauriCommand('storage_scan', () => usage({ totalBytes: 100 * MIB }));
-        const view = await openStorage();
-
-        expect(view.get('[data-testid="settings-storage-total"]').text()).toContain('100 MiB');
-        for (const label of [
-            'Attachments',
-            'Clipboard copies',
-            'Thumbnails',
-            'Temporary files',
-            'Recordings',
-            'Logs',
-            'Database',
-            'Installed assets',
-            'Browser data',
-        ]) {
-            expect(view.text()).toContain(label);
-        }
-        expect(view.get('[data-testid="settings-storage-category-attachments"]').text()).toContain(
-            '8 MiB'
-        );
-        expect(view.get('[data-testid="settings-storage-category-browser"]').text()).toContain(
-            '40 MiB'
-        );
-    });
-
-    it('user refreshes usage and sees the latest scan instead of the previous totals', async () => {
+    it('user refreshes usage and sees the latest native totals', async () => {
         const view = await openStorage();
         mockTauriCommand('storage_scan', () => usage({ totalBytes: 80 * MIB }));
-
         await action(view, 'refresh').trigger('click');
         await flushPromises();
+        expect(view.get('[data-testid=settings-storage-total]').text()).toContain('80 MiB');
+    });
 
-        expect(view.get('[data-testid="settings-storage-total"]').text()).toContain('80 MiB');
+    it('user confirms the default unused selection and recovers files and database space in one action', async () => {
+        const view = await openStorage();
+        await openCleanup(view);
+        expect(dialog().textContent).toContain('Up to 8 MiB');
+        expect(control('storage-choice-unused').getAttribute('aria-checked')).toBe('true');
+        for (const category of usage().categories)
+            expect(control(`storage-choice-${category.id}`).getAttribute('aria-checked')).toBe(
+                'false'
+            );
+        expect(getTauriInvokeCalls('storage_cleanup_selected')).toEqual([]);
+        expect(action(view, 'refresh').element.disabled).toBe(true);
+        await confirm();
+        expect(getLastTauriInvokeCall('storage_cleanup_selected')?.payload).toEqual({
+            selection: { unused: true, categories: [] },
+        });
+        expect(view.get('[data-testid=settings-storage-result]').text()).toContain(
+            'Files removed: 3. Observed release: 2 MiB. Estimated pending release: 0 B. Failed files: 0.'
+        );
+        expect(view.emitted('cleaned')).toHaveLength(1);
     });
 
     it('user pins a category and sees the remaining total when cleanup empties it', async () => {
         const view = await openStorage();
-        const chart = view.get('figure');
-        const temporary = chart.get('[data-testid="settings-storage-category-temporary"]');
-        await temporary.get('button').trigger('click');
-        expect(chart.get('svg + div').text()).toContain('Temporary files');
-
-        await action(view, 'cleanup').trigger('click');
-        await flushPromises();
-        chooseConfirmation('Clean up');
-        await flushPromises();
+        await view.get('[data-testid=settings-storage-category-temporary] button').trigger('click');
+        await openCleanup(view);
+        await confirm();
         await vi.advanceTimersByTimeAsync(1000);
-
-        expect(chart.get('svg + div').text()).toContain('122 MiB');
-        expect(temporary.get('button').attributes('title')).toContain('0 files');
-        const remaining = chart.findAll('svg[role="img"] path');
-        expect(remaining.length).toBeGreaterThan(0);
-        expect(remaining.every((path) => path.attributes('opacity') === '1')).toBe(true);
+        expect(view.get('figure svg + div').text()).toContain('122 MiB');
+        expect(
+            view.get('[data-testid=settings-storage-category-temporary] button').attributes('title')
+        ).toContain('0 files');
     });
-
-    it('user confirms safe cleanup and only unused safe categories reach the native boundary', async () => {
-        mockTauriCommand('storage_scan', () =>
-            usage({
-                reclaimableBytes: 36 * MIB,
-                categories: usage().categories.map((category) =>
-                    category.id === 'recordings' || category.id === 'logs'
-                        ? { ...category, reclaimableBytes: category.bytes }
-                        : category
-                ),
-            })
-        );
-        const view = await openStorage();
-
-        const cleanup = view.get('figure [data-settings-search-target="storage-cleanup"]');
-        expect(cleanup.get('button').text()).toBe('Clean up 6 MiB');
-        await action(view, 'cleanup').trigger('click');
-        await flushPromises();
-
-        expect(confirmation().textContent).toContain('6 MiB');
-        expect(confirmation().textContent).not.toContain('36 MiB');
-        expect(confirmation().textContent).toContain(
-            'Original files, recordings, logs, installed assets and browser data are kept.'
-        );
-        expect(getTauriInvokeCalls('storage_cleanup')).toEqual([]);
-        for (const name of ACTIONS) expect(action(view, name).element.disabled).toBe(true);
-        expect(action(view, 'refresh').element.disabled).toBe(true);
-
-        chooseConfirmation('Clean up');
-        await flushPromises();
-
-        const cleanupRequest = getLastTauriInvokeCall('storage_cleanup');
-        expect(cleanupRequest).toBeDefined();
-        const requestedCategories = (
-            cleanupRequest?.payload as { categories?: StorageCategory[] } | undefined
-        )?.categories;
-        expect(new Set(requestedCategories ?? SAFE_CATEGORIES)).toEqual(new Set(SAFE_CATEGORIES));
-        expect(view.get('[data-testid="settings-storage-result"]').text()).toContain(
-            'Files removed: 3. Observed release: 2 MiB. Estimated pending release: 0 B. Failed files: 0.'
-        );
-        expect(view.get('[data-testid="settings-storage-total"]').text()).toContain('122 MiB');
-    });
-
-    it('user cancels safe cleanup and no files are deleted', async () => {
-        const view = await openStorage();
-        await action(view, 'cleanup').trigger('click');
-        await flushPromises();
-
-        chooseConfirmation('Cancel');
-        await flushPromises();
-
-        expect(getTauriInvokeCalls('storage_cleanup')).toEqual([]);
-        expect(view.find('[data-testid="settings-storage-result"]').exists()).toBe(false);
-        expect(action(view, 'cleanup').element.disabled).toBe(false);
-    });
-
-    it.each([
-        ['recordings', 'Delete recordings', '20 MiB'],
-        ['logs', 'Delete logs', '10 MiB'],
-    ] as const)(
-        'user requests deletion of managed %s and must separately confirm that category',
-        async (category, confirmText, estimate) => {
-            const view = await openStorage();
-            const row = view.get(`figure [data-testid="settings-storage-category-${category}"]`);
-            const select = row.get('button[aria-pressed]');
-            await select.trigger('click');
-            expect(select.attributes('aria-pressed')).toBe('true');
-            expect(document.querySelector('[role=alertdialog]')).toBeNull();
-            await row.get(`[data-testid="settings-storage-${category}"]`).trigger('click');
-            await flushPromises();
-
-            expect(select.attributes('aria-pressed')).toBe('true');
-            expect(confirmation().textContent).toContain(confirmText);
-            expect(confirmation().textContent).toContain(estimate);
-            expect(confirmation().textContent).toContain('default managed folder');
-            expect(confirmation().textContent).toContain('cannot be undone');
-            expect(confirmation().textContent).toContain('Custom folders');
-            expect(getTauriInvokeCalls('storage_cleanup')).toEqual([]);
-
-            chooseConfirmation(confirmText);
-            await flushPromises();
-
-            expect(getLastTauriInvokeCall('storage_cleanup')?.payload).toEqual({
-                categories: [category],
-            });
-            expect(view.get('[data-testid="settings-storage-result"]').text()).toContain(
-                'Observed release: 2 MiB'
-            );
-        }
-    );
 
     it.each(['recordings', 'logs'] as const)(
-        'user cancels deletion of managed %s and that category is retained',
+        'user chooses %s and deletes only that selected category',
         async (category) => {
             const view = await openStorage();
-            await action(view, category).trigger('click');
+            await openCleanup(view);
+            control('storage-choice-unused').click();
+            control(`storage-choice-${category}`).click();
             await flushPromises();
-
-            chooseConfirmation('Cancel');
-            await flushPromises();
-
-            expect(getTauriInvokeCalls('storage_cleanup')).toEqual([]);
-            expect(action(view, category).element.disabled).toBe(false);
+            expect(dialog().textContent).toContain('deleted permanently');
+            expect(control('storage-cleanup-confirm').textContent).toContain('Delete selected');
+            await confirm();
+            expect(getLastTauriInvokeCall('storage_cleanup_selected')?.payload).toEqual({
+                selection: { unused: false, categories: [category] },
+            });
         }
     );
 
-    it('user explicitly deletes an empty managed log file even though it releases no bytes', async () => {
+    it('user selects all categories and sees an estimate without counting unused files twice', async () => {
+        const view = await openStorage();
+        await openCleanup(view);
+        control('storage-choice-all').click();
+        await flushPromises();
+        expect(dialog().textContent).toContain('Up to 124 MiB');
+        expect(control('storage-cleanup-confirm').textContent).toContain('Delete and restart');
+        await confirm();
+        const payload = getLastTauriInvokeCall('storage_cleanup_selected')?.payload as {
+            selection: { unused: boolean; categories: string[] };
+        };
+        expect(payload.selection.unused).toBe(true);
+        expect(new Set(payload.selection.categories)).toEqual(
+            new Set(usage().categories.map((category) => category.id))
+        );
+    });
+
+    it('user deselects all categories and returns to only unused files', async () => {
+        await openCleanup(await openStorage());
+        control('storage-choice-all').click();
+        await flushPromises();
+        control('storage-choice-all').click();
+        await flushPromises();
+        expect(dialog().textContent).toContain('Up to 8 MiB');
+        expect(control('storage-cleanup-confirm').textContent).toContain('Clean up');
+    });
+
+    it('user cancels a destructive selection and reopening restores the unused default', async () => {
+        const view = await openStorage();
+        await openCleanup(view);
+        control('storage-choice-database').click();
+        control('storage-cleanup-cancel').click();
+        await flushPromises();
+        expect(getTauriInvokeCalls('storage_cleanup_selected')).toEqual([]);
+        await openCleanup(view);
+        expect(control('storage-choice-database').getAttribute('aria-checked')).toBe('false');
+    });
+
+    it('user deletes a zero-byte managed file even though it releases no bytes', async () => {
         mockTauriCommand('storage_scan', () =>
             usage({
                 categories: usage().categories.map((category) =>
@@ -314,125 +244,50 @@ describe('given managed storage contains both unused files and retained user dat
                 ),
             })
         );
-        mockTauriCommand('storage_cleanup', () => cleanupResult({ releasedBytes: 0 }));
-        const view = await openStorage();
-        const logs = view.get('figure [data-testid="settings-storage-category-logs"]');
-        expect(logs.get('button').attributes('title')).toContain('1 file');
-        expect(logs.text()).toContain('0 B');
-        expect(logs.get('button').attributes('title')).toContain('0.0%');
-        expect(action(view, 'logs').element.disabled).toBe(false);
-        await action(view, 'logs').trigger('click');
+        await openCleanup(await openStorage());
+        expect(control('storage-choice-logs').disabled).toBe(false);
+        control('storage-choice-unused').click();
+        control('storage-choice-logs').click();
         await flushPromises();
-
-        expect(confirmation().textContent).toContain('0 B');
-        chooseConfirmation('Delete logs');
-        await flushPromises();
-
-        expect(getLastTauriInvokeCall('storage_cleanup')?.payload).toEqual({
-            categories: ['logs'],
+        expect(dialog().textContent).toContain('Up to 0 B');
+        await confirm();
+        expect(getLastTauriInvokeCall('storage_cleanup_selected')?.payload).toEqual({
+            selection: { unused: false, categories: ['logs'] },
         });
-        expect(view.get('[data-testid="settings-storage-result"]').text()).toContain(
-            'Observed release: 0 B'
-        );
-    });
-
-    it('user confirms database compaction and sees actual before and after sizes', async () => {
-        mockTauriCommand('storage_compact_database', () => ({
-            beforeBytes: 8 * MIB,
-            afterBytes: 7 * MIB,
-            releasedBytes: MIB,
-        }));
-        const view = await openStorage();
-        const database = view.get('figure [data-testid="settings-storage-category-database"]');
-        expect(database.text()).toContain('8 MiB');
-        expect(action(view, 'compact').attributes('title')).toContain('Up to 2 MiB can be freed');
-        expect(database.get('[data-testid="settings-storage-compact"]').isVisible()).toBe(true);
-        expect(getTauriInvokeCalls('storage_compact_database')).toEqual([]);
-        await action(view, 'compact').trigger('click');
-        await flushPromises();
-
-        expect(confirmation().textContent).toContain('2 MiB');
-        expect(confirmation().textContent).toContain('Conversations and settings are kept.');
-        expect(getTauriInvokeCalls('storage_compact_database')).toEqual([]);
-
-        mockTauriCommand('storage_scan', () =>
-            usage({
-                totalBytes: 123 * MIB,
-                databaseFreeBytes: 0,
-                categories: usage().categories.map((category) =>
-                    category.id === 'database' ? { ...category, bytes: 7 * MIB } : category
-                ),
-            })
-        );
-        chooseConfirmation('Free up space');
-        await flushPromises();
-
-        expect(getLastTauriInvokeCall('storage_compact_database')).toBeDefined();
-        expect(view.get('[data-testid="settings-storage-result"]').text()).toContain(
-            'Database size: 8 MiB to 7 MiB. Released 1 MiB.'
-        );
-        expect(view.get('[data-testid="settings-storage-category-database"]').text()).toContain(
-            '7 MiB'
-        );
-        expect(view.find('[data-testid="settings-storage-compact"]').exists()).toBe(false);
-    });
-
-    it('user cancels database compaction and the database is not rebuilt', async () => {
-        const view = await openStorage();
-        await action(view, 'compact').trigger('click');
-        await flushPromises();
-
-        chooseConfirmation('Cancel');
-        await flushPromises();
-
-        expect(getTauriInvokeCalls('storage_compact_database')).toEqual([]);
-        expect(action(view, 'compact').element.disabled).toBe(false);
     });
 });
 
-describe('given storage cannot be changed safely yet', () => {
-    it('user waits for the first scan and sees maintenance actions only after usage is known', async () => {
+describe('given storage cannot be changed yet', () => {
+    it('user waits for the first scan before maintenance is available', async () => {
         const scan = deferred<StorageSummary>();
         mockTauriCommand('storage_scan', () => scan.promise);
         const view = await openStorage();
-
         expect(action(view, 'refresh').attributes('aria-label')).toBe('Scanning storage...');
-        expect(action(view, 'refresh').element.disabled).toBe(true);
-        expect(view.find('[data-testid="settings-storage-compact"]').exists()).toBe(false);
-        for (const name of FILE_ACTIONS) {
-            expect(view.find(`[data-testid="settings-storage-${name}"]`).exists()).toBe(false);
-        }
-
+        expect(view.find('[data-testid=settings-storage-cleanup]').exists()).toBe(false);
         scan.resolve(usage());
         await flushPromises();
-
-        expect(action(view, 'refresh').attributes('aria-label')).toBe('Refresh');
         expect(action(view, 'cleanup').element.disabled).toBe(false);
     });
 
-    it('user sees busy maintenance actions disabled and can refresh after work finishes', async () => {
-        mockTauriCommand('storage_scan', () => usage({ busy: true }));
-        const view = await openStorage();
-
-        expect(view.text()).toContain('Storage is in use.');
-        for (const name of ACTIONS) {
-            expect(action(view, name).element.disabled).toBe(true);
-            await action(view, name).trigger('click');
+    it.each([
+        { busy: true },
+        { warnings: ['storage_scan_incomplete'] },
+        { warnings: ['first', 'second', 'third', 'fourth', 'fifth', 'storage_scan_incomplete'] },
+    ])(
+        'user sees unavailable storage and can refresh after the blocker clears: %j',
+        async (patch) => {
+            mockTauriCommand('storage_scan', () => usage(patch));
+            const view = await openStorage();
+            expect(action(view, 'cleanup').element.disabled).toBe(true);
+            if (patch.warnings?.length === 6) expect(view.text()).toContain('1 more warning');
+            mockTauriCommand('storage_scan', () => usage());
+            await action(view, 'refresh').trigger('click');
+            await flushPromises();
+            expect(action(view, 'cleanup').element.disabled).toBe(false);
         }
-        expect(getTauriInvokeCalls('storage_cleanup')).toEqual([]);
-        expect(getTauriInvokeCalls('storage_compact_database')).toEqual([]);
-        expect(document.querySelector('[role=alertdialog]')).toBeNull();
-        expect(action(view, 'refresh').element.disabled).toBe(false);
+    );
 
-        mockTauriCommand('storage_scan', () => usage());
-        await action(view, 'refresh').trigger('click');
-        await flushPromises();
-
-        expect(view.text()).not.toContain('Storage is in use.');
-        expect(action(view, 'cleanup').element.disabled).toBe(false);
-    });
-
-    it('user sees no reclaimable files and cannot start empty maintenance actions', async () => {
+    it('user sees an empty overview and cannot confirm an empty selection', async () => {
         mockTauriCommand('storage_scan', () =>
             usage({
                 categories: usage().categories.map((category) => ({
@@ -447,17 +302,14 @@ describe('given storage cannot be changed safely yet', () => {
             })
         );
         const view = await openStorage();
-
-        expect(view.text()).toContain('No reclaimable files');
-        expect(view.get('[data-testid="settings-storage-total"]').text()).toContain('0 B');
         expect(view.get('figure').find('circle').exists()).toBe(true);
-        expect(view.get('figure').findAll('li')).toHaveLength(9);
-        expect(view.find('[data-testid="settings-storage-compact"]').exists()).toBe(false);
-        for (const name of FILE_ACTIONS) expect(action(view, name).element.disabled).toBe(true);
-        expect(action(view, 'refresh').element.disabled).toBe(false);
+        await openCleanup(view);
+        expect(control('storage-choice-unused').disabled).toBe(true);
+        expect(control('storage-choice-all').disabled).toBe(true);
+        expect(control('storage-cleanup-confirm').disabled).toBe(true);
     });
 
-    it('user has only retained recordings and logs and safe cleanup does not select them', async () => {
+    it('user has only retained files and must explicitly select them', async () => {
         mockTauriCommand('storage_scan', () =>
             usage({
                 categories: usage().categories.map((category) => ({
@@ -465,196 +317,98 @@ describe('given storage cannot be changed safely yet', () => {
                     reclaimableBytes: 0,
                 })),
                 reclaimableBytes: 0,
+                databaseFreeBytes: 0,
             })
         );
-        const view = await openStorage();
-
-        expect(action(view, 'cleanup').element.disabled).toBe(true);
-        expect(action(view, 'recordings').element.disabled).toBe(false);
-        expect(action(view, 'logs').element.disabled).toBe(false);
-        expect(getTauriInvokeCalls('storage_cleanup')).toEqual([]);
+        await openCleanup(await openStorage());
+        expect(control('storage-choice-unused').getAttribute('aria-checked')).toBe('false');
+        expect(control('storage-cleanup-confirm').disabled).toBe(true);
+        control('storage-choice-browser').click();
+        await flushPromises();
+        expect(control('storage-cleanup-confirm').disabled).toBe(false);
     });
 
-    it('user sees an incomplete scan warning and must refresh before maintenance', async () => {
-        mockTauriCommand('storage_scan', () => usage({ warnings: ['storage_scan_incomplete'] }));
+    it.each([
+        ['unexpected', 'Could not scan storage.'],
+        [new Error('storage_corrupt_attachment'), 'An attachment failed verification.'],
+    ])('user sees a failed scan and can recover by refreshing: %s', async (error, notice) => {
+        mockTauriCommand('storage_scan', () => Promise.reject(error));
         const view = await openStorage();
-
-        expect(view.text()).toContain('The storage scan is incomplete.');
-        for (const name of ACTIONS) expect(action(view, name).element.disabled).toBe(true);
-        expect(action(view, 'refresh').element.disabled).toBe(false);
-    });
-
-    it('user sees a bounded warning list but cannot maintain storage when a later warning reports an incomplete scan', async () => {
-        mockTauriCommand('storage_scan', () =>
-            usage({
-                warnings: [
-                    'first',
-                    'second',
-                    'third',
-                    'fourth',
-                    'fifth',
-                    'storage_scan_incomplete',
-                ],
-            })
-        );
-        const view = await openStorage();
-
-        expect(view.text()).toContain('1 more warning');
-        for (const name of ACTIONS) expect(action(view, name).element.disabled).toBe(true);
-    });
-
-    it('user sees a scan error and can recover by refreshing', async () => {
-        mockTauriCommand('storage_scan', () => Promise.reject('unexpected scan failure'));
-        const view = await openStorage();
-
-        expect(view.get('[data-testid="settings-storage-error"]').text()).toBe(
-            'Could not scan storage. Refresh to try again.'
-        );
-        expect(view.find('[data-testid="settings-storage-compact"]').exists()).toBe(false);
-        for (const name of FILE_ACTIONS) {
-            expect(view.find(`[data-testid="settings-storage-${name}"]`).exists()).toBe(false);
-        }
-
+        expect(view.get('[data-testid=settings-storage-error]').text()).toContain(notice);
         mockTauriCommand('storage_scan', () => usage());
         await action(view, 'refresh').trigger('click');
         await flushPromises();
-
-        expect(view.find('[data-testid="settings-storage-error"]').exists()).toBe(false);
-        expect(action(view, 'cleanup').element.disabled).toBe(false);
+        expect(view.find('[data-testid=settings-storage-error]').exists()).toBe(false);
     });
 
-    it('user scans an attachment that fails verification and sees a refusal without deleting anything', async () => {
-        mockTauriCommand('storage_scan', () =>
-            Promise.reject(new Error('storage_corrupt_attachment'))
-        );
-        const view = await openStorage();
-
-        expect(view.get('[data-testid="settings-storage-error"]').text()).toContain(
-            'An attachment failed verification.'
-        );
-        expect(view.find('[data-testid="settings-storage-cleanup"]').exists()).toBe(false);
-        expect(getTauriInvokeCalls('storage_cleanup')).toEqual([]);
-    });
-
-    it('user starts cleanup while storage becomes busy and gets a recoverable refusal', async () => {
-        mockTauriCommand('storage_cleanup', () =>
-            Promise.reject({ code: 'storage_busy', message: 'maintenance gate held' })
-        );
-        const view = await openStorage();
-        await action(view, 'cleanup').trigger('click');
-        await flushPromises();
-        chooseConfirmation('Clean up');
-        await flushPromises();
-
-        expect(view.get('[data-testid="settings-storage-error"]').text()).toContain(
-            'Storage is in use.'
-        );
-        expect(view.find('[data-testid="settings-storage-result"]').exists()).toBe(false);
-        expect(action(view, 'cleanup').element.disabled).toBe(true);
-
-        await action(view, 'refresh').trigger('click');
-        await flushPromises();
-
-        expect(view.find('[data-testid="settings-storage-error"]').exists()).toBe(false);
-        expect(action(view, 'cleanup').element.disabled).toBe(false);
-    });
-
-    it('user is refused database compaction without enough disk space and keeps existing usage', async () => {
-        mockTauriCommand('storage_compact_database', () =>
-            Promise.reject('storage_insufficient_space')
-        );
-        const view = await openStorage();
-        await action(view, 'compact').trigger('click');
-        await flushPromises();
-        chooseConfirmation('Free up space');
-        await flushPromises();
-
-        expect(view.get('[data-testid="settings-storage-error"]').text()).toContain(
-            'Not enough free disk space.'
-        );
-        expect(view.get('[data-testid="settings-storage-total"]').text()).toContain('124 MiB');
-        expect(view.find('[data-testid="settings-storage-result"]').exists()).toBe(false);
-        expect(action(view, 'refresh').element.disabled).toBe(false);
-    });
-
-    it('user starts a backup elsewhere and storage actions remain disabled until it finishes', async () => {
-        const view = await openStorage();
-        await view.setProps({ disabled: true });
-
-        for (const name of [...ACTIONS, 'refresh'] as const) {
-            expect(action(view, name).element.disabled).toBe(true);
+    it.each([
+        [{ code: 'storage_busy' }, 'Storage is in use.'],
+        ['storage_insufficient_space', 'Not enough free disk space.'],
+        ['unexpected', 'Cleanup could not finish.'],
+    ])(
+        'user receives a cleanup refusal and retains the existing totals: %j',
+        async (error, notice) => {
+            mockTauriCommand('storage_cleanup_selected', () => Promise.reject(error));
+            const view = await openStorage();
+            await openCleanup(view);
+            await confirm();
+            expect(view.get('[data-testid=settings-storage-error]').text()).toContain(notice);
+            expect(view.get('[data-testid=settings-storage-total]').text()).toContain('124 MiB');
+            expect(action(view, 'cleanup').element.disabled).toBe(true);
+            await action(view, 'refresh').trigger('click');
+            await flushPromises();
+            expect(action(view, 'cleanup').element.disabled).toBe(false);
         }
+    );
 
+    it('user starts another data operation and cannot confirm cleanup until it finishes', async () => {
+        const view = await openStorage();
+        await openCleanup(view);
+        await view.setProps({ disabled: true });
+        expect(control('storage-cleanup-confirm').disabled).toBe(true);
+        await confirm();
+        expect(getTauriInvokeCalls('storage_cleanup_selected')).toEqual([]);
         await view.setProps({ disabled: false });
-        expect(action(view, 'cleanup').element.disabled).toBe(false);
+        expect(control('storage-cleanup-confirm').disabled).toBe(false);
     });
 
-    it('user confirms after another data operation starts and no cleanup is submitted', async () => {
-        const view = await openStorage();
-        await action(view, 'cleanup').trigger('click');
+    it('user confirms deletion once and cannot resubmit or close it while running', async () => {
+        const cleanup = deferred<StorageCleanupResult>();
+        mockTauriCommand('storage_cleanup_selected', () => cleanup.promise);
+        await openCleanup(await openStorage());
+        await confirm();
+        expect(control('storage-cleanup-cancel').disabled).toBe(true);
+        expect(control('storage-cleanup-confirm').disabled).toBe(true);
+        await confirm();
+        expect(getTauriInvokeCalls('storage_cleanup_selected')).toHaveLength(1);
+        cleanup.resolve(result());
         await flushPromises();
-        await view.setProps({ disabled: true });
-
-        chooseConfirmation('Clean up');
-        await flushPromises();
-
-        expect(getTauriInvokeCalls('storage_cleanup')).toEqual([]);
-        await view.setProps({ disabled: false });
-        expect(action(view, 'cleanup').element.disabled).toBe(false);
     });
 });
 
-describe('given some storage files cannot be released immediately', () => {
-    it('user completes partial cleanup and sees released, pending and failed amounts separately', async () => {
-        mockTauriCommand('storage_cleanup', () =>
-            cleanupResult({
-                pendingBytes: MIB,
+describe('given cleanup reports partial results or requires restart', () => {
+    it('user sees partial deletion details before choosing to restart', async () => {
+        mockTauriCommand('storage_cleanup_selected', () =>
+            result({
+                restartRequired: true,
                 failedFiles: 1,
-                failures: [
-                    { path: 'C:\\TouchAI\\temporary\\locked.tmp', code: 'storage_io_failed' },
-                ],
+                failures: [{ path: 'managed/locked-font.woff2', code: 'storage_io_failed' }],
             })
         );
         const view = await openStorage();
-        await action(view, 'cleanup').trigger('click');
-        await flushPromises();
-        chooseConfirmation('Clean up');
-        await flushPromises();
-
-        expect(view.get('[data-testid="settings-storage-result"]').text()).toContain(
-            'Files removed: 3. Observed release: 2 MiB. Estimated pending release: 1 MiB. Failed files: 1.'
+        await openCleanup(view);
+        await confirm();
+        expect(getTauriInvokeCalls('plugin:process|restart')).toEqual([]);
+        expect(view.get('[data-testid=settings-storage-failures]').text()).toContain(
+            'managed/locked-font.woff2'
         );
-        expect(view.get('[data-testid="settings-storage-failures"]').text()).toContain(
-            'C:\\TouchAI\\temporary\\locked.tmp'
-        );
-        expect(view.get('[data-testid="settings-storage-failures"]').text()).toContain(
-            'Some storage files could not be read or removed.'
-        );
-        expect(view.get('[data-testid="settings-storage-total"]').text()).toContain('122 MiB');
-        expect(action(view, 'cleanup').element.disabled).toBe(false);
+        expect(view.findAll('button').find((button) => button.text() === 'Restart')).toBeDefined();
+        expect(action(view, 'cleanup').element.disabled).toBe(true);
     });
-
-    it('user completes cleanup with no physical release and does not see the estimate reported as savings', async () => {
-        mockTauriCommand('storage_cleanup', () =>
-            cleanupResult({ releasedBytes: 0, pendingBytes: 2 * MIB, summary: usage() })
-        );
-        const view = await openStorage();
-        await action(view, 'cleanup').trigger('click');
-        await flushPromises();
-        chooseConfirmation('Clean up');
-        await flushPromises();
-
-        expect(view.get('[data-testid="settings-storage-result"]').text()).toContain(
-            'Observed release: 0 B. Estimated pending release: 2 MiB.'
-        );
-        expect(view.get('[data-testid="settings-storage-result"]').text()).not.toContain(
-            'Released 6 MiB'
-        );
-    });
-
-    it('user sees bounded failure details as plain data instead of executable markup', async () => {
-        mockTauriCommand('storage_cleanup', () =>
-            cleanupResult({
+    it('user completes partial cleanup and sees bounded failure details as plain text', async () => {
+        mockTauriCommand('storage_cleanup_selected', () =>
+            result({
+                pendingBytes: MIB,
                 failedFiles: 7,
                 failures: Array.from({ length: 7 }, (_, index) => ({
                     path: index === 0 ? '<script>unsafe-file-name</script>' : `failed-${index}.tmp`,
@@ -663,134 +417,126 @@ describe('given some storage files cannot be released immediately', () => {
             })
         );
         const view = await openStorage();
-        await action(view, 'cleanup').trigger('click');
-        await flushPromises();
-        chooseConfirmation('Clean up');
-        await flushPromises();
-
-        const failures = view.get('[data-testid="settings-storage-failures"]');
+        await openCleanup(view);
+        await confirm();
+        expect(view.get('[data-testid=settings-storage-result]').text()).toContain(
+            'Estimated pending release: 1 MiB. Failed files: 7.'
+        );
+        const failures = view.get('[data-testid=settings-storage-failures]');
         expect(failures.text()).toContain('<script>unsafe-file-name</script>');
         expect(failures.find('script').exists()).toBe(false);
         expect(failures.text()).toContain('2 more failures');
         expect(failures.text()).not.toContain('failed-6.tmp');
+        expect(action(view, 'cleanup').element.disabled).toBe(false);
     });
 
-    it('user finishes compaction but a failed refresh does not hide the successful result', async () => {
+    it('user sees no observed release when files remain physically allocated', async () => {
+        mockTauriCommand('storage_cleanup_selected', () =>
+            result({ releasedBytes: 0, pendingBytes: 2 * MIB })
+        );
         const view = await openStorage();
-        await action(view, 'compact').trigger('click');
-        await flushPromises();
-        mockTauriCommand('storage_scan', () => Promise.reject('storage_io_failed'));
-
-        chooseConfirmation('Free up space');
-        await flushPromises();
-
-        expect(view.get('[data-testid="settings-storage-result"]').text()).toContain(
-            'Database size: 8 MiB to 6 MiB. Released 2 MiB.'
+        await openCleanup(view);
+        await confirm();
+        expect(view.get('[data-testid=settings-storage-result]').text()).toContain(
+            'Observed release: 0 B. Estimated pending release: 2 MiB.'
         );
-        expect(view.get('[data-testid="settings-storage-error"]').text()).toContain(
-            'Some storage files could not be read or removed.'
+    });
+
+    it('user sees committed cleanup even when the final scan is incomplete', async () => {
+        mockTauriCommand('storage_cleanup_selected', () =>
+            result({ summary: usage({ warnings: ['storage_scan_incomplete'] }) })
         );
-        expect(action(view, 'compact').element.disabled).toBe(true);
+        const view = await openStorage();
+        await openCleanup(view);
+        await confirm();
+        expect(view.get('[data-testid=settings-storage-result]').text()).toContain(
+            'Files removed: 3.'
+        );
+        expect(view.text()).toContain('The storage scan is incomplete.');
+        expect(action(view, 'cleanup').element.disabled).toBe(true);
+    });
+
+    it('user deletes database contents and the app restarts without reloading the closed database', async () => {
+        mockTauriCommand('storage_cleanup_selected', () => result({ restartRequired: true }));
+        const view = await openStorage();
+        await openCleanup(view);
+        control('storage-choice-database').click();
+        await flushPromises();
+        await confirm();
+        expect(getTauriInvokeCalls('plugin:process|restart')).toHaveLength(1);
+        expect(view.emitted('cleaned')).toBeUndefined();
+        expect(action(view, 'refresh').element.disabled).toBe(true);
+    });
+
+    it('user cannot restart automatically and can retry restart while further changes stay disabled', async () => {
+        mockTauriCommand('storage_cleanup_selected', () => result({ restartRequired: true }));
+        mockTauriCommand('plugin:process|restart', () => Promise.reject('restart unavailable'));
+        const view = await openStorage();
+        await openCleanup(view);
+        await confirm();
+        expect(view.text()).toContain('Restart the app');
+        expect(action(view, 'cleanup').element.disabled).toBe(true);
+        const restart = view.findAll('button').find((button) => button.text() === 'Restart')!;
+        expect(restart).toBeDefined();
+        mockTauriCommand('plugin:process|restart', undefined);
+        await restart.trigger('click');
+        await flushPromises();
+        expect(getTauriInvokeCalls('plugin:process|restart')).toHaveLength(2);
     });
 });
 
-describe('given the user leaves storage settings during an asynchronous action', () => {
-    it('user leaves with a confirmation open and no detached deletion can start', async () => {
+describe('given the user leaves settings during an asynchronous operation', () => {
+    it('user leaves with a selection open and no detached deletion starts', async () => {
         const view = await openStorage();
-        await action(view, 'recordings').trigger('click');
-        await flushPromises();
-        expect(confirmation()).not.toBeNull();
-
+        await openCleanup(view);
         view.unmount();
         wrapper = undefined;
         await flushPromises();
-
-        expect(document.querySelector('[role=alertdialog]')).toBeNull();
-        expect(getTauriInvokeCalls('storage_cleanup')).toEqual([]);
+        expect(document.querySelector('[role=dialog]')).toBeNull();
+        expect(getTauriInvokeCalls('storage_cleanup_selected')).toEqual([]);
     });
 
-    it('user confirms and immediately leaves before deletion starts and no files are removed', async () => {
-        const view = await openStorage();
-        await action(view, 'cleanup').trigger('click');
-        await flushPromises();
-
-        chooseConfirmation('Clean up');
-        view.unmount();
-        wrapper = undefined;
-        await flushPromises();
-
-        expect(document.querySelector('[role=alertdialog]')).toBeNull();
-        expect(getTauriInvokeCalls('storage_cleanup')).toEqual([]);
-    });
-
-    it('user leaves during a scan and a late failure produces no detached notification', async () => {
+    it('user leaves during a scan and a late failure does not notify another page', async () => {
         const scan = deferred<StorageSummary>();
         mockTauriCommand('storage_scan', () => scan.promise);
         const view = await openStorage();
-
         view.unmount();
         wrapper = undefined;
         scan.reject('storage_io_failed');
         await flushPromises();
-
-        expect(document.querySelector('[data-sonner-toast]')).toBeNull();
-        expect(document.querySelector('[data-testid="settings-storage-error"]')).toBeNull();
-    });
-
-    it('user leaves during cleanup and a late result cannot start background work or notify another page', async () => {
-        const cleanup = deferred<StorageCleanupResult>();
-        mockTauriCommand('storage_cleanup', () => cleanup.promise);
-        const view = await openStorage();
-        await action(view, 'cleanup').trigger('click');
-        await flushPromises();
-        chooseConfirmation('Clean up');
-        await flushPromises();
-        const scanRequests = getTauriInvokeCalls('storage_scan');
-
-        view.unmount();
-        wrapper = undefined;
-        cleanup.resolve(cleanupResult({ failedFiles: 1 }));
-        await flushPromises();
-
-        expect(getTauriInvokeCalls('storage_scan')).toEqual(scanRequests);
         expect(document.querySelector('[data-sonner-toast]')).toBeNull();
     });
 
-    it('user leaves during compaction and completion does not scan or show a detached success', async () => {
-        const compaction = deferred<StorageCompactionResult>();
-        mockTauriCommand('storage_compact_database', () => compaction.promise);
-        const view = await openStorage();
-        await action(view, 'compact').trigger('click');
-        await flushPromises();
-        chooseConfirmation('Free up space');
-        await flushPromises();
-        const scanRequests = getTauriInvokeCalls('storage_scan');
+    it.each([false, true])(
+        'user leaves after confirming and committed cleanup only restarts when required: %s',
+        async (restartRequired) => {
+            const cleanup = deferred<StorageCleanupResult>();
+            mockTauriCommand('storage_cleanup_selected', () => cleanup.promise);
+            const view = await openStorage();
+            await openCleanup(view);
+            await confirm();
+            view.unmount();
+            wrapper = undefined;
+            cleanup.resolve(result({ restartRequired }));
+            await flushPromises();
+            expect(getTauriInvokeCalls('storage_scan')).toHaveLength(1);
+            expect(getTauriInvokeCalls('plugin:process|restart')).toHaveLength(
+                restartRequired ? 1 : 0
+            );
+            expect(document.querySelector('[data-sonner-toast]')).toBeNull();
+        }
+    );
 
-        view.unmount();
-        wrapper = undefined;
-        compaction.resolve({ beforeBytes: 8 * MIB, afterBytes: 6 * MIB, releasedBytes: 2 * MIB });
-        await flushPromises();
-
-        expect(getTauriInvokeCalls('storage_scan')).toEqual(scanRequests);
-        expect(document.querySelector('[data-sonner-toast]')).toBeNull();
-    });
-
-    it('user reopens storage while an old scan finishes and only the new usage is displayed', async () => {
+    it('user reopens storage before an old scan finishes and only the new totals appear', async () => {
         const oldScan = deferred<StorageSummary>();
         mockTauriCommand('storage_scan', () => oldScan.promise);
-        const oldView = await openStorage();
-        oldView.unmount();
+        (await openStorage()).unmount();
         wrapper = undefined;
         mockTauriCommand('storage_scan', () => usage({ totalBytes: 50 * MIB }));
-        const currentView = await openStorage();
-
+        const view = await openStorage();
         oldScan.resolve(usage({ totalBytes: 999 * MIB }));
         await flushPromises();
-
-        expect(currentView.get('[data-testid="settings-storage-total"]').text()).toContain(
-            '50 MiB'
-        );
-        expect(currentView.text()).not.toContain('999 MiB');
-        expect(action(currentView, 'cleanup').element.disabled).toBe(false);
+        expect(view.get('[data-testid=settings-storage-total]').text()).toContain('50 MiB');
+        expect(view.text()).not.toContain('999 MiB');
     });
 });

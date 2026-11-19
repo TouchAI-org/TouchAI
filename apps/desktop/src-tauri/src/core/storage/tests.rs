@@ -1,4 +1,5 @@
 use super::*;
+use sqlx::{sqlite::SqliteConnectOptions, Connection, SqliteConnection};
 use std::io::Write;
 
 struct FixtureRoot(tempfile::TempDir);
@@ -102,6 +103,423 @@ async fn messages(database: &DatabaseRuntime, attachment: i64) {
             .bind(message).bind(serde_json::json!({"attachmentId": attachment}).to_string())
             .execute(database.pool()).await.expect("message reference");
     }
+}
+
+#[tokio::test]
+async fn user_given_a_database_reset_and_unused_cleanup_when_attachments_are_not_selected_then_previously_referenced_files_are_retained(
+) {
+    let (root, database, storage) = fixture().await;
+    let source = root.path().join("original.png");
+    fs::write(&source, b"keep saved image").expect("original");
+    let (attachment, cached) = attach(&database, &storage, &source).await;
+    messages(&database, attachment).await;
+    let lease = storage.exclusive().await.expect("exclusive");
+    let result = storage
+        .cleanup_selected(
+            StorageCleanupSelection {
+                unused: true,
+                categories: vec![StorageCategory::Database],
+            },
+            Vec::new(),
+            lease,
+        )
+        .await
+        .expect("database reset");
+    assert!(result.restart_required);
+    assert!(database.pool().is_closed());
+    assert_eq!(
+        fs::read(cached).expect("unselected attachment retained"),
+        b"keep saved image"
+    );
+}
+
+#[tokio::test]
+async fn user_given_invalid_recovery_metadata_when_deleting_attachments_then_the_transaction_rolls_back_and_files_remain(
+) {
+    let (root, database, storage) = fixture().await;
+    let source = root.path().join("original.png");
+    fs::write(&source, b"keep saved image").expect("original");
+    let (attachment, cached) = attach(&database, &storage, &source).await;
+    messages(&database, attachment).await;
+    sqlx::query("INSERT INTO session_turns(task_id,prompt_snapshot_json) VALUES('invalid','{')")
+        .execute(database.pool())
+        .await
+        .expect("old invalid snapshot");
+    assert_eq!(
+        selected_cleanup(&storage, vec![StorageCategory::Attachments])
+            .await
+            .expect_err("preflight metadata refusal"),
+        "storage_scan_incomplete"
+    );
+    assert!(cached.exists());
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM attachments")
+            .fetch_one(database.pool())
+            .await
+            .expect("retained metadata"),
+        1
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM message_parts WHERE attachment_id = ?")
+            .bind(attachment)
+            .fetch_one(database.pool())
+            .await
+            .expect("retained associations"),
+        2
+    );
+    database.pool().close().await;
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn user_given_a_locked_log_when_deleting_logs_then_sees_the_failure_and_can_retry_the_remaining_file(
+) {
+    use std::os::windows::fs::OpenOptionsExt;
+    let (root, database, storage) = fixture().await;
+    let logs = root.path().join("logs");
+    fs::create_dir(&logs).expect("logs");
+    let locked = logs.join("locked.log");
+    let removable = logs.join("removable.log");
+    fs::write(&locked, b"locked bytes").expect("locked file");
+    fs::write(&removable, b"removable bytes").expect("removable file");
+    let handle = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(3)
+        .open(&locked)
+        .expect("reader denies deletion");
+    let result = selected_cleanup(&storage, vec![StorageCategory::Logs])
+        .await
+        .expect("partial cleanup");
+    assert_eq!(result.removed_files, 1);
+    assert_eq!(result.failed_files, 1);
+    assert_eq!(PathBuf::from(&result.failures[0].path), locked);
+    assert!(locked.exists());
+    assert!(!removable.exists());
+    drop(handle);
+    let retry = selected_cleanup(&storage, vec![StorageCategory::Logs])
+        .await
+        .expect("retry after reader closes");
+    assert_eq!(retry.removed_files, 1);
+    assert_eq!(retry.failed_files, 0);
+    database.pool().close().await;
+}
+
+async fn selected_cleanup(
+    storage: &StorageRuntime,
+    categories: Vec<StorageCategory>,
+) -> Result<StorageCleanupResult, String> {
+    let lease = storage.exclusive().await?;
+    storage
+        .cleanup_selected(
+            StorageCleanupSelection {
+                unused: false,
+                categories,
+            },
+            Vec::new(),
+            lease,
+        )
+        .await
+}
+
+#[tokio::test]
+async fn user_given_referenced_attachments_when_explicitly_deleting_then_keeps_text_and_external_originals_without_dangling_file_metadata(
+) {
+    let (root, database, storage) = fixture().await;
+    let source = root.path().join("original.png");
+    fs::write(&source, b"original bytes").expect("original");
+    let (attachment, cached) = attach(&database, &storage, &source).await;
+    messages(&database, attachment).await;
+    sqlx::query("INSERT INTO message_parts(message_id,type,content,sort_order) VALUES (1,'text','keep this conversation',1)").execute(database.pool()).await.expect("text");
+    let hash = cached
+        .file_name()
+        .expect("hash")
+        .to_string_lossy()
+        .into_owned();
+    let original = storage.cache.join("originals").join(&hash);
+    fs::create_dir_all(original.parent().expect("parent")).expect("original cache");
+    fs::write(&original, b"restored original").expect("owned original");
+    let snapshot = serde_json::json!({"userPrompt":"keep prompt", "attachments":[{"attachmentId":attachment,"path":cached,"originPath":source}],"toolResult":{"filePath":cached,"text":"keep tool output","hash":hash},"original":{"originPath":original}});
+    sqlx::query(
+        "INSERT INTO session_turns(task_id,prompt_snapshot_json) VALUES ('deleted-attachment',?)",
+    )
+    .bind(snapshot.to_string())
+    .execute(database.pool())
+    .await
+    .expect("snapshot");
+    let result = selected_cleanup(&storage, vec![StorageCategory::Attachments])
+        .await
+        .expect("explicit cleanup");
+    assert_eq!(result.failed_files, 0);
+    assert!(!cached.exists());
+    assert!(!original.exists());
+    assert_eq!(
+        fs::read(&source).expect("external original"),
+        b"original bytes"
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM attachments")
+            .fetch_one(database.pool())
+            .await
+            .expect("attachment rows"),
+        0
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, String>("SELECT content FROM message_parts WHERE type='text'")
+            .fetch_one(database.pool())
+            .await
+            .expect("text"),
+        "keep this conversation"
+    );
+    let retained: String = sqlx::query_scalar("SELECT prompt_snapshot_json FROM session_turns")
+        .fetch_one(database.pool())
+        .await
+        .expect("snapshot");
+    let retained: Value = serde_json::from_str(&retained).expect("valid snapshot");
+    assert_eq!(retained["userPrompt"], "keep prompt");
+    assert_eq!(retained["attachments"], serde_json::json!([]));
+    assert!(retained["toolResult"].get("filePath").is_none());
+    assert_eq!(retained["toolResult"]["text"], "keep tool output");
+    assert_eq!(retained["toolResult"]["hash"], hash);
+    assert!(retained["original"].get("originPath").is_none());
+    assert!(sqlx::query("PRAGMA foreign_key_check")
+        .fetch_all(database.pool())
+        .await
+        .expect("foreign keys")
+        .is_empty());
+    database
+        .export_scoped_backup(
+            &root.path().join("after-deletion.zip"),
+            &storage.cache,
+            crate::core::database::types::DatabaseImportMode::Full,
+        )
+        .await
+        .expect("backup after deletion");
+    database.pool().close().await;
+}
+
+#[tokio::test]
+async fn user_given_installed_assets_browser_data_and_recent_cache_when_selecting_each_then_can_remove_all_managed_files(
+) {
+    let (root, database, storage) = fixture().await;
+    let paths = [
+        root.path().join("assets/font/font.woff2"),
+        root.path().join("data/browser-data/Default/Cookies"),
+        storage.cache.join("clipboard/123.png"),
+        storage.cache.join("temporary/unknown-owned.tmp"),
+    ];
+    for path in &paths {
+        fs::create_dir_all(path.parent().expect("parent")).expect("directory");
+        fs::write(path, b"managed bytes").expect("file");
+    }
+    let result = selected_cleanup(
+        &storage,
+        vec![
+            StorageCategory::Assets,
+            StorageCategory::Browser,
+            StorageCategory::Clipboard,
+            StorageCategory::Temporary,
+        ],
+    )
+    .await
+    .expect("selected cleanup");
+    assert_eq!(result.failed_files, 0);
+    assert_eq!(result.removed_files, 4);
+    assert!(result.restart_required);
+    assert!(paths.iter().all(|path| !path.exists()));
+    assert!(database.database_path().exists());
+    database.pool().close().await;
+}
+
+#[tokio::test]
+async fn user_given_conversations_configuration_and_usage_when_deleting_database_contents_then_keeps_a_valid_empty_schema_and_requires_restart(
+) {
+    let (_root, database, storage) = fixture().await;
+    sqlx::raw_sql("INSERT INTO sessions(session_id,title,model) VALUES('history','private conversation','fixture'); INSERT INTO settings(key,value) VALUES('private-setting','private value'); INSERT INTO statistics(key,value) VALUES('usage_rollup_baseline','[]');").execute(database.pool()).await.expect("personal data");
+    let migrations: i64 = sqlx::query_scalar("SELECT count(*) FROM migrations")
+        .fetch_one(database.pool())
+        .await
+        .expect("migrations");
+    let result = selected_cleanup(&storage, vec![StorageCategory::Database])
+        .await
+        .expect("database reset");
+    assert!(result.restart_required);
+    assert_eq!(result.failed_files, 0);
+    assert!(database.pool().is_closed());
+    let mut reopened = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .filename(database.database_path())
+            .read_only(true),
+    )
+    .await
+    .expect("inspect committed reset");
+    for table in [
+        "sessions",
+        "settings",
+        "statistics",
+        "providers",
+        "built_in_tools",
+    ] {
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(format!(
+                "SELECT count(*) FROM {table}"
+            )))
+            .fetch_one(&mut reopened)
+            .await
+            .expect("empty user table"),
+            0
+        );
+    }
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM migrations")
+            .fetch_one(&mut reopened)
+            .await
+            .expect("retained migrations"),
+        migrations
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, String>("PRAGMA integrity_check")
+            .fetch_one(&mut reopened)
+            .await
+            .expect("integrity"),
+        "ok"
+    );
+    assert!(database.database_path().exists());
+    reopened.close().await.expect("close inspection");
+}
+
+#[tokio::test]
+async fn user_given_a_clipboard_original_used_by_history_when_deleting_clipboard_files_then_retains_the_saved_attachment_and_can_back_it_up(
+) {
+    let (root, database, storage) = fixture().await;
+    let source = storage.cache.join("clipboard/123.png");
+    fs::create_dir_all(source.parent().expect("parent")).expect("directory");
+    fs::write(&source, b"saved clipboard image").expect("original");
+    let (attachment, cached) = attach(&database, &storage, &source).await;
+    messages(&database, attachment).await;
+    sqlx::query("INSERT INTO session_turns(task_id,prompt_snapshot_json) VALUES('clipboard',?)")
+        .bind(serde_json::json!({"attachments":[{"attachmentId":attachment,"originPath":source}],"userPrompt":source}).to_string())
+        .execute(database.pool()).await.expect("snapshot");
+    let result = selected_cleanup(&storage, vec![StorageCategory::Clipboard])
+        .await
+        .expect("cleanup");
+    assert_eq!(result.removed_files, 1);
+    assert!(!source.exists());
+    assert_eq!(
+        fs::read(&cached).expect("saved copy"),
+        b"saved clipboard image"
+    );
+    let origin: String = sqlx::query_scalar("SELECT origin_path FROM attachments WHERE id = ?")
+        .bind(attachment)
+        .fetch_one(database.pool())
+        .await
+        .expect("retained attachment");
+    assert_eq!(PathBuf::from(origin), cached);
+    let snapshot: String = sqlx::query_scalar("SELECT prompt_snapshot_json FROM session_turns")
+        .fetch_one(database.pool())
+        .await
+        .expect("snapshot");
+    let snapshot: Value = serde_json::from_str(&snapshot).expect("json");
+    assert_eq!(snapshot["userPrompt"], source.to_string_lossy().as_ref());
+    assert!(snapshot["attachments"][0].get("originPath").is_none());
+    database
+        .export_scoped_backup(
+            &root.path().join("retained.zip"),
+            &storage.cache,
+            crate::core::database::types::DatabaseImportMode::Full,
+        )
+        .await
+        .expect("backup without deleted original");
+    database.pool().close().await;
+}
+
+#[tokio::test]
+async fn user_given_overlapping_unused_and_selected_categories_when_deleting_then_each_file_is_removed_once_and_unselected_files_remain(
+) {
+    let (_root, database, storage) = fixture().await;
+    let icon = storage.cache.join(format!("icons/{}.png", "a".repeat(32)));
+    fs::create_dir_all(icon.parent().expect("parent")).expect("directory");
+    fs::write(&icon, b"thumbnail").expect("icon");
+    let keep = storage.cache.join("computer-use-trajectories/keep.mp4");
+    fs::create_dir_all(keep.parent().expect("parent")).expect("directory");
+    fs::write(&keep, b"saved recording").expect("recording");
+    let lease = storage.exclusive().await.expect("exclusive");
+    let result = storage
+        .cleanup_selected(
+            StorageCleanupSelection {
+                unused: true,
+                categories: vec![StorageCategory::Thumbnails],
+            },
+            Vec::new(),
+            lease,
+        )
+        .await
+        .expect("cleanup");
+    assert_eq!(result.removed_files, 1);
+    assert!(!icon.exists());
+    assert!(keep.exists());
+    assert!(!result.restart_required);
+    database.pool().close().await;
+}
+
+#[tokio::test]
+async fn user_given_an_active_transaction_when_explicitly_deleting_then_no_selected_files_or_data_change(
+) {
+    let (_root, database, storage) = fixture().await;
+    let transaction = database
+        .begin_transaction("main".into(), None)
+        .await
+        .expect("transaction");
+    assert_eq!(
+        selected_cleanup(&storage, vec![StorageCategory::Database])
+            .await
+            .expect_err("busy"),
+        "storage_busy"
+    );
+    assert!(!database.pool().is_closed());
+    database
+        .rollback_transaction(&transaction)
+        .await
+        .expect("transaction still usable");
+    selected_cleanup(&storage, vec![StorageCategory::Logs])
+        .await
+        .expect("cleanup after transaction");
+    database.pool().close().await;
+}
+
+#[cfg(any(unix, windows))]
+#[tokio::test]
+async fn user_given_a_redirected_asset_folder_when_explicitly_deleting_then_no_file_or_database_content_is_removed(
+) {
+    let (root, database, storage) = fixture().await;
+    let outside = root.path().join("external");
+    fs::create_dir_all(&outside).expect("external directory");
+    fs::write(outside.join("keep"), b"external bytes").expect("external file");
+    directory_link(&outside, &root.path().join("assets"));
+    sqlx::query("INSERT INTO settings(key,value) VALUES('keep','yes')")
+        .execute(database.pool())
+        .await
+        .expect("setting");
+    assert_eq!(
+        selected_cleanup(
+            &storage,
+            vec![StorageCategory::Assets, StorageCategory::Database]
+        )
+        .await
+        .expect_err("redirect rejected"),
+        "storage_scan_incomplete"
+    );
+    assert_eq!(
+        fs::read(outside.join("keep")).expect("external retained"),
+        b"external bytes"
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, String>("SELECT value FROM settings WHERE key='keep'")
+            .fetch_one(database.pool())
+            .await
+            .expect("setting retained"),
+        "yes"
+    );
+    database.pool().close().await;
 }
 
 #[tokio::test]
