@@ -155,13 +155,15 @@
                 >
                     <img :src="logo" alt="" class="size-full rounded-xl object-cover" />
                 </span>
-                <span
+                <motion.span
                     v-else
+                    :initial="false"
+                    :animate="{ padding: editing ? 2 : 8 }"
+                    :transition="headerTransition"
                     class="flex size-full items-center justify-center overflow-hidden rounded-xl bg-surface-floating"
-                    :class="editing ? 'p-0.5' : 'p-1.5'"
                 >
                     <img :src="logo" alt="" class="size-full rounded-lg object-contain" />
-                </span>
+                </motion.span>
             </motion.span>
 
             <motion.div
