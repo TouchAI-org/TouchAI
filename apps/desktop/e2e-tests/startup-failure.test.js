@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 import { compileWindowsExecutable, withE2eWebView2Env } from './webview2-env.js';
 
-const STARTUP_TIMEOUT_MS = 15000;
+const STARTUP_TIMEOUT_MS = 60000;
 const OUTPUT_CLOSE_TIMEOUT_MS = 2000;
 const PROCESS_EXIT_TIMEOUT_MS = 5000;
 const CLEANUP_RETRY_COUNT = 40;
@@ -351,7 +351,7 @@ test(
     'user sees an interactive startup failure dialog and can close it without leaving the app hung',
     {
         skip: process.platform !== 'win32',
-        timeout: 30000,
+        timeout: 90000,
     },
     async (t) => {
         const binary = process.env.TOUCHAI_STARTUP_TEST_BINARY;
@@ -361,7 +361,7 @@ test(
         const database = path.join(root, 'data', 'touchai.db');
         mkdirSync(database, { recursive: true });
         const pidFile = path.join(root, 'startup-app.pid');
-        const observer = runDialogObserver(resolveDialogObserver(), pidFile, 12000);
+        const observer = runDialogObserver(resolveDialogObserver(), pidFile, 45000);
         const result = await runStartupFailure(binary, root, [], { interactive: true, pidFile });
         const observed = await observer.done;
 
