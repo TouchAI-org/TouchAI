@@ -253,6 +253,8 @@ vi.mock('@/views/SearchView/composables/useSearchPage', async () => {
         }),
         useSearchWindowPin: () => ({
             isPinned: ref(false),
+            pinnedForPolicy: ref(false),
+            requestBlurPolicy: vi.fn().mockResolvedValue(undefined),
             syncWindowPinState: vi.fn().mockResolvedValue(undefined),
             setWindowPinned: vi.fn().mockResolvedValue(undefined),
             toggleWindowPin: vi.fn().mockResolvedValue(undefined),

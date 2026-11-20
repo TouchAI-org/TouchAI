@@ -370,7 +370,14 @@
     const settingsStore = useSettingsStore();
     const { searchWindowDefaultSize, searchKeybindings } = storeToRefs(settingsStore);
     const { sessionStatuses, refreshAllStatuses: refreshSessionStatuses } = useSessionStatus();
-    const { isPinned, syncWindowPinState, setWindowPinned, toggleWindowPin } = useSearchWindowPin({
+    const {
+        isPinned,
+        pinnedForPolicy,
+        requestBlurPolicy,
+        syncWindowPinState,
+        setWindowPinned,
+        toggleWindowPin,
+    } = useSearchWindowPin({
         shouldHideOnAppBlur: (pinned) =>
             !pinned && !isDragging.value && !effectiveWindowMaximized.value,
     });
@@ -1210,11 +1217,13 @@
         viewReady,
         isDragging,
         isPinned,
+        pinnedForPolicy,
         isMaximized: effectiveWindowMaximized,
         searchKeybindings,
         isSurfaceTransitioning: isSessionExpandAnimating,
         interactionContext: searchInteractionContext,
         syncWindowPinState,
+        requestSearchSurfaceBlurPolicy: requestBlurPolicy,
         clearSession: clearSessionToIdle,
         shouldClearSessionAfterTimeout,
         reconcileSearchOverlays: hideAllOverlays,
