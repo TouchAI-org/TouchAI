@@ -1,3 +1,0 @@
-import { invoke as call } from './invoke';
-
-export const log = (payload: unknown) => call('plugin:log|log', { ...payload });

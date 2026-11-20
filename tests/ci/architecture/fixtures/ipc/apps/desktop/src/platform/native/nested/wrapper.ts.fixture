@@ -1,3 +1,0 @@
-import { invoke } from '@tauri-apps/api/core';
-
-export const run = (command: string) => invoke(command);

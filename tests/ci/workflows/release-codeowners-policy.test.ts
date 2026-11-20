@@ -63,7 +63,7 @@ describe('release CODEOWNERS policy', () => {
             'apps/desktop/src-tauri/src/commands/mod.rs',
             'apps/desktop/src-tauri/src/core/database/mod.rs',
             'tooling/architecture/db-artifacts-baseline.json',
-            'tooling/architecture/ipc-plugin-commands.json',
+            'tooling/architecture/check.mjs',
             'eslint.config.js',
             'docs/agents/architecture.md',
         ];

@@ -1,6 +1,0 @@
-{
-    "plugin:log|log": {
-        "source": "apps/desktop/src/platform/native/log.ts",
-        "reason": "fixture exact plugin command"
-    }
-}

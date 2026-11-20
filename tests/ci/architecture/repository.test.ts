@@ -1,5 +1,15 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import {
+    cpSync,
+    mkdirSync,
+    mkdtempSync,
+    readdirSync,
+    readFileSync,
+    rmSync,
+    symlinkSync,
+    writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,6 +18,39 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 const cli = fileURLToPath(new URL('../../../tooling/architecture/check.mjs', import.meta.url));
 const temporary: string[] = [];
+const repositoryRoot = resolve(dirname(cli), '../..');
+const nativeBridge =
+    "import { invoke as nativeInvoke } from '@tauri-apps/api/core'; export const invoke = (command: string) => nativeInvoke(command);";
+const nativeRoot = 'apps/desktop/src/platform/native';
+const handlerFile = 'apps/desktop/src-tauri/src/commands/mod.rs';
+const databaseRoot = 'apps/desktop/src/database';
+const artifactBaseline = 'tooling/architecture/db-artifacts-baseline.json';
+
+function write(root: string, file: string, content: string): void {
+    const target = join(root, file);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, content);
+}
+
+function artifacts(root: string): Record<string, string> {
+    return Object.fromEntries(
+        ['drizzle', 'artifacts'].flatMap((directory) => {
+            const base = join(root, databaseRoot, directory);
+            return readdirSync(base, { recursive: true, withFileTypes: true })
+                .filter((entry) => entry.isFile())
+                .map((entry) => {
+                    const file = join(entry.parentPath, entry.name);
+                    return [
+                        file
+                            .slice(root.length + 1)
+                            .split('\\')
+                            .join('/'),
+                        createHash('sha256').update(readFileSync(file)).digest('hex'),
+                    ];
+                });
+        })
+    );
+}
 
 function fixture(files: Record<string, string>): string {
     const root = mkdtempSync(join(tmpdir(), 'touchai-710-graph-'));
@@ -20,6 +63,14 @@ function fixture(files: Record<string, string>): string {
         'packages/models/src/providers/openai.ts': 'export const provider = {};',
         'packages/agent-core/src/contracts/index.ts': 'export interface Task { id: string }',
         'packages/agent-core/src/index.ts': 'export const createAgent = () => ({});',
+        [`${nativeRoot}/invoke.ts`]: nativeBridge,
+        [`${nativeRoot}/log.ts`]: "import { invoke } from './invoke'; invoke('plugin:log|log');",
+        [handlerFile]: 'pub fn handler() { tauri::generate_handler![native::known_cmd]; }',
+        'apps/desktop/src-tauri/Cargo.toml': '[dependencies]\ntauri-plugin-log = "2"\n',
+        [`${databaseRoot}/schema.ts`]: 'export {};',
+        [`${databaseRoot}/drizzle/meta/_journal.json`]:
+            '{"version":"7","dialect":"sqlite","entries":[]}',
+        [`${databaseRoot}/artifacts/runtime/guards.sql`]: 'SELECT 1;\n',
         ...files,
     };
     for (const [file, content] of Object.entries(sources)) {
@@ -44,15 +95,25 @@ function fixture(files: Record<string, string>): string {
             include: ['**/*.ts', '**/*.vue'],
         })
     );
+    symlinkSync(
+        join(repositoryRoot, 'apps/desktop/node_modules'),
+        join(root, 'apps/desktop/node_modules'),
+        'dir'
+    );
+    write(root, artifactBaseline, JSON.stringify(artifacts(root)));
     return root;
 }
 
-function run(root: string) {
-    const result = spawnSync(process.execPath, [cli, '--project-root', resolve(root), '--json'], {
-        encoding: 'utf8',
-        maxBuffer: 2 * 1024 * 1024,
-        env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=512' },
-    });
+function run(root: string, json = true) {
+    const result = spawnSync(
+        process.execPath,
+        [cli, '--project-root', resolve(root), ...(json ? ['--json'] : [])],
+        {
+            encoding: 'utf8',
+            maxBuffer: 2 * 1024 * 1024,
+            env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=512' },
+        }
+    );
     return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 
@@ -253,8 +314,7 @@ describe('given distinct production, test and tooling graph roles', () => {
             fixture({
                 'apps/desktop/tests/native.test.ts':
                     "import { invoke } from '@tauri-apps/api/core'; void invoke('fixture');",
-                'apps/desktop/src/platform/native/invoke.ts':
-                    "import { invoke } from '@tauri-apps/api/core'; export { invoke };",
+                'apps/desktop/src/platform/native/invoke.ts': nativeBridge,
             })
         );
         expect(result.status).toBe(0);
@@ -332,8 +392,7 @@ describe('given distinct production, test and tooling graph roles', () => {
                 "import '@/i18n'; import '@/platform/native/invoke';",
             'apps/desktop/src/i18n/index.ts':
                 "import { createI18n } from 'vue-i18n'; export const language = createI18n({});",
-            'apps/desktop/src/platform/native/invoke.ts':
-                "import { invoke } from '@tauri-apps/api/core'; export { invoke };",
+            'apps/desktop/src/platform/native/invoke.ts': nativeBridge,
             'apps/desktop/src/vite-env.d.ts':
                 "import type { DefineComponent } from 'vue'; export type View = DefineComponent;",
         };
@@ -796,4 +855,279 @@ describe('given the former architecture review bypasses', () => {
         expect(result.stderr).toContain('invalid-source-root');
         expect(result.stderr).toContain('packages/agent-core/src');
     });
+});
+
+describe('given native commands checked by the repository architecture command', () => {
+    it('user sees the caller and unknown command in the normal command output', () => {
+        const result = run(
+            fixture({
+                [`${nativeRoot}/caller.ts`]:
+                    "import { invoke } from './invoke'; invoke('missing_cmd');",
+            }),
+            false
+        );
+        expect(result.status).toBe(1);
+        expect(result.stdout).toContain(`[ipc-command] ${nativeRoot}/caller.ts:1 -> missing_cmd`);
+        expect(result.stdout).toContain('no registered Rust handler');
+    });
+
+    it.each([
+        "import { invoke } from './invoke'; invoke('missing_cmd');",
+        "import { invoke as call } from '@/platform/native/invoke'; call('missing_cmd');",
+        "import { invoke as call } from './invoke.js'; call('missing_cmd');",
+        "import * as bridge from './invoke'; bridge.invoke('missing_cmd');",
+        "import * as bridge from './invoke'; bridge['invoke']('missing_cmd');",
+    ])('user sees an unregistered command rejected through %s', (source) => {
+        const result = run(fixture({ [`${nativeRoot}/caller.ts`]: source }));
+        expect(result.status).toBe(1);
+        expect(result.stdout).toContain('ipc-command');
+        expect(result.stdout).toContain('missing_cmd');
+    });
+
+    it('user sees an unknown command reported outside the native adapter directory', () => {
+        const result = run(
+            fixture({
+                'apps/desktop/src/platform/windows/caller.ts':
+                    "import { invoke } from '@/platform/native/invoke'; invoke('missing_cmd');",
+            })
+        );
+        expect(result.status).toBe(1);
+        expect(result.stdout).toContain('missing_cmd');
+    });
+
+    it.each([
+        "import { invoke } from './invoke'; invoke('known_cmd');",
+        "import * as bridge from './invoke'; bridge.invoke(`known_cmd`);",
+        "import { invoke } from './invoke'; export function call(invoke: (value: string) => void) { invoke('not_native'); }",
+        "import { invoke } from './invoke'; export type Call = typeof invoke;",
+        "import * as bridge from './invoke'; export type Call = typeof bridge.invoke;",
+        "import { invoke } from './invoke'; export type { invoke };",
+        "export { convertFileSrc } from '@tauri-apps/api/core';",
+    ])('user can keep a registered call or erased reference using %s', (source) => {
+        const result = run(fixture({ [`${nativeRoot}/caller.ts`]: source }));
+        expect(result.stderr).toBe('');
+        expect(result.status).toBe(0);
+    });
+
+    it.each([
+        "import { invoke } from './invoke'; const call = invoke; call('hidden');",
+        "export { invoke as call } from './invoke';",
+        "const bridge = await import('./invoke'); bridge.invoke('hidden');",
+        'const bridge = await import(`./invoke`); bridge.invoke("hidden");',
+        "const bridge = import.meta.glob('./invoke.ts', { eager: true, import: 'invoke' }); bridge['./invoke.ts']('hidden');",
+        "const bridge = require('./invoke'); bridge.invoke('hidden');",
+        "import bridge = require('./invoke'); bridge.invoke('hidden');",
+        "import { invoke } from './invoke'; export const call = (command: string) => invoke(command);",
+    ])('user sees an indirect command capability rejected using %s', (source) => {
+        const result = run(fixture({ [`${nativeRoot}/caller.ts`]: source }));
+        expect(result.status).toBe(1);
+        expect(result.stdout).toContain('ipc-command');
+        expect(result.stdout).toContain('cannot be resolved statically');
+    });
+
+    it.each(['missing', 'empty', 'bridge missing', 'no calls'])(
+        'user sees an incomplete native scan fail when the adapter has %s',
+        (state) => {
+            const root = fixture({});
+            if (state === 'bridge missing') rmSync(join(root, nativeRoot, 'invoke.ts'));
+            else {
+                rmSync(join(root, nativeRoot), { recursive: true });
+                if (state === 'empty') mkdirSync(join(root, nativeRoot));
+                if (state === 'no calls') write(root, `${nativeRoot}/invoke.ts`, nativeBridge);
+            }
+            const result = run(root);
+            expect(result.status).toBe(1);
+            expect(`${result.stdout}${result.stderr}`).toMatch(/native|unresolved-local/i);
+        }
+    );
+
+    it.each(['plugin:log|wrong', 'plugin:bogus|x', 'plugin:log|log'])(
+        'user cannot call %s from an unreviewed adapter',
+        (command) => {
+            const result = run(
+                fixture({
+                    [`${nativeRoot}/caller.ts`]: `import { invoke } from './invoke'; invoke('${command}');`,
+                })
+            );
+            expect(result.status).toBe(1);
+            expect(result.stdout).toContain(command);
+        }
+    );
+
+    it('user cannot use the reviewed plugin command after removing its Cargo dependency', () => {
+        const result = run(fixture({ 'apps/desktop/src-tauri/Cargo.toml': '[dependencies]\n' }));
+        expect(result.status).toBe(1);
+        expect(result.stdout).toContain('plugin:log|log');
+    });
+
+    it.each(['// invoke("plugin:log|log");', 'export const name = "plugin:log|log";'])(
+        'user sees an unused plugin allowance rejected when its source contains only %s',
+        (source) => {
+            const result = run(
+                fixture({
+                    [`${nativeRoot}/log.ts`]: source,
+                    [`${nativeRoot}/caller.ts`]:
+                        "import { invoke } from './invoke'; invoke('known_cmd');",
+                })
+            );
+            expect(result.status).toBe(1);
+            expect(result.stdout).toContain('plugin:log|log');
+        }
+    );
+
+    it('user sees only active Rust handlers accepted despite comments and strings', () => {
+        const root = fixture({
+            [handlerFile]: `
+                // tauri::generate_handler![line_ghost];
+                /* tauri::generate_handler![block_ghost]; /* nested */ */
+                const TEXT: &str = "https://example.test/generate_handler![string_ghost]";
+                const RAW: &str = r##"generate_handler![raw_ghost] /* ] */"##;
+                pub fn handler() { tauri::generate_handler![native::known_cmd, r#bare_cmd]; }
+            `,
+            [`${nativeRoot}/caller.ts`]: `
+                import { invoke } from './invoke';
+                invoke('known_cmd'); invoke('bare_cmd');
+                invoke('line_ghost'); invoke('block_ghost'); invoke('string_ghost'); invoke('raw_ghost');
+            `,
+        });
+        const result = run(root);
+        expect(result.status).toBe(1);
+        const violations = JSON.parse(result.stdout).violations;
+        expect(violations).toHaveLength(4);
+        for (const command of ['line_ghost', 'block_ghost', 'string_ghost', 'raw_ghost'])
+            expect(result.stdout).toContain(command);
+    });
+
+    it.each([
+        'pub fn handler() {}',
+        'pub fn handler() { tauri::generate_handler![native::known_cmd;',
+        'pub fn handler() { tauri::generate_handler![native::known_cmd as u8]; }',
+        'pub fn handler() { tauri::generate_handler!["native::known_cmd"]; }',
+        'pub fn handler() { tauri::generate_handler![nested!(native::known_cmd)]; }',
+    ])('user sees an unreadable Rust registration list fail closed for %s', (source) => {
+        const result = run(fixture({ [handlerFile]: source }));
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain('generate_handler');
+    });
+});
+
+describe('given database contracts checked by the repository architecture command', () => {
+    it.each(['changed', 'added', 'removed'])(
+        'user sees %s database artifacts rejected',
+        (change) => {
+            const root = fixture({});
+            const guards = `${databaseRoot}/artifacts/runtime/guards.sql`;
+            if (change === 'changed') write(root, guards, 'SELECT 2;');
+            if (change === 'added') write(root, `${databaseRoot}/artifacts/new.sql`, 'SELECT 2;');
+            if (change === 'removed') {
+                write(root, `${databaseRoot}/artifacts/retained.sql`, 'SELECT 1;');
+                write(root, artifactBaseline, JSON.stringify(artifacts(root)));
+                rmSync(join(root, guards));
+            }
+            const before = artifacts(root);
+            const result = run(root);
+            expect(result.status).toBe(1);
+            expect(result.stdout).toContain('database-artifact');
+            expect(result.stdout).toContain(change);
+            expect(artifacts(root)).toEqual(before);
+        }
+    );
+
+    it.each(['missing', 'empty', 'invalid hash'])(
+        'user sees a %s database baseline rejected',
+        (state) => {
+            const root = fixture({});
+            if (state === 'missing') rmSync(join(root, artifactBaseline));
+            else write(root, artifactBaseline, state === 'empty' ? '{}' : '{"artifact":"bad"}');
+            const result = run(root);
+            expect(result.status).toBe(1);
+            expect(result.stderr).toMatch(/baseline|SHA-256/i);
+        }
+    );
+
+    it.each(['missing', 'empty'])(
+        'user sees a %s database artifact directory rejected',
+        (state) => {
+            const root = fixture({});
+            const directory = join(root, databaseRoot, 'artifacts');
+            rmSync(directory, { recursive: true });
+            if (state === 'empty') mkdirSync(directory);
+            const result = run(root);
+            expect(result.status).toBe(1);
+            expect(result.stderr).toMatch(/Artifact root is missing or empty/);
+        }
+    );
+
+    it('user sees a schema-only change rejected without writing migrations into the checkout', () => {
+        const root = fixture({
+            [`${databaseRoot}/schema.ts`]:
+                "import { sqliteTable, integer } from 'drizzle-orm/sqlite-core'; export const probe = sqliteTable('probe', { id: integer('id').primaryKey() });",
+        });
+        const before = artifacts(root);
+        const result = run(root);
+        expect(result.status).toBe(1);
+        expect(result.stdout).toContain('database-generation');
+        expect(artifacts(root)).toEqual(before);
+    });
+
+    it.each(['available', 'missing'])(
+        'user gets an accurate result and no leftover scratch data when the generator is %s',
+        (state) => {
+            const root = fixture({});
+            if (state === 'missing') {
+                rmSync(join(root, 'apps/desktop/node_modules'));
+                mkdirSync(join(root, 'apps/desktop/node_modules'));
+            }
+            const scratchDirectories = () =>
+                readdirSync(tmpdir())
+                    .filter((name) => name.startsWith('touchai-db-generate-'))
+                    .sort();
+            const before = scratchDirectories();
+            const original = artifacts(root);
+            const result = run(root);
+            expect(result.status).toBe(state === 'available' ? 0 : 1);
+            if (state === 'missing') expect(result.stdout).toContain('database-generation');
+            expect(artifacts(root)).toEqual(original);
+            expect(scratchDirectories()).toEqual(before);
+        }
+    );
+
+    it.each(['clean', 'rename', 'unsupported snapshot'])(
+        'user gets an accurate result when the real migration history has %s',
+        (state) => {
+            const root = fixture({});
+            cpSync(
+                join(repositoryRoot, databaseRoot, 'drizzle'),
+                join(root, databaseRoot, 'drizzle'),
+                {
+                    recursive: true,
+                }
+            );
+            let schema = readFileSync(join(repositoryRoot, databaseRoot, 'schema.ts'), 'utf8');
+            if (state === 'rename') {
+                expect(schema).toContain("sqliteTable('settings',");
+                schema = schema.replace(
+                    "sqliteTable('settings',",
+                    "sqliteTable('settings_renamed',"
+                );
+            }
+            write(root, `${databaseRoot}/schema.ts`, schema);
+            if (state === 'unsupported snapshot') {
+                const snapshot = `${databaseRoot}/drizzle/meta/0006_snapshot.json`;
+                const content = JSON.parse(readFileSync(join(root, snapshot), 'utf8'));
+                content.version = '999';
+                write(root, snapshot, JSON.stringify(content));
+            }
+            write(root, artifactBaseline, JSON.stringify(artifacts(root)));
+            const before = artifacts(root);
+            const result = run(root);
+            expect(result.stderr).toBe('');
+            expect(result.status).toBe(state === 'clean' ? 0 : 1);
+            if (state !== 'clean') {
+                expect(result.stdout).toContain('database-generation');
+                expect(result.stdout).toContain(state === 'rename' ? 'TTY' : 'unsupported');
+            }
+            expect(artifacts(root)).toEqual(before);
+        }
+    );
 });
