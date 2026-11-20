@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { configureBaseFixture } from '../../../scripts/perf/710/run.mjs';
+import { configureBaseFixture } from '../../../scripts/perf/lib/fixtures.mjs';
 
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require('node:sqlite');

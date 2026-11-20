@@ -60,7 +60,7 @@ describe('user runs RFC 710 performance on GitHub Actions', () => {
 
         expect(workflow).toContain('github.event.pull_request.base.sha');
         expect(workflow).toContain('github.event.pull_request.head.sha');
-        expect(workflow).toContain('node apps/desktop/scripts/perf/710/run.mjs all');
+        expect(workflow).toContain('node apps/desktop/scripts/perf/run.mjs all');
         expect(workflow).toContain('--baseline "$PERF_BASELINE"');
         expect(workflow).toContain('--candidate "$PERF_CANDIDATE"');
         expect(workflow).not.toContain('pnpm perf:710');

@@ -164,7 +164,7 @@ jobs:
                     steady-state-memory) flows=progress,long-session ;;
                     full) flows=latency,progress,long-session ;;
                   esac
-                  node apps/desktop/scripts/perf/710/run.mjs all \
+                  node apps/desktop/scripts/perf/run.mjs all \
                     --baseline "$PERF_BASELINE" \
                     --candidate "$PERF_CANDIDATE" \
                     --flows "$flows" \

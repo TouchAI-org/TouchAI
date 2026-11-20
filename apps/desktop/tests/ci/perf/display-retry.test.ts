@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { shouldRetryDisplayStartupFailure } from '../../../scripts/perf/710/display-retry.mjs';
+import { shouldRetryDisplayStartupFailure } from '../../../scripts/perf/display-retry.mjs';
 
 describe('user runs the RFC 710 performance protocol', () => {
     it('user retries once when the X11 notification stack fails before the scenario starts', () => {

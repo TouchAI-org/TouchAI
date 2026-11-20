@@ -8,7 +8,7 @@ import {
     aggregateMemory,
     processBelongsToRun,
     readRollup,
-} from '../../../scripts/perf/710/process-memory.mjs';
+} from '../../../scripts/perf/process-memory.mjs';
 
 afterEach(() => {
     vi.restoreAllMocks();
