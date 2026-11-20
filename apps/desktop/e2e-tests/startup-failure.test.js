@@ -8,6 +8,28 @@ import { test } from 'node:test';
 import { withE2eWebView2Env } from './webview2-env.js';
 
 const STARTUP_TIMEOUT_MS = 15000;
+const CLEANUP_RETRY_COUNT = 40;
+const CLEANUP_RETRY_DELAY_MS = 250;
+
+function delay(milliseconds) {
+    return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function removeRoot(root) {
+    for (let attempt = 1; attempt <= CLEANUP_RETRY_COUNT; attempt += 1) {
+        try {
+            rmSync(root, { recursive: true, force: true });
+            return;
+        } catch (error) {
+            const retryable = error?.code === 'EBUSY' || error?.code === 'EPERM';
+            if (!retryable || attempt === CLEANUP_RETRY_COUNT) {
+                console.warn(`Could not remove startup test root ${root}: ${error}`);
+                return;
+            }
+            await delay(CLEANUP_RETRY_DELAY_MS);
+        }
+    }
+}
 
 function killProcessTree(child) {
     if (!child.pid || child.exitCode !== null || child.signalCode !== null) return;
@@ -87,9 +109,9 @@ test('user gets the owning error and a nonzero exit when the database cannot ope
     mkdirSync(database, { recursive: true });
 
     const result = await runStartupFailure(binary, root);
-    t.after(() => {
+    t.after(async () => {
         killProcessTree(result.child);
-        rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+        await removeRoot(root);
     });
     const diagnostics = `${result.stdout}\n${result.stderr}`;
 
