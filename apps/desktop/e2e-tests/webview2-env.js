@@ -143,6 +143,40 @@ function resolveCscPath() {
     return null;
 }
 
+export function compileWindowsExecutable(sourcePath, outputPath) {
+    const cscPath = resolveCscPath();
+    if (!cscPath) {
+        throw new Error(
+            'csc.exe was not found under %WINDIR%\\Microsoft.NET\\Framework*\\v4.0.30319'
+        );
+    }
+
+    fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+    const result = spawnSync(
+        cscPath,
+        ['/nologo', '/target:exe', `/out:${outputPath}`, sourcePath],
+        {
+            encoding: 'utf8',
+        }
+    );
+    if (result.error || result.status !== 0) {
+        throw new Error(
+            [
+                `Failed to compile ${path.basename(outputPath)} with csc.exe.`,
+                result.error?.message,
+                result.stdout,
+                result.stderr,
+            ]
+                .filter(Boolean)
+                .join('\n')
+        );
+    }
+    if (!fs.existsSync(outputPath)) {
+        throw new Error(`Compiled executable was not produced at ${outputPath}`);
+    }
+    return outputPath;
+}
+
 export function createWindowsE2eAppLauncher({
     applicationPath,
     launcherDirectory,
