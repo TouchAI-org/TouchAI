@@ -51,6 +51,25 @@ function ownedByMaintainer(codeowners: string, path: string) {
 }
 
 describe('release CODEOWNERS policy', () => {
+    it('user gets maintainer review when changing an architecture owner or its enforcement policy', async () => {
+        const codeowners = await readCodeowners();
+        const paths = [
+            'packages/agent-core/src/execution/step.ts',
+            'packages/models/src/providers/openai.ts',
+            'apps/desktop/src/app/composition/main.ts',
+            'apps/desktop/src/modules/settings/owner.ts',
+            'apps/desktop/src/platform/native/invoke.ts',
+            'apps/desktop/src/database/schema.ts',
+            'apps/desktop/src-tauri/src/commands/mod.rs',
+            'apps/desktop/src-tauri/src/core/database/mod.rs',
+            'tooling/architecture/db-artifacts-baseline.json',
+            'tooling/architecture/ipc-plugin-commands.json',
+            'eslint.config.js',
+            'docs/agents/architecture.md',
+        ];
+        expect(paths.filter((path) => !ownedByMaintainer(codeowners, path))).toEqual([]);
+    });
+
     it('leaves Release Please generated version files outside the code owner gate', async () => {
         const codeowners = await readCodeowners();
 

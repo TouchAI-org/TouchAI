@@ -43,7 +43,7 @@
         "design:prune": "pnpm --filter @touchai/desktop exec eslint . --prune-suppressions && prettier --write apps/desktop/eslint-suppressions.json",
         "test:visual": "pnpm --filter @touchai/desktop test:visual:components",
         "storybook": "pnpm --filter @touchai/desktop storybook",
-        "check:architecture": "node tooling/architecture/check.mjs"
+        "check:architecture": "node tooling/architecture/check.mjs && node tooling/architecture/check-ipc-commands.mjs && node tooling/architecture/check-db-drift.mjs --generation"
     },
     "devDependencies": {
         "@actions/expressions": "0.3.61",

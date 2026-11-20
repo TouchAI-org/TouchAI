@@ -1,0 +1,1 @@
+{"compilerOptions":{"moduleResolution":"bundler","module":"esnext","paths":{"@/*":["./apps/desktop/src/*"]}},"include":["apps/desktop/src/**/*.ts"]}
