@@ -17,6 +17,9 @@ const descendant = spawn(
             TOUCHAI_APP_ROOT: root,
         },
         stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
+        // Detached children escape libuv's kill-on-close job on Windows, so the
+        // fixture proves cleanup works when a descendant outlives its parent.
+        detached: process.platform === 'win32',
         windowsHide: true,
     }
 );

@@ -95,6 +95,9 @@ public static class TouchAIStartupJobLauncher
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool TerminateJobObject(IntPtr job, uint exitCode);
 
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool TerminateProcess(IntPtr process, uint exitCode);
+
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern bool CreateProcess(
         string applicationName,
@@ -228,14 +231,40 @@ public static class TouchAIStartupJobLauncher
 
             try
             {
-                Check(
-                    AssignProcessToJobObject(job, processInformation.hProcess),
-                    "AssignProcessToJobObject"
-                );
-                if (ResumeThread(processInformation.hThread) == uint.MaxValue)
+                var resumed = false;
+                try
                 {
-                    throw new Win32Exception(Marshal.GetLastWin32Error(), "ResumeThread failed");
+                    Check(
+                        AssignProcessToJobObject(job, processInformation.hProcess),
+                        "AssignProcessToJobObject"
+                    );
+                    if (ResumeThread(processInformation.hThread) == uint.MaxValue)
+                    {
+                        throw new Win32Exception(Marshal.GetLastWin32Error(), "ResumeThread failed");
+                    }
+                    resumed = true;
                 }
+                catch
+                {
+                    if (!resumed)
+                    {
+                        if (!TerminateProcess(processInformation.hProcess, 125))
+                        {
+                            Console.Error.WriteLine(
+                                "TerminateProcess failed: " + Marshal.GetLastWin32Error()
+                            );
+                        }
+                        else if (WaitForSingleObject(processInformation.hProcess, 5000) != 0)
+                        {
+                            Console.Error.WriteLine(
+                                "WaitForSingleObject failed after termination: " +
+                                Marshal.GetLastWin32Error()
+                            );
+                        }
+                    }
+                    throw;
+                }
+
                 if (WaitForSingleObject(processInformation.hProcess, INFINITE) != 0)
                 {
                     throw new Win32Exception(Marshal.GetLastWin32Error(), "WaitForSingleObject failed");

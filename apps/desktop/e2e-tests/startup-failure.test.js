@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -10,6 +10,7 @@ import { compileWindowsExecutable, withE2eWebView2Env } from './webview2-env.js'
 
 const STARTUP_TIMEOUT_MS = 15000;
 const OUTPUT_CLOSE_TIMEOUT_MS = 2000;
+const PROCESS_EXIT_TIMEOUT_MS = 5000;
 const CLEANUP_RETRY_COUNT = 40;
 const CLEANUP_RETRY_DELAY_MS = 250;
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -85,6 +86,34 @@ async function killProcessTree(child) {
         }
         if (attempt === 0) await delay(50);
     }
+}
+
+function isProcessAlive(pid) {
+    try {
+        process.kill(pid, 0);
+        return true;
+    } catch (error) {
+        return error?.code !== 'ESRCH';
+    }
+}
+
+function isZombieProcess(pid) {
+    if (process.platform === 'win32') return false;
+    const result = spawnSync('ps', ['-o', 'stat=', '-p', String(pid)], {
+        encoding: 'utf8',
+        windowsHide: true,
+    });
+    return result.status === 0 && result.stdout.trim().startsWith('Z');
+}
+
+async function waitForProcessTermination(pid) {
+    const deadline = Date.now() + PROCESS_EXIT_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+        // A zombie has released its pipes and files while waiting to be reaped.
+        if (!isProcessAlive(pid) || isZombieProcess(pid)) return;
+        await delay(100);
+    }
+    assert.fail(`process ${pid} remained alive after ${PROCESS_EXIT_TIMEOUT_MS}ms`);
 }
 
 function waitForOutputToClose(child) {
@@ -220,12 +249,7 @@ test('user gets control back and cleanup succeeds when a failed parent leaves a 
 
     const descendantPid = Number(readFileSync(path.join(root, 'descendant.pid'), 'utf8'));
     assert.ok(Number.isInteger(descendantPid) && descendantPid > 0);
-    await delay(100);
-    assert.throws(
-        () => process.kill(descendantPid, 0),
-        (error) => error?.code === 'ESRCH',
-        'the descendant process must be gone before the harness reports success'
-    );
+    await waitForProcessTermination(descendantPid);
 
     await removeRoot(root);
     assert.equal(existsSync(root), false, 'the test root must be removable after cleanup');
