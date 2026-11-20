@@ -23,15 +23,3 @@ export function samplerFailureReason(input: {
     earlyExit: SamplerExit | null;
     error: Error | null;
 }): string | null;
-
-export function resolveComparison(
-    repository: string,
-    baselineRef?: string,
-    candidateRef?: string
-): {
-    baselineCommit: string;
-    candidateCommit: string;
-    databaseTree: string;
-};
-export function linkSnapshotDependencies(snapshot: string, checkout?: string): void;
-export function configureBaseFixture(database: string, arm: string): void;

@@ -9,7 +9,7 @@ import path from 'node:path';
 
 import { afterAll, describe, expect, it } from 'vitest';
 
-import { startPerfModelServer } from '../../../scripts/perf/710/local-model-server.mjs';
+import { startPerfModelServer } from '../../../scripts/perf/local-model-server.mjs';
 
 const cleanup: string[] = [];
 

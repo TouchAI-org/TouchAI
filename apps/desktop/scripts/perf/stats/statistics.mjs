@@ -1,175 +1,12 @@
 import { createHash } from 'node:crypto';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 
-const evidenceRoot = path.resolve(
-    process.env.TOUCHAI_PERF_EVIDENCE ?? path.join(os.tmpdir(), 'touchai-perf-evidence')
-);
-const rawRoot = path.join(evidenceRoot, 'raw', 'formal');
-const bootstrapIterations = 10000;
-const minimumRunsPerArm = 3;
-const minimumBlocksPerArm = 3;
-const regressionUpperBound = 1.05;
-const arms = ['baseline', 'current'];
-const fixtureManifestVersion = 1;
+import { arms } from '../lib/config.mjs';
+import { measurementKey } from '../lib/records.mjs';
 
-function readJsonLines(file) {
-    if (!fs.existsSync(file)) return [];
-    const lines = fs.readFileSync(file, 'utf8').split('\n');
-    const records = [];
-    for (const [index, line] of lines.entries()) {
-        if (!line.trim()) continue;
-        try {
-            records.push(JSON.parse(line));
-        } catch (error) {
-            throw new Error(
-                `Invalid JSONL at ${file}:${index + 1}: ${error instanceof Error ? error.message : String(error)}`,
-                { cause: error }
-            );
-        }
-    }
-    return records;
-}
-
-function readJsonFile(file) {
-    if (!fs.existsSync(file)) return null;
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
-}
-
-function isValidRun(record) {
-    return (
-        record.valid !== false &&
-        record.exitCode === 0 &&
-        (record.signal === null || record.signal === undefined) &&
-        (record.notificationFailures ?? 0) === 0
-    );
-}
-
-function fixtureValidationError(run, fixtureManifest) {
-    if (!fixtureManifest) return 'fixture manifest is missing';
-    if (fixtureManifest.version !== fixtureManifestVersion) {
-        return `fixture manifest version mismatch: expected ${fixtureManifestVersion}, got ${fixtureManifest.version ?? 'missing'}`;
-    }
-    const arm = fixtureManifest.arms?.[run.arm];
-    if (!arm) return `fixture manifest is missing arm ${run.arm ?? 'unknown'}`;
-    if (!arm.sourceBinarySha256) {
-        return `fixture manifest is missing source binary hash for ${run.arm}`;
-    }
-    if (!run.binarySha256) {
-        return `run is missing binary hash for ${run.arm}`;
-    }
-    if (run.binarySha256 !== arm.sourceBinarySha256) {
-        return `fixture manifest binary mismatch for ${run.arm}`;
-    }
-    const fixture = arm.fixtures?.[run.fixture];
-    if (!fixture) {
-        return `fixture manifest is missing ${run.arm}/${run.fixture ?? 'unknown'}`;
-    }
-    if (run.fixtureSha256 !== fixture.sha256) {
-        return `fixture hash mismatch for ${run.arm}/${run.fixture}`;
-    }
-    if (!fixture.businessOracleSha256) {
-        return `fixture manifest is missing business oracle for ${run.arm}/${run.fixture}`;
-    }
-    const oraclePair = fixtureManifest.businessOracles?.[run.fixture];
-    if (
-        !oraclePair ||
-        !oraclePair.baseline ||
-        !oraclePair.current ||
-        oraclePair.baseline !== oraclePair.current
-    ) {
-        return `fixture business oracle mismatch for ${run.fixture}`;
-    }
-    if (fixture.businessOracleSha256 !== oraclePair[run.arm]) {
-        return `fixture business oracle does not match ${run.arm}/${run.fixture}`;
-    }
-    return null;
-}
-
-function sampleValidationError(run, events, memory, protocol) {
-    const observed = events.filter((event) => event.runId === run.runId);
-    if (observed.some((event) => event.arm !== run.arm)) return 'event arm identity mismatch';
-    const positive = (value) => typeof value === 'number' && Number.isFinite(value) && value > 0;
-    if (run.flow === 'latency') {
-        const samples = observed.filter((event) => event.type === 'latency');
-        const warmCount = Number(protocol.warmSamples ?? 8);
-        if (
-            samples.length !== 1 + warmCount ||
-            samples.filter((event) => event.mode === 'cold').length !== 1 ||
-            samples.filter((event) => event.mode === 'warm').length !== warmCount ||
-            samples.some(
-                (event) =>
-                    !positive(event.durationMs) ||
-                    !positive(event.firstTextMs) ||
-                    event.firstTextMs > event.durationMs
-            )
-        ) {
-            return 'latency samples are missing or invalid';
-        }
-        return null;
-    }
-
-    const phases =
-        run.flow === 'progress'
-            ? ['start', 'end']
-            : ['baseline', 'open-start', 'retained', 'stream-start', 'terminal', 'settled'];
-    const type = run.flow === 'progress' ? 'progress-window' : 'long-phase';
-    if (!['progress', 'long-session'].includes(run.flow)) return 'unknown measurement flow';
-    const markers = phases.map((phase) =>
-        observed.filter((event) => event.type === type && event.phase === phase)
-    );
-    if (markers.some((items) => items.length !== 1 || !positive(items[0].at))) {
-        return `${run.flow} phase markers are missing or invalid`;
-    }
-    const times = markers.map(([event]) => event.at);
-    if (times.some((at, index) => index > 0 && at < times[index - 1]) || times.at(-1) <= times[0]) {
-        return `${run.flow} phase markers are out of order`;
-    }
-    const samples = memory.filter(
-        (sample) => sample.runId === run.runId && sample.type === 'memory'
-    );
-    const interval = samples.filter((sample) => sample.at >= times[0] && sample.at <= times.at(-1));
-    if (
-        samples.some((sample) => !positive(sample.at) || sample.arm !== run.arm) ||
-        interval.length === 0 ||
-        interval.some((sample) => !isUsableMemory(sample))
-    ) {
-        return `${run.flow} memory samples are missing or invalid`;
-    }
-    const usable = samples.filter(isUsableMemory);
-    if (run.flow === 'progress') {
-        const tasks = observed.filter((event) => event.type === 'progress-task');
-        if (
-            tasks.length !== Number(protocol.progressTasks ?? 8) ||
-            tasks.some((event) => !positive(event.durationMs)) ||
-            !interval.some((sample) => sample.at >= times[0] + (times[1] - times[0]) / 2)
-        ) {
-            return 'progress window is incomplete';
-        }
-    } else if (
-        !positive(markers[2][0].domNodes) ||
-        [times[0], times[2], times[5]].some((at) => !nearestMemory(usable, at))
-    ) {
-        return 'long-session retained observations are missing or invalid';
-    }
-    return null;
-}
-
-function applyEvidenceValidation(runs, fixtureManifest, evidenceError, events, memory, protocol) {
-    return runs.map((run) => {
-        const reason =
-            evidenceError ??
-            fixtureValidationError(run, fixtureManifest) ??
-            sampleValidationError(run, events, memory, protocol);
-        if (!reason) return run;
-        return {
-            ...run,
-            valid: false,
-            invalidReasons: [...(run.invalidReasons ?? []), reason],
-        };
-    });
-}
+export const bootstrapIterations = 10000;
+export const minimumRunsPerArm = 3;
+export const minimumBlocksPerArm = 3;
+export const regressionUpperBound = 1.05;
 
 function quantile(values, probability) {
     if (values.length === 0) return null;
@@ -241,10 +78,6 @@ function blockKeyForRun(run) {
     const block = Number(run?.block);
     if (!Number.isInteger(block) || block <= 0) return null;
     return `${run.flow ?? 'unknown'}:h${run.historyLevel ?? 0}:b${block}`;
-}
-
-function measurementKey(item) {
-    return [item.flow, item.block, item.sequenceIndex, item.arm, item.historyLevel || 0].join(':');
 }
 
 function appendCluster(clusters, key, runId, values) {
@@ -452,7 +285,7 @@ function summarizeMetric({
     };
 }
 
-function buildLatencyStats(events, runs, modes, plannedItems) {
+export function buildLatencyStats(events, runs, modes, plannedItems) {
     if (modes.length === 0) {
         return { status: 'NOT_RUN', modes, metrics: [] };
     }
@@ -521,7 +354,7 @@ function buildLatencyStats(events, runs, modes, plannedItems) {
     return { status, modes, metrics };
 }
 
-function isUsableMemory(record) {
+export function isUsableMemory(record) {
     return (
         record.type === 'memory' &&
         Number.isFinite(record.at) &&
@@ -550,7 +383,7 @@ function eventForRun(events, runId, type, phase) {
     );
 }
 
-function nearestMemory(samples, at, maxDistanceMs = 3000) {
+export function nearestMemory(samples, at, maxDistanceMs = 3000) {
     let best = null;
     let bestDistance = Number.POSITIVE_INFINITY;
     for (const sample of samples) {
@@ -563,7 +396,7 @@ function nearestMemory(samples, at, maxDistanceMs = 3000) {
     return bestDistance <= maxDistanceMs ? best : null;
 }
 
-function buildProgressStats(events, memory, runs, enabled, plannedItems) {
+export function buildProgressStats(events, memory, runs, enabled, plannedItems) {
     if (!enabled) {
         return { status: 'NOT_RUN', metrics: [], samples: [] };
     }
@@ -641,7 +474,7 @@ function buildProgressStats(events, memory, runs, enabled, plannedItems) {
     return { status, metrics: [steady, peak], samples: steadyRows };
 }
 
-function buildLongSessionStats(
+export function buildLongSessionStats(
     events,
     memory,
     runs,
@@ -814,314 +647,4 @@ function buildLongSessionStats(
           ? 'BLOCKED'
           : 'PASS';
     return { status, levels: levelResults };
-}
-
-function formatNumber(value, digits = 2) {
-    return typeof value === 'number' && Number.isFinite(value)
-        ? value.toLocaleString('en-US', {
-              maximumFractionDigits: digits,
-              minimumFractionDigits: 0,
-          })
-        : '—';
-}
-
-function formatRatio(value) {
-    return typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(4)}x` : '—';
-}
-
-function formatCi(bootstrap) {
-    return bootstrap ? `[${bootstrap.lower95.toFixed(4)}, ${bootstrap.upper95.toFixed(4)}]` : '—';
-}
-
-function metricMarkdownRows(metrics) {
-    return metrics.map((metric) => {
-        const baseline = metric.armStats.baseline;
-        const current = metric.armStats.current;
-        const baselineCluster = baseline.blockCount ?? '—';
-        const currentCluster = current.blockCount ?? '—';
-        return `| ${metric.label} | ${baseline.runCount}/${baselineCluster}/${baseline.sampleCount} | ${current.runCount}/${currentCluster}/${current.sampleCount} | ${formatNumber(baseline[metric.metric])} | ${formatNumber(current[metric.metric])} | ${formatRatio(metric.observedRatio)} | ${formatCi(metric.bootstrap)} | ${metric.status} |`;
-    });
-}
-
-function writeSummaryMarkdown(stats) {
-    const lines = [
-        '# RFC #710 performance bootstrap report',
-        '',
-        `Generated: ${stats.generatedAt}`,
-        '',
-        `Baseline: ${stats.baselineCommit ?? 'missing'}; candidate: ${stats.candidateCommit ?? 'missing'}.`,
-        'This comparison measures the selected commits; it is not evidence for the historical pre-refactor RFC acceptance.',
-        '',
-        'A ratio is `current / baseline`; the 95% interval is a paired A/B/B/A block-cluster percentile bootstrap with 10,000 iterations. Runs without block metadata fall back to an independent run-cluster bootstrap. A gated row is PASS only when the interval upper bound is at most 1.05 and each arm has at least three clusters.',
-    ];
-    if (stats.latency.status !== 'NOT_RUN') {
-        lines.push(
-            '',
-            '## Streamed task loop',
-            '',
-            '| Metric | Baseline runs/blocks/samples | Current runs/blocks/samples | Baseline | Current | Ratio | 95% CI | Status |',
-            '| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |',
-            ...metricMarkdownRows(stats.latency.metrics)
-        );
-    }
-    if (stats.progress.status !== 'NOT_RUN') {
-        lines.push(
-            '',
-            '## Progress-write steady-state memory',
-            '',
-            '| Metric | Baseline runs/blocks/samples | Current runs/blocks/samples | Baseline | Current | Ratio | 95% CI | Status |',
-            '| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |',
-            ...metricMarkdownRows(stats.progress.metrics)
-        );
-    }
-    if (stats.longSession.status !== 'NOT_RUN') {
-        lines.push('', '## Long-session retention');
-    }
-    for (const level of stats.longSession.levels) {
-        lines.push(
-            '',
-            `### ${level.level} messages (${level.status})`,
-            '',
-            '| Metric | Baseline runs/blocks/samples | Current runs/blocks/samples | Baseline | Current | Ratio | 95% CI | Status |',
-            '| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |',
-            ...metricMarkdownRows(level.metrics)
-        );
-    }
-    lines.push(
-        '',
-        '## Interpretation',
-        '',
-        '- Only rows marked PASS support the RFC 5% regression budget.',
-        '- AUX rows describe first-text latency and transient/quantized memory; they do not replace the gated rows.',
-        '- A BLOCKED row means the run set or PSS body was insufficient, not that the regression is acceptable.',
-        '- The run count is independent app processes per arm; the block count is the number of paired A/B/B/A clusters. Repeated prompts inside one process are clustered under that run.'
-    );
-    const file = path.join(evidenceRoot, 'summary.md');
-    fs.writeFileSync(file, `${lines.join('\n')}\n`);
-    return file;
-}
-
-function writeSamplesCsv(stats) {
-    const rows = [['family', 'level', 'metric', 'arm', 'run_id', 'value', 'unit']];
-    for (const metric of [...stats.latency.metrics, ...stats.progress.metrics]) {
-        for (const arm of arms) {
-            for (const [runId, values] of metric.armStats[arm].runs ?? []) {
-                for (const value of values) {
-                    rows.push([
-                        metric.id.split('.')[0],
-                        '',
-                        metric.id,
-                        arm,
-                        runId,
-                        value,
-                        metric.unit,
-                    ]);
-                }
-            }
-        }
-    }
-    for (const level of stats.longSession.levels) {
-        for (const metric of level.metrics) {
-            for (const arm of arms) {
-                for (const [runId, values] of metric.armStats[arm].runs ?? []) {
-                    for (const value of values) {
-                        rows.push([
-                            'long-session',
-                            level.level,
-                            metric.id,
-                            arm,
-                            runId,
-                            value,
-                            metric.unit,
-                        ]);
-                    }
-                }
-            }
-        }
-    }
-    const csv = rows
-        .map((row) =>
-            row
-                .map((value) => {
-                    const text = String(value ?? '');
-                    return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
-                })
-                .join(',')
-        )
-        .join('\n');
-    const file = path.join(evidenceRoot, 'samples.csv');
-    fs.writeFileSync(file, `${csv}\n`);
-    return file;
-}
-
-export async function generateStats() {
-    const runPlanFile = path.join(evidenceRoot, 'run-plan.json');
-    const runPlan = fs.existsSync(runPlanFile)
-        ? JSON.parse(fs.readFileSync(runPlanFile, 'utf8'))
-        : {};
-    const protocol = runPlan.protocol ?? runPlan.options ?? {};
-    const configuredFlows = Array.isArray(protocol.flows)
-        ? protocol.flows
-        : typeof protocol.flows === 'string'
-          ? protocol.flows.split(',')
-          : ['latency', 'progress', 'long-session'];
-    const enabledFlows = ['latency', 'progress', 'long-session'].filter((flow) =>
-        configuredFlows.includes(flow)
-    );
-    const expectedHistoryLevels = Array.isArray(protocol.historyLevels)
-        ? protocol.historyLevels.filter((level) => Number.isFinite(Number(level)))
-        : [];
-    const warmSamples = Number(protocol.warmSamples ?? 8);
-    const latencyModes = enabledFlows.includes('latency')
-        ? ['cold', ...(Number.isFinite(warmSamples) && warmSamples > 0 ? ['warm'] : [])]
-        : [];
-    const events = readJsonLines(path.join(rawRoot, 'events.jsonl'));
-    const memory = readJsonLines(path.join(rawRoot, 'pss.jsonl'));
-    const fixtureManifest = readJsonFile(path.join(evidenceRoot, 'fixture-manifest.json'));
-    const recordedRuns = readJsonLines(path.join(rawRoot, 'runs.jsonl')).filter(
-        (record) => record.type === 'run'
-    );
-    const comparison = readJsonFile(path.join(evidenceRoot, 'source-manifest.json'))?.comparison;
-    const evidenceError =
-        !comparison ||
-        !/^[a-f0-9]{40}$/.test(comparison.baselineCommit ?? '') ||
-        !/^[a-f0-9]{40}$/.test(comparison.candidateCommit ?? '') ||
-        JSON.stringify(comparison) !== JSON.stringify(protocol.comparison) ||
-        JSON.stringify(comparison) !== JSON.stringify(fixtureManifest?.comparison)
-            ? 'baseline/candidate comparison identity is missing or inconsistent'
-            : null;
-    const runs = applyEvidenceValidation(
-        recordedRuns,
-        fixtureManifest,
-        evidenceError,
-        events,
-        memory,
-        protocol
-    );
-    const validRuns = runs.filter(isValidRun);
-    const invalidRuns = runs.filter((run) => !isValidRun(run));
-    const plannedRuns = Array.isArray(runPlan.plan) ? runPlan.plan : [];
-    const validRunKeys = new Set(validRuns.map(measurementKey));
-    const missingPlannedRuns = plannedRuns.filter(
-        (item) => !validRunKeys.has(measurementKey(item))
-    );
-    const latency = buildLatencyStats(events, validRuns, latencyModes, plannedRuns);
-    const progress = buildProgressStats(
-        events,
-        memory,
-        validRuns,
-        enabledFlows.includes('progress'),
-        plannedRuns
-    );
-    const longSession = buildLongSessionStats(
-        events,
-        memory,
-        validRuns,
-        expectedHistoryLevels,
-        enabledFlows.includes('long-session'),
-        plannedRuns
-    );
-    const statuses = [
-        enabledFlows.includes('latency') ? latency.status : null,
-        enabledFlows.includes('progress') ? progress.status : null,
-        enabledFlows.includes('long-session') ? longSession.status : null,
-    ].filter(Boolean);
-    const overallStatus =
-        statuses.length === 0
-            ? 'BLOCKED'
-            : statuses.includes('FAIL')
-              ? 'FAIL'
-              : statuses.includes('BLOCKED') ||
-                  missingPlannedRuns.length > 0 ||
-                  invalidRuns.length > 0 ||
-                  plannedRuns.length === 0
-                ? 'BLOCKED'
-                : 'PASS';
-    const stats = {
-        generatedAt: new Date().toISOString(),
-        baselineCommit: comparison?.baselineCommit ?? null,
-        candidateCommit: comparison?.candidateCommit ?? null,
-        enabledFlows,
-        method: {
-            bootstrapIterations,
-            confidence: 0.95,
-            regressionUpperBound,
-            minimumRunsPerArm,
-            minimumBlocksPerArm,
-            clusterUnit:
-                'paired A/B/B/A block when every contributing run has block metadata; independent run otherwise',
-        },
-        rawCounts: {
-            events: events.length,
-            memorySamples: memory.filter((record) => record.type === 'memory').length,
-            runs: runs.length,
-            plannedRuns: plannedRuns.length,
-            validRuns: validRuns.length,
-            invalidRuns: invalidRuns.length,
-            successfulRuns: validRuns.length,
-            failedRuns: invalidRuns.length,
-            missingPlannedRuns: missingPlannedRuns.length,
-        },
-        planCompleteness: {
-            expectedRuns: plannedRuns.length,
-            missingRuns: missingPlannedRuns.map(measurementKey),
-        },
-        fixtureManifest: {
-            present: fixtureManifest !== null,
-            version: fixtureManifest?.version ?? null,
-            arms: fixtureManifest
-                ? Object.fromEntries(
-                      Object.entries(fixtureManifest.arms ?? {}).map(([arm, value]) => [
-                          arm,
-                          {
-                              sourceBinarySha256: value.sourceBinarySha256 ?? null,
-                              migrationTags: value.migrationTags ?? [],
-                          },
-                      ])
-                  )
-                : null,
-        },
-        invalidRuns: invalidRuns.map((run) => ({
-            runId: run.runId,
-            flow: run.flow,
-            arm: run.arm,
-            block: run.block,
-            sequenceIndex: run.sequenceIndex,
-            historyLevel: run.historyLevel,
-            exitCode: run.exitCode,
-            signal: run.signal,
-            notificationFailures: run.notificationFailures ?? 0,
-            invalidReasons: run.invalidReasons ?? [],
-            log: run.log,
-        })),
-        overallStatus,
-        latency,
-        progress,
-        longSession,
-    };
-    const statsPath = path.join(evidenceRoot, 'stats.json');
-    fs.writeFileSync(statsPath, `${JSON.stringify(stats, null, 2)}\n`);
-    const markdownPath = writeSummaryMarkdown(stats);
-    const csvPath = writeSamplesCsv(stats);
-    console.log(
-        JSON.stringify(
-            {
-                statsPath,
-                markdownPath,
-                csvPath,
-                overallStatus,
-                rawCounts: stats.rawCounts,
-            },
-            null,
-            2
-        )
-    );
-    return stats;
-}
-
-if (import.meta.url === `file://${process.argv[1]}`) {
-    generateStats().catch((error) => {
-        console.error(error);
-        process.exitCode = 1;
-    });
 }

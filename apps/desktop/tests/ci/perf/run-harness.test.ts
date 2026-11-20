@@ -8,16 +8,16 @@ import { fileURLToPath } from 'node:url';
 
 import { afterAll, describe, expect, it } from 'vitest';
 
+import { resolveComparison } from '../../../scripts/perf/lib/comparison.mjs';
 import {
     createSamplerWatch,
-    linkSnapshotDependencies,
     measurementInvalidReasons,
-    resolveComparison,
     samplerFailureReason,
-} from '../../../scripts/perf/710/run.mjs';
+} from '../../../scripts/perf/lib/measurement.mjs';
+import { linkSnapshotDependencies } from '../../../scripts/perf/lib/snapshots.mjs';
 
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
-const RUN_CLI = path.resolve(testDirectory, '../../../scripts/perf/710/run.mjs');
+const RUN_CLI = path.resolve(testDirectory, '../../../scripts/perf/run.mjs');
 const cleanup: string[] = [];
 
 function comparisonRepository(): string {

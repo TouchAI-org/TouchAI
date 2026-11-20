@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
     isSeededSessionReady,
     seededSessionMessageId,
-} from '../../../scripts/perf/710/history-session.mjs';
+} from '../../../scripts/perf/history-session.mjs';
 
 describe('user opens a virtualized RFC 710 history session', () => {
     it('user sees the session ready when only the final virtualized message is mounted', () => {

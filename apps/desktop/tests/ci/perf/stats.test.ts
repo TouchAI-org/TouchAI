@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
-const STATS_CLI = path.resolve(testDirectory, '../../../scripts/perf/710/stats.mjs');
+const STATS_CLI = path.resolve(testDirectory, '../../../scripts/perf/stats.mjs');
 const cleanup: string[] = [];
 const comparison = {
     baselineCommit: 'a'.repeat(40),
