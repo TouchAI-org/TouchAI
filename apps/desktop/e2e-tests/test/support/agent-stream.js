@@ -2,15 +2,20 @@
  * A controllable OpenAI-compatible model used by queue/steer E2E specs.
  *
  * The queue only exists while a real task is running, so a fake DOM snapshot
- * cannot cover it. This server lets a spec hold a model step open, submit
- * messages through the real editor, then release a tool boundary or finish the
- * turn. Each response plan receives the request that triggered it, which makes
- * both the visible ordering and the actual model delivery order observable.
+ * cannot cover it. This emulated provider lets a spec hold a model step open,
+ * submit messages through the real editor, then release a tool boundary or
+ * finish the turn. Each response plan receives the request that triggered it,
+ * which makes both the visible ordering and the actual model delivery order
+ * observable.
+ *
+ * `emulate` provides the HTTP server, streaming body and lifecycle. The plans own
+ * only what no rule can express: the moment a frame is written.
  */
-import http from 'node:http';
+import { createEmulator, defineEmulator } from 'emulate';
 
 const REQUEST_TIMEOUT_MS = 15000;
 const MODEL_ID = 'touchai-e2e-model';
+const encoder = new TextEncoder();
 
 export function deferred() {
     let resolve;
@@ -39,98 +44,104 @@ function flattenContent(content) {
         .join('');
 }
 
-function readRequestBody(request) {
-    return new Promise((resolve, reject) => {
-        const chunks = [];
-        request.on('data', (chunk) => chunks.push(chunk));
-        request.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
-        request.on('error', reject);
-    });
-}
-
-function createCompletionStream(response, responseIndex) {
-    let started = false;
-    let ended = false;
+function createCompletionStream(responseIndex) {
     const responseId = `chatcmpl-touchai-e2e-${responseIndex}`;
     const createdAt = Math.floor(Date.now() / 1000);
-    const canWrite = () => !ended && !response.destroyed && !response.writableEnded;
+    let controller;
+    let ended = false;
 
-    response.on('close', () => {
-        ended = true;
+    function write(choices) {
+        if (ended || !controller) {
+            return;
+        }
+        try {
+            controller.enqueue(
+                encoder.encode(
+                    `data: ${JSON.stringify({
+                        id: responseId,
+                        object: 'chat.completion.chunk',
+                        created: createdAt,
+                        model: MODEL_ID,
+                        choices,
+                    })}\n\n`
+                )
+            );
+        } catch {
+            ended = true;
+        }
+    }
+
+    const readable = new ReadableStream({
+        start(next) {
+            controller = next;
+            write([{ index: 0, delta: { role: 'assistant' }, finish_reason: null }]);
+        },
+        cancel() {
+            ended = true;
+        },
     });
 
-    function writeChunk(choices) {
-        if (!canWrite()) {
-            return;
-        }
-        response.write(
-            `data: ${JSON.stringify({
-                id: responseId,
-                object: 'chat.completion.chunk',
-                created: createdAt,
-                model: MODEL_ID,
-                choices,
-            })}\n\n`
-        );
-    }
-
-    function ensureStarted() {
-        if (started || !canWrite()) {
-            return;
-        }
-        started = true;
-        writeChunk([{ index: 0, delta: { role: 'assistant' }, finish_reason: null }]);
-    }
-
     return {
-        get ended() {
-            return ended || response.destroyed || response.writableEnded;
-        },
-        text(content) {
-            if (!content) {
-                return;
-            }
-            ensureStarted();
-            writeChunk([{ index: 0, delta: { content }, finish_reason: null }]);
-        },
-        toolCall({ id = 'call_touchai_e2e', name, arguments: args }) {
-            ensureStarted();
-            writeChunk([
-                {
-                    index: 0,
-                    delta: {
-                        tool_calls: [
-                            {
-                                index: 0,
-                                id,
-                                type: 'function',
-                                function: {
-                                    name,
-                                    arguments:
-                                        typeof args === 'string' ? args : JSON.stringify(args),
+        readable,
+        stream: {
+            get ended() {
+                return ended;
+            },
+            text(content) {
+                if (!content) {
+                    return;
+                }
+                write([{ index: 0, delta: { content }, finish_reason: null }]);
+            },
+            toolCall({ id = 'call_touchai_e2e', name, arguments: args }) {
+                write([
+                    {
+                        index: 0,
+                        delta: {
+                            tool_calls: [
+                                {
+                                    index: 0,
+                                    id,
+                                    type: 'function',
+                                    function: {
+                                        name,
+                                        arguments:
+                                            typeof args === 'string' ? args : JSON.stringify(args),
+                                    },
                                 },
-                            },
-                        ],
+                            ],
+                        },
+                        finish_reason: null,
                     },
-                    finish_reason: null,
-                },
-            ]);
-        },
-        disconnect() {
-            ended = true;
-            response.destroy();
-        },
-        finish(reason = 'stop') {
-            if (ended || response.destroyed || response.writableEnded) {
-                return;
-            }
-            ensureStarted();
-            writeChunk([{ index: 0, delta: {}, finish_reason: reason }]);
-            if (canWrite()) {
-                response.write('data: [DONE]\n\n');
-                response.end();
-            }
-            ended = true;
+                ]);
+            },
+            disconnect() {
+                if (ended || !controller) {
+                    return;
+                }
+                ended = true;
+                try {
+                    controller.error(new Error('The model connection dropped.'));
+                } catch {
+                    // The stream already closed on its own.
+                }
+            },
+            finish(reason = 'stop') {
+                if (ended || !controller) {
+                    return;
+                }
+                write([{ index: 0, delta: {}, finish_reason: reason }]);
+                if (ended) {
+                    return;
+                }
+                ended = true;
+                try {
+                    controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+                    controller.close();
+                } catch {
+                    // The client already went away.
+                }
+            },
         },
     };
 }
@@ -140,7 +151,6 @@ export async function createAgentStreamServer() {
     const requests = [];
     let protocolError = null;
     let requestWaiters = [];
-    let server;
 
     function notifyRequestWaiters() {
         const ready = requestWaiters.filter(({ count }) => requests.length >= count);
@@ -165,94 +175,67 @@ export async function createAgentStreamServer() {
         return request;
     }
 
-    async function handleRequest(request, response) {
-        const url = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`);
-
-        if (url.pathname.endsWith('/models')) {
-            response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
-            response.end(
-                JSON.stringify({
+    const definition = defineEmulator({
+        name: 'touchai-e2e-model',
+        state: () => ({}),
+        setup({ app }) {
+            app.get('/v1/models', (c) =>
+                c.json({
                     object: 'list',
                     data: [
                         {
                             id: MODEL_ID,
                             object: 'model',
-                            created: Math.floor(Date.now() / 1000),
+                            created: 0,
                             owned_by: 'touchai-e2e',
                         },
                     ],
                 })
             );
-            return;
-        }
 
-        if (!url.pathname.endsWith('/chat/completions')) {
-            response.writeHead(404, { 'content-type': 'application/json; charset=utf-8' });
-            response.end(
-                JSON.stringify({ error: { message: `Unexpected path: ${url.pathname}` } })
-            );
-            return;
-        }
+            app.post('/v1/chat/completions', async (c) => {
+                let requestBody;
+                try {
+                    requestBody = await c.req.json();
+                } catch (error) {
+                    protocolError = `Could not parse model request: ${String(error)}`;
+                    return c.json({ error: { message: protocolError } }, 400);
+                }
 
-        let requestBody;
-        try {
-            requestBody = JSON.parse(await readRequestBody(request));
-        } catch (error) {
-            protocolError = `Could not parse model request: ${String(error)}`;
-            response.writeHead(400, { 'content-type': 'application/json; charset=utf-8' });
-            response.end(JSON.stringify({ error: { message: protocolError } }));
-            return;
-        }
+                const recordedRequest = recordRequest(requestBody, new URL(c.req.url).pathname);
+                const plan = plans.shift();
 
-        const recordedRequest = recordRequest(requestBody, url.pathname);
-        const plan = plans.shift();
+                if (!plan) {
+                    protocolError = `No response plan for model request ${recordedRequest.index}.`;
+                    return c.json({ error: { message: protocolError } }, 500);
+                }
 
-        if (!plan) {
-            protocolError = `No response plan for model request ${recordedRequest.index}.`;
-            response.writeHead(500, { 'content-type': 'application/json; charset=utf-8' });
-            response.end(JSON.stringify({ error: { message: protocolError } }));
-            return;
-        }
+                const { readable, stream } = createCompletionStream(recordedRequest.index + 1);
+                Promise.resolve()
+                    .then(() => plan({ request: recordedRequest, stream }))
+                    .then(() => {
+                        if (!stream.ended) {
+                            stream.finish('stop');
+                        }
+                    })
+                    .catch((error) => {
+                        protocolError = `Response plan ${recordedRequest.index} failed: ${String(error)}`;
+                        stream.finish('stop');
+                    });
 
-        response.writeHead(200, {
-            'content-type': 'text/event-stream; charset=utf-8',
-            'cache-control': 'no-cache',
-            connection: 'keep-alive',
-        });
-        response.flushHeaders();
-
-        const stream = createCompletionStream(response, recordedRequest.index + 1);
-        try {
-            await plan({ request: recordedRequest, stream });
-            if (!stream.ended) {
-                stream.finish('stop');
-            }
-        } catch (error) {
-            protocolError = `Response plan ${recordedRequest.index} failed: ${String(error)}`;
-            stream.finish('stop');
-            response.destroy();
-        }
-    }
-
-    server = http.createServer((request, response) => {
-        void handleRequest(request, response);
+                return c.body(readable, 200, {
+                    'content-type': 'text/event-stream; charset=utf-8',
+                    'cache-control': 'no-cache',
+                });
+            });
+        },
     });
 
-    await new Promise((resolve, reject) => {
-        server.once('error', reject);
-        server.listen(0, '127.0.0.1', () => {
-            server.off('error', reject);
-            resolve();
-        });
-    });
-
-    const address = server.address();
-    if (!address || typeof address === 'string') {
-        throw new Error('The E2E model server did not report a TCP port.');
-    }
+    const emulator = await createEmulator({ service: definition, port: 0 });
+    const endpoint = `http://127.0.0.1:${new URL(emulator.url).port}/v1`;
 
     return {
-        endpoint: `http://127.0.0.1:${address.port}/v1`,
+        endpoint,
         modelId: MODEL_ID,
         requests,
         get protocolError() {
@@ -301,8 +284,7 @@ export async function createAgentStreamServer() {
                 waiter.reject(new Error('The E2E model server was closed.'));
             }
             requestWaiters = [];
-            server.closeAllConnections?.();
-            await new Promise((resolve) => server.close(resolve));
+            await emulator.close();
         },
     };
 }

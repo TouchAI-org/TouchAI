@@ -12,17 +12,10 @@ import {
     waitForTestIdDisplayed,
 } from '../support/desktop.js';
 import { createMcpFixture } from '../support/mcp-fixture.js';
+import { toolResultsAfterLatestPrompt } from '../support/model-provider.js';
 
-function currentToolResults(body) {
-    const lastUser = body.messages.findLastIndex((message) => message.role === 'user');
-    return body.messages.slice(lastUser + 1).filter((message) => message.role === 'tool');
-}
-
-function promptRequests(fixture, prompt) {
-    return fixture.provider.requests.filter(
-        ({ body }) =>
-            body.messages.findLast((message) => message.role === 'user')?.content === prompt
-    );
+async function promptCalls(fixture, prompt) {
+    return fixture.provider.callsFor(prompt);
 }
 
 function promptTurn(fixture, prompt) {
@@ -115,7 +108,7 @@ async function openToolResult(mcp) {
 
 describe('user has a native agent with an isolated local MCP server', function () {
     // Mocha hooks fail the run; WebdriverIO afterSession errors only log.
-    after(() => getAgentFixture().assertHealthy());
+    after(async () => getAgentFixture().assertHealthy());
 
     this.timeout(90000);
     let fixture;
@@ -145,25 +138,38 @@ describe('user has a native agent with an isolated local MCP server', function (
         const prompt = `E2E record the MCP retry marker ${marker}`;
         const callId = `call-${marker}`;
         const answer = `E2E MCP retry completed ${marker}`;
-        let failedOnce = false;
-        fixture.provider.when(prompt, ({ body, respond }) => {
-            assert(
-                body.tools.some((tool) => tool.function?.name === mcp.namespacedName),
-                'Models must offer the catalog tool discovered by the native MCP client'
-            );
-            const results = currentToolResults(body);
-            if (!results.length) {
-                respond.tool({ name: mcp.namespacedName, args: { marker }, id: callId });
-                return;
-            }
-            assert.equal(results.length, 1);
-            assert.equal(results[0].tool_call_id, callId);
-            assert(results[0].content.includes(mcp.resultFor(marker)));
-            if (!failedOnce) {
-                failedOnce = true;
-                respond.fail(503, 'E2E transient failure after the committed MCP result');
-            } else respond.text(answer);
-        });
+        await fixture.provider.script([
+            {
+                id: 'mcp-tool',
+                match: {
+                    textContains: prompt,
+                    tool: mcp.namespacedName,
+                },
+                times: 1,
+                reply: [
+                    {
+                        type: 'tool_call',
+                        name: mcp.namespacedName,
+                        arguments: { marker },
+                        id: callId,
+                    },
+                ],
+            },
+            {
+                id: 'mcp-failure',
+                match: { textContains: prompt, hasToolResult: true },
+                times: 1,
+                error: {
+                    status: 503,
+                    message: 'E2E transient failure after the committed MCP result',
+                },
+            },
+            {
+                id: 'mcp-answer',
+                match: { textContains: prompt, hasToolResult: true },
+                reply: [{ type: 'text', text: answer }],
+            },
+        ]);
 
         await submitPrompt(prompt);
         await waitForAnswer(answer);
@@ -185,12 +191,21 @@ describe('user has a native agent with an isolated local MCP server', function (
         assert(audit.data.output.includes(mcp.resultFor(marker)));
         assert.equal(mcp.effectsFor(marker).length, 1, 'A retry must not repeat the remote effect');
 
-        const requests = promptRequests(fixture, prompt);
+        const requests = await promptCalls(fixture, prompt);
         assert.equal(requests.length, 3, 'One tool request, one failed continuation, one retry');
-        assert.equal(currentToolResults(requests[0].body).length, 0);
+        assert(
+            requests[0].tools.includes(mcp.namespacedName),
+            'Models must offer the catalog tool discovered by the native MCP client'
+        );
+        assert.equal(toolResultsAfterLatestPrompt(requests[0]).length, 0);
+        const [toolResult] = toolResultsAfterLatestPrompt(requests[1]);
+        assert.equal(toolResultsAfterLatestPrompt(requests[1]).length, 1);
+        assert.equal(toolResult.id, callId);
+        assert(toolResult.output.includes(mcp.resultFor(marker)));
+        assert.equal(requests[1].status, 503);
         assert.deepEqual(
-            currentToolResults(requests[2].body),
-            currentToolResults(requests[1].body)
+            toolResultsAfterLatestPrompt(requests[2]),
+            toolResultsAfterLatestPrompt(requests[1])
         );
         assert(
             fixture.query(
@@ -212,7 +227,7 @@ describe('user has a native agent with an isolated local MCP server', function (
         const prompt = `E2E record the MCP disconnect marker ${marker}`;
         const callId = `call-${marker}`;
         mcp.injectOnce({ kind: 'disconnect', marker, callId });
-        fixture.provider.respond(prompt, {
+        await fixture.provider.respond(prompt, {
             tool: { name: mcp.namespacedName, args: { marker }, id: callId },
             answer: 'E2E unexpected continuation after an uncertain effect',
         });
@@ -234,7 +249,7 @@ describe('user has a native agent with an isolated local MCP server', function (
         );
         assert.equal(mcp.faultState().disconnected, true, 'The real HTTP socket must be closed');
         assert.equal(mcp.effectsFor(marker).length, 1);
-        assert.equal(promptRequests(fixture, prompt).length, 1);
+        assert.equal((await promptCalls(fixture, prompt)).length, 1);
         await openToolResult(mcp);
         await waitForAnswer(audit.data.output);
 
@@ -248,7 +263,7 @@ describe('user has a native agent with an isolated local MCP server', function (
             1,
             'Reconnection must not replay the old effect'
         );
-        assert.equal(promptRequests(fixture, prompt).length, 1);
+        assert.equal((await promptCalls(fixture, prompt)).length, 1);
     });
 
     it('user given a completed effect when saving its audit fails sees a save error without replay and can submit a fresh prompt', async () => {
@@ -256,7 +271,7 @@ describe('user has a native agent with an isolated local MCP server', function (
         const prompt = `E2E record the MCP save failure marker ${marker}`;
         const callId = `call-${marker}`;
         mcp.injectOnce({ kind: 'write-lock', marker, callId });
-        fixture.provider.respond(prompt, {
+        await fixture.provider.respond(prompt, {
             tool: { name: mcp.namespacedName, args: { marker }, id: callId },
             answer: 'E2E forbidden success after an unsaved effect',
         });
@@ -280,14 +295,14 @@ describe('user has a native agent with an isolated local MCP server', function (
             assert.equal(audit.data.status, 'pending');
             assert(!audit.data.output, 'An unsaved MCP result must not be acknowledged as durable');
             assert.equal(mcp.effectsFor(marker).length, 1);
-            assert.equal(promptRequests(fixture, prompt).length, 1);
+            assert.equal((await promptCalls(fixture, prompt)).length, 1);
         } finally {
             mcp.releaseWriteLock();
         }
 
         await recoverWithNewEffect('save-failure');
         assert.equal(mcp.effectsFor(marker).length, 1, 'Unlocking must not replay the old effect');
-        assert.equal(promptRequests(fixture, prompt).length, 1);
+        assert.equal((await promptCalls(fixture, prompt)).length, 1);
         assert.notEqual(auditFor(fixture, mcp, callId).data.status, 'success');
     });
 
@@ -296,7 +311,7 @@ describe('user has a native agent with an isolated local MCP server', function (
         const prompt = `E2E record a fresh MCP recovery marker ${marker}`;
         const callId = `call-${marker}`;
         const answer = `E2E MCP recovered ${marker}`;
-        fixture.provider.respond(prompt, {
+        await fixture.provider.respond(prompt, {
             tool: { name: mcp.namespacedName, args: { marker }, id: callId },
             answer,
         });
@@ -307,6 +322,6 @@ describe('user has a native agent with an isolated local MCP server', function (
         assert.equal(promptTurn(fixture, prompt).status, 'completed');
         assert.equal(auditFor(fixture, mcp, callId).data.status, 'success');
         assert.equal(mcp.effectsFor(marker).length, 1);
-        assert.equal(promptRequests(fixture, prompt).length, 2);
+        assert.equal((await promptCalls(fixture, prompt)).length, 2);
     }
 });
