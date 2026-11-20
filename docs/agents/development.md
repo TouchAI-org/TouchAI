@@ -33,7 +33,7 @@ Occam's razor cuts toward the existing library: less code we own, fewer bugs, an
 Check in this order before writing it yourself:
 
 1. **An installed dependency.** Search `package.json`, `pnpm-lock.yaml`, and `apps/desktop/src-tauri/Cargo.toml`, then read its source under `node_modules` or the vendored crate to confirm the API.
-2. **An existing repository capability.** Search `apps/desktop/src/utils/`, `apps/desktop/src/{modules,app/api,platform}/`, and `apps/desktop/src-tauri/src/` before adding a second implementation. Reuse it through its permitted boundary.
+2. **An existing repository utility or service.** Search `apps/desktop/src/utils/`, `apps/desktop/src/{modules,app/api,platform}/`, and `apps/desktop/src-tauri/src/` before adding a second implementation.
 3. **A mature upstream package.** Apply the new-dependency rules below.
 
 Hand-roll only for a significant reason: the library conflicts with a hard requirement (bundle size, latency, license, platform, CSP), cannot meet an invariant we must own (local-first storage, offline, a security boundary), is unmaintained or vulnerable, or the needed surface is a few lines and the dependency costs more than it saves.

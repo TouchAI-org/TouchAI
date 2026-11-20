@@ -34,14 +34,78 @@ describe('given the two extracted packages are production workspace dependencies
             }
         }
     });
-    it('user runs workspace quality checks and both package types plus the actual source gate are required', async () => {
-        const { scripts } = await manifest('package.json');
-        expect(scripts['type:check']).toContain('type:check:packages');
-        expect(scripts['test:typecheck']).toContain('test:typecheck:packages');
-        expect(scripts['check:architecture']).toContain('tooling/architecture/check.mjs');
-        expect(scripts['test:pr']).toContain('check:architecture');
-        expect(scripts.build).toContain('build:packages');
-    });
+    it.each(['type:check', 'test:typecheck'])(
+        'user runs %s and checks Desktop and both packages without hiding a package failure',
+        async (command) => {
+            const { scripts } = await manifest('package.json');
+            const fixture = await mkdtemp(join(tmpdir(), 'touchai-workspace-types-'));
+            const owners = ['models', 'agent-core', 'desktop'];
+            try {
+                await writeFile(
+                    join(fixture, 'pnpm-workspace.yaml'),
+                    await readFile(new URL('pnpm-workspace.yaml', root), 'utf8')
+                );
+                await writeFile(
+                    join(fixture, 'package.json'),
+                    JSON.stringify({ private: true, scripts: { [command]: scripts[command] } })
+                );
+                await writeFile(
+                    join(fixture, 'record.cjs'),
+                    [
+                        "const fs = require('node:fs');",
+                        "const path = require('node:path');",
+                        "const { name } = JSON.parse(fs.readFileSync('package.json', 'utf8'));",
+                        "fs.appendFileSync(path.join(__dirname, 'checks.txt'), name + '\\n');",
+                        'if (name === process.env.TOUCHAI_TEST_FAIL_OWNER) process.exitCode = 1;',
+                    ].join('\n')
+                );
+                for (const owner of owners) {
+                    const path = `${owner === 'desktop' ? 'apps' : 'packages'}/${owner}`;
+                    const current = await manifest(`${path}/package.json`);
+                    await mkdir(join(fixture, path), { recursive: true });
+                    await writeFile(
+                        join(fixture, path, 'package.json'),
+                        JSON.stringify({
+                            name: `@touchai/${owner}`,
+                            version: '0.0.0',
+                            dependencies: Object.fromEntries(
+                                Object.entries(current.dependencies).filter(([, version]) =>
+                                    version.startsWith('workspace:')
+                                )
+                            ),
+                            scripts: { [command]: 'node ../../record.cjs' },
+                        })
+                    );
+                }
+                for (const failure of ['', '@touchai/models', '@touchai/agent-core']) {
+                    await writeFile(join(fixture, 'checks.txt'), '');
+                    const run = spawnSync('pnpm', ['run', command], {
+                        cwd: fixture,
+                        encoding: 'utf8',
+                        timeout: 10_000,
+                        env: { ...process.env, TOUCHAI_TEST_FAIL_OWNER: failure },
+                    });
+                    expect(run.error).toBeUndefined();
+                    const checked = (await readFile(join(fixture, 'checks.txt'), 'utf8'))
+                        .trim()
+                        .split('\n');
+                    if (failure) {
+                        expect(run.status).toBe(1);
+                        expect(checked).toContain(failure);
+                        expect(checked).not.toContain('@touchai/desktop');
+                    } else {
+                        expect(run.status, run.stderr).toBe(0);
+                        expect(checked.sort()).toEqual(
+                            owners.map((name) => `@touchai/${name}`).sort()
+                        );
+                    }
+                }
+            } finally {
+                await rm(fixture, { recursive: true, force: true });
+            }
+        },
+        30_000
+    );
     it.each([
         'packages/agent-core/src/create.ts',
         'packages/models/src/providers/openai.ts',

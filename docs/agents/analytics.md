@@ -12,8 +12,8 @@ typed event attributes.
 
 | Piece               | Path                                                  | Owns                                                        |
 | ------------------- | ----------------------------------------------------- | ----------------------------------------------------------- |
-| TypeScript boundary | `apps/desktop/src/modules/analytics/`, `src/app/api/analytics/` | Event names, typed schemas, per-window observations and settings-only choice |
-| IPC                 | `src/platform/native/analytics.ts`, `commands/analytics.rs` | The analytics commands |
+| TypeScript boundary | `apps/desktop/src/modules/analytics/`         | Event names, typed schemas, submit API                      |
+| IPC                 | `src/platform/native/analytics.ts`, `commands/analytics.rs` | The analytics commands                                      |
 | Native runtime      | `core/analytics/runtime.rs`                           | Consent, sessions, operations, validation, delivery         |
 | Event registry      | `core/analytics/events.rs`                            | Event names and attribute rules                             |
 | State               | `core/analytics/store.rs`                             | Consent and small metadata in the existing `settings` table |
