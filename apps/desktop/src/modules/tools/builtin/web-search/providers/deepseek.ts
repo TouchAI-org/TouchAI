@@ -1,7 +1,7 @@
 import { normalizeOptionalString } from '@/utils/text';
 
 import type { WebSearchRequest, WebSearchResult } from '../helper';
-import { recencyStartDate, resultLimit } from './common';
+import { nativeSearchOptions, queryWithDomains, recencyStartDate, resultLimit } from './common';
 import { createSearchProviderAdapter } from './define';
 import { WebSearchHttpError } from './types';
 
@@ -125,53 +125,24 @@ export async function runWithDeepSeekRetry<T>(
 /** 官方对 `query` 的硬约束：1–128 字符。 */
 export const DEEPSEEK_QUERY_MAX_CHARS = 128;
 
-/** `site:` 操作符上限，避免把 query 预算全吃在站点限定上。 */
-const DEEPSEEK_MAX_SITE_OPERATORS = 8;
-
-/** 低于该 `rerank_score` 基本无相关度，直接丢弃。 */
-const DEEPSEEK_MIN_RESULT_SCORE = 1;
-
 /** 官方定义 `authority >= 3` 为高权威来源。 */
 const DEEPSEEK_AUTHORITY_THRESHOLD = 3;
 
 /** 高权威结果少于这个数量时不做收敛，否则会丢掉太多有效结果。 */
 const DEEPSEEK_MIN_AUTHORITATIVE_RESULTS = 3;
 
-/**
- * 官方没有结构化的 domains / 时间参数，只能映射为 `site:` 与 `after:` 操作符。
- * 预算不足时丢弃操作符而不是截断 query —— 截断会改变检索语义。
- */
+/** Preserve every requested filter; never silently broaden a constrained search. */
 export function buildDeepSeekQuery(request: WebSearchRequest): string {
-    const query = request.query.trim();
-    const operators: string[] = [];
-
-    const domains = request.domains
-        .map((domain) => domain.trim())
-        .filter(Boolean)
-        .slice(0, DEEPSEEK_MAX_SITE_OPERATORS);
-    if (domains.length > 0) {
-        operators.push(domains.map((domain) => `site:${domain}`).join(' OR '));
-    }
-
     const after = recencyStartDate(request.recencyDays);
-    if (after) {
-        operators.push(`after:${after.slice(0, 10)}`);
+    const query = [queryWithDomains(request).trim(), after ? `after:${after.slice(0, 10)}` : '']
+        .filter(Boolean)
+        .join(' ');
+    if ([...query].length > DEEPSEEK_QUERY_MAX_CHARS) {
+        throw new Error(
+            'DeepSeek search accepts at most 128 query characters including filters. Shorten the query or split the site filters across calls.'
+        );
     }
-
-    // 超预算时先丢 `after:`（后加的）：站点丢错会让检索跑偏，时间丢仅是结果不够新。
-    const budget = DEEPSEEK_QUERY_MAX_CHARS - query.length - 1;
-    const appended: string[] = [];
-    let used = 0;
-    for (const operator of operators) {
-        const cost = operator.length + 1;
-        if (used + cost > budget) {
-            break;
-        }
-        appended.push(operator);
-        used += cost;
-    }
-
-    return appended.length > 0 ? `${query} ${appended.join(' ')}` : query;
+    return query;
 }
 
 /**
@@ -223,16 +194,13 @@ function safeHostname(url: string): string {
  * 应用 DeepSeek 自带的质量信号。
  *
  * 「优先官方来源」是排序而非过滤：低权威结果保留在后（中文长尾站点普遍 authority < 3）。
- * 相关度过滤带兜底：全被滤掉时退回原集合，避免静默变成「0 条结果」。
+ * All provider results remain eligible regardless of their relevance score.
  */
 export function rankDeepSeekResults(
     results: WebSearchResult[],
     preferOfficialSources: boolean
 ): WebSearchResult[] {
-    const relevant = results.filter(
-        (result) => result.score === undefined || result.score >= DEEPSEEK_MIN_RESULT_SCORE
-    );
-    const ranked = relevant.length > 0 ? relevant : results;
+    const ranked = results;
 
     if (!preferOfficialSources) {
         return ranked;
@@ -276,10 +244,13 @@ export function describeDeepSeekFailure(error: unknown): Error {
     if (error instanceof WebSearchHttpError) {
         const hint = DEEPSEEK_FAILURE_HINTS[error.status];
         if (hint) {
-            return new Error(`${hint} (${error.message})`);
+            error.message = `${hint} (${error.message})`;
+            return error;
         }
     }
-    return error instanceof Error ? error : new Error(String(error));
+    return error instanceof Error || error instanceof DOMException
+        ? error
+        : new Error(String(error));
 }
 
 export function createDeepSeekSearchAdapter() {
@@ -299,8 +270,9 @@ export function createDeepSeekSearchAdapter() {
             const url = new URL(buildDeepSeekToolsUrl(config.endpoint));
             const body = JSON.stringify({
                 query: buildDeepSeekQuery(request),
-                count: resultLimit(request),
+                count: resultLimit(request, 50),
                 need_content: request.includeContent === true,
+                ...nativeSearchOptions(request, 'deepseek'),
             });
 
             // 重试放在调度器外层：每次重试重新排队，避免退避后立刻再撞 429。

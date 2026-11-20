@@ -52,10 +52,10 @@ describe('given browser and search retain their own public configuration contrac
         expect(parseSearchSettingsConfig(null).providers.anysearch.enabled).toBe(true);
     });
 
-    it('user saves an out-of-range result limit and the owning serializer keeps it within the existing ceiling', () => {
+    it('user saves a positive result limit without an application ceiling', () => {
         const config = parseSearchSettingsConfig(null);
         config.maxResults = 99;
-        expect(JSON.parse(serializeSearchSettingsConfig(config))).toMatchObject({ maxResults: 10 });
+        expect(JSON.parse(serializeSearchSettingsConfig(config))).toMatchObject({ maxResults: 99 });
     });
 
     it('user receives the existing validation reason before a non-HTTP homepage can be submitted', () => {

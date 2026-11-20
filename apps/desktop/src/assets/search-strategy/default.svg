@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" id="ss-default-2c91b4" viewBox="0 0 160 120" fill="none" aria-hidden="true" focusable="false" data-theme="light">
+  <metadata>Search and pin icons: Remix Icon v4.6.0, Copyright Remix Design, Apache-2.0.</metadata>
+  <style>
+    #ss-default-2c91b4 {
+      color-scheme: only light;
+      --paper: #fff;
+      --stroke: rgba(47, 42, 34, 0.23);
+      --line: #e5e9ef;
+      --title: #cdd4de;
+      --icon: #a3abb7;
+      --accent: #3462ad;
+      --selection: #e6edf9;
+      --chip: #f1f3f6;
+    }
+  </style>
+  <rect x="10" y="10" width="140" height="100" rx="11" fill="var(--paper)" stroke="var(--stroke)"/>
+  <rect x="18" y="18" width="124" height="16" rx="4" fill="var(--chip)" stroke="var(--stroke)"/>
+  <path d="M26 22.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7Zm2.6 6.1 2.1 2.1" stroke="var(--icon)" stroke-width="1.2" stroke-linecap="round"/>
+  <rect x="34" y="24" width="42" height="4" rx="2" fill="var(--title)"/>
+
+  <!-- Every request enters the marked default row first. -->
+  <path d="M80 34v9" stroke="var(--accent)" stroke-width="1.2"/>
+  <rect x="24" y="45" width="112" height="52" rx="6" fill="var(--paper)" stroke="var(--stroke)"/>
+  <g>
+    <rect x="28" y="49" width="104" height="14" rx="4" fill="var(--selection)" stroke="var(--accent)"/>
+    <circle cx="37" cy="56" r="4.5" fill="var(--accent)"/>
+    <path d="M35 56.5c0-1.4 1-2.5 2-2.5s2 1.1 2 2.5" stroke="var(--paper)" stroke-width=".9" stroke-linecap="round"/>
+    <rect x="46" y="53" width="34" height="3.5" rx="1.75" fill="var(--accent)" opacity=".75"/>
+    <rect x="46" y="58.5" width="22" height="2.5" rx="1.25" fill="var(--accent)" opacity=".35"/>
+    <circle cx="124" cy="56" r="2.5" fill="var(--accent)"/>
+  </g>
+
+  <g fill="var(--paper)" stroke="var(--stroke)">
+    <rect x="28" y="67" width="104" height="14" rx="4"/>
+    <rect x="28" y="85" width="104" height="8" rx="3"/>
+  </g>
+  <g>
+    <circle cx="37" cy="74" r="3.5" stroke="var(--icon)" stroke-width="1"/>
+    <rect x="45" y="72" width="28" height="3" rx="1.5" fill="var(--line)"/>
+    <rect x="104" y="72" width="20" height="3" rx="1.5" fill="var(--line)"/>
+    <circle cx="37" cy="89" r="2.5" fill="var(--line)"/>
+    <rect x="45" y="87.5" width="22" height="2.5" rx="1.25" fill="var(--line)"/>
+  </g>
+  <path d="M88 38v5" stroke="var(--accent)" stroke-width="1.2" stroke-linecap="round"/>
+</svg>

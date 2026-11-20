@@ -1,5 +1,13 @@
 import type { WebSearchResult } from '../helper';
-import { readResultItems, resultFromGenericItem, resultLimit } from './common';
+import {
+    nativeSearchOptions,
+    preserveSearchExtras,
+    queryWithDomains,
+    readResultItems,
+    resultFromGenericItem,
+    resultLimit,
+    searchSource,
+} from './common';
 import { createSearchProviderAdapter } from './define';
 
 export const anySearchAdapter = createSearchProviderAdapter({
@@ -14,10 +22,10 @@ export const anySearchAdapter = createSearchProviderAdapter({
                 ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
             },
             body: JSON.stringify({
-                query: request.query,
+                query: queryWithDomains({ ...request, domains: [] }),
                 max_results: resultLimit(request),
                 ...(request.domains.length > 0 ? { domains: request.domains } : {}),
-                ...(request.intent === 'news' ? { content_types: ['news', 'web'] } : {}),
+                ...(searchSource(request) === 'news' ? { content_types: ['news', 'web'] } : {}),
                 ...(request.recencyDays !== undefined
                     ? {
                           constraint: {
@@ -32,11 +40,15 @@ export const anySearchAdapter = createSearchProviderAdapter({
                           },
                       }
                     : {}),
+                ...nativeSearchOptions(request, 'anysearch'),
             }),
         });
 
-        return readResultItems(payload)
-            .map((item) => resultFromGenericItem(item, 'AnySearch'))
-            .filter((result): result is WebSearchResult => Boolean(result));
+        return preserveSearchExtras(
+            readResultItems(payload)
+                .map((item) => resultFromGenericItem(item, 'AnySearch'))
+                .filter((result): result is WebSearchResult => Boolean(result)),
+            payload
+        );
     },
 });

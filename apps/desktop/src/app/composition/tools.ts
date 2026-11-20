@@ -89,8 +89,15 @@ export function assembleMainTools(input: {
             markup: createWidgetMarkupInspector(SHOW_WIDGET_EXTERNAL_RESOURCE_SELECTOR),
         }),
         ...createUpgradeModelTools({ messages, models: input.models }),
-        ...createWebFetchTools({ messages }),
-        ...createWebSearchTools({ configuration: { read: readWebSearchConfiguration } }),
+        ...createWebFetchTools({ messages, configuration: { read: readWebSearchConfiguration } }),
+        ...createWebSearchTools({
+            configuration: { read: readWebSearchConfiguration },
+            activity: (event) => {
+                void eventService.emit(AppEvent.WEB_SEARCH_ACTIVITY, event).catch(() => {
+                    log.warn('[WebSearch] Could not update the search animation');
+                });
+            },
+        }),
     ];
     const builtins = createBuiltinRegistrations(descriptors);
     const tools = createTools({

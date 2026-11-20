@@ -1,46 +1,36 @@
 import {
+    isSearchProviderReady,
     SEARCH_PROVIDER_IDS,
-    SEARCH_PROVIDER_METADATA,
     type SearchProviderId,
     type SearchSettingsConfig,
 } from '../configuration';
 import { anySearchAdapter } from './anysearch';
 import { braveAdapter } from './brave';
 import { createDeepSeekSearchAdapter } from './deepseek';
+import { doubaoAdapter } from './doubao';
 import { exaAdapter } from './exa';
 import { firecrawlAdapter } from './firecrawl';
 import { githubAdapter } from './github';
+import { grokAdapter } from './grok';
+import { keenableAdapter } from './keenable';
 import { openAlexAdapter } from './openalex';
+import { qianfanAdapter } from './qianfan';
 import { searxngAdapter } from './searxng';
 import { semanticScholarAdapter } from './semanticScholar';
+import { serperAdapter } from './serper';
 import { tavilyAdapter } from './tavily';
+import { tinyfishAdapter } from './tinyfish';
 import type { WebSearchProviderAdapter } from './types';
 import { wikipediaAdapter } from './wikipedia';
+import { yuanbaoAdapter } from './yuanbao';
+import { zhihuAdapter } from './zhihu';
 
 export function createSearchProviders() {
-    function requiresApiKey(provider: SearchProviderId): boolean {
-        return SEARCH_PROVIDER_METADATA[provider].apiKeyRequirement === 'required';
-    }
-
-    function requiresEndpoint(provider: SearchProviderId): boolean {
-        return SEARCH_PROVIDER_METADATA[provider].endpointRequirement === 'required';
-    }
-
     function isConcreteProviderConfigured(
         provider: SearchProviderId,
         settings: SearchSettingsConfig
     ): boolean {
-        const config = settings.providers[provider];
-        if (!config?.enabled) {
-            return false;
-        }
-        if (requiresApiKey(provider) && !config.apiKey.trim()) {
-            return false;
-        }
-        if (requiresEndpoint(provider) && !config.endpoint.trim()) {
-            return false;
-        }
-        return true;
+        return isSearchProviderReady(provider, settings.providers[provider]);
     }
 
     function isAutoProviderConfigured(settings: SearchSettingsConfig): boolean {
@@ -64,6 +54,14 @@ export function createSearchProviders() {
         firecrawlAdapter,
         searxngAdapter,
         createDeepSeekSearchAdapter(),
+        keenableAdapter,
+        zhihuAdapter,
+        yuanbaoAdapter,
+        grokAdapter,
+        doubaoAdapter,
+        qianfanAdapter,
+        tinyfishAdapter,
+        serperAdapter,
     ] as const satisfies readonly WebSearchProviderAdapter[];
 
     const WEB_SEARCH_PROVIDER_ADAPTER_BY_ID = Object.fromEntries(
@@ -93,6 +91,5 @@ export function createSearchProviders() {
             isConfiguredSearchProvider(provider, settings)
         );
     }
-
     return { getAvailableSearchProviders, getSearchProviderAdapter, isConfiguredSearchProvider };
 }

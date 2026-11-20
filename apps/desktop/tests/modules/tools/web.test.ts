@@ -30,7 +30,10 @@ const scope = { callId: 'call', iteration: 0 };
 
 describe('given public web tools have instance-scoped effects and turn-bound configuration', () => {
     it('user reads a public page and gets bounded content without a global transport or tool registry', async () => {
-        const [tool] = createWebFetchTools({ messages });
+        const [tool] = createWebFetchTools({
+            messages,
+            configuration: { read: async () => JSON.stringify({ fetchStrategy: 'direct' }) },
+        });
         const result = await tool!.execute(
             { url: 'https://example.test/article', mode: 'page_text', maxChars: 500 },
             {},
@@ -46,7 +49,10 @@ describe('given public web tools have instance-scoped effects and turn-bound con
     it('user cannot follow a public page redirect into a private host', async () => {
         boundary.response = () =>
             new Response(null, { status: 302, headers: { location: 'http://127.0.0.1/private' } });
-        const [tool] = createWebFetchTools({ messages });
+        const [tool] = createWebFetchTools({
+            messages,
+            configuration: { read: async () => JSON.stringify({ fetchStrategy: 'direct' }) },
+        });
         const result = await tool!.execute(
             { url: 'https://example.test/article', mode: 'page_text', maxChars: 500 },
             {},

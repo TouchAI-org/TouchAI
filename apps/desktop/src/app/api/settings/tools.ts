@@ -56,3 +56,19 @@ export function useToolSettingsApi(): ToolSettingsApi {
     if (!api) throw new Error('TOOLS_SETTINGS_CLIENT_UNAVAILABLE');
     return api;
 }
+
+export type {
+    SearchFetchProvider,
+    SearchRoutingStrategy,
+    SearchSource,
+    WebFetchStrategy,
+} from '@/modules/tools/public';
+export {
+    isSearchProviderReady,
+    resolveSearchSourceProviders,
+    SEARCH_FETCH_PROVIDERS,
+    SEARCH_PARALLEL_MAX,
+    SEARCH_ROUTING_STRATEGIES,
+    SEARCH_SOURCES,
+    WEB_FETCH_STRATEGIES,
+} from '@/modules/tools/public';

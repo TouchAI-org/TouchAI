@@ -25,8 +25,13 @@ export function saveWebSearchSettings(value: string | null): void {
             .run('search_settings', value);
 }
 
-export function createWebSearchToolsFixture() {
-    const tools = createWebSearchTools({ configuration: { read: readWebSearchConfiguration } });
+export function createWebSearchToolsFixture(
+    options: Partial<Parameters<typeof createWebSearchTools>[0]> = {}
+) {
+    const tools = createWebSearchTools({
+        configuration: { read: readWebSearchConfiguration },
+        ...options,
+    });
     const tool = tools[0]!;
     const prepared = () => tool.prepareForTurn(tool.defaultConfig);
     return {

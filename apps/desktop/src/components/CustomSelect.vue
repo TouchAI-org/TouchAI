@@ -38,6 +38,7 @@
         optionTestIdPrefix?: string;
         disablePortal?: boolean;
         triggerAs?: SelectTriggerProps['as'];
+        triggerVariant?: 'default' | 'icon';
     }
 
     interface Emits {
@@ -58,6 +59,7 @@
         optionTestIdPrefix: '',
         disablePortal: false,
         triggerAs: 'button',
+        triggerVariant: 'default',
     });
 
     const emit = defineEmits<Emits>();
@@ -130,14 +132,17 @@
     >
         <SelectTrigger
             v-bind="attrs"
-            class="w-full rounded-control border px-3 py-2 text-left font-serif text-sm shadow-none [box-shadow:none] transition-colors select-none"
+            class="font-serif text-sm shadow-none [box-shadow:none] transition-colors select-none"
             :class="{
+                'w-full rounded-control border px-3 py-2 text-left': triggerVariant === 'default',
+                'size-11 shrink-0 justify-center rounded-full border-0 bg-surface-sunken p-1 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus enabled:cursor-pointer':
+                    triggerVariant === 'icon',
                 'border-transparent bg-surface-sunken text-gray-900 hover:bg-surface-active':
                     !disabled,
                 'cursor-not-allowed border-transparent bg-gray-50 text-gray-400': disabled,
-                'border-primary-300 bg-white': isOpen,
+                'border-primary-300 bg-white': isOpen && triggerVariant === 'default',
             }"
-            :icon-class="isOpen ? 'rotate-180' : ''"
+            :icon-class="triggerVariant === 'icon' ? 'hidden' : isOpen ? 'rotate-180' : ''"
             :disabled="disabled"
             :as="triggerAs"
             :data-testid="triggerTestId || undefined"
@@ -179,7 +184,12 @@
         <SelectContent
             :data-testid="contentTestId || undefined"
             :disable-portal="disablePortal"
-            class="w-[var(--reka-select-trigger-width)] min-w-[var(--reka-select-trigger-width)] rounded-control border border-gray-200 bg-white py-1 shadow-lg"
+            class="rounded-control border border-gray-200 bg-white py-1 shadow-lg"
+            :class="
+                triggerVariant === 'icon'
+                    ? 'w-52 min-w-52'
+                    : 'w-[var(--reka-select-trigger-width)] min-w-[var(--reka-select-trigger-width)]'
+            "
             @keydown.capture="handleContentKeydown"
         >
             <EmptyState

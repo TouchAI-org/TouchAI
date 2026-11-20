@@ -360,6 +360,10 @@ describe('user searches when every provider is switched off', () => {
                         'firecrawl',
                         'searxng',
                         'deepseek',
+                        'keenable',
+                        'zhihu',
+                        'yuanbao',
+                        'grok',
                     ].map((id) => [id, { enabled: false }])
                 ),
                 defaultProvider: 'anysearch',

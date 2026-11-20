@@ -78,11 +78,18 @@ export { createUpgradeModelConfiguration } from './builtin/upgrade-model/configu
 export { createUpgradeModelTools } from './builtin/upgrade-model/create';
 export { createWebFetchTools } from './builtin/web-fetch/create.io';
 export { createWebFetchOperations } from './builtin/web-fetch/operations';
+export type { WebSearchActivityEvent } from './builtin/web-search/activity';
 export type {
     SearchProviderConfig,
     SearchProviderId,
     SearchRouteIntent,
     SearchSettingsConfig,
+} from './builtin/web-search/configuration';
+export type {
+    SearchFetchProvider,
+    SearchRoutingStrategy,
+    SearchSource,
+    WebFetchStrategy,
 } from './builtin/web-search/configuration';
 export {
     DEFAULT_SEARCH_SETTINGS,
@@ -92,6 +99,15 @@ export {
     SEARCH_ROUTE_INTENTS,
     SEARCH_SETTINGS_KEY,
     serializeSearchSettingsConfig,
+} from './builtin/web-search/configuration';
+export {
+    isSearchProviderReady,
+    resolveSearchSourceProviders,
+    SEARCH_FETCH_PROVIDERS,
+    SEARCH_PARALLEL_MAX,
+    SEARCH_ROUTING_STRATEGIES,
+    SEARCH_SOURCES,
+    WEB_FETCH_STRATEGIES,
 } from './builtin/web-search/configuration';
 export { createWebSearchTools } from './builtin/web-search/create.io';
 export type {

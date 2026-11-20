@@ -1,17 +1,35 @@
 import { normalizeOptionalString } from '@/utils/text';
 
 import type { WebSearchResult } from '../helper';
-import { resultLimit } from './common';
+import { nativeSearchOptions, resultLimit, setSearchParams } from './common';
 import { createSearchProviderAdapter } from './define';
 
 export const githubAdapter = createSearchProviderAdapter({
     id: 'github',
-    async search({ request, signal, fetchJson }) {
-        const url = new URL('https://api.github.com/search/repositories');
+    async search({ request, settings, signal, fetchJson }) {
+        const { searchType = 'repositories', ...options } = nativeSearchOptions(request, 'github');
+        if (
+            !['repositories', 'issues', 'code', 'commits', 'users', 'topics'].includes(
+                String(searchType)
+            )
+        )
+            throw new Error('Unsupported GitHub searchType.');
+        const apiKey = settings.providers.github.apiKey.trim();
+        if (searchType === 'code' && !apiKey)
+            throw new Error(
+                'GitHub code search requires a token. Configure one in Search settings.'
+            );
+        const url = new URL(`https://api.github.com/search/${String(searchType)}`);
         url.searchParams.set('q', request.query);
-        url.searchParams.set('per_page', String(resultLimit(request)));
+        url.searchParams.set('per_page', String(resultLimit(request, 100)));
+        setSearchParams(url, options);
 
-        const payload = await fetchJson(url, signal);
+        const payload = await fetchJson(url, signal, {
+            headers: {
+                Accept: 'application/vnd.github+json',
+                ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+            },
+        });
         const items =
             payload && typeof payload === 'object' ? (payload as { items?: unknown }).items : null;
         if (!Array.isArray(items)) {
@@ -24,13 +42,26 @@ export const githubAdapter = createSearchProviderAdapter({
                     return null;
                 }
                 const record = item as Record<string, unknown>;
-                const title = normalizeOptionalString(record.full_name);
+                const title =
+                    normalizeOptionalString(record.full_name) ??
+                    normalizeOptionalString(record.title) ??
+                    normalizeOptionalString(record.name) ??
+                    normalizeOptionalString(record.login) ??
+                    normalizeOptionalString(record.sha);
                 const url = normalizeOptionalString(record.html_url);
                 if (!title || !url) {
                     return null;
                 }
 
-                const description = normalizeOptionalString(record.description) ?? '';
+                const commit =
+                    record.commit && typeof record.commit === 'object'
+                        ? (record.commit as Record<string, unknown>)
+                        : {};
+                const description =
+                    normalizeOptionalString(record.description) ??
+                    normalizeOptionalString(record.body) ??
+                    normalizeOptionalString(commit.message) ??
+                    '';
                 const stars =
                     typeof record.stargazers_count === 'number'
                         ? `Stars: ${record.stargazers_count}. `
@@ -40,6 +71,7 @@ export const githubAdapter = createSearchProviderAdapter({
                     url,
                     snippet: `${stars}${description}`.trim(),
                     source: 'GitHub',
+                    ...(request.includeContent && description ? { content: description } : {}),
                 };
             })
             .filter((result): result is WebSearchResult => Boolean(result));

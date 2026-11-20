@@ -1,15 +1,29 @@
 import { normalizeOptionalString } from '@/utils/text';
 
 import { decodeOpenAlexAbstract, type WebSearchResult } from '../helper';
-import { resultLimit } from './common';
+import {
+    nativeSearchOptions,
+    recencyStartDate,
+    resultDetails,
+    resultLimit,
+    setSearchParams,
+} from './common';
 import { createSearchProviderAdapter } from './define';
 
 export const openAlexAdapter = createSearchProviderAdapter({
     id: 'openalex',
-    async search({ request, signal, fetchJson }) {
+    async search({ request, settings, signal, fetchJson }) {
         const url = new URL('https://api.openalex.org/works');
         url.searchParams.set('search', request.query);
-        url.searchParams.set('per-page', String(resultLimit(request)));
+        url.searchParams.set('per-page', String(resultLimit(request, 200)));
+        const filters: string[] = [];
+        const after = recencyStartDate(request.recencyDays);
+        if (after) filters.push(`from_publication_date:${after.slice(0, 10)}`);
+        if (request.language !== 'any') filters.push(`language:${request.language}`);
+        if (filters.length) url.searchParams.set('filter', filters.join(','));
+        setSearchParams(url, nativeSearchOptions(request, 'openalex'));
+        const apiKey = settings.providers.openalex.apiKey.trim();
+        if (apiKey) url.searchParams.set('api_key', apiKey);
 
         const payload = await fetchJson(url, signal);
         const results =
@@ -48,6 +62,15 @@ export const openAlexAdapter = createSearchProviderAdapter({
                     snippet:
                         `${year}${decodeOpenAlexAbstract(record.abstract_inverted_index) ?? ''}`.trim(),
                     source: 'OpenAlex',
+                    publishedAt: normalizeOptionalString(record.publication_date),
+                    details: resultDetails(record, [
+                        'doi',
+                        'cited_by_count',
+                        'open_access',
+                        'authorships',
+                        'type',
+                        'topics',
+                    ]),
                 };
             })
             .filter((result): result is WebSearchResult => Boolean(result));

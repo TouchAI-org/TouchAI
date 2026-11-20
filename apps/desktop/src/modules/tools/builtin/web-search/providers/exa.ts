@@ -1,9 +1,19 @@
 import type { WebSearchRequest, WebSearchResult } from '../helper';
-import { readResultItems, recencyStartDate, resultFromGenericItem, resultLimit } from './common';
+import {
+    nativeSearchOptions,
+    preserveSearchExtras,
+    providerEndpointUrl,
+    queryWithDomains,
+    readResultItems,
+    recencyStartDate,
+    resultFromGenericItem,
+    resultLimit,
+    searchSource,
+} from './common';
 import { createSearchProviderAdapter } from './define';
 import type { WebSearchFetchText } from './types';
 
-const EXA_SEARCH_URL = 'https://api.exa.ai/search';
+const EXA_API_ROOT = 'https://api.exa.ai';
 /** Exa 的公开 MCP 端点，支持匿名调用（无 key）。 */
 const EXA_MCP_URL = 'https://mcp.exa.ai/mcp';
 
@@ -14,6 +24,11 @@ interface ExaMcpContentBlock {
 
 /** 从 SSE 流里取出第一条 `data:` 负载并解析为 JSON。 */
 function parseSsePayload(raw: string): unknown {
+    try {
+        return JSON.parse(raw);
+    } catch {
+        /* SSE is the usual MCP transport. */
+    }
     for (const line of raw.split('\n')) {
         if (!line.startsWith('data:')) {
             continue;
@@ -55,13 +70,13 @@ function parseExaMcpText(text: string): WebSearchResult[] {
             ?.split('\n')
             .map((line) => line.trim())
             .filter((line) => line && !line.startsWith('...'))
-            .slice(0, 3)
             .join(' ');
 
         results.push({
             title: title || url,
             url,
-            ...(highlights ? { snippet: highlights.slice(0, 300) } : {}),
+            ...(highlights ? { snippet: highlights } : {}),
+            content: block.split(/^(?:Text|Content):\s*$/m)[1]?.trim(),
             source: 'Exa',
             // 只保留真实日期，过滤 "N/A" 之类占位符。
             ...(published && /^\d{4}-\d{2}-\d{2}/.test(published)
@@ -90,7 +105,11 @@ async function searchExaMcp(
             method: 'tools/call',
             params: {
                 name: 'web_search_exa',
-                arguments: { query: request.query, numResults: resultLimit(request) },
+                arguments: {
+                    query: queryWithDomains(request),
+                    numResults: resultLimit(request, 100),
+                    ...nativeSearchOptions(request, 'exa'),
+                },
             },
         }),
     });
@@ -125,39 +144,64 @@ export const exaAdapter = createSearchProviderAdapter({
         const apiKey = settings.providers.exa.apiKey.trim();
         // 无 key 时走公开 MCP 匿名额度，有 key 时走正式 API（支持域名/日期/分类过滤）。
         if (!apiKey) {
+            const restOnly = Object.keys(nativeSearchOptions(request, 'exa')).filter(
+                (key) =>
+                    !['query', 'numResults', 'type', 'livecrawl', 'contextMaxCharacters'].includes(
+                        key
+                    )
+            );
+            if (
+                restOnly.length > 0 ||
+                request.recencyDays !== undefined ||
+                request.includeContent
+            ) {
+                throw new Error(
+                    'Exa date filters, full content and REST-only options require an API key. Configure it in Search settings or use another provider.'
+                );
+            }
             return searchExaMcp(request, signal, fetchText);
         }
 
         const body: Record<string, unknown> = {
             query: request.query,
-            type: 'auto',
-            numResults: resultLimit(request),
+            type: request.mode === 'deep' ? 'deep' : request.mode === 'fast' ? 'lite' : 'auto',
+            numResults: resultLimit(request, 100),
+            contents: request.includeContent === true ? { text: true } : { highlights: true },
         };
         if (request.domains.length > 0) {
             body.includeDomains = request.domains;
         }
+        if (request.excludeDomains.length > 0) {
+            body.excludeDomains = request.excludeDomains;
+        }
         const startPublishedDate = recencyStartDate(request.recencyDays);
         if (startPublishedDate) {
-            body.startPublishedDate = startPublishedDate;
+            body.startPublishedDate = startPublishedDate.slice(0, 10);
         }
-        if (request.intent === 'academic') {
+        if (searchSource(request) === 'academic') {
             body.category = 'research paper';
-        } else if (request.intent === 'technical') {
-            body.category = 'github';
-        } else if (request.intent === 'news') {
+        } else if (searchSource(request) === 'news') {
             body.category = 'news';
         }
+        Object.assign(body, nativeSearchOptions(request, 'exa'), { stream: false });
 
-        const payload = await fetchJson(new URL(EXA_SEARCH_URL), signal, {
-            method: 'POST',
-            headers: {
-                'x-api-key': apiKey,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(body),
-        });
-        return readResultItems(payload)
-            .map((item) => resultFromGenericItem(item, 'Exa'))
-            .filter((result): result is WebSearchResult => Boolean(result));
+        const payload = await fetchJson(
+            providerEndpointUrl(settings.providers.exa.endpoint, EXA_API_ROOT, '/search'),
+            signal,
+            {
+                method: 'POST',
+                headers: {
+                    'x-api-key': apiKey,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(body),
+            }
+        );
+        return preserveSearchExtras(
+            readResultItems(payload)
+                .map((item) => resultFromGenericItem(item, 'Exa'))
+                .filter((result): result is WebSearchResult => Boolean(result)),
+            payload
+        );
     },
 });

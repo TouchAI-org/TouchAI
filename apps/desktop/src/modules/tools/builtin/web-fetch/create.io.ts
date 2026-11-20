@@ -11,6 +11,7 @@ import {
     type BuiltInToolGroup,
 } from '../../contracts/builtin';
 import type { ToolMessages } from '../../contracts/host';
+import { parseSearchSettingsConfig } from '../web-search/configuration';
 import {
     DEFAULT_ACCEPT_HEADER,
     DEFAULT_ACCEPT_LANGUAGE,
@@ -20,8 +21,12 @@ import {
     WEB_FETCH_TOOL_INPUT_SCHEMA,
 } from './constants';
 import { createWebFetchOperations, type WebFetchRequest } from './operations';
+import { createProviderFetches, type ProviderFetchPayload } from './providers.io';
 
-export function createWebFetchTools(input: { messages: ToolMessages }): BuiltInToolGroup {
+export function createWebFetchTools(input: {
+    messages: ToolMessages;
+    configuration: { read(): Promise<string | null> };
+}): BuiltInToolGroup {
     const { t, tt } = input.messages;
     const {
         createRequestSignal,
@@ -38,6 +43,75 @@ export function createWebFetchTools(input: { messages: ToolMessages }): BuiltInT
         validateWebFetchUrl,
     } = createWebFetchOperations(input.messages);
     const tauriFetch = createTauriFetch();
+    const { tryProviderFetches } = createProviderFetches();
+
+    function formatProviderFetchResult(
+        request: WebFetchRequest,
+        payload: ProviderFetchPayload
+    ): string {
+        const content =
+            payload.content.length > request.maxChars
+                ? payload.content.slice(0, request.maxChars)
+                : payload.content;
+        return [
+            tt('网页抓取'),
+            `${tt('请求 URL')}: ${request.url.toString()}`,
+            `${tt('最终 URL')}: ${payload.finalUrl ?? request.url.toString()}`,
+            `${tt('内容类型')}: text/markdown`,
+            `${tt('请求模式')}: ${request.mode}`,
+            `${tt('实际输出')}: ${payload.provider} fetch`,
+            payload.title ? `${tt('标题')}: ${payload.title}` : '',
+            payload.publishedAt ? `${tt('发布时间')}: ${payload.publishedAt}` : '',
+            payload.content.length > request.maxChars
+                ? tt('正文输出: 已限制为 {maxChars} 字符', { maxChars: request.maxChars })
+                : '',
+            '',
+            content || tt('[页面无可读内容]'),
+        ].join('\n');
+    }
+
+    async function providerFetchResult(
+        request: WebFetchRequest,
+        signal: AbortSignal,
+        mode: 'preferred' | 'fallback' | 'explicit'
+    ): Promise<BuiltInToolExecutionResult | null> {
+        try {
+            const value = await input.configuration.read();
+            const settings = parseSearchSettingsConfig(typeof value === 'string' ? value : null);
+            if (mode === 'explicit') {
+                if (!request.provider) return null;
+                const payload = await tryProviderFetches(
+                    request.url.toString(),
+                    settings,
+                    signal,
+                    request.provider
+                );
+                return payload
+                    ? {
+                          result: formatProviderFetchResult(request, payload),
+                          isError: false,
+                          status: 'success',
+                      }
+                    : null;
+            }
+            if (settings.fetchStrategy === 'direct') {
+                return null;
+            }
+            if ((mode === 'preferred') !== (settings.fetchStrategy === 'prefer')) {
+                return null;
+            }
+            const payload = await tryProviderFetches(request.url.toString(), settings, signal);
+            return payload
+                ? {
+                      result: formatProviderFetchResult(request, payload),
+                      isError: false,
+                      status: 'success',
+                  }
+                : null;
+        } catch {
+            return null;
+        }
+    }
 
     /** 已取消时尽早抛出，避免继续进行不可中断的同步解析。 */
     function throwIfAborted(signal: AbortSignal): void {
@@ -196,7 +270,24 @@ export function createWebFetchTools(input: { messages: ToolMessages }): BuiltInT
         void config;
 
         try {
+            if (request.provider) {
+                const explicit = await providerFetchResult(request, signal, 'explicit');
+                if (explicit) {
+                    return explicit;
+                }
+            }
+            const preferred = await providerFetchResult(request, signal, 'preferred');
+            if (preferred) {
+                return preferred;
+            }
             const response = await fetchWithSafeRedirects(request, signal);
+            if (shouldTryReaderFallback(response)) {
+                const providerFallback = await providerFetchResult(request, signal, 'fallback');
+                if (providerFallback) {
+                    await cancelResponseBody(response, 'WebFetch response discarded');
+                    return providerFallback;
+                }
+            }
             if (
                 shouldUseJinaReaderFallback(args) &&
                 !response.ok &&
@@ -270,6 +361,12 @@ export function createWebFetchTools(input: { messages: ToolMessages }): BuiltInT
             };
             return resultPayload;
         } catch (error) {
+            if (!(error instanceof WebFetchControlError)) {
+                const providerFallback = await providerFetchResult(request, signal, 'fallback');
+                if (providerFallback) {
+                    return providerFallback;
+                }
+            }
             if (shouldUseJinaReaderFallback(args) && !(error instanceof WebFetchControlError)) {
                 const fallbackResult = await executeJinaReaderFallback(request, signal);
                 if (fallbackResult.status === 'success') {
