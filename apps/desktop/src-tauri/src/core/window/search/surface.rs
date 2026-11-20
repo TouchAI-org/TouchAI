@@ -170,7 +170,6 @@ struct FocusLostDecisionInput {
     hide_on_app_blur: bool,
     main_visible: bool,
     main_maximized: bool,
-    main_always_on_top: bool,
     app_focused: bool,
 }
 
@@ -356,7 +355,7 @@ pub fn update_window_defaults<R: Runtime>(
 
 /// 判断某次原生失焦是否应该隐藏完整搜索窗口组。
 fn should_hide_on_focus_lost(input: FocusLostDecisionInput) -> bool {
-    if !input.hide_on_app_blur || !input.main_visible || input.main_always_on_top {
+    if !input.hide_on_app_blur || !input.main_visible {
         return false;
     }
     if input.app_focused {
@@ -1048,7 +1047,6 @@ pub(crate) fn handle_focus_lost_on_main_thread<R: Runtime>(
         hide_on_app_blur: runtime.should_hide_on_app_blur(),
         main_visible: main_window.is_visible().unwrap_or(false),
         main_maximized: main_window.is_maximized().unwrap_or(false),
-        main_always_on_top: main_window.is_always_on_top().unwrap_or(false),
         app_focused: main_hwnd_family_is_foreground(&main_window),
     };
     let should_hide = should_hide_on_focus_lost(decision_input);
@@ -1206,7 +1204,6 @@ mod tests {
             hide_on_app_blur: true,
             main_visible: true,
             main_maximized: false,
-            main_always_on_top: false,
             app_focused: false,
         }
     }
@@ -1259,19 +1256,11 @@ mod tests {
     }
 
     #[test]
-    fn blur_does_not_hide_pinned_or_expanded_surfaces() {
-        for input in [
-            FocusLostDecisionInput {
-                main_always_on_top: true,
-                ..decision_input()
-            },
-            FocusLostDecisionInput {
-                main_maximized: true,
-                ..decision_input()
-            },
-        ] {
-            assert!(!should_hide_on_focus_lost(input));
-        }
+    fn user_keeps_expanded_surfaces_visible_when_focus_is_lost() {
+        assert!(!should_hide_on_focus_lost(FocusLostDecisionInput {
+            main_maximized: true,
+            ..decision_input()
+        }));
     }
 
     #[test]
