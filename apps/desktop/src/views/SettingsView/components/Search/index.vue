@@ -622,7 +622,7 @@
                                 data-testid="search-max-results-input"
                                 type="number"
                                 min="0"
-                                placeholder="不限"
+                                :placeholder="t('settings.search.maxResults.placeholder')"
                                 class="w-full disabled:bg-neutral-50"
                                 :disabled="!toolEnabled"
                                 @update:model-value="draft.maxResults = $event ? Number($event) : 0"

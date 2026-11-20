@@ -68,6 +68,9 @@ describe('given search configuration belongs to the main tools owner', () => {
         expect(panel.get('[data-testid="search-settings-title"]').text()).toContain('Search');
         expect(panel.findAll('[data-testid="search-provider-row"]')).toHaveLength(19);
         expect(panel.findAll('[data-testid^="search-strategy-"]')).toHaveLength(3);
+        expect(
+            panel.get('[data-testid="search-max-results-input"]').attributes('placeholder')
+        ).toBe('Unlimited');
         expect(panel.find('[data-testid="search-brave-api-key-input"]').exists()).toBe(false);
         await panel.get('[data-testid="search-provider-edit-brave"]').trigger('click');
         expect(panel.get('[data-testid="search-brave-api-key-input"]').attributes('type')).toBe(
