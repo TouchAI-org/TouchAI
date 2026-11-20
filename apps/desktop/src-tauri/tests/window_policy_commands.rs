@@ -1,6 +1,6 @@
 mod common;
 
-use common::{build_test_app, invoke_command_ok, TestAppOptions};
+use common::{build_test_app, invoke_command_err, invoke_command_ok, TestAppOptions};
 use serde_json::json;
 use touchai_lib::testing;
 
@@ -36,6 +36,25 @@ fn user_gets_focus_hiding_back_on_when_the_window_returns_to_idle() {
         json!({ "shouldHide": true }),
     );
 
+    assert!(testing::search_surface_policies(&test_app.app).hide_on_app_blur);
+}
+
+#[test]
+fn user_keeps_the_previous_policy_when_an_unsupported_hide_delay_is_requested() {
+    let test_app = build_test_app(TestAppOptions::default()).expect("test app");
+    let _: () = invoke_command_ok(
+        &test_app.main_webview,
+        "set_search_surface_hide_on_app_blur",
+        json!({ "shouldHide": true, "delayMs": 60_000 }),
+    );
+
+    let error = invoke_command_err(
+        &test_app.main_webview,
+        "set_search_surface_hide_on_app_blur",
+        json!({ "shouldHide": false, "delayMs": 60_001 }),
+    );
+
+    assert_eq!(error, "Unsupported search window auto-hide delay");
     assert!(testing::search_surface_policies(&test_app.app).hide_on_app_blur);
 }
 

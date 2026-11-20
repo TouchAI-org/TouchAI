@@ -64,8 +64,8 @@ export const window = {
         return invoke('close_tray_menu');
     },
 
-    setSearchSurfaceHideOnAppBlur(shouldHide: boolean): Promise<void> {
-        return invoke('set_search_surface_hide_on_app_blur', { shouldHide });
+    setSearchSurfaceHideOnAppBlur(shouldHide: boolean, delayMs = 0): Promise<void> {
+        return invoke('set_search_surface_hide_on_app_blur', { shouldHide, delayMs });
     },
 
     setSearchWindowRegions(

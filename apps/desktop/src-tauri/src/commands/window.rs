@@ -1,5 +1,7 @@
 //! 窗口命令。
 
+use std::time::Duration;
+
 use crate::core::window::status_reminder::SessionStatusReminderNotificationPayload;
 use crate::core::window::tray::TrayStatusIndicator;
 use tauri::{AppHandle, Manager, Runtime, WebviewWindow};
@@ -454,8 +456,14 @@ pub fn commit_search_panel_resize<R: Runtime>(
 pub fn set_search_surface_hide_on_app_blur<R: Runtime>(
     app: AppHandle<R>,
     should_hide: bool,
+    delay_ms: Option<u32>,
 ) -> Result<(), String> {
-    crate::core::window::search::set_search_surface_hide_on_app_blur(app, should_hide)
+    let delay_ms = delay_ms.unwrap_or(0);
+    if delay_ms > 60_000 {
+        return Err("Unsupported search window auto-hide delay".to_string());
+    }
+    let delay = should_hide.then(|| Duration::from_millis(u64::from(delay_ms)));
+    crate::core::window::search::set_search_surface_hide_on_app_blur(app, delay)
 }
 
 /// 设置是否允许用户通过手动拖拽覆盖搜索窗口高度。

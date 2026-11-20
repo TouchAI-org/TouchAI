@@ -47,6 +47,8 @@ If you want to contribute to TouchAI, read the [contributing docs](./CONTRIBUTIN
 
 ### Docs
 
+Under **Settings → General → Startup and window**, choose how long the session window stays visible after losing focus: immediately (default), 15, 30, or 60 seconds, or until you hide it manually. Refocusing the window cancels a pending hide.
+
 For more details, browse the project docs and source code.
 
 ### Partners

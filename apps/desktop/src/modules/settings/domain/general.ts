@@ -5,6 +5,8 @@ import { normalizeAnimationSpeed } from '@/config/motion';
 import {
     DEFAULT_SEARCH_WINDOW_SIZE_PRESET,
     resolveSearchWindowDefaultSize,
+    SEARCH_WINDOW_AUTO_HIDE_DELAYS,
+    type SearchWindowAutoHideDelay,
     type SearchWindowSizePreset,
     SearchWindowSizePreset as SearchWindowSizePresets,
 } from '@/config/searchWindow';
@@ -21,10 +23,12 @@ const outputScrollBehaviorSchema = z.enum(['follow_output', 'stay_position', 'ju
 const searchWindowSizePresetSchema = z.enum(
     Object.keys(SearchWindowSizePresets) as [SearchWindowSizePreset, ...SearchWindowSizePreset[]]
 );
+const searchWindowAutoHideDelaySchema = z.enum(SEARCH_WINDOW_AUTO_HIDE_DELAYS);
 
 const DEFAULT_GLOBAL_SHORTCUT = 'Alt+Space';
 const DEFAULT_OUTPUT_SCROLL_BEHAVIOR: OutputScrollBehavior = 'follow_output';
 const DEFAULT_LANGUAGE: AppLocale = 'zh-CN';
+const DEFAULT_SEARCH_WINDOW_AUTO_HIDE_DELAY: SearchWindowAutoHideDelay = 'immediate';
 const DEFAULT_SEARCH_WINDOW_DEFAULT_SIZE = resolveSearchWindowDefaultSize(
     DEFAULT_SEARCH_WINDOW_SIZE_PRESET
 );
@@ -182,6 +186,19 @@ export const GENERAL_SCALAR_SETTING_SPECS = [
             computedName: 'searchWindowSizePreset',
             updaterName: 'updateSearchWindowSizePreset',
             normalizeUpdate: String,
+        },
+    },
+    {
+        key: 'search_window_auto_hide_delay',
+        stateKey: 'searchWindowAutoHideDelay',
+        defaultValue: DEFAULT_SEARCH_WINDOW_AUTO_HIDE_DELAY,
+        parsePersisted: (raw) =>
+            searchWindowAutoHideDelaySchema.safeParse(raw).data ??
+            DEFAULT_SEARCH_WINDOW_AUTO_HIDE_DELAY,
+        parseUpdate: (value) => searchWindowAutoHideDelaySchema.parse(value),
+        store: {
+            computedName: 'searchWindowAutoHideDelay',
+            updaterName: 'updateSearchWindowAutoHideDelay',
         },
     },
     {

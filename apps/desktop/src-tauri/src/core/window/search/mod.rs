@@ -6,6 +6,7 @@ pub mod bounds;
 pub mod protocol;
 pub mod surface;
 
+use std::time::Duration;
 use tauri::{AppHandle, Manager, Runtime, WebviewWindow};
 
 #[cfg(target_os = "windows")]
@@ -156,9 +157,9 @@ pub fn show_search_window_from_shortcut_on_main_thread<R: Runtime>(
 /// 设置应用失焦时是否由原生层自动隐藏搜索窗口组。
 pub fn set_search_surface_hide_on_app_blur<R: Runtime>(
     app_handle: AppHandle<R>,
-    should_hide: bool,
+    delay: Option<Duration>,
 ) -> Result<(), String> {
-    surface::set_hide_on_app_blur(&app_handle, should_hide)
+    surface::set_hide_on_app_blur(&app_handle, delay)
 }
 
 /// 测试模式在 renderer 就绪前只登记首次显示请求。
