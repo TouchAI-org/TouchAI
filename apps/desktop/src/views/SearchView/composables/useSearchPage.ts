@@ -3,7 +3,7 @@
  * 集中管理页面 controller、生命周期编排、overlay 打开时序与 DOM 事件挂载。
  */
 import { useAlert } from '@composables/useAlert';
-import { nextTick, onMounted, onUnmounted, type Ref, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, type Ref, ref, watch } from 'vue';
 
 import { hasInputHistorySnapshotContent } from '@/app/api/agent/history';
 import { useProductAnalyticsApi } from '@/app/api/analytics/product';
@@ -24,7 +24,7 @@ import {
 } from '@/app/api/search/events';
 import { useStartupNoticesApi } from '@/app/api/search/startup';
 import { initNotificationPermission, notify } from '@/app/api/windows/notifications';
-import { useSearchWindowApi } from '@/app/api/windows/presentation';
+import { type SearchWindowApi, useSearchWindowApi } from '@/app/api/windows/presentation';
 import { isE2eTestMode } from '@/app/api/windows/runtime';
 import {
     isRendererOnlySearchKeybindingAction,
@@ -82,10 +82,50 @@ function buildSearchSurfaceShortcutEntries(
     });
 }
 
-export function useSearchWindowPin() {
+async function syncSearchSurfaceHideOnAppBlur(searchWindow: SearchWindowApi, shouldHide: boolean) {
+    const isE2e = await isE2eTestMode();
+    await searchWindow.setSearchSurfaceHideOnAppBlur(shouldHide && !isE2e);
+}
+
+function createSearchSurfaceBlurPolicy(searchWindow: SearchWindowApi) {
+    // Pin and lifecycle writers share one queue; coalescing to the latest desired value
+    // prevents an older slow write from overwriting a newer pin state.
+    let desiredShouldHide: boolean | undefined;
+    let appliedShouldHide: boolean | undefined;
+    let serial = Promise.resolve();
+
+    function request(shouldHide: boolean): Promise<void> {
+        desiredShouldHide = shouldHide;
+        const operation = serial
+            .catch(() => undefined)
+            .then(async () => {
+                while (desiredShouldHide !== appliedShouldHide) {
+                    const nextShouldHide = desiredShouldHide;
+                    if (nextShouldHide === undefined) return;
+                    await syncSearchSurfaceHideOnAppBlur(searchWindow, nextShouldHide);
+                    appliedShouldHide = nextShouldHide;
+                }
+            });
+        serial = operation.catch(() => undefined);
+        return operation;
+    }
+
+    return { request };
+}
+
+interface SearchWindowPinOptions {
+    shouldHideOnAppBlur?: (pinned: boolean) => boolean;
+}
+
+export function useSearchWindowPin(options: SearchWindowPinOptions = {}) {
     const currentWindow = useSearchWindowApi();
     const isPinned = ref(false);
+    const pendingPinTarget = ref<boolean | null>(null);
+    const pinnedForPolicy = computed(() => pendingPinTarget.value ?? isPinned.value);
+    const blurPolicy = createSearchSurfaceBlurPolicy(currentWindow);
+    let hasPinIntent = false;
     let lastOperation: Promise<void> = Promise.resolve();
+    const shouldHideOnAppBlur = options.shouldHideOnAppBlur ?? ((pinned: boolean) => !pinned);
 
     function queuePinOperation<T>(operation: () => Promise<T>): Promise<T> {
         const run = lastOperation.catch(() => undefined).then(operation);
@@ -98,33 +138,51 @@ export function useSearchWindowPin() {
 
     function syncWindowPinState(): Promise<boolean> {
         return queuePinOperation(async () => {
-            const nextState = await currentWindow.isAlwaysOnTop();
-            isPinned.value = nextState;
-            return nextState;
+            // Platform readback may lag or ignore always-on-top requests on Wayland.
+            if (!hasPinIntent) {
+                isPinned.value = await currentWindow.isAlwaysOnTop();
+            }
+            return isPinned.value;
         });
+    }
+
+    async function applyWindowPinned(value: boolean): Promise<boolean> {
+        pendingPinTarget.value = value;
+        try {
+            await blurPolicy.request(shouldHideOnAppBlur(value));
+            try {
+                await currentWindow.setAlwaysOnTop(value);
+            } catch (error) {
+                await blurPolicy
+                    .request(shouldHideOnAppBlur(isPinned.value))
+                    .catch((rollbackError) => {
+                        log.error(
+                            '[SearchView] Failed to restore the search surface app-blur policy:',
+                            rollbackError
+                        );
+                    });
+                throw error;
+            }
+            hasPinIntent = true;
+            isPinned.value = value;
+            return value;
+        } finally {
+            pendingPinTarget.value = null;
+        }
     }
 
     function setWindowPinned(value: boolean): Promise<boolean> {
-        return queuePinOperation(async () => {
-            await currentWindow.setAlwaysOnTop(value);
-            const nextState = await currentWindow.isAlwaysOnTop();
-            isPinned.value = nextState;
-            return nextState;
-        });
+        return queuePinOperation(() => applyWindowPinned(value));
     }
 
     function toggleWindowPin(): Promise<boolean> {
-        return queuePinOperation(async () => {
-            const currentState = await currentWindow.isAlwaysOnTop();
-            await currentWindow.setAlwaysOnTop(!currentState);
-            const nextState = await currentWindow.isAlwaysOnTop();
-            isPinned.value = nextState;
-            return nextState;
-        });
+        return queuePinOperation(() => applyWindowPinned(!isPinned.value));
     }
 
     return {
         isPinned,
+        pinnedForPolicy,
+        requestBlurPolicy: blurPolicy.request,
         syncWindowPinState,
         setWindowPinned,
         toggleWindowPin,
@@ -428,12 +486,14 @@ interface UseSearchPageLifecycleOptions {
     viewReady: Ref<boolean>;
     isDragging: Ref<boolean>;
     isPinned: Ref<boolean>;
+    pinnedForPolicy?: Readonly<Ref<boolean>>;
     isMaximized?: Readonly<Ref<boolean>>;
     searchKeybindings?: Readonly<Ref<SearchKeybindings>>;
     /** Native host resize can transiently blur WebView2 during a CSS handoff. */
     isSurfaceTransitioning?: Readonly<Ref<boolean>>;
     interactionContext: ReturnType<typeof createSearchInteractionContext>;
     syncWindowPinState: () => Promise<boolean>;
+    requestSearchSurfaceBlurPolicy?: (shouldHide: boolean) => Promise<void>;
     clearSession: () => void | Promise<void>;
     shouldClearSessionAfterTimeout?: () => boolean | Promise<boolean>;
     reconcileSearchOverlays?: (restoreFocus?: boolean) => Promise<void>;
@@ -458,11 +518,13 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         viewReady,
         isDragging,
         isPinned,
+        pinnedForPolicy = isPinned,
         isMaximized,
         searchKeybindings,
         isSurfaceTransitioning,
         interactionContext,
         syncWindowPinState,
+        requestSearchSurfaceBlurPolicy,
         clearSession,
         shouldClearSessionAfterTimeout,
         reconcileSearchOverlays,
@@ -507,10 +569,9 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         await searchWindow.hideSearchWindow();
     }
 
-    async function syncSearchSurfaceHideOnAppBlur(shouldHide: boolean) {
-        const isE2e = await isE2eTestMode();
-        await searchWindow.setSearchSurfaceHideOnAppBlur(shouldHide && !isE2e);
-    }
+    const requestBlurPolicy =
+        requestSearchSurfaceBlurPolicy ??
+        ((shouldHide: boolean) => syncSearchSurfaceHideOnAppBlur(searchWindow, shouldHide));
 
     function syncFocusStateOnFocus() {
         if (!interactionContext.state.windowVisible) {
@@ -824,7 +885,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
                     return Promise.resolve(reconcileSearchOverlays?.(false)).then(() => {
                         if (
                             isCurrent() &&
-                            !isPinned.value &&
+                            !pinnedForPolicy.value &&
                             !isDragging.value &&
                             !isMaximized?.value &&
                             !isSurfaceTransitioning?.value
@@ -858,18 +919,18 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         document.addEventListener('visibilitychange', handleVisibilityChange);
 
         stopPinnedWatch = watch(
-            [isPinned, isDragging, () => Boolean(isMaximized?.value)],
-            ([nextPinned, dragging, maximized]) => {
+            [isPinned, pinnedForPolicy, isDragging, () => Boolean(isMaximized?.value)],
+            ([nextPinned, nextPinnedForPolicy, dragging, maximized]) => {
                 const wasDragging = previousDragging;
                 previousDragging = dragging;
                 interactionContext.state.isPinned = nextPinned;
-                const shouldHideOnAppBlur = !nextPinned && !dragging && !maximized;
-                const policyOperation = syncSearchSurfaceHideOnAppBlur(shouldHideOnAppBlur);
+                const shouldHideOnAppBlur = !nextPinnedForPolicy && !dragging && !maximized;
+                const policyOperation = requestBlurPolicy(shouldHideOnAppBlur);
 
                 const interactionEndedWhileUnfocused =
                     wasDragging &&
                     !dragging &&
-                    !nextPinned &&
+                    !nextPinnedForPolicy &&
                     !maximized &&
                     interactionContext.state.windowVisible &&
                     (!interactionContext.state.windowFocused ||
@@ -887,7 +948,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
                             if (
                                 !disposed &&
                                 epoch === blurReconcileEpoch &&
-                                !isPinned.value &&
+                                !pinnedForPolicy.value &&
                                 !isDragging.value &&
                                 !isMaximized?.value &&
                                 interactionContext.state.windowVisible &&
