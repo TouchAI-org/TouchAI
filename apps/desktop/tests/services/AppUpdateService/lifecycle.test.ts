@@ -1,11 +1,14 @@
-import { AppUpdateController } from '@services/AppUpdateService';
-import { AppUpdateReminderController } from '@services/AppUpdateService/reminders';
-import type { AppUpdateChannel, AppUpdateCheckResult } from '@services/AppUpdateService/types';
-import { AppEvent, eventService } from '@services/EventService';
-import { native } from '@services/NativeService';
 import { emit } from '@tauri-apps/api/event';
+import { createTestUpdateReminder } from '@tests/utils/updates';
+import { createTestUpdateController } from '@tests/utils/updates';
 import { flushPromises } from '@vue/test-utils';
 import { afterEach, describe, expect, it } from 'vitest';
+
+import { AppEvent, eventService } from '@/app/workflows/windows/events';
+import { AppUpdateController } from '@/modules/updates';
+import { AppUpdateReminderController } from '@/modules/updates/reminders';
+import type { AppUpdateChannel, AppUpdateCheckResult } from '@/modules/updates/types';
+import { native } from '@/platform/native';
 
 import { getTauriInvokeCalls, interceptTauriInvoke, mockTauriCommand } from '../../utils/tauri';
 
@@ -84,7 +87,7 @@ function createController(initializeSettings: () => Promise<void> = async () => 
     let channel: AppUpdateChannel = 'stable';
     let autoCheckEnabled = true;
     let lastCheckedAt: string | null = null;
-    const controller = new AppUpdateController({
+    const controller = createTestUpdateController({
         native: native.updater,
         settings: {
             initialize: initializeSettings,
@@ -124,7 +127,7 @@ async function createReminder(load: () => Promise<string | null> = async () => n
     const controller = createController();
     await controller.initialize();
     const savedHistory: string[] = [];
-    const reminder = new AppUpdateReminderController({
+    const reminder = createTestUpdateReminder({
         updates: controller,
         storage: {
             load,

@@ -3,30 +3,29 @@
  * 集中管理页面 controller、生命周期编排、overlay 打开时序与 DOM 事件挂载。
  */
 import { useAlert } from '@composables/useAlert';
-import {
-    mapSearchSurfaceSource,
-    trackSurfaceOpened,
-} from '@services/AnalyticsService/productInteractions';
-import {
-    AppEvent,
-    type AppEventMap,
-    type AppEventName,
-    eventService,
-} from '@services/EventService';
+import { nextTick, onMounted, onUnmounted, type Ref, ref, watch } from 'vue';
+
+import { hasInputHistorySnapshotContent } from '@/app/api/agent/history';
+import { useProductAnalyticsApi } from '@/app/api/analytics/product';
+import { mapSearchSurfaceSource } from '@/app/api/analytics/product';
+import { log } from '@/app/api/diagnostics';
 import type {
     SearchSurfaceCommandEvent,
     SearchSurfaceHiddenEvent,
     SearchSurfaceShownEvent,
     SearchSurfaceShowSource,
     SessionStatusReminderActionEvent,
-} from '@services/EventService/types';
-import { native } from '@services/NativeService';
-import { initNotificationPermission, notify } from '@services/NotificationService';
-import { log } from '@services/ObservabilityService';
-import { runStartupTasks } from '@services/StartupService';
-import { getCurrentWindow } from '@tauri-apps/api/window';
-import { nextTick, onMounted, onUnmounted, type Ref, ref, watch } from 'vue';
-
+} from '@/app/api/search/events';
+import {
+    AppEvent,
+    eventService,
+    type SearchEventMap,
+    type SearchEventName,
+} from '@/app/api/search/events';
+import { useStartupNoticesApi } from '@/app/api/search/startup';
+import { initNotificationPermission, notify } from '@/app/api/windows/notifications';
+import { useSearchWindowApi } from '@/app/api/windows/presentation';
+import { isE2eTestMode } from '@/app/api/windows/runtime';
 import {
     isRendererOnlySearchKeybindingAction,
     SEARCH_KEYBINDING_DEFINITIONS,
@@ -35,8 +34,6 @@ import {
 } from '@/config/searchKeybindings';
 import { type MessageKey, type MessageParams, t } from '@/i18n';
 import { useSettingsStore } from '@/stores/settings';
-import { hasInputHistorySnapshotContent } from '@/types/session';
-import { isE2eTestMode } from '@/utils/runtimeMode';
 import { normalizeLocalShortcutString } from '@/utils/shortcuts';
 
 import type { ModelDropdownItem } from '../types';
@@ -86,7 +83,7 @@ function buildSearchSurfaceShortcutEntries(
 }
 
 export function useSearchWindowPin() {
-    const currentWindow = getCurrentWindow();
+    const currentWindow = useSearchWindowApi();
     const isPinned = ref(false);
     let lastOperation: Promise<void> = Promise.resolve();
 
@@ -453,6 +450,9 @@ interface UseSearchPageLifecycleOptions {
 }
 
 export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
+    const startupNotices = useStartupNoticesApi();
+    const searchWindow = useSearchWindowApi();
+    const { trackSurfaceOpened } = useProductAnalyticsApi();
     const {
         controller,
         viewReady,
@@ -476,7 +476,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
     } = options;
 
     const settingsStore = useSettingsStore();
-    const currentWindow = getCurrentWindow();
+    const currentWindow = useSearchWindowApi();
 
     const unlisteners: Array<() => void> = [];
     let disposed = false;
@@ -504,12 +504,12 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
     }
 
     async function hideSearchWindow() {
-        await native.window.hideSearchWindow();
+        await searchWindow.hideSearchWindow();
     }
 
     async function syncSearchSurfaceHideOnAppBlur(shouldHide: boolean) {
         const isE2e = await isE2eTestMode();
-        await native.window.setSearchSurfaceHideOnAppBlur(shouldHide && !isE2e);
+        await searchWindow.setSearchSurfaceHideOnAppBlur(shouldHide && !isE2e);
     }
 
     function syncFocusStateOnFocus() {
@@ -600,7 +600,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
 
         try {
             await settingsStore.initialize();
-            await native.shortcut.registerGlobalShortcut(settingsStore.globalShortcut);
+            await searchWindow.registerGlobalShortcut(settingsStore.globalShortcut);
         } catch (error) {
             log.error('[SearchView] Failed to initialize global shortcut:', error);
 
@@ -636,7 +636,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         });
         searchSurfaceShortcutSync = searchSurfaceShortcutSync
             .catch(() => undefined)
-            .then(() => native.shortcut.setSearchSurfaceShortcuts(entries))
+            .then(() => searchWindow.setSearchSurfaceShortcuts(entries))
             .catch((error) => {
                 log.error('[SearchView] Failed to sync search surface shortcuts:', error);
             });
@@ -696,7 +696,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
             await initNotificationPermission();
         }
         if (disposed) return;
-        await runStartupTasks();
+        await startupNotices.consume();
     }
 
     function startSearchSurfaceShortcutSync() {
@@ -713,9 +713,9 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         );
     }
 
-    async function listenWhileMounted<T extends AppEventName>(
+    async function listenWhileMounted<T extends SearchEventName>(
         event: T,
-        callback: (payload: AppEventMap[T]) => void
+        callback: (payload: SearchEventMap[T]) => void
     ) {
         if (disposed) return;
         const unlisten = await eventService.on(event, (payload) => {
@@ -829,7 +829,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
                             !isMaximized?.value &&
                             !isSurfaceTransitioning?.value
                         ) {
-                            return native.window.reconcileSearchWindowBlur();
+                            return searchWindow.reconcileSearchWindowBlur();
                         }
                     });
                 })
@@ -894,7 +894,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
                                 (!interactionContext.state.windowFocused ||
                                     !interactionContext.state.appFocused)
                             ) {
-                                return native.window.reconcileSearchWindowBlur();
+                                return searchWindow.reconcileSearchWindowBlur();
                             }
                         })
                         .catch((error) => {

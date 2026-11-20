@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { normalizeClipboardPayload } from '@/services/ClipboardService/html';
-import type { ClipboardPayload } from '@/services/NativeService/types';
+import { normalizeClipboardPayload } from '@/modules/attachments/clipboardHtml';
+import type { ClipboardPayload } from '@/platform/native/types';
 
 /**
  * The clipboard pipeline has to survive whatever a browser or an office suite puts on the

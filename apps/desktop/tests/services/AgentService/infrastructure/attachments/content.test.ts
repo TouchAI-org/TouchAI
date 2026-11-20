@@ -9,7 +9,7 @@ const { openMock, statMock, convertFileSrcMock, normalizeImageBytesMock } = vi.h
 
 vi.mock('@tauri-apps/api/core', () => ({ convertFileSrc: convertFileSrcMock }));
 vi.mock('@tauri-apps/plugin-fs', () => ({ open: openMock, stat: statMock }));
-vi.mock('@/services/AgentService/infrastructure/attachments/imageNormalization', () => ({
+vi.mock('@/modules/attachments/image.io', () => ({
     normalizeImageBytes: normalizeImageBytesMock,
 }));
 
@@ -19,8 +19,8 @@ import {
     readAttachmentAsText,
     readAttachmentHead,
     readAttachmentImageForTransport,
-} from '@/services/AgentService/infrastructure/attachments/content';
-import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments/types';
+} from '@/modules/attachments/content.io';
+import type { AttachmentIndex } from '@/modules/attachments/types';
 
 function createAttachment(overrides: Partial<AttachmentIndex> = {}): AttachmentIndex {
     return {
@@ -93,8 +93,7 @@ describe('given an attachment is read for transport', () => {
     it('user gets no read attempt for a PDF over the byte limit', async () => {
         globalThis.fetch = vi.fn() as never;
 
-        const { readAttachmentAsBase64 } =
-            await import('@/services/AgentService/infrastructure/attachments/content');
+        const { readAttachmentAsBase64 } = await import('@/modules/attachments/content.io');
         const result = await readAttachmentAsBase64(
             createAttachment({ type: 'file', name: 'x.pdf' }),
             {

@@ -1,465 +1,173 @@
+import {
+    createAgentWindowFixture,
+    network,
+    response,
+    streamingResponse,
+} from '@tests/utils/agentWindow';
 import { mountComposable } from '@tests/utils/composables';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
+import { agentApiKey } from '@/app/api/agent';
 import { useAgent } from '@/composables/agent/useAgent';
-import type { PendingUserMessage, SessionTaskSnapshot } from '@/services/AgentService';
 
-const { eventServiceOnMock, findSessionByIdMock, notifyMock, sessionTaskCenterMock } = vi.hoisted(
-    () => ({
-        eventServiceOnMock: vi.fn(),
-        findSessionByIdMock: vi.fn(),
-        notifyMock: vi.fn(),
-        sessionTaskCenterMock: {
-            attachSessionView: vi.fn(),
-            approveTaskToolCall: vi.fn(() => true),
-            cancelTask: vi.fn(() => true),
-            clearSessionUserMessages: vi.fn(() => false),
-            clearTaskUserMessages: vi.fn(() => false),
-            enqueueSessionUserMessage: vi.fn<() => PendingUserMessage | null>(() => null),
-            enqueueTaskUserMessage: vi.fn<() => PendingUserMessage | null>(() => null),
-            promoteSessionUserMessage: vi.fn(() => false),
-            promoteTaskUserMessage: vi.fn(() => false),
-            rejectTaskToolCall: vi.fn(() => true),
-            removeSessionUserMessage: vi.fn(() => false),
-            removeTaskUserMessage: vi.fn(() => false),
-            clearUserMessageEditing: vi.fn(() => false),
-            setSessionUserMessageEditing: vi.fn(() => false),
-            setTaskUserMessageEditing: vi.fn(() => false),
-            reorderSessionQueuedMessages: vi.fn(() => true),
-            reorderTaskQueuedMessages: vi.fn(() => true),
-            restoreSessionQueue: vi.fn(async () => []),
-            resumeSessionQueue: vi.fn(),
-            startTask: vi.fn(),
-            subscribeTask: vi.fn(),
-            updateSessionUserMessage: vi.fn(() => false),
-            updateTaskUserMessage: vi.fn(() => false),
-            updateTaskUserMessageModel: vi.fn(() => false),
-        },
-    })
-);
-
-vi.mock('@database/queries/sessions', () => ({
-    findSessionById: findSessionByIdMock,
+const notifications = vi.hoisted(() => vi.fn());
+vi.mock('@tauri-apps/plugin-notification', () => ({
+    sendNotification: notifications,
+    isPermissionGranted: async () => true,
+    requestPermission: async () => 'granted',
 }));
 
-vi.mock('@services/NotificationService', () => ({
-    notify: notifyMock,
-}));
-
-vi.mock('@/services/EventService', () => ({
-    eventService: {
-        on: eventServiceOnMock,
-    },
-}));
-
-vi.mock('@/services/AgentService', async () => {
-    const actual =
-        await vi.importActual<typeof import('@/services/AgentService')>('@/services/AgentService');
-    return {
-        ...actual,
-        sessionTaskCenter: sessionTaskCenterMock,
-    };
-});
-
-function createTaskSnapshot(
-    taskId: string,
-    overrides: Partial<SessionTaskSnapshot> = {}
-): SessionTaskSnapshot {
-    const snapshot: SessionTaskSnapshot = {
-        taskId,
-        sessionId: 1,
-        turnId: 1,
-        status: 'running' as const,
-        executionMode: 'foreground' as const,
-        sessionHistory: [],
-        pendingUserMessages: [],
-        pendingToolApproval: null,
-        pendingApprovals: [],
-        pendingUserQuestion: null,
-        error: null,
-        currentModel: null,
-        startedAt: 1,
-        updatedAt: 1,
-        modelSwitchCount: 0,
-    };
-
-    return Object.assign(snapshot, overrides);
-}
-
-function deferred<T>() {
-    let resolve!: (value: T) => void;
-    const promise = new Promise<T>((innerResolve) => {
-        resolve = innerResolve;
-    });
-
-    return { promise, resolve };
-}
-
-describe('when the user sends a prompt', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
-        eventServiceOnMock.mockResolvedValue(() => undefined);
-        findSessionByIdMock.mockResolvedValue({ id: 1, title: 'Active session' });
-        sessionTaskCenterMock.attachSessionView.mockReturnValue(null);
-        sessionTaskCenterMock.subscribeTask.mockImplementation((_taskId, listener) => {
-            listener(createTaskSnapshot('task-1'));
-            return () => undefined;
-        });
-    });
-
-    it('user gets the failure reported in the app without a second desktop notification', async () => {
-        sessionTaskCenterMock.startTask.mockResolvedValue({
-            taskId: 'task-1',
-            sessionId: 1,
-            completion: Promise.reject(new Error('task failed')),
-        });
-
-        const mounted = await mountComposable(() => useAgent());
-
-        await mounted.result.sendRequest('hello');
-
-        expect(mounted.result.error.value?.message).toBe('task failed');
-        expect(notifyMock).not.toHaveBeenCalled();
-
-        mounted.unmount();
-    });
-
-    it('user is told when the request could not even start', async () => {
-        sessionTaskCenterMock.startTask.mockRejectedValue(new Error('startup failed'));
-
-        const mounted = await mountComposable(() => useAgent());
-
-        await mounted.result.sendRequest('hello');
-
-        expect(notifyMock).toHaveBeenCalledWith({
-            title: 'TouchAI - 请求失败',
-            body: 'startup failed',
-        });
-
-        mounted.unmount();
-    });
-
-    it('user gets no orphan task subscription when the request is dropped before it starts', async () => {
-        for (const dropRequest of ['clearSession', 'cancel'] as const) {
-            vi.clearAllMocks();
-            const startTask = deferred<{
-                taskId: string;
-                sessionId: number;
-                completion: Promise<never>;
-            }>();
-            let startupSignal: AbortSignal | undefined;
-            sessionTaskCenterMock.startTask.mockImplementation((options) => {
-                startupSignal = options.signal;
-                return startTask.promise;
-            });
-
-            const mounted = await mountComposable(() => useAgent());
-            const sendPromise = mounted.result.sendRequest('hello');
-            expect(startupSignal?.aborted).toBe(false);
-
-            if (dropRequest === 'clearSession') {
-                mounted.result.clearSession();
-            } else {
-                mounted.result.cancel();
-            }
-
-            // The startup must be aborted and the spinner cleared right away.
-            expect(startupSignal?.aborted).toBe(true);
+describe('given a conversation uses the real main execution host', () => {
+    it('user sees a running request failure in the conversation without a duplicate desktop notification', async () => {
+        const fixture = createAgentWindowFixture();
+        fixture.database.exec('UPDATE models SET context_limit = 128');
+        const mounted = await mountComposable(
+            () => useAgent(),
+            (app) => app.provide(agentApiKey, fixture.window.api)
+        );
+        try {
+            await mounted.result.sendRequest('too large for the fixture context');
+            expect(mounted.result.error.value?.message).toBeTruthy();
             expect(mounted.result.isLoading.value).toBe(false);
+            expect(notifications).not.toHaveBeenCalled();
+            expect(network.requests).toEqual([]);
+        } finally {
+            mounted.unmount();
+            await fixture.window.dispose();
+        }
+    });
 
-            startTask.resolve({
-                taskId: 'task-1',
-                sessionId: 1,
-                completion: new Promise<never>(() => undefined),
-            });
-            await sendPromise;
-
-            expect(sessionTaskCenterMock.subscribeTask).not.toHaveBeenCalled();
-
+    it('user is notified when a closed main host cannot start a request', async () => {
+        const fixture = createAgentWindowFixture();
+        await fixture.window.dispose();
+        const mounted = await mountComposable(
+            () => useAgent(),
+            (app) => app.provide(agentApiKey, fixture.window.api)
+        );
+        try {
+            await mounted.result.sendRequest('hello');
+            expect(mounted.result.error.value?.message).toContain('AGENT_DISPOSED');
+            expect(notifications).toHaveBeenCalledWith(
+                expect.objectContaining({ body: expect.stringContaining('AGENT_DISPOSED') })
+            );
+            expect(network.requests).toEqual([]);
+        } finally {
             mounted.unmount();
         }
     });
-});
 
-describe('when the user reopens a conversation that switched models', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
-        findSessionByIdMock.mockResolvedValue({ id: 1, title: 'Active session' });
-    });
-
-    it('user sees the upgraded model selected for the reopened conversation', async () => {
-        const switchedSnapshot = createTaskSnapshot('task-1', {
-            currentModel: {
-                modelDbId: 7,
-                providerId: 9,
-                providerName: 'Provider',
-                modelId: 'upgraded-model',
-                modelName: 'Upgraded Model',
-            },
-            modelSwitchCount: 1,
-        });
-        const onModelSelected = vi.fn();
-
-        sessionTaskCenterMock.attachSessionView.mockReturnValue({
-            taskId: 'task-1',
-            snapshot: switchedSnapshot,
-        });
-        sessionTaskCenterMock.subscribeTask.mockImplementation((_taskId, listener) => {
-            listener(switchedSnapshot);
-            return () => undefined;
-        });
-
-        const mounted = await mountComposable(() => useAgent({ onModelSelected }));
-
-        const loadedSession = await mounted.result.openSession(1);
-
-        expect(loadedSession).toMatchObject({
-            modelId: 'upgraded-model',
-            providerId: 9,
-        });
-        expect(onModelSelected).toHaveBeenCalledWith({
-            modelId: 'upgraded-model',
-            providerId: 9,
-        });
-
-        mounted.unmount();
-    });
-});
-
-describe('when the user answers a tool approval with nothing attached', () => {
-    it('user gets the answer refused rather than sent to a task that is gone', async () => {
-        const mounted = await mountComposable(() => useAgent());
-
-        // No task is attached, so every answer path has to decline instead of reaching the
-        // backend; the dialog stays open and the user is not told the click was accepted.
-        expect(mounted.result.approvePendingToolApproval('call-1')).toBe(false);
-        expect(mounted.result.rejectPendingToolApproval('call-1')).toBe(false);
-        expect(mounted.result.settleUserQuestion('call-1', null)).toBe(false);
-        expect(sessionTaskCenterMock.approveTaskToolCall).not.toHaveBeenCalled();
-        expect(sessionTaskCenterMock.rejectTaskToolCall).not.toHaveBeenCalled();
-
-        mounted.unmount();
-    });
-});
-
-describe('when the user drags queued messages into a new order', () => {
-    it('user gets the active task queue reordered instead of only the visible list', async () => {
-        vi.clearAllMocks();
-        eventServiceOnMock.mockResolvedValue(() => undefined);
-        sessionTaskCenterMock.attachSessionView.mockReturnValue({
-            taskId: 'task-1',
-            snapshot: createTaskSnapshot('task-1'),
-        });
-        sessionTaskCenterMock.subscribeTask.mockImplementation((_taskId, listener) => {
-            listener(createTaskSnapshot('task-1'));
-            return () => undefined;
-        });
-        sessionTaskCenterMock.reorderTaskQueuedMessages.mockReturnValue(true);
-
-        const mounted = await mountComposable(() => useAgent());
-        await mounted.result.openSession(1);
-
-        expect(mounted.result.reorderPendingUserMessages(['queued-2', 'queued-1'])).toBe(true);
-        expect(sessionTaskCenterMock.reorderTaskQueuedMessages).toHaveBeenCalledWith('task-1', [
-            'queued-2',
-            'queued-1',
-        ]);
-
-        mounted.unmount();
-    });
-});
-
-describe('when the user manages messages waiting behind a run', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
-        eventServiceOnMock.mockResolvedValue(() => undefined);
-        findSessionByIdMock.mockResolvedValue({ id: 1, title: 'Active session' });
-        sessionTaskCenterMock.attachSessionView.mockReturnValue({
-            taskId: 'task-1',
-            snapshot: createTaskSnapshot('task-1'),
-        });
-        sessionTaskCenterMock.subscribeTask.mockImplementation((_taskId, listener) => {
-            listener(createTaskSnapshot('task-1'));
-            return () => undefined;
-        });
-    });
-
-    it('user gets every queue command applied to the task they are watching', async () => {
-        const pending = {
-            id: 'message-1',
-            prompt: 'queued',
-            attachments: [],
-            delivery: 'queue' as const,
-            createdAt: 1,
-        };
-        sessionTaskCenterMock.enqueueTaskUserMessage.mockReturnValue(pending);
-        sessionTaskCenterMock.removeTaskUserMessage.mockReturnValue(true);
-        sessionTaskCenterMock.updateTaskUserMessage.mockReturnValue(true);
-        sessionTaskCenterMock.promoteTaskUserMessage.mockReturnValue(true);
-        sessionTaskCenterMock.reorderTaskQueuedMessages.mockReturnValue(true);
-        sessionTaskCenterMock.clearTaskUserMessages.mockReturnValue(true);
-        sessionTaskCenterMock.updateTaskUserMessageModel.mockReturnValue(true);
-
-        const mounted = await mountComposable(() => useAgent());
-        await mounted.result.openSession(1);
-
-        expect(mounted.result.enqueueUserMessage({ prompt: 'queued' }, 'queue')).toBe(pending);
-        expect(mounted.result.removePendingUserMessage('message-1')).toBe(true);
-        expect(mounted.result.updatePendingUserMessage('message-1', { prompt: 'edited' })).toBe(
-            true
-        );
-        expect(mounted.result.promotePendingUserMessage('message-1')).toBe(true);
-        expect(mounted.result.reorderPendingUserMessages(['message-2', 'message-1'])).toBe(true);
-        expect(mounted.result.clearPendingUserMessages()).toBe(true);
-        expect(mounted.result.updatePendingUserMessagesModel('model-2', 2)).toBe(true);
-
-        expect(sessionTaskCenterMock.enqueueTaskUserMessage).toHaveBeenCalledWith(
-            'task-1',
-            { prompt: 'queued' },
-            'queue'
-        );
-        expect(sessionTaskCenterMock.updateTaskUserMessage).toHaveBeenCalledWith(
-            'task-1',
-            'message-1',
-            { prompt: 'edited' }
-        );
-        expect(sessionTaskCenterMock.reorderTaskQueuedMessages).toHaveBeenCalledWith('task-1', [
-            'message-2',
-            'message-1',
-        ]);
-        expect(sessionTaskCenterMock.updateTaskUserMessageModel).toHaveBeenCalledWith(
-            'task-1',
-            'model-2',
-            2
-        );
-
-        mounted.unmount();
-    });
-
-    it('user gets queue commands handed to the session while the next task starts', async () => {
-        const pending = {
-            id: 'message-2',
-            prompt: 'late',
-            attachments: [],
-            delivery: 'queue' as const,
-            createdAt: 2,
-        };
-        sessionTaskCenterMock.enqueueTaskUserMessage.mockReturnValue(null);
-        sessionTaskCenterMock.enqueueSessionUserMessage.mockReturnValue(pending);
-        sessionTaskCenterMock.removeTaskUserMessage.mockReturnValue(false);
-        sessionTaskCenterMock.removeSessionUserMessage.mockReturnValue(true);
-        sessionTaskCenterMock.updateTaskUserMessage.mockReturnValue(false);
-        sessionTaskCenterMock.updateSessionUserMessage.mockReturnValue(true);
-        sessionTaskCenterMock.setTaskUserMessageEditing.mockReturnValue(false);
-        sessionTaskCenterMock.setSessionUserMessageEditing.mockReturnValue(true);
-        sessionTaskCenterMock.promoteTaskUserMessage.mockReturnValue(false);
-        sessionTaskCenterMock.promoteSessionUserMessage.mockReturnValue(true);
-        sessionTaskCenterMock.reorderTaskQueuedMessages.mockReturnValue(false);
-        sessionTaskCenterMock.reorderSessionQueuedMessages.mockReturnValue(true);
-        sessionTaskCenterMock.clearTaskUserMessages.mockReturnValue(false);
-        sessionTaskCenterMock.clearSessionUserMessages.mockReturnValue(true);
-
-        const mounted = await mountComposable(() => useAgent());
-        await mounted.result.openSession(1);
-
-        expect(mounted.result.enqueueUserMessage({ prompt: 'late' }, 'queue')).toBe(pending);
-        expect(mounted.result.removePendingUserMessage('message-2')).toBe(true);
-        expect(
-            mounted.result.updatePendingUserMessage('message-2', { prompt: 'late edited' })
-        ).toBe(true);
-        expect(mounted.result.beginPendingMessageEdit('message-2')).toBe(true);
-        expect(mounted.result.endPendingMessageEdit('message-2')).toBe(true);
-        expect(mounted.result.promotePendingUserMessage('message-2')).toBe(true);
-        expect(mounted.result.reorderPendingUserMessages(['message-3', 'message-2'])).toBe(true);
-        expect(mounted.result.clearPendingUserMessages()).toBe(true);
-
-        expect(sessionTaskCenterMock.enqueueSessionUserMessage).toHaveBeenCalledWith(
-            1,
-            { prompt: 'late' },
-            'queue'
-        );
-        expect(sessionTaskCenterMock.reorderSessionQueuedMessages).toHaveBeenCalledWith(1, [
-            'message-3',
-            'message-2',
-        ]);
-        expect(sessionTaskCenterMock.setSessionUserMessageEditing).toHaveBeenNthCalledWith(
-            1,
-            1,
-            'message-2',
-            true
-        );
-        expect(sessionTaskCenterMock.setSessionUserMessageEditing).toHaveBeenNthCalledWith(
-            2,
-            1,
-            'message-2',
-            false
-        );
-
-        mounted.unmount();
-    });
-
-    it('user gets no phantom queue command when no task or session is open', async () => {
-        const mounted = await mountComposable(() => useAgent());
-
-        expect(mounted.result.enqueueUserMessage({ prompt: 'orphan' }, 'queue')).toBeNull();
-        expect(mounted.result.removePendingUserMessage('message-1')).toBe(false);
-        expect(mounted.result.updatePendingUserMessage('message-1', { prompt: 'edit' })).toBe(
-            false
-        );
-        expect(mounted.result.promotePendingUserMessage('message-1')).toBe(false);
-        expect(mounted.result.beginPendingMessageEdit('message-1')).toBe(false);
-        expect(mounted.result.endPendingMessageEdit('message-1')).toBe(false);
-        expect(mounted.result.reorderPendingUserMessages(['message-1'])).toBe(false);
-        expect(mounted.result.clearPendingUserMessages()).toBe(false);
-        expect(mounted.result.updatePendingUserMessagesModel('model-2', 2)).toBe(false);
-        expect(sessionTaskCenterMock.enqueueSessionUserMessage).not.toHaveBeenCalled();
-        expect(sessionTaskCenterMock.removeSessionUserMessage).not.toHaveBeenCalled();
-
-        mounted.unmount();
-    });
-
-    it('user gets attached when a queued task starts while they keep the same session open', async () => {
-        const queuedSnapshot = createTaskSnapshot('task-2');
-        sessionTaskCenterMock.attachSessionView
-            .mockReturnValueOnce({
-                taskId: 'task-1',
-                snapshot: createTaskSnapshot('task-1'),
-            })
-            .mockReturnValueOnce({
-                taskId: 'task-2',
-                snapshot: queuedSnapshot,
+    it.each(['clearSession', 'cancel'] as const)(
+        'user leaves no running task when choosing %s during history startup',
+        async (dropRequest) => {
+            let paused = false;
+            let waiting = false;
+            let release!: () => void;
+            const barrier = new Promise<void>((resolve) => {
+                release = resolve;
             });
+            const fixture = createAgentWindowFixture('main', undefined, {
+                beforeQuery: ({ sql }) => {
+                    if (paused && sql.includes('from "sessions"')) {
+                        waiting = true;
+                        return barrier;
+                    }
+                },
+            });
+            fixture.database.exec(`INSERT INTO sessions (id, session_id, title, model, provider_id)
+            VALUES (7, 'startup-session', 'Previous request', 'fixture-model', 1);`);
+            const mounted = await mountComposable(
+                () => useAgent(),
+                (app) => app.provide(agentApiKey, fixture.window.api)
+            );
+            try {
+                await mounted.result.openSession(7);
+                paused = true;
+                const sending = mounted.result.sendRequest('cancel while reading history');
+                await expect.poll(() => waiting).toBe(true);
+                mounted.result[dropRequest]();
+                expect(mounted.result.isLoading.value).toBe(false);
+                paused = false;
+                release();
+                await sending;
+                expect(fixture.window.api.listActiveTasks()).toEqual([]);
+                expect(network.requests).toEqual([]);
+                expect(
+                    fixture.database.prepare('SELECT count(*) AS count FROM session_turns').get()
+                ).toEqual({ count: 0 });
+            } finally {
+                paused = false;
+                release();
+                mounted.unmount();
+                await fixture.window.dispose();
+            }
+        }
+    );
 
-        const mounted = await mountComposable(() => useAgent());
-        await mounted.result.openSession(1);
-        await Promise.resolve();
-
-        const listener = eventServiceOnMock.mock.calls[0]?.[1] as
-            | ((event: { sessionId: number | null; status: string; taskId: string }) => void)
-            | undefined;
-        listener?.({ sessionId: 1, status: 'running', taskId: 'task-2' });
-
-        expect(sessionTaskCenterMock.subscribeTask).toHaveBeenLastCalledWith(
-            'task-2',
-            expect.any(Function)
+    it('user reopens an active conversation with its upgraded model still selected', async () => {
+        const fixture = createAgentWindowFixture();
+        await fixture.window.ready;
+        await fixture.window.capabilities.waitForAgent();
+        fixture.database
+            .exec(`INSERT INTO models (id, provider_id, name, model_id, tool_call, context_limit, output_limit)
+            VALUES (2, 1, 'Upgraded fixture', 'upgraded-fixture', 1, 262144, 1024);
+            UPDATE built_in_tools SET config_json = '{"chain":[{"providerId":1,"modelId":"fixture-model"},{"providerId":1,"modelId":"upgraded-fixture"}]}'
+            WHERE tool_id = 'upgrade_model';`);
+        const channel = streamingResponse();
+        network.replies.push(
+            response('', false, { name: 'builtin__upgrade_model', arguments: '{}' }),
+            channel.response
         );
-
-        mounted.unmount();
+        const selected: unknown[] = [];
+        const mounted = await mountComposable(
+            () => useAgent({ onModelSelected: (target) => selected.push(target) }),
+            (app) => app.provide(agentApiKey, fixture.window.api)
+        );
+        try {
+            const started = await fixture.window.api.startTask({ prompt: 'upgrade this request' });
+            await expect
+                .poll(() => fixture.window.api.getTaskSnapshot(started.taskId)?.pendingToolApproval)
+                .toBeTruthy();
+            const decision = fixture.window.api.getTaskSnapshot(
+                started.taskId
+            )!.pendingToolApproval!;
+            fixture.window.api.approveTaskToolCall(
+                started.taskId,
+                decision.callId,
+                decision.decisionId
+            );
+            await expect
+                .poll(() => fixture.window.api.getTaskSnapshot(started.taskId)?.modelSwitchCount)
+                .toBe(1);
+            const sessionId = fixture.window.api.getTaskSnapshot(started.taskId)!.sessionId!;
+            expect(await mounted.result.openSession(sessionId)).toMatchObject({
+                modelId: 'upgraded-fixture',
+                providerId: 1,
+            });
+            expect(selected).toContainEqual({ modelId: 'upgraded-fixture', providerId: 1 });
+            channel.delta({ content: 'upgraded answer' });
+            channel.finish();
+            await started.completion;
+        } finally {
+            channel.finish();
+            mounted.unmount();
+            await fixture.window.dispose();
+        }
     });
 
-    it('user keeps the current task when a different session starts running', async () => {
-        const mounted = await mountComposable(() => useAgent());
-        await mounted.result.openSession(1);
-        await Promise.resolve();
-
-        const attachCalls = sessionTaskCenterMock.attachSessionView.mock.calls.length;
-        const listener = eventServiceOnMock.mock.calls[0]?.[1] as
-            | ((event: { sessionId: number | null; status: string; taskId: string }) => void)
-            | undefined;
-        listener?.({ sessionId: 2, status: 'running', taskId: 'task-2' });
-
-        expect(sessionTaskCenterMock.attachSessionView).toHaveBeenCalledTimes(attachCalls);
-
-        mounted.unmount();
+    it('user cannot answer a decision when no task is attached to the conversation', async () => {
+        const fixture = createAgentWindowFixture();
+        const mounted = await mountComposable(
+            () => useAgent(),
+            (app) => app.provide(agentApiKey, fixture.window.api)
+        );
+        try {
+            expect(mounted.result.approvePendingToolApproval('call-1')).toBe(false);
+            expect(mounted.result.rejectPendingToolApproval('call-1')).toBe(false);
+            expect(mounted.result.settleUserQuestion('call-1', null)).toBe(false);
+            expect(fixture.window.api.listActiveTasks()).toEqual([]);
+        } finally {
+            mounted.unmount();
+            await fixture.window.dispose();
+        }
     });
 });

@@ -1,6 +1,9 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { getSettingsService, type SettingsService } from '@services/SettingsService';
+import { defineStore } from 'pinia';
+import { useStateMachine } from 'reka-ui';
+import { computed, onScopeDispose, ref, shallowRef } from 'vue';
+
 import {
     applyGeneralSettingValue,
     createDefaultGeneralSettings,
@@ -8,19 +11,17 @@ import {
     type GeneralSettingKey,
     type GeneralSettingsData,
     type GeneralSettingValue,
-} from '@services/SettingsService/domain';
+} from '@/app/api/settings/preferences';
 import {
     SettingsErrorCode,
     type SettingsMutationResult,
     SettingsServiceError,
-} from '@services/SettingsService/types';
-import { defineStore } from 'pinia';
-import { useStateMachine } from 'reka-ui';
-import { computed, onScopeDispose, ref, shallowRef } from 'vue';
+} from '@/app/api/settings/preferences';
+import { type SettingsApi, useSettingsApi } from '@/app/api/settings/preferences';
 
 import { createGeneralSettingsComputedRefs } from './settingBindings';
 
-export type { GeneralSettingsData, OutputScrollBehavior } from '@services/SettingsService/domain';
+export type { GeneralSettingsData, OutputScrollBehavior } from '@/app/api/settings/preferences';
 
 const SETTINGS_LIFECYCLE = {
     pending: { ready: 'ready', dispose: 'disposed' },
@@ -30,7 +31,7 @@ const SETTINGS_LIFECYCLE = {
 
 type SettingsInitialization = ReturnType<typeof useStateMachine<typeof SETTINGS_LIFECYCLE>> & {
     promise: Promise<void> | null;
-    service: SettingsService;
+    service: SettingsApi;
 };
 
 function toSettingsError(result: SettingsMutationResult): SettingsServiceError {
@@ -55,6 +56,7 @@ function sameSettingField(left: unknown, right: unknown): boolean {
 }
 
 export const useSettingsStore = defineStore('settings', () => {
+    const preferences = useSettingsApi();
     const settings = ref<GeneralSettingsData>(createDefaultGeneralSettings());
     const initialization = shallowRef<SettingsInitialization | null>(null);
     const initialized = computed(() => initialization.value?.state.value === 'ready');
@@ -64,7 +66,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
     let initializePromise: Promise<void> | null = null;
     let unsubscribe: (() => void) | null = null;
-    let subscribedService: SettingsService | null = null;
+    let subscribedService: SettingsApi | null = null;
     let disposed = false;
     let pendingMutationToken = 0;
     const pendingMutations = new Map<
@@ -72,11 +74,11 @@ export const useSettingsStore = defineStore('settings', () => {
         { token: number; value: GeneralSettingValue }
     >();
 
-    function service(): SettingsService {
-        return getSettingsService();
+    function service(): SettingsApi {
+        return preferences;
     }
 
-    function mirror(source: SettingsService = service()): void {
+    function mirror(source: SettingsApi = service()): void {
         if (disposed) {
             return;
         }
@@ -98,7 +100,7 @@ export const useSettingsStore = defineStore('settings', () => {
         }
     }
 
-    function ensureSubscribed(source: SettingsService): void {
+    function ensureSubscribed(source: SettingsApi): void {
         if (subscribedService === source && unsubscribe) {
             return;
         }
@@ -203,7 +205,6 @@ export const useSettingsStore = defineStore('settings', () => {
     }
 
     function releaseInitialization(): void {
-        const source = subscribedService ?? initialization.value?.service ?? null;
         disposed = true;
         const attempt = initialization.value;
         if (attempt?.state.value === 'pending' || attempt?.state.value === 'ready') {
@@ -214,7 +215,6 @@ export const useSettingsStore = defineStore('settings', () => {
         unsubscribe?.();
         unsubscribe = null;
         subscribedService = null;
-        source?.dispose();
         lastWarning.value = null;
     }
 

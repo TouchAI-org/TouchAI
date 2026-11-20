@@ -30,6 +30,7 @@ import {
     useInterfaceLanguage,
     waitForE2eBridge,
 } from '../support/desktop.js';
+import { configureE2eModel } from '../support/model-administration.js';
 
 const INITIAL_PROMPT = 'Start the running turn';
 const DEFAULT_SHORTCUTS = {
@@ -227,12 +228,7 @@ describe('user sends queued and priority messages during a running answer', () =
         await waitForE2eBridge();
         await useInterfaceLanguage();
         await resetSearchSurface();
-        await callE2eBridge(
-            'configureE2eModel',
-            server.endpoint,
-            server.modelId,
-            'TouchAI E2E Model'
-        );
+        await configureE2eModel(server.endpoint, server.modelId, 'TouchAI E2E Model');
     });
 
     beforeEach(async () => {

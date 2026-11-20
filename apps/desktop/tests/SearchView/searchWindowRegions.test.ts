@@ -1,9 +1,6 @@
-import type {
-    SearchSurfacePreparation,
-    SearchWindowRegionUpdate,
-} from '@services/NativeService/types';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import type { SearchSurfacePreparation, SearchWindowRegionUpdate } from '@/platform/native/types';
 import type { SearchWindowRegionReport } from '@/views/SearchView/searchWindowRegions';
 import {
     createSearchWindowRegionReporter,

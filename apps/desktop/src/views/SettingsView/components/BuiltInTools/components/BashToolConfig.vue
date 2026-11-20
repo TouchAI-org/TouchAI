@@ -4,9 +4,10 @@
     import AppIcon from '@components/AppIcon.vue';
     import { Input } from '@components/ui/input';
     import { Switch } from '@components/ui/switch';
-    import { log } from '@services/ObservabilityService';
-    import { open } from '@tauri-apps/plugin-dialog';
+    import { onUnmounted } from 'vue';
 
+    import { log } from '@/app/api/diagnostics';
+    import { useToolSettingsApi } from '@/app/api/settings/tools';
     import { t } from '@/i18n';
 
     import type { BashApprovalMode, BashToolConfig } from '../types';
@@ -21,6 +22,11 @@
 
     const props = defineProps<Props>();
     const emit = defineEmits<Emits>();
+    const settings = useToolSettingsApi();
+    let disposed = false;
+    onUnmounted(() => {
+        disposed = true;
+    });
 
     const approvalModeOptions: Array<{
         value: BashApprovalMode;
@@ -41,6 +47,7 @@
     ];
 
     function patch(next: Partial<BashToolConfig>) {
+        if (disposed || props.disabled) return;
         emit('update:modelValue', {
             ...props.modelValue,
             ...next,
@@ -63,14 +70,9 @@
     }
 
     async function pickDirectory(defaultPath?: string): Promise<string | null> {
+        if (disposed || props.disabled) return null;
         try {
-            const picked = await open({
-                directory: true,
-                multiple: false,
-                defaultPath: defaultPath?.trim() || undefined,
-                title: t('settings.builtInTools.bash.chooseDirectory'),
-            });
-            return typeof picked === 'string' ? picked : null;
+            return await settings.pickBashWorkingDirectory(defaultPath);
         } catch (error) {
             log.error('[BashToolConfig] Failed to pick directory:', error);
             return null;
@@ -200,6 +202,7 @@
                             type="button"
                             :disabled="disabled"
                             class="text-neutral-400 transition-colors hover:text-neutral-700 disabled:cursor-not-allowed disabled:opacity-60"
+                            :aria-label="t('settings.builtInTools.bash.addDirectory')"
                             @click="addAllowedWorkingDirectory"
                         >
                             <AppIcon name="plus" class="h-5 w-5" />
@@ -239,6 +242,7 @@
                                 type="button"
                                 :disabled="disabled"
                                 class="text-neutral-400 transition-colors hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-60"
+                                :aria-label="t('settings.builtInTools.bash.removeDirectory')"
                                 @click="removeAllowedWorkingDirectory(index)"
                             >
                                 <AppIcon name="x" class="h-5 w-5" />

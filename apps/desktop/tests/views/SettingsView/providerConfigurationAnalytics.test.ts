@@ -1,37 +1,13 @@
-import type { Provider } from '@database/schema';
+import { network } from '@tests/utils/agentWindow';
 import { deferred, installProductAnalytics } from '@tests/utils/productAnalytics';
-import { mockTauriCommand } from '@tests/utils/tauri';
+import { createSettingsPanelFixture } from '@tests/utils/settingsPanel';
+import { createTestWindowPresentation } from '@tests/utils/windowPresentation';
 import { flushPromises, mount } from '@vue/test-utils';
+import { beforeEach as beforePresentation } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
 import AiServicesSection from '@/views/SettingsView/components/AiServices/index.vue';
-
-vi.mock('@tauri-apps/plugin-http', () => ({
-    fetch: vi.fn(
-        async () =>
-            new Response('{"data":[]}', {
-                status: 200,
-                headers: { 'Content-Type': 'application/json' },
-            })
-    ),
-}));
-
-function provider(id: number): Provider {
-    return {
-        id,
-        name: `Provider ${id}`,
-        driver: 'openai',
-        api_endpoint: `https://provider-${id}.example/v1`,
-        api_key: null,
-        config_json: null,
-        logo: 'openai.svg',
-        enabled: 1,
-        is_builtin: 0,
-        created_at: '',
-        updated_at: '',
-    };
-}
 
 describe('user saves provider configuration', () => {
     let telemetry: ReturnType<typeof installProductAnalytics>;
@@ -40,8 +16,8 @@ describe('user saves provider configuration', () => {
     const writes: Array<{ sql: string; params: unknown[] }> = [];
     const wrappers: ReturnType<typeof mount>[] = [];
 
-    beforeEach(() => {
-        vi.useFakeTimers();
+    let fixture: Awaited<ReturnType<typeof createSettingsPanelFixture>>;
+    beforeEach(async () => {
         vi.stubGlobal(
             'ResizeObserver',
             class {
@@ -50,45 +26,42 @@ describe('user saves provider configuration', () => {
                 disconnect() {}
             }
         );
+        fixture = await createSettingsPanelFixture({
+            query: {
+                beforeQuery: async (request) => {
+                    if (request.sql.startsWith('update "providers"')) {
+                        writes.push(request);
+                        if (saveError) throw saveError;
+                        await pendingSave?.promise;
+                    }
+                },
+            },
+        });
+        fixture.database
+            .exec(`UPDATE providers SET name = 'Provider 1', api_endpoint = 'https://provider-1.example/v1' WHERE id = 1;
+            INSERT INTO providers (id, name, driver, api_endpoint, logo) VALUES (2, 'Provider 2', 'openai-compatible', 'https://provider-2.example/v1', 'openai.svg');`);
+        fixture.database
+            .prepare('INSERT INTO statistics (key, value) VALUES (?, ?)')
+            .run('model_metadata_last_checked_at', new Date().toISOString());
+        network.respondToDiscovery = async () => Response.json({ data: [] });
+        vi.useFakeTimers();
         setLocale('en-US');
         telemetry = installProductAnalytics();
         pendingSave = null;
         saveError = null;
         writes.length = 0;
-        mockTauriCommand('database_query', async (payload: unknown) => {
-            const { request } = payload as {
-                request: { sql: string; params: unknown[]; method: string };
-            };
-            if (request.sql.startsWith('update "providers"')) {
-                writes.push(request);
-                if (saveError) throw saveError;
-                await pendingSave?.promise;
-                return { rows: [], rowsAffected: 1, lastInsertId: null };
-            }
-            let rows: object[] = [];
-            if (request.sql.includes('from "providers"') && !request.sql.includes('join')) {
-                rows =
-                    request.method === 'get'
-                        ? [provider(Number(request.params[0]))]
-                        : [provider(1), provider(2)];
-            } else if (request.sql.includes('from "statistics"')) {
-                rows = [{ key: request.params[0], value: new Date().toISOString() }];
-            } else if (request.sql.includes('count(*)')) {
-                rows = [{ count: 1 }];
-            }
-            return { rows, rowsAffected: 0, lastInsertId: null };
-        });
     });
 
-    afterEach(() => {
+    afterEach(async () => {
         wrappers.forEach((wrapper) => wrapper.unmount());
         wrappers.length = 0;
+        await fixture?.dispose();
         vi.useRealTimers();
         vi.unstubAllGlobals();
     });
 
     async function settings() {
-        const wrapper = mount(AiServicesSection, { attachTo: document.body });
+        const wrapper = mount(AiServicesSection, fixture.viewOptions);
         wrappers.push(wrapper);
         await flushPromises();
         expect(
@@ -197,7 +170,7 @@ describe('user saves provider configuration', () => {
     });
 
     it('user cancels the pending edit without a fabricated save on leaving settings', async () => {
-        const wrapper = await mount(AiServicesSection);
+        const wrapper = await mount(AiServicesSection, fixture.viewOptions);
         await flushPromises();
         await wrapper
             .get('[data-settings-search-target="provider-endpoint"] input')
@@ -211,7 +184,7 @@ describe('user saves provider configuration', () => {
     });
 
     it('user releases an unsaved provider creation when leaving settings with the add dialog open', async () => {
-        const wrapper = await mount(AiServicesSection, { attachTo: document.body });
+        const wrapper = await mount(AiServicesSection, fixture.viewOptions);
         await flushPromises();
         await wrapper.get('[data-testid="settings-add-custom-provider-button"]').trigger('click');
         await vi.dynamicImportSettled();
@@ -227,4 +200,8 @@ describe('user saves provider configuration', () => {
         expect(completions()).toEqual([]);
         expect(telemetry.released).toEqual(['operation-1']);
     });
+});
+
+beforePresentation(async () => {
+    (await createTestWindowPresentation('settings')).install();
 });

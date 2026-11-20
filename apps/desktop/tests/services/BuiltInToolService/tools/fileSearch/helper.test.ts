@@ -1,6 +1,6 @@
+import { createFileSearchToolsFixture } from '@tests/utils/fileSearchTools';
 import { describe, expect, it } from 'vitest';
-
-import { buildEverythingQuery } from '@/services/BuiltInToolService/tools/fileSearch/helper';
+const { buildEverythingQuery } = createFileSearchToolsFixture();
 
 describe('user searches file names containing special characters', () => {
     it('user sees quotes and backslashes escaped inside quoted search values', () => {

@@ -1,7 +1,8 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import { log } from '@services/ObservabilityService';
 import type { Logger } from 'drizzle-orm/logger';
+
+import { log } from '@/platform/diagnostics';
 
 // Parameters can contain large tool output and credentials. Log only statement shape and count.
 const MAX_SQL_LENGTH = 400;

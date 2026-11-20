@@ -1,6 +1,7 @@
-import { TaskScheduler } from '@services/SchedulerService/scheduler';
-import type { ScheduleTrigger } from '@services/SchedulerService/types';
+import { createScheduler } from '@tests/utils/schedulerHost';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import type { ScheduleTrigger } from '@/modules/scheduler/types';
 
 beforeEach(() => {
     vi.useFakeTimers();
@@ -22,7 +23,7 @@ describe('user owns one scheduled trigger per task', () => {
     it.each(triggers)(
         'user unschedules a pending $type registration and no timer survives',
         async (trigger) => {
-            const scheduler = new TaskScheduler();
+            const scheduler = createScheduler();
             const task = await scheduler.addTask({ name: 'Lifecycle', prompt: 'Fixture', trigger });
             const pending = scheduler.scheduleTask(task.id);
 
@@ -36,7 +37,7 @@ describe('user owns one scheduled trigger per task', () => {
     );
 
     it('user replaces a trigger concurrently and removing the task releases every timer', async () => {
-        const scheduler = new TaskScheduler();
+        const scheduler = createScheduler();
         const task = await scheduler.addTask({
             name: 'Lifecycle',
             prompt: 'Fixture',

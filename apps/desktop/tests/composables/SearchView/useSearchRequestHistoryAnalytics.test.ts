@@ -1,46 +1,40 @@
-import type { SessionEntity } from '@database/types';
+import { createAgentWindowFixture } from '@tests/utils/agentWindow';
 import { mountComposable } from '@tests/utils/composables';
 import { deferred, installProductAnalytics } from '@tests/utils/productAnalytics';
-import { mockTauriCommand } from '@tests/utils/tauri';
 import { flushPromises } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ref } from 'vue';
 
-import { createInputHistorySnapshot } from '@/types/session';
+import { agentApiKey } from '@/app/api/agent';
+import { createInputHistorySnapshot } from '@/app/api/agent/history';
+import { productAnalyticsApiKey } from '@/app/api/analytics/product';
+import { settingsApiKey } from '@/app/api/settings/preferences';
 import { useSearchRequestFlow } from '@/views/SearchView/composables/useSearchRequest';
 
-function session(id: number): SessionEntity {
-    return {
-        id,
-        session_id: `session-${id}`,
-        title: `Session ${id}`,
-        model: 'gpt-5',
-        provider_id: 1,
-        last_message_preview: null,
-        last_message_at: null,
-        message_count: 0,
-        status_badge_dismissed_turn_id: null,
-        pending_terminal_status: null,
-        pinned_at: null,
-        archived_at: null,
-        created_at: '2026-05-16T00:00:00.000Z',
-        updated_at: '2026-05-16T00:00:00.000Z',
-    };
-}
-
-function response(rows: object[] = []) {
-    return { rows, rowsAffected: 0, lastInsertId: null };
+let fixture: ReturnType<typeof createAgentWindowFixture>;
+function insertSession(id: number) {
+    fixture.database
+        .prepare(
+            'INSERT INTO sessions (id, session_id, title, model, provider_id) VALUES (?, ?, ?, ?, 1)'
+        )
+        .run(id, `session-${id}`, `Session ${id}`, 'fixture-model');
 }
 
 async function mountFlow() {
-    return mountComposable(() =>
-        useSearchRequestFlow({
-            modelOverride: ref({ modelId: null, providerId: null }),
-            clearDraft: () => undefined,
-            getUnsupportedAttachmentMessage: () => null,
-            getCurrentInputSnapshot: (query) =>
-                createInputHistorySnapshot({ text: query, attachments: [] }),
-        })
+    return mountComposable(
+        () =>
+            useSearchRequestFlow({
+                modelOverride: ref({ modelId: null, providerId: null }),
+                clearDraft: () => undefined,
+                getUnsupportedAttachmentMessage: () => null,
+                getCurrentInputSnapshot: (query) =>
+                    createInputHistorySnapshot({ text: query, attachments: [] }),
+            }),
+        (app) => {
+            app.provide(agentApiKey, fixture.window.api);
+            app.provide(settingsApiKey, fixture.window.settings);
+            app.provide(productAnalyticsApiKey, fixture.window.productAnalytics);
+        }
     );
 }
 
@@ -54,32 +48,28 @@ async function openHistory(flow: Awaited<ReturnType<typeof mountFlow>>['result']
 
 describe('user selects conversation history', () => {
     let telemetry: ReturnType<typeof installProductAnalytics>;
-    let rows: SessionEntity[];
-    const pending = new Map<number, ReturnType<typeof deferred<ReturnType<typeof response>>>>();
+    const pending = new Map<number, ReturnType<typeof deferred<void>>>();
     const unmounts: Array<() => void> = [];
 
-    beforeEach(() => {
+    beforeEach(async () => {
         telemetry = installProductAnalytics();
-        rows = [session(7)];
         pending.clear();
-        mockTauriCommand('database_query', (payload: unknown) => {
-            const { request } = payload as {
-                request: { sql: string; method: string; params: unknown[] };
-            };
-            if (request.sql.includes('from "sessions"')) {
-                if (request.method === 'get') {
+        fixture = createAgentWindowFixture('main', undefined, {
+            beforeQuery: async (request) => {
+                if (request.method === 'get' && request.sql.includes('from "sessions"')) {
                     const id = Number(request.params[request.params.length - 1]);
-                    return pending.get(id)?.promise ?? response([session(id)]);
+                    await pending.get(id)?.promise;
                 }
-                return response(rows);
-            }
-            return response();
+            },
         });
+        await fixture.window.ready;
+        insertSession(7);
     });
 
-    afterEach(() => {
+    afterEach(async () => {
         unmounts.forEach((unmount) => unmount());
         unmounts.length = 0;
+        await fixture.window.dispose();
     });
 
     async function flow() {
@@ -110,8 +100,8 @@ describe('user selects conversation history', () => {
     });
 
     it('user keeps two pending history selections tied to their own results when the first finishes first', async () => {
-        const first = deferred<ReturnType<typeof response>>();
-        const second = deferred<ReturnType<typeof response>>();
+        const first = deferred<void>();
+        const second = deferred<void>();
         pending.set(7, first);
         pending.set(8, second);
         const { result } = await flow();
@@ -120,7 +110,7 @@ describe('user selects conversation history', () => {
         await result.setSessionHistoryOverlayOpen(false);
         const openingA = result.openSession(7, 'history', selectionA);
 
-        rows = [session(8), session(9), session(10)];
+        [8, 9, 10].forEach(insertSession);
         await openHistory(result);
         await result.refreshSessionList();
         const selectionB = result.markHistorySelectionPending();
@@ -129,14 +119,14 @@ describe('user selects conversation history', () => {
         await flushPromises();
         expect(telemetry.released).toEqual([]);
 
-        first.resolve(response([session(7)]));
+        first.resolve();
         await expect(openingA).resolves.toMatchObject({ sessionId: 7 });
         await flushPromises();
         expect(selected().map((event) => event.operationId)).toEqual(['operation-1']);
         expect(telemetry.released).toEqual(['operation-1']);
         expect(telemetry.active.has('operation-2')).toBe(true);
 
-        second.resolve(response([session(8)]));
+        second.resolve();
         await expect(openingB).resolves.toMatchObject({ sessionId: 8 });
         await flushPromises();
         expect(completed().map((event) => event.attributes.result_count_bucket)).toEqual([
@@ -154,7 +144,7 @@ describe('user selects conversation history', () => {
     });
 
     it('user keeps a failed older selection separate from a newer abandoned selection', async () => {
-        const first = deferred<ReturnType<typeof response>>();
+        const first = deferred<void>();
         pending.set(7, first);
         const { result } = await flow();
         await openHistory(result);

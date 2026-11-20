@@ -1,8 +1,9 @@
+import { createWidgetToolsFixture } from '@tests/utils/widgetTools';
 import { describe, expect, it } from 'vitest';
 
-import { builtInTools } from '@/services/BuiltInToolService/tools/widgetTool';
-import { showWidgetTool } from '@/services/BuiltInToolService/tools/widgetTool/showWidget';
-import type { BaseBuiltInToolExecutionContext } from '@/services/BuiltInToolService/types';
+import type { BaseBuiltInToolExecutionContext } from '@/modules/tools';
+
+const { tools: builtInTools, tool: showWidgetTool } = createWidgetToolsFixture();
 
 function createRequest() {
     const events: unknown[] = [];

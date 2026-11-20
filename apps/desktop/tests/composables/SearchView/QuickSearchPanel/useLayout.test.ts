@@ -1,7 +1,7 @@
-import type { QuickShortcutItem } from '@services/NativeService';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick, ref } from 'vue';
 
+import type { QuickShortcutItem } from '@/platform/native';
 import { useLayout } from '@/views/SearchView/components/QuickSearchPanel/composables/useLayout';
 
 function createShortcut(id: number): QuickShortcutItem {

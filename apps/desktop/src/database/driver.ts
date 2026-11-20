@@ -1,10 +1,11 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
-import { native } from '@services/NativeService';
-import type { DatabaseQueryMethod } from '@services/NativeService/database';
 import { createTableRelationsHelpers, extractTablesRelationalConfig } from 'drizzle-orm/relations';
 import { SQLiteAsyncDialect } from 'drizzle-orm/sqlite-core/dialect';
 import { SqliteRemoteDatabase } from 'drizzle-orm/sqlite-proxy/driver';
 import { SQLiteProxyTransaction, SQLiteRemoteSession } from 'drizzle-orm/sqlite-proxy/session';
+
+import { native } from '@/platform/native';
+import type { DatabaseQueryMethod } from '@/platform/native/database';
 
 import type { SqlValue } from './schema';
 import * as schema from './schema';

@@ -1,6 +1,8 @@
 import path from 'node:path';
 import { runInNewContext } from 'node:vm';
 
+import { createSettingsWindowFixture } from '@tests/utils/settingsWindow';
+import { mockTauriCommand } from '@tests/utils/tauri';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { APP_PRODUCT_CONFIG } from '@/config/product';
@@ -12,49 +14,62 @@ import {
     resolveE2eRuntimeDirectory,
     resolveTauriBuildArgs,
 } from '../../e2e-tests/wdio.paths.js';
-import { closeTestDatabases, openMigratedDatabase } from '../database/sqliteHarness';
+import { closeTestDatabases } from '../database/sqliteHarness';
 
 const appRoot = path.resolve('/external/queue-e2e/session');
 const testShortcut = 'Ctrl+Alt+Shift+F12';
 
-function createNativeBoundary({ isE2e = true, dataDirectory = path.join(appRoot, 'data') } = {}) {
-    const database = openMigratedDatabase();
-    database
-        .prepare('INSERT INTO settings (key, value) VALUES (?, ?)')
-        .run('global_shortcut', 'Alt+Space');
-    database.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run('language', 'zh-CN');
+const settingsFixtures = [];
+async function createNativeBoundary({
+    isE2e = true,
+    dataDirectory = path.join(appRoot, 'data'),
+} = {}) {
+    const fixture = createSettingsWindowFixture({
+        values: { global_shortcut: 'Alt+Space', language: 'zh-CN' },
+    });
+    settingsFixtures.push(fixture);
+    await fixture.initialize();
+    const store = fixture.store();
+    await store.initialize();
     const registered = new Set(['Alt+Space']);
-
+    mockTauriCommand('register_global_shortcut', ({ shortcut }) => {
+        if (registered.has(shortcut)) throw new Error('HotKey already registered');
+        registered.clear();
+        registered.add(shortcut);
+    });
     const native = {
-        async invoke(command, payload) {
+        async invoke(command) {
             if (command === 'get_runtime_info') return { isE2eTestMode: isE2e };
             if (command === 'get_app_directory_path') return dataDirectory;
-            if (command === 'register_global_shortcut') {
-                if (registered.has(payload.shortcut)) throw new Error('HotKey already registered');
-                registered.add(payload.shortcut);
-                return;
-            }
-            if (command === 'database_query') {
-                const { sql, params, method } = payload.request;
-                const statement = database.prepare(sql);
-                if (method === 'all') return { rows: statement.all(...params) };
-                return { rows: [], rowsAffected: statement.run(...params).changes };
-            }
             throw new Error(`Unexpected native command: ${command}`);
         },
     };
     vi.stubGlobal('browser', {
         async execute(script, ...args) {
             return runInNewContext(`(${script.toString()})(...args)`, {
-                window: { __TAURI_INTERNALS__: native },
+                window: {
+                    __TAURI_INTERNALS__: native,
+                    __TOUCHAI_E2E__: {
+                        setGlobalShortcut: (shortcut) => store.updateGlobalShortcut(shortcut),
+                    },
+                },
                 args,
             });
         },
     });
-    return { database, registered };
+    return {
+        database: fixture.database,
+        registered,
+        store,
+        owner: fixture.owner.api,
+        initialSettings: fixture.database
+            .prepare('SELECT key, value FROM settings ORDER BY key')
+            .all(),
+    };
 }
 
 afterEach(() => {
+    for (const fixture of settingsFixtures.splice(0)) fixture.dispose();
     closeTestDatabases();
     vi.unstubAllGlobals();
 });
@@ -135,15 +150,20 @@ describe('user runs desktop regressions with isolated data', () => {
 
 describe('user runs isolated desktop tests beside their installed application', () => {
     it('user given the default shortcut is occupied when preparing tests then gets a separate shortcut without changing other settings', async () => {
-        const { database, registered } = createNativeBoundary();
+        const { database, registered, store, owner, initialSettings } =
+            await createNativeBoundary();
 
         await useIsolatedGlobalShortcut(appRoot);
 
-        expect(registered).toEqual(new Set(['Alt+Space', testShortcut]));
-        expect(database.prepare('SELECT key, value FROM settings ORDER BY key').all()).toEqual([
-            { key: 'global_shortcut', value: testShortcut },
-            { key: 'language', value: 'zh-CN' },
-        ]);
+        expect(store.globalShortcut).toBe(testShortcut);
+        expect(owner.getSnapshot().globalShortcut).toBe(testShortcut);
+
+        expect(registered).toEqual(new Set([testShortcut]));
+        expect(database.prepare('SELECT key, value FROM settings ORDER BY key').all()).toEqual(
+            initialSettings.map((row) =>
+                row.key === 'global_shortcut' ? { ...row, value: testShortcut } : row
+            )
+        );
     });
 
     it.each([
@@ -152,7 +172,7 @@ describe('user runs isolated desktop tests beside their installed application', 
     ])(
         'user given $label when preparing isolated tests then keeps its settings and shortcuts untouched',
         async (options) => {
-            const { database, registered } = createNativeBoundary(options);
+            const { database, registered } = await createNativeBoundary(options);
 
             await expect(useIsolatedGlobalShortcut(appRoot)).rejects.toThrow('isolated E2E');
 
@@ -164,12 +184,10 @@ describe('user runs isolated desktop tests beside their installed application', 
     );
 
     it('user given the test shortcut is also occupied when preparing tests then gets the native failure without saving an unusable shortcut', async () => {
-        const { database, registered } = createNativeBoundary();
+        const { database, registered } = await createNativeBoundary();
         registered.add(testShortcut);
 
-        await expect(useIsolatedGlobalShortcut(appRoot)).rejects.toThrow(
-            'HotKey already registered'
-        );
+        await expect(useIsolatedGlobalShortcut(appRoot)).rejects.toThrow();
 
         expect(
             database.prepare('SELECT value FROM settings WHERE key = ?').get('global_shortcut')

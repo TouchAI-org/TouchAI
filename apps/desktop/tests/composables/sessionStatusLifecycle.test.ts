@@ -1,8 +1,10 @@
-import { AppEvent, eventService } from '@services/EventService';
+import { createAgentWindowFixture } from '@tests/utils/agentWindow';
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { defineComponent, h } from 'vue';
 
+import { agentApiKey } from '@/app/api/agent';
+import { AppEvent, eventService } from '@/app/workflows/windows/events';
 import { useSessionStatus } from '@/composables/useSessionStatus';
 
 import { getTauriInvokeCalls, interceptTauriInvoke } from '../utils/tauri';
@@ -16,6 +18,13 @@ function deferred() {
 }
 
 let wrapper: VueWrapper | undefined;
+let fixture: ReturnType<typeof createAgentWindowFixture>;
+
+beforeEach(async () => {
+    fixture = createAgentWindowFixture();
+    await fixture.window.ready;
+    await fixture.window.capabilities.waitForAgent();
+});
 
 function mountStatuses() {
     let statuses!: ReturnType<typeof useSessionStatus>;
@@ -25,7 +34,8 @@ function mountStatuses() {
                 statuses = useSessionStatus();
                 return () => h('span', statuses.getSessionStatus(7) ?? 'none');
             },
-        })
+        }),
+        { global: { provide: { [agentApiKey as symbol]: fixture.window.api } } }
     );
     return statuses;
 }
@@ -45,6 +55,7 @@ afterEach(async () => {
     wrapper?.unmount();
     wrapper = undefined;
     await flushPromises();
+    await fixture.window.dispose();
 });
 
 describe('user observes session status within the view lifetime', () => {

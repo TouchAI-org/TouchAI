@@ -27,6 +27,7 @@ const {
     return {
         currentMonitorMock: vi.fn(),
         currentWindowMock: {
+            label: 'main',
             isVisible: vi.fn(),
             isMaximized: vi.fn(),
             maximize: vi.fn(),
@@ -106,7 +107,7 @@ vi.mock('@tauri-apps/api/window', () => ({
     currentMonitor: currentMonitorMock,
 }));
 
-vi.mock('@services/NativeService', () => ({
+vi.mock('@/platform/native', () => ({
     native: nativeMock,
 }));
 
@@ -1310,6 +1311,7 @@ describe('useSearchWindowResize', () => {
     it('user keeps content mounted until a fallback bounds reset finishes animating', async () => {
         const card = createAnimatedCard(60);
         const { mounted } = await mount({ card: ref(card.element) });
+        await flushLifecycle();
         await mounted.result.playSessionExpandAnimation(290);
         card.animations[0]!.finish();
         await flushLifecycle();

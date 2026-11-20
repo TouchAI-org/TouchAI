@@ -1,7 +1,8 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3.
-
 import type { ToolUsageSummary } from '@database/queries/usageStats';
+import { createTestWindowPresentation } from '@tests/utils/windowPresentation';
 import { mount } from '@vue/test-utils';
+import { beforeEach as beforePresentation } from 'vitest';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { setLocale } from '@/i18n';
@@ -120,4 +121,8 @@ describe('user reviews tool usage', () => {
         expect(wrapper.text()).toContain('Tools used');
         expect(wrapper.text()).toContain('Failure rate');
     });
+});
+
+beforePresentation(async () => {
+    (await createTestWindowPresentation('settings')).install();
 });

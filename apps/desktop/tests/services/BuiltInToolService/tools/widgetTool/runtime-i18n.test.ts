@@ -6,8 +6,8 @@ import {
 } from '@tests/utils/widgetFrame';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createShowWidgetBaseStyles } from '@/services/BuiltInToolService/tools/widgetTool/showWidget/runtime';
-import { log } from '@/services/ObservabilityService';
+import { createShowWidgetBaseStyles } from '@/components/widgets';
+import { log } from '@/platform/diagnostics';
 
 async function waitForWidgetRender(): Promise<void> {
     for (let attempt = 0; attempt < 20; attempt += 1) {

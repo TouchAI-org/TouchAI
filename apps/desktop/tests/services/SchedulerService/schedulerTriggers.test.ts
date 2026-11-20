@@ -1,8 +1,14 @@
+import {
+    createScheduler,
+    eventRegistry,
+    releaseBackgroundTasks,
+    schedulerNetwork,
+    waitForScheduledIdle,
+} from '@tests/utils/schedulerHost';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { EventTriggerHandler, IntervalTrigger } from '@/services/SchedulerService';
-import { TaskScheduler } from '@/services/SchedulerService';
-import { eventTriggerRegistry } from '@/services/SchedulerService/eventRegistry';
+import type { EventTriggerHandler, IntervalTrigger } from '@/modules/scheduler';
+import type { TaskScheduler } from '@/modules/scheduler';
 
 /**
  * The scheduler decides when a saved prompt runs again. What the user observes is: a task fires
@@ -12,43 +18,9 @@ import { eventTriggerRegistry } from '@/services/SchedulerService/eventRegistry'
  * Timers are fake and the agent boundary is mocked; scheduling logic runs for real.
  */
 
-const { startBackgroundTaskMock } = vi.hoisted(() => ({ startBackgroundTaskMock: vi.fn() }));
-
-vi.mock('@/services/AgentService', () => ({
-    sessionTaskCenter: { startBackgroundTask: startBackgroundTaskMock },
-}));
-
-let pendingCompletions: Array<() => void> = [];
-
-function backgroundTask() {
-    return {
-        completion: new Promise<void>((resolveCompletion) => {
-            pendingCompletions.push(() => resolveCompletion());
-        }),
-    };
-}
-
-function releaseBackgroundTasks() {
-    for (const release of pendingCompletions) {
-        release();
-    }
-    pendingCompletions = [];
-}
-
-beforeEach(() => {
-    vi.clearAllMocks();
-    pendingCompletions = [];
-    startBackgroundTaskMock.mockImplementation(async () => backgroundTask());
-    vi.useFakeTimers();
-});
-
-afterEach(() => {
-    vi.useRealTimers();
-});
-
 describe('user schedules a task for a fixed time', () => {
     it('user sees a task scheduled far in the future not run early', async () => {
-        const scheduler = new TaskScheduler();
+        const scheduler = createScheduler();
         await scheduler.addTask({
             name: 'Later',
             prompt: 'Summarize',
@@ -56,16 +28,16 @@ describe('user schedules a task for a fixed time', () => {
         });
 
         await vi.advanceTimersByTimeAsync(59_999);
-        expect(startBackgroundTaskMock).not.toHaveBeenCalled();
+        expect(schedulerNetwork.requests).toHaveLength(0);
 
         await vi.advanceTimersByTimeAsync(1);
-        expect(startBackgroundTaskMock).toHaveBeenCalledTimes(1);
+        await vi.waitFor(() => expect(schedulerNetwork.requests).toHaveLength(1));
 
-        releaseBackgroundTasks();
+        await releaseBackgroundTasks();
     });
 
     it('user sees a task whose time already passed run immediately instead of never', async () => {
-        const scheduler = new TaskScheduler();
+        const scheduler = createScheduler();
         await scheduler.addTask({
             name: 'Overdue',
             prompt: 'Summarize',
@@ -73,13 +45,13 @@ describe('user schedules a task for a fixed time', () => {
         });
 
         await vi.advanceTimersByTimeAsync(0);
-        expect(startBackgroundTaskMock).toHaveBeenCalledTimes(1);
+        await vi.waitFor(() => expect(schedulerNetwork.requests).toHaveLength(1));
 
-        releaseBackgroundTasks();
+        await releaseBackgroundTasks();
     });
 
     it('user gets the impossible fixed time reported rather than a task that never fires', async () => {
-        const scheduler = new TaskScheduler();
+        const scheduler = createScheduler();
 
         await expect(
             scheduler.addTask({
@@ -91,7 +63,7 @@ describe('user schedules a task for a fixed time', () => {
     });
 
     it('user gets no leftover task when its schedule could not be built', async () => {
-        const scheduler = new TaskScheduler();
+        const scheduler = createScheduler();
 
         await expect(
             scheduler.addTask({
@@ -108,7 +80,7 @@ describe('user schedules a task for a fixed time', () => {
 
 describe('user schedules a task on a cron expression', () => {
     it('user sees a daily cron task scheduled for its next occurrence', async () => {
-        const scheduler = new TaskScheduler();
+        const scheduler = createScheduler();
         const task = await scheduler.addTask({
             name: 'Daily',
             prompt: 'Summarize',
@@ -116,18 +88,18 @@ describe('user schedules a task on a cron expression', () => {
         });
 
         expect(task.nextRunAt).not.toBeNull();
-        expect(startBackgroundTaskMock).not.toHaveBeenCalled();
+        expect(schedulerNetwork.requests).toHaveLength(0);
     });
 
     it('user gets a cron expression that can never match reported as having no next run', () => {
-        const scheduler = new TaskScheduler();
+        const scheduler = createScheduler();
 
         // 30 February never happens, so there is no next occurrence to schedule.
         expect(scheduler.calculateNextRun({ type: 'cron', expression: '0 0 30 2 *' })).toBeNull();
     });
 
     it('user gets an invalid cron expression rejected instead of silently ignored', () => {
-        const scheduler = new TaskScheduler();
+        const scheduler = createScheduler();
 
         expect(() =>
             scheduler.calculateNextRun({ type: 'cron', expression: 'not a cron' })
@@ -135,7 +107,7 @@ describe('user schedules a task on a cron expression', () => {
     });
 
     it('user sees a cron task rescheduled after each occurrence', async () => {
-        const scheduler = new TaskScheduler();
+        const scheduler = createScheduler();
         const task = await scheduler.addTask({
             name: 'Every minute',
             prompt: 'Summarize',
@@ -145,16 +117,16 @@ describe('user schedules a task on a cron expression', () => {
         const firstRunAt = scheduler.getTask(task.id)?.nextRunAt;
         await vi.advanceTimersByTimeAsync(60_000);
 
-        expect(startBackgroundTaskMock).toHaveBeenCalledTimes(1);
+        await vi.waitFor(() => expect(schedulerNetwork.requests).toHaveLength(1));
         // The next occurrence has to be armed before the run, otherwise a cron task fires once.
         expect(scheduler.getTask(task.id)?.nextRunAt).not.toBe(firstRunAt);
 
-        releaseBackgroundTasks();
+        await releaseBackgroundTasks();
         await scheduler.removeTask(task.id);
     });
 
     it('user does not see a removed cron task fire', async () => {
-        const scheduler = new TaskScheduler();
+        const scheduler = createScheduler();
         const task = await scheduler.addTask({
             name: 'Every minute',
             prompt: 'Summarize',
@@ -164,11 +136,11 @@ describe('user schedules a task on a cron expression', () => {
         await scheduler.removeTask(task.id);
         await vi.advanceTimersByTimeAsync(180_000);
 
-        expect(startBackgroundTaskMock).not.toHaveBeenCalled();
+        expect(schedulerNetwork.requests).toHaveLength(0);
     });
 
     it('user does not see a disabled cron task fire', async () => {
-        const scheduler = new TaskScheduler();
+        const scheduler = createScheduler();
         const task = await scheduler.addTask({
             name: 'Every minute',
             prompt: 'Summarize',
@@ -178,7 +150,7 @@ describe('user schedules a task on a cron expression', () => {
 
         await vi.advanceTimersByTimeAsync(180_000);
 
-        expect(startBackgroundTaskMock).not.toHaveBeenCalled();
+        expect(schedulerNetwork.requests).toHaveLength(0);
         expect(scheduler.getTask(task.id)?.nextRunAt).toBeNull();
     });
 });
@@ -200,11 +172,11 @@ describe('user schedules a task on an app event', () => {
                 return cleanup;
             },
         };
-        eventTriggerRegistry.register(handler);
+        eventRegistry().register(handler);
     });
 
     it('user sees an event task run when its event fires', async () => {
-        const scheduler = new TaskScheduler();
+        const scheduler = createScheduler();
         await scheduler.addTask({
             name: 'On start',
             prompt: 'Summarize',
@@ -215,13 +187,13 @@ describe('user schedules a task on an app event', () => {
         fireEvent!();
         await vi.advanceTimersByTimeAsync(0);
 
-        expect(startBackgroundTaskMock).toHaveBeenCalledTimes(1);
+        await vi.waitFor(() => expect(schedulerNetwork.requests).toHaveLength(1));
 
-        releaseBackgroundTasks();
+        await releaseBackgroundTasks();
     });
 
     it('user sees an event task have no scheduled time because it waits for the event', async () => {
-        const scheduler = new TaskScheduler();
+        const scheduler = createScheduler();
         const task = await scheduler.addTask({
             name: 'On start',
             prompt: 'Summarize',
@@ -232,7 +204,7 @@ describe('user schedules a task on an app event', () => {
     });
 
     it('user gets the event subscription released when the task is removed', async () => {
-        const scheduler = new TaskScheduler();
+        const scheduler = createScheduler();
         const task = await scheduler.addTask({
             name: 'On start',
             prompt: 'Summarize',
@@ -246,7 +218,7 @@ describe('user schedules a task on an app event', () => {
     });
 
     it('user does not see a removed event task fire on its event', async () => {
-        const scheduler = new TaskScheduler();
+        const scheduler = createScheduler();
         const task = await scheduler.addTask({
             name: 'On start',
             prompt: 'Summarize',
@@ -258,13 +230,13 @@ describe('user schedules a task on an app event', () => {
         callback?.();
         await vi.advanceTimersByTimeAsync(0);
 
-        expect(startBackgroundTaskMock).not.toHaveBeenCalled();
+        expect(schedulerNetwork.requests).toHaveLength(0);
     });
 
     it('user gets an event subscription released when the task was deleted while subscribing', async () => {
         // The subscription is set up asynchronously, so the user can delete the task mid-setup.
         let scheduler: TaskScheduler | null = null;
-        eventTriggerRegistry.register({
+        eventRegistry().register({
             eventType: 'slow-setup',
             displayName: 'Slow setup',
             description: 'Resolves after the user deleted the task',
@@ -276,7 +248,7 @@ describe('user schedules a task on an app event', () => {
             },
         });
 
-        scheduler = new TaskScheduler();
+        scheduler = createScheduler();
         await expect(
             scheduler.addTask({
                 name: 'On slow',
@@ -291,7 +263,7 @@ describe('user schedules a task on an app event', () => {
     });
 
     it('user gets an unknown event type reported instead of a task that never fires', async () => {
-        const scheduler = new TaskScheduler();
+        const scheduler = createScheduler();
 
         await expect(
             scheduler.addTask({
@@ -303,7 +275,7 @@ describe('user schedules a task on an app event', () => {
     });
 
     it('user sees an event task resubscribe when its event type changes', async () => {
-        const scheduler = new TaskScheduler();
+        const scheduler = createScheduler();
         const task = await scheduler.addTask({
             name: 'On start',
             prompt: 'Summarize',
@@ -316,19 +288,19 @@ describe('user schedules a task on an app event', () => {
 
         expect(cleanup).toHaveBeenCalled();
 
-        releaseBackgroundTasks();
+        await releaseBackgroundTasks();
     });
 });
 
 describe('user edits a saved task', () => {
     it('user gets nothing updated when the task no longer exists', async () => {
-        const scheduler = new TaskScheduler();
+        const scheduler = createScheduler();
 
         await expect(scheduler.updateTask('missing', { name: 'Renamed' })).resolves.toBeUndefined();
     });
 
     it('user gets the task left untouched when its new schedule is impossible', async () => {
-        const scheduler = new TaskScheduler();
+        const scheduler = createScheduler();
         const task = await scheduler.addTask({
             name: 'Digest',
             prompt: 'Summarize',
@@ -351,13 +323,13 @@ describe('user edits a saved task', () => {
     });
 
     it('user gets nothing removed when the task is already gone', async () => {
-        const scheduler = new TaskScheduler();
+        const scheduler = createScheduler();
 
         await expect(scheduler.removeTask('missing')).resolves.toBe(false);
     });
 
     it('user sees the prompt change take effect on the next run', async () => {
-        const scheduler = new TaskScheduler();
+        const scheduler = createScheduler();
         const task = await scheduler.addTask({
             name: 'Digest',
             prompt: 'Old prompt',
@@ -367,16 +339,19 @@ describe('user edits a saved task', () => {
         await scheduler.updateTask(task.id, { prompt: 'New prompt' });
         await vi.advanceTimersByTimeAsync(1_000);
 
-        expect(startBackgroundTaskMock).toHaveBeenCalledWith(
-            expect.objectContaining({ prompt: 'New prompt' })
-        );
+        await vi.waitFor(() => expect(schedulerNetwork.requests).toHaveLength(1));
+        expect(schedulerNetwork.requests[0]).toMatchObject({
+            messages: expect.arrayContaining([
+                expect.objectContaining({ role: 'user', content: 'New prompt' }),
+            ]),
+        });
 
-        releaseBackgroundTasks();
+        await releaseBackgroundTasks();
         await scheduler.removeTask(task.id);
     });
 
     it('user sees a task switched off stop running and report no next run', async () => {
-        const scheduler = new TaskScheduler();
+        const scheduler = createScheduler();
         const task = await scheduler.addTask({
             name: 'Digest',
             prompt: 'Summarize',
@@ -386,7 +361,7 @@ describe('user edits a saved task', () => {
         await scheduler.updateTask(task.id, { enabled: false });
         await vi.advanceTimersByTimeAsync(5_000);
 
-        expect(startBackgroundTaskMock).not.toHaveBeenCalled();
+        expect(schedulerNetwork.requests).toHaveLength(0);
         expect(scheduler.getTask(task.id)?.nextRunAt).toBeNull();
 
         await scheduler.removeTask(task.id);
@@ -395,7 +370,7 @@ describe('user edits a saved task', () => {
 
 describe('user gets a run that cannot overlap or outlive its schedule', () => {
     it('user sees an interval tick ignored when the task was switched off mid-flight', async () => {
-        const scheduler = new TaskScheduler();
+        const scheduler = createScheduler();
         const task = await scheduler.addTask({
             name: 'Digest',
             prompt: 'Summarize',
@@ -406,13 +381,13 @@ describe('user gets a run that cannot overlap or outlive its schedule', () => {
         await scheduler.updateTask(task.id, { enabled: false });
         await vi.advanceTimersByTimeAsync(3_000);
 
-        expect(startBackgroundTaskMock).not.toHaveBeenCalled();
+        expect(schedulerNetwork.requests).toHaveLength(0);
 
         await scheduler.removeTask(task.id);
     });
 
     it('user sees an interval tick ignored after the trigger was replaced by another kind', async () => {
-        const scheduler = new TaskScheduler();
+        const scheduler = createScheduler();
         const task = await scheduler.addTask({
             name: 'Digest',
             prompt: 'Summarize',
@@ -425,13 +400,13 @@ describe('user gets a run that cannot overlap or outlive its schedule', () => {
         await vi.advanceTimersByTimeAsync(5_000);
 
         // The old interval handle is gone; nothing may still be firing from it.
-        expect(startBackgroundTaskMock).not.toHaveBeenCalled();
+        expect(schedulerNetwork.requests).toHaveLength(0);
 
         await scheduler.removeTask(task.id);
     });
 
     it('user sees a stale run not save over a schedule that changed while it ran', async () => {
-        const scheduler = new TaskScheduler();
+        const scheduler = createScheduler();
         const task = await scheduler.addTask({
             name: 'Once',
             prompt: 'Summarize',
@@ -439,14 +414,14 @@ describe('user gets a run that cannot overlap or outlive its schedule', () => {
         });
 
         await vi.advanceTimersByTimeAsync(1_000);
-        expect(startBackgroundTaskMock).toHaveBeenCalledTimes(1);
+        await vi.waitFor(() => expect(schedulerNetwork.requests).toHaveLength(1));
 
         // The user reschedules while the run is still in flight.
         await scheduler.updateTask(task.id, {
             trigger: { type: 'interval', milliseconds: 60_000 },
         });
 
-        releaseBackgroundTasks();
+        await releaseBackgroundTasks();
         await vi.advanceTimersByTimeAsync(0);
 
         // The completed once-run must not disable the task the user just rescheduled.
@@ -460,7 +435,7 @@ describe('user gets a run that cannot overlap or outlive its schedule', () => {
     });
 
     it('user does not see a run start for a task deleted while it was pending', async () => {
-        const scheduler = new TaskScheduler();
+        const scheduler = createScheduler();
         const task = await scheduler.addTask({
             name: 'Once',
             prompt: 'Summarize',
@@ -470,31 +445,36 @@ describe('user gets a run that cannot overlap or outlive its schedule', () => {
         await scheduler.removeTask(task.id);
         await vi.advanceTimersByTimeAsync(1_000);
 
-        expect(startBackgroundTaskMock).not.toHaveBeenCalled();
+        expect(schedulerNetwork.requests).toHaveLength(0);
     });
 
     it('user sees the next interval run still fire after a failed one', async () => {
-        const scheduler = new TaskScheduler();
+        const scheduler = createScheduler();
         const task = await scheduler.addTask({
             name: 'Fragile',
             prompt: 'Summarize',
             trigger: { type: 'interval', milliseconds: 1_000 },
         });
-        startBackgroundTaskMock.mockRejectedValueOnce(new Error('model unavailable'));
+        schedulerNetwork.replies.push(new Response('{}', { status: 401 }));
+        const ordinaryResponse = schedulerNetwork.respondToGeneration;
+        schedulerNetwork.respondToGeneration = async (url, init) =>
+            schedulerNetwork.replies.shift() ?? ordinaryResponse!(url, init);
 
         await vi.advanceTimersByTimeAsync(1_000);
+        await vi.waitFor(() => expect(schedulerNetwork.requests).toHaveLength(1));
+        await waitForScheduledIdle();
         await vi.advanceTimersByTimeAsync(1_000);
 
-        expect(startBackgroundTaskMock).toHaveBeenCalledTimes(2);
+        await vi.waitFor(() => expect(schedulerNetwork.requests).toHaveLength(2));
 
-        releaseBackgroundTasks();
+        await releaseBackgroundTasks();
         await scheduler.removeTask(task.id);
     });
 });
 
 describe('user keeps a snapshot of their schedule', () => {
     it('user gets a copy of the task so editing the returned object does not change the schedule', async () => {
-        const scheduler = new TaskScheduler();
+        const scheduler = createScheduler();
         const task = await scheduler.addTask({
             name: 'Digest',
             prompt: 'Summarize',
@@ -514,7 +494,7 @@ describe('user keeps a snapshot of their schedule', () => {
     });
 
     it('user gets every saved task listed', async () => {
-        const scheduler = new TaskScheduler();
+        const scheduler = createScheduler();
         const first = await scheduler.addTask({
             name: 'First',
             prompt: 'A',
@@ -533,7 +513,7 @@ describe('user keeps a snapshot of their schedule', () => {
     });
 
     it('user gets a task defaulted to enabled when they did not say otherwise', async () => {
-        const scheduler = new TaskScheduler();
+        const scheduler = createScheduler();
         const task = await scheduler.addTask({
             name: 'Digest',
             prompt: 'Summarize',
@@ -549,7 +529,7 @@ describe('user keeps a snapshot of their schedule', () => {
 
 describe('user asks the scheduler to act on a task that is not there', () => {
     it('user gets no scheduling work done for an unknown task', async () => {
-        const scheduler = new TaskScheduler();
+        const scheduler = createScheduler();
 
         // The UI can call this while a task is being deleted; it must be a no-op, not a crash.
         await expect(scheduler.scheduleTask('missing')).resolves.toBeUndefined();
@@ -557,21 +537,21 @@ describe('user asks the scheduler to act on a task that is not there', () => {
     });
 
     it('user gets no error when an unknown task is unscheduled', () => {
-        const scheduler = new TaskScheduler();
+        const scheduler = createScheduler();
 
         expect(() => scheduler.unscheduleTask('missing')).not.toThrow();
     });
 
     it('user does not get a run started for an unknown task', async () => {
-        const scheduler = new TaskScheduler();
+        const scheduler = createScheduler();
 
         await scheduler.executeTask('missing');
 
-        expect(startBackgroundTaskMock).not.toHaveBeenCalled();
+        expect(schedulerNetwork.requests).toHaveLength(0);
     });
 
     it('user does not get a run started for a task that is switched off', async () => {
-        const scheduler = new TaskScheduler();
+        const scheduler = createScheduler();
         const task = await scheduler.addTask({
             name: 'Paused',
             prompt: 'Summarize',
@@ -581,13 +561,13 @@ describe('user asks the scheduler to act on a task that is not there', () => {
 
         await scheduler.executeTask(task.id);
 
-        expect(startBackgroundTaskMock).not.toHaveBeenCalled();
+        expect(schedulerNetwork.requests).toHaveLength(0);
 
         await scheduler.removeTask(task.id);
     });
 
     it('user does not get a stale run started for a schedule that has since changed', async () => {
-        const scheduler = new TaskScheduler();
+        const scheduler = createScheduler();
         const task = await scheduler.addTask({
             name: 'Digest',
             prompt: 'Summarize',
@@ -597,19 +577,19 @@ describe('user asks the scheduler to act on a task that is not there', () => {
         // Version 0 predates the task's current schedule, so a queued tick for it is stale.
         await scheduler.executeTask(task.id, 0);
 
-        expect(startBackgroundTaskMock).not.toHaveBeenCalled();
+        expect(schedulerNetwork.requests).toHaveLength(0);
 
         await scheduler.removeTask(task.id);
     });
 
     it('user gets no schedule computed for a trigger kind the app does not know', () => {
-        const scheduler = new TaskScheduler();
+        const scheduler = createScheduler();
 
         expect(scheduler.calculateNextRun({ type: 'unknown' } as never)).toBeNull();
     });
 
     it('user gets a task with an unknown trigger kind saved but never run', async () => {
-        const scheduler = new TaskScheduler();
+        const scheduler = createScheduler();
         const task = await scheduler.addTask({
             name: 'Unknown',
             prompt: 'Summarize',
@@ -618,14 +598,14 @@ describe('user asks the scheduler to act on a task that is not there', () => {
 
         await vi.advanceTimersByTimeAsync(60_000);
 
-        expect(startBackgroundTaskMock).not.toHaveBeenCalled();
+        expect(schedulerNetwork.requests).toHaveLength(0);
         expect(task.nextRunAt).toBeNull();
 
         await scheduler.removeTask(task.id);
     });
 
     it('user gets a cron task that can never fire saved without a next run', async () => {
-        const scheduler = new TaskScheduler();
+        const scheduler = createScheduler();
         const task = await scheduler.addTask({
             name: 'Never',
             prompt: 'Summarize',
@@ -634,7 +614,7 @@ describe('user asks the scheduler to act on a task that is not there', () => {
 
         await vi.advanceTimersByTimeAsync(120_000);
 
-        expect(startBackgroundTaskMock).not.toHaveBeenCalled();
+        expect(schedulerNetwork.requests).toHaveLength(0);
         expect(task.nextRunAt).toBeNull();
 
         await scheduler.removeTask(task.id);
@@ -649,7 +629,7 @@ describe('user gets a schedule that survives an environment without structuredCl
     it('user gets the trigger copied even when the runtime has no structuredClone', async () => {
         vi.stubGlobal('structuredClone', undefined);
 
-        const scheduler = new TaskScheduler();
+        const scheduler = createScheduler();
         const trigger = { type: 'interval' as const, milliseconds: 1_000 };
         const task = await scheduler.addTask({
             name: 'Digest',

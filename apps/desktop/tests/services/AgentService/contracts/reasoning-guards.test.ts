@@ -2,8 +2,6 @@
  * Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
  */
 
-import { describe, expect, it } from 'vitest';
-
 import {
     budgetForReasoningLevel,
     clampBudgetToResponseRoom,
@@ -19,7 +17,8 @@ import {
     normalizeReasoningOptions,
     parseReasoningOptions,
     serializeReasoningOptions,
-} from '@/services/AgentService/contracts/reasoning';
+} from '@touchai/models/contracts';
+import { describe, expect, it } from 'vitest';
 
 /**
  * These are the guards the settings page and the request layer rely on when they read

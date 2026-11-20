@@ -1,5 +1,5 @@
-import { AppEvent, eventService } from '@services/EventService';
-import type { QuickShortcutItem } from '@services/NativeService';
+import { createAgentWindowFixture } from '@tests/utils/agentWindow';
+import { createMainViewClients } from '@tests/utils/mainViewClients';
 import { installProductAnalytics } from '@tests/utils/productAnalytics';
 import { installSearchSurfaceBoundary } from '@tests/utils/searchSurface';
 import { installSkillCommands } from '@tests/utils/skills';
@@ -8,7 +8,9 @@ import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { SessionMessage } from '@/types/session';
+import type { SessionMessage } from '@/app/api/agent/history';
+import { AppEvent, eventService } from '@/app/workflows/windows/events';
+import type { QuickShortcutItem } from '@/platform/native';
 import SearchBar from '@/views/SearchView/components/SearchBar/index.vue';
 import SearchView from '@/views/SearchView/index.vue';
 
@@ -35,7 +37,16 @@ const result: QuickShortcutItem = {
     source: 'desktop_user',
 };
 
-beforeEach(() => {
+let fixture: ReturnType<typeof createAgentWindowFixture>;
+let clients: ReturnType<typeof createMainViewClients>;
+function viewOptions() {
+    return {
+        plugins: [createPinia()],
+        provide: clients.provide,
+    };
+}
+
+beforeEach(async () => {
     setActivePinia(createPinia());
     installSearchSurfaceBoundary();
     Object.defineProperties(Range.prototype, {
@@ -76,9 +87,16 @@ beforeEach(() => {
     mockTauriCommand('quick_search_prepare_index', undefined);
     mockTauriCommand('quick_search_get_shortcut_icons', {});
     mockTauriCommand('quick_search_get_image_thumbnails', {});
+    fixture = createAgentWindowFixture();
+    await fixture.window.ready;
+    await fixture.window.capabilities.waitForAgent();
+    await fixture.window.settings.initialize();
+    clients = createMainViewClients(fixture.window);
 });
 
-afterEach(() => {
+afterEach(async () => {
+    clients.dispose();
+    await fixture.window.dispose();
     vi.restoreAllMocks();
     vi.useRealTimers();
     vi.unstubAllGlobals();
@@ -92,7 +110,7 @@ describe('user hides the search surface while quick search is open', () => {
     it('user keeps the quick search query and results after the surface hides and reopens', async () => {
         const telemetry = installProductAnalytics();
         const wrapper = mount(SearchView, {
-            global: { plugins: [createPinia()] },
+            global: viewOptions(),
             attachTo: document.body,
         });
         await flushPromises();
@@ -173,7 +191,7 @@ describe('given the input contains an unfinished skill query', () => {
             installSkillCommands();
             installProductAnalytics();
             const wrapper = mount(SearchView, {
-                global: { plugins: [createPinia()] },
+                global: viewOptions(),
                 attachTo: document.body,
             });
             await flushPromises();
@@ -231,7 +249,7 @@ describe('given the input contains an unfinished skill query', () => {
         installSkillCommands();
         installProductAnalytics();
         const wrapper = mount(SearchView, {
-            global: { plugins: [createPinia()] },
+            global: viewOptions(),
             attachTo: document.body,
         });
         await flushPromises();
@@ -280,7 +298,7 @@ describe('given a file has been referenced in the draft', () => {
             next_offset: 1,
         });
         const wrapper = mount(SearchView, {
-            global: { plugins: [createPinia()] },
+            global: viewOptions(),
             attachTo: document.body,
         });
         await flushPromises();
@@ -317,7 +335,7 @@ describe('given the main window already contains a conversation', () => {
         installSkillCommands();
         installProductAnalytics();
         const wrapper = mount(SearchView, {
-            global: { plugins: [createPinia()] },
+            global: viewOptions(),
             attachTo: document.body,
         });
         await flushPromises();

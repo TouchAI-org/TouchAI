@@ -56,8 +56,8 @@
     import AppIcon from '@components/AppIcon.vue';
     import { computed } from 'vue';
 
+    import type { ToolApprovalInfo } from '@/app/api/agent/history';
     import { t } from '@/i18n';
-    import type { ToolApprovalInfo } from '@/types/session';
 
     interface Props {
         approval: ToolApprovalInfo;

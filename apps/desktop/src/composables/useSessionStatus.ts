@@ -1,13 +1,15 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { log } from '@services/ObservabilityService';
 import { useStateMachine } from 'reka-ui';
 import { onUnmounted, ref } from 'vue';
 
-import { sessionTaskCenter } from '@/services/AgentService';
-import type { SessionTaskStatus } from '@/services/AgentService/task/types';
-import { eventService } from '@/services/EventService';
-import { AppEvent } from '@/services/EventService/types';
+import type { TaskViewSnapshot } from '@/app/api/agent';
+import { useAgentApi } from '@/app/api/agent';
+import { eventService } from '@/app/api/agent/events';
+import { AppEvent } from '@/app/api/agent/events';
+import { log } from '@/app/api/diagnostics';
+
+type SessionTaskStatus = TaskViewSnapshot['status'];
 
 function isActiveSessionStatus(
     status: SessionTaskStatus
@@ -21,6 +23,7 @@ function isActiveSessionStatus(
  * 通过事件总线订阅会话任务状态变更，提供响应式的会话状态查询接口
  */
 export function useSessionStatus() {
+    const agent = useAgentApi();
     const sessionStatuses = ref<Map<number, SessionTaskStatus>>(new Map());
     let unsubscribe: (() => void) | null = null;
     const lifecycle = useStateMachine('pending', {
@@ -54,7 +57,7 @@ export function useSessionStatus() {
         const newStatuses = new Map<number, SessionTaskStatus>();
 
         for (const sessionId of sessionIds) {
-            const status = sessionTaskCenter.getSessionStatus(sessionId);
+            const status = agent.getSessionStatus(sessionId);
             if (status && isActiveSessionStatus(status.status)) {
                 newStatuses.set(sessionId, status.status);
             }

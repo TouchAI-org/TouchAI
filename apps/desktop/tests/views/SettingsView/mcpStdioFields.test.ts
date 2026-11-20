@@ -1,4 +1,6 @@
+import { createTestWindowPresentation } from '@tests/utils/windowPresentation';
 import { mount } from '@vue/test-utils';
+import { beforeEach as beforePresentation } from 'vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
@@ -270,4 +272,8 @@ describe('user edits a plain key-value block', () => {
 
         expect(wrapper.get('label').text()).toBe('环境变量');
     });
+});
+
+beforePresentation(async () => {
+    (await createTestWindowPresentation('settings')).install();
 });

@@ -1,4 +1,6 @@
+import { createTestWindowPresentation } from '@tests/utils/windowPresentation';
 import { mount } from '@vue/test-utils';
+import { beforeEach as beforePresentation } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick } from 'vue';
 
@@ -138,4 +140,8 @@ describe('computer use activity overlay', () => {
         expect(status.text()).not.toContain('{appName}');
         wrapper.unmount();
     });
+});
+
+beforePresentation(async () => {
+    (await createTestWindowPresentation('computer-use-glow')).install();
 });

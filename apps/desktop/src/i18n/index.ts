@@ -10,7 +10,7 @@ import {
     normalizeLocale,
     resolveFirstLaunchLocale,
     SUPPORTED_LOCALES,
-} from './locales';
+} from '../config/locales';
 import { type MessageKey, type MessageParams, messages } from './messages';
 import { type SourceText, zhToEnTextMap } from './textMap';
 

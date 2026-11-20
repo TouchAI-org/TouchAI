@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import type { PendingUserMessage } from '@/services/AgentService/task/types';
-import type { SessionMessage } from '@/types/session';
+import type { PendingUserMessage } from '@/app/api/agent/contracts';
+import type { SessionMessage } from '@/app/api/agent/history';
 import { buildConversationDisplayMessages } from '@/views/SearchView/components/ConversationPanel/pendingMessages';
 
 function createUserMessage(id: string, content: string): SessionMessage {

@@ -1,10 +1,7 @@
-import type {
-    SearchSurfaceHiddenEvent,
-    SearchSurfaceShownEvent,
-} from '@services/EventService/types';
-import type { SearchSurfacePreparation } from '@services/NativeService/types';
 import { describe, expect, it, vi } from 'vitest';
 
+import type { SearchSurfaceHiddenEvent, SearchSurfaceShownEvent } from '@/app/api/search/events';
+import type { SearchSurfacePreparation } from '@/platform/native/types';
 import {
     createSearchSurfacePreparationController,
     type SearchSurfacePreparationControllerOptions,

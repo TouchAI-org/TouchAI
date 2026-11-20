@@ -3,16 +3,8 @@
  * 收口页面交互状态、QuickSearch / overlay 策略与键盘语义解释，
  * 避免页面编排层和输入层同时承载交互规则。
  */
-import type { SearchSurfaceCommandEvent } from '@services/EventService/types';
-import { log } from '@services/ObservabilityService';
 import { computed, type ComputedRef, reactive, type Ref, watch } from 'vue';
 
-import {
-    isRendererOnlySearchKeybindingAction,
-    type SearchKeybindingActionId,
-    type SearchKeybindings,
-} from '@/config/searchKeybindings';
-import { useAskUserStore } from '@/stores/askUser';
 import {
     cloneInputHistorySnapshot,
     createInputHistorySnapshot,
@@ -20,7 +12,15 @@ import {
     type InputHistorySnapshot,
     type PendingToolApproval,
     type SessionMessage,
-} from '@/types/session';
+} from '@/app/api/agent/history';
+import { log } from '@/app/api/diagnostics';
+import type { SearchSurfaceCommandEvent } from '@/app/api/search/events';
+import {
+    isRendererOnlySearchKeybindingAction,
+    type SearchKeybindingActionId,
+    type SearchKeybindings,
+} from '@/config/searchKeybindings';
+import { useAskUserStore } from '@/stores/askUser';
 import { matchShortcut, normalizeLocalShortcutString } from '@/utils/shortcuts';
 
 import type {

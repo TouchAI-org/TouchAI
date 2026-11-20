@@ -1,0 +1,262 @@
+// Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
+
+import type { AiToolCall, JsonObject } from '@touchai/models/contracts';
+
+import type { DesktopModelMessage as AiMessage } from '@/adapters/models/input';
+import {
+    contextMessageSource,
+    contextSummaryText,
+    createSessionReadModel,
+    readStoredText,
+    readStoredToolCall,
+} from '@/modules/agent';
+import type { SessionReadModel, StoredContextPart } from '@/modules/agent/contracts';
+import {
+    type AttachmentCapabilities,
+    type AttachmentContentPart as AiContentPart,
+    type AttachmentType,
+    buildAttachmentParts,
+    getUnsupportedAttachmentTypes,
+    hydratePersistedAttachments,
+} from '@/modules/attachments';
+import { awaitAbortable } from '@/utils/abort';
+
+/** 读取 reasoning 片段持久化的 providerOptions；无有效内容时返回 undefined。 */
+function readReasoningProviderOptions(data: string): Record<string, JsonObject> | undefined {
+    if (!data || data === '{}') return undefined;
+    try {
+        const parsed = JSON.parse(data) as unknown;
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined;
+        const entries = Object.entries(parsed as Record<string, unknown>);
+        if (entries.length === 0) return undefined;
+        return parsed as Record<string, JsonObject>;
+    } catch {
+        return undefined;
+    }
+}
+
+function buildAssistantTransportContent(row: { parts: StoredContextPart[] }): AiMessage['content'] {
+    return row.parts.flatMap((part): AiContentPart[] => {
+        if (part.type === 'text' && part.content.trim()) {
+            return [{ type: 'text', text: part.content }];
+        }
+        if (part.type === 'reasoning' && part.content.trim()) {
+            const providerOptions = readReasoningProviderOptions(part.data);
+            return [
+                {
+                    type: 'reasoning',
+                    text: part.content,
+                    ...(providerOptions ? { providerOptions } : {}),
+                },
+            ];
+        }
+        return [];
+    });
+}
+
+const MISSING_TOOL_RESULT_PLACEHOLDER = 'Missing historical tool result.';
+
+export async function findUnsupportedSessionAttachmentTypes(options: {
+    sessionId?: number;
+    capabilities: AttachmentCapabilities;
+    readModel?: SessionReadModel;
+    signal?: AbortSignal;
+}): Promise<AttachmentType[]> {
+    options.signal?.throwIfAborted();
+    if (!options.sessionId) {
+        return [];
+    }
+
+    const sessionId = options.sessionId;
+    const rows = await awaitAbortable(
+        () => (options.readModel ?? createSessionReadModel()).getMessages(sessionId),
+        options.signal
+    );
+    options.signal?.throwIfAborted();
+    const transportAttachmentRows = rows
+        .filter((row) => row.role === 'user' || row.role === 'tool_call')
+        .flatMap((row) => row.attachments);
+
+    return getUnsupportedAttachmentTypes(transportAttachmentRows, options.capabilities);
+}
+
+function resolveTransportAttachmentCapabilities(options: {
+    attachmentCapabilities?: AttachmentCapabilities;
+    supportsAttachments?: boolean;
+}): AttachmentCapabilities {
+    if (options.attachmentCapabilities) {
+        return options.attachmentCapabilities;
+    }
+
+    const supportsAttachments = options.supportsAttachments ?? true;
+    return {
+        supportsImages: supportsAttachments,
+        supportsFiles: supportsAttachments,
+    };
+}
+
+function filterSupportedAttachmentRows<T extends { type: AttachmentType }>(
+    attachments: T[],
+    capabilities: AttachmentCapabilities
+): T[] {
+    return attachments.filter(
+        (attachment) => getUnsupportedAttachmentTypes([attachment], capabilities).length === 0
+    );
+}
+
+/**
+ * 将会话历史重组为下一轮请求可继续复用的模型消息。
+ */
+export async function loadSessionTransportMessages(options: {
+    sessionId?: number;
+    supportsAttachments?: boolean;
+    attachmentCapabilities?: AttachmentCapabilities;
+    readModel?: SessionReadModel;
+    signal?: AbortSignal;
+    diagnostics?: { error(message: string, error: unknown): void };
+}): Promise<AiMessage[]> {
+    options.signal?.throwIfAborted();
+    if (!options.sessionId) return [];
+    const sessionId = options.sessionId;
+    const context = await awaitAbortable(
+        () => (options.readModel ?? createSessionReadModel()).getContext(sessionId),
+        options.signal
+    );
+    options.signal?.throwIfAborted();
+    const attachmentCapabilities = resolveTransportAttachmentCapabilities(options);
+    const messages: AiMessage[] = [];
+
+    for (const row of context.messages) {
+        options.signal?.throwIfAborted();
+        const contextSource = await contextMessageSource(row);
+        if (row.role === 'tool_call') {
+            const callParts = row.parts.filter((part) => part.type === 'tool_call');
+            const calls: AiToolCall[] = callParts.map((part) => {
+                const data = readStoredToolCall(part);
+                return {
+                    id: data.id,
+                    name: data.name,
+                    arguments: data.input,
+                };
+            });
+            messages.push({
+                contextSource,
+                role: 'assistant',
+                content: buildAssistantTransportContent(row),
+                tool_calls: calls,
+            });
+
+            // Tool state lives inside the call part, so results are emitted
+            // immediately after their assistant tool-call message.
+            for (const [index, part] of callParts.entries()) {
+                options.signal?.throwIfAborted();
+                const data = readStoredToolCall(part);
+                const call = calls[index]!;
+                const scopedAttachments = row.attachments.filter(
+                    (attachment) =>
+                        attachment.tool_call_id === data.id && attachment.tool_kind === data.kind
+                );
+                const supported = filterSupportedAttachmentRows(
+                    scopedAttachments,
+                    attachmentCapabilities
+                );
+                const attachments = supported.length
+                    ? await awaitAbortable(
+                          () => hydratePersistedAttachments(supported),
+                          options.signal
+                      )
+                    : [];
+                const attachmentParts = attachments.length
+                    ? await buildAttachmentParts(attachments, {
+                          includeAnchorText: false,
+                          inlineFileContents: true,
+                          signal: options.signal,
+                          diagnostics: options.diagnostics,
+                      })
+                    : [];
+                const content =
+                    typeof data.output === 'string' ? data.output : MISSING_TOOL_RESULT_PLACEHOLDER;
+                messages.push({
+                    contextSource,
+                    role: 'tool',
+                    tool_call_id: call.id,
+                    name: call.name,
+                    ...(data.status &&
+                    ['error', 'timeout', 'rejected', 'cancelled'].includes(data.status)
+                        ? { isError: true }
+                        : {}),
+                    content: attachmentParts.length
+                        ? [
+                              ...(content ? [{ type: 'text' as const, text: content }] : []),
+                              ...attachmentParts,
+                          ]
+                        : content,
+                });
+            }
+            continue;
+        }
+
+        if (row.role === 'user') {
+            const supportedAttachmentRows = filterSupportedAttachmentRows(
+                row.attachments,
+                attachmentCapabilities
+            );
+            const attachments =
+                supportedAttachmentRows.length > 0
+                    ? await awaitAbortable(
+                          () => hydratePersistedAttachments(supportedAttachmentRows),
+                          options.signal
+                      )
+                    : [];
+            const attachmentParts =
+                attachments.length > 0 ? await buildAttachmentParts(attachments, options) : [];
+            const text = readStoredText(row.parts);
+
+            messages.push({
+                contextSource,
+                role: 'user',
+                content:
+                    attachmentParts.length > 0
+                        ? ([
+                              ...(text.trim() ? [{ type: 'text' as const, text }] : []),
+                              ...attachmentParts,
+                          ] as AiContentPart[])
+                        : text.trim()
+                          ? text
+                          : 'no prompt',
+            });
+            continue;
+        }
+
+        const content =
+            row.role === 'assistant'
+                ? buildAssistantTransportContent(row)
+                : readStoredText(row.parts);
+        // 没有可发送内容的 assistant 行（例如迁移后仅剩附件的旧 tool_result）
+        // 会被严格 provider 拒绝，因此保留存储但跳过本次传输。
+        if (row.role === 'assistant' && content.length === 0) {
+            continue;
+        }
+
+        messages.push({
+            contextSource,
+            role: row.role as 'user' | 'assistant' | 'system',
+            content,
+        });
+    }
+
+    if (!context?.summary) return messages;
+    const { summary, summaryPartId } = context;
+    return [
+        ...messages.filter((message) =>
+            summary.systemMessageIds.includes(message.contextSource!.id)
+        ),
+        {
+            role: 'user',
+            content: contextSummaryText(summary.text),
+            contextSummary: summary,
+            contextSummaryPartId: summaryPartId,
+        },
+        ...messages.filter((message) => message.contextSource!.id >= summary.firstKeptMessageId),
+    ];
+}

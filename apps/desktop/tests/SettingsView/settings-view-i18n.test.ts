@@ -1,6 +1,11 @@
+import { createUpdateClientBoundary } from '@tests/utils/updateClient';
+import { createTestWindowPresentation } from '@tests/utils/windowPresentation';
+import { config } from '@vue/test-utils';
 import { mount } from '@vue/test-utils';
+import { beforeEach as beforePresentation } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { updatesApiKey } from '@/app/api/updates';
 import { setLocale } from '@/i18n';
 import SettingsView from '@/views/SettingsView/index.vue';
 
@@ -27,6 +32,7 @@ const { asyncViewControls, setTitleMock } = vi.hoisted(() => {
 
 vi.mock('@tauri-apps/api/window', () => ({
     getCurrentWindow: () => ({
+        label: 'settings',
         minimize: vi.fn(),
         close: vi.fn(),
         setTitle: setTitleMock,
@@ -37,12 +43,6 @@ vi.mock('@tauri-apps/api/window', () => ({
 
 vi.mock('@composables/useScrollbarStabilizer', () => ({
     useScrollbarStabilizer: vi.fn(),
-}));
-
-vi.mock('@services/AppUpdateService', () => ({
-    appUpdateService: {
-        checkNow: vi.fn().mockResolvedValue(true),
-    },
 }));
 
 vi.mock('@components/AppIcon.vue', () => ({
@@ -140,14 +140,20 @@ async function flushMountedPromises() {
     }
 }
 
+let updatesBoundary: Awaited<ReturnType<typeof createUpdateClientBoundary>>;
+
 describe('user waits for a settings section', () => {
-    beforeEach(() => {
+    beforeEach(async () => {
+        updatesBoundary = await createUpdateClientBoundary();
+        Reflect.set(config.global.provide, updatesApiKey, updatesBoundary.client.updates);
         vi.clearAllMocks();
         asyncViewControls.resolveAll();
         setLocale('zh-CN');
     });
 
-    afterEach(() => {
+    afterEach(async () => {
+        await updatesBoundary.dispose();
+        Reflect.deleteProperty(config.global.provide, updatesApiKey);
         asyncViewControls.resolveAll();
     });
 
@@ -193,4 +199,8 @@ describe('user waits for a settings section', () => {
         expect(wrapper.text()).not.toContain('正在加载');
         wrapper.unmount();
     });
+});
+
+beforePresentation(async () => {
+    (await createTestWindowPresentation('settings')).install();
 });

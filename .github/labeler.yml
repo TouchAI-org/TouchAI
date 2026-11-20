@@ -16,9 +16,15 @@
 'area:agent-service':
     - changed-files:
           - any-glob-to-any-file:
-                - 'apps/desktop/src/services/AgentService/**'
+                - 'packages/agent-core/**'
+                - 'packages/models/**'
+                - 'apps/desktop/src/adapters/{agent,models}/**'
+                - 'apps/desktop/src/modules/{agent,attachments,models,skills,tools}/**'
+                - 'apps/desktop/src/app/api/agent/**'
+                - 'apps/desktop/src/app/bootstrap/agent.ts'
+                - 'apps/desktop/src/app/composition/main.ts'
+                - 'apps/desktop/src/app/workflows/agent/**'
                 - 'apps/desktop/src/composables/agent/**'
-                - 'apps/desktop/src/types/session.ts'
 
 'area:database':
     - changed-files:
@@ -29,9 +35,13 @@
 'area:mcp':
     - changed-files:
           - any-glob-to-any-file:
-                - 'apps/desktop/src/services/AgentService/infrastructure/mcp/**'
+                - 'apps/desktop/src/modules/tools/mcp/**'
+                - 'apps/desktop/src/modules/tools/contracts/mcp*.ts'
+                - 'apps/desktop/src/app/api/tools/mcp*.ts'
+                - 'apps/desktop/src/app/bootstrap/mcp.ts'
+                - 'apps/desktop/src/platform/native/mcp.ts'
                 - 'apps/desktop/src/views/SettingsView/components/McpTools/**'
-                - 'apps/desktop/src/stores/mcp.ts'
+                - 'apps/desktop/src/stores/mcp*.ts'
 
 'area:ci':
     - changed-files:

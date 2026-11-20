@@ -1,7 +1,7 @@
-import type { QuickShortcutItem } from '@services/NativeService';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ref } from 'vue';
 
+import type { QuickShortcutItem } from '@/platform/native';
 import {
     useAssetLoader,
     type UseAssetLoaderDeps,
@@ -14,7 +14,7 @@ import {
  * boundary; every assertion is about which paths get requested or which map the
  * panel ends up showing.
  */
-vi.mock('@services/NativeService', () => ({
+vi.mock('@/platform/native', () => ({
     native: {
         quickSearch: {
             getImageThumbnails: vi.fn(),

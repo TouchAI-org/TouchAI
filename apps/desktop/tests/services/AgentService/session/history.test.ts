@@ -1,23 +1,34 @@
 import type { MessageRow } from '@database/queries/messages';
 import type { SessionTurnAttemptHistoryRow } from '@database/queries/sessionTurnAttempts';
 import type { SessionTurnHistoryRow } from '@database/queries/sessionTurns';
-import { createMessagePart, createMessageRow } from '@tests/utils/messages';
-import { describe, expect, it, vi } from 'vitest';
-
 import {
-    buildSessionHistory,
-    buildSessionHistoryFromData,
-} from '@/services/AgentService/session/history';
+    closeTestDatabases,
+    openMigratedDatabase,
+    routeQueriesTo,
+} from '@tests/database/sqliteHarness';
+import { createMessagePart, createMessageRow } from '@tests/utils/messages';
+import { buildSessionHistory } from '@tests/utils/sessionHistory';
+import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach } from 'vitest';
+
+import { selectToolCalls } from '@/app/api/agent/history';
+import { readMcpServerNames } from '@/modules/tools';
 import { parseDbDateTimestamp } from '@/utils/date';
-import { selectToolCalls } from '@/utils/session';
-
-const { findAllMcpServersMock } = vi.hoisted(() => ({
-    findAllMcpServersMock: vi.fn(),
-}));
-
-vi.mock('@database/queries/mcpServers', () => ({
-    findAllMcpServers: findAllMcpServersMock,
-}));
+let database: ReturnType<typeof openMigratedDatabase>;
+beforeEach(() => {
+    database = openMigratedDatabase();
+    routeQueriesTo(database);
+});
+afterEach(closeTestDatabases);
+async function buildSessionHistoryFromData(
+    data: Omit<Parameters<typeof buildSessionHistory>[0], 'resolveServerName'>
+) {
+    const names = new Map((await readMcpServerNames()).map((server) => [server.id, server.name]));
+    return buildSessionHistory({
+        ...data,
+        resolveServerName: (id) => (id === null ? '' : (names.get(id) ?? `MCP 服务器 ${id}`)),
+    });
+}
 
 const BASE_TIME = '2026-05-22T10:00:00.000Z';
 
@@ -184,7 +195,6 @@ async function build(
 
 describe('user reopens a conversation that had a running tool', () => {
     it('user sees a builtin tool call restored with the time it started', async () => {
-        findAllMcpServersMock.mockResolvedValue([]);
         const messageCreatedAt = '2026-05-29T00:00:00.000Z';
         const toolLogCreatedAt = '2026-05-29T00:00:03.000Z';
 
@@ -1152,7 +1162,9 @@ describe('user reopens a conversation that retried', () => {
 
 describe('user reopens a stored session', () => {
     it('user sees a tool call from a server that is no longer installed named by its id', async () => {
-        findAllMcpServersMock.mockResolvedValue([{ id: 7, name: 'filesystem' }]);
+        database.exec(
+            "INSERT INTO mcp_servers (id, name, transport_type) VALUES (7, 'filesystem', 'stdio')"
+        );
 
         const history = await buildSessionHistoryFromData({
             messages: [

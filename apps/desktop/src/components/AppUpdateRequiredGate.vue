@@ -1,26 +1,24 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
-    import { appUpdateService } from '@services/AppUpdateService';
-    import {
-        getDownloadableAppUpdate,
-        getInstallableAppUpdate,
-    } from '@services/AppUpdateService/availability';
-    import { getAppUpdateRequirementReasonText } from '@services/AppUpdateService/requirementText';
-    import type { AppUpdateState } from '@services/AppUpdateService/types';
-    import { log } from '@services/ObservabilityService';
-    import { openUrl } from '@tauri-apps/plugin-opener';
     import { computed, onMounted, onUnmounted, ref } from 'vue';
 
+    import { log } from '@/app/api/diagnostics';
+    import { useUpdatesApi } from '@/app/api/updates';
+    import type { AppUpdateState } from '@/app/api/updates/contracts';
+    import { getDownloadableAppUpdate, getInstallableAppUpdate } from '@/app/api/updates/contracts';
+    import { preferredAppUpdateDownload } from '@/app/api/updates/downloads';
+    import { appUpdateReleaseNotes } from '@/app/api/updates/releaseNotes';
+    import { getAppUpdateRequirementReasonText } from '@/app/api/updates/requirementText';
     import { APP_PRODUCT_CONFIG } from '@/config/product';
     import { getLocale, t } from '@/i18n';
-    import { preferredAppUpdateDownload } from '@/services/AppUpdateService/downloads';
-    import { appUpdateReleaseNotes } from '@/services/AppUpdateService/releaseNotes';
+
+    const updates = useUpdatesApi();
 
     defineOptions({
         name: 'AppUpdateRequiredGate',
     });
 
-    const updateState = ref<AppUpdateState>(appUpdateService.getState());
+    const updateState = ref<AppUpdateState>(updates.getState());
     let unsubscribe: (() => void) | null = null;
 
     const visibleUpdate = computed(
@@ -124,12 +122,12 @@
     });
 
     onMounted(async () => {
-        unsubscribe = appUpdateService.subscribe((state) => {
+        unsubscribe = updates.subscribe((state) => {
             updateState.value = state;
         });
 
         try {
-            await appUpdateService.initialize();
+            await updates.initialize();
         } catch (error) {
             log.error('Failed to initialize update gate:', error);
         }
@@ -146,16 +144,16 @@
         }
 
         if (canInstall.value) {
-            await appUpdateService.install();
+            await updates.install();
             return;
         }
 
         if (canUseInAppUpdate.value) {
-            await appUpdateService.download();
+            await updates.download();
             return;
         }
 
-        await openUrl(releaseDownloadUrl.value);
+        await updates.openDownload(releaseDownloadUrl.value);
     }
 
     async function checkAgain() {
@@ -163,7 +161,7 @@
             return;
         }
 
-        await appUpdateService.checkNow('manual');
+        await updates.checkNow('manual');
     }
 </script>
 

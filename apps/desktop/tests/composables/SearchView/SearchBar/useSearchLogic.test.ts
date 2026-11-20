@@ -2,8 +2,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick, ref } from 'vue';
 
+import { createInputHistorySnapshot } from '@/app/api/agent/history';
 import { setLocale } from '@/i18n';
-import { createInputHistorySnapshot } from '@/types/session';
 
 type SearchEditorExtensionOptions = {
     placeholder?: string | (() => string);
@@ -12,7 +12,6 @@ type SearchEditorExtensionOptions = {
 
 const {
     editorInstances,
-    buildAttachmentPromptMetasMock,
     createSearchEditorExtensionsMock,
     findSearchTagChipMock,
     getAttachmentTagsMock,
@@ -92,7 +91,6 @@ const {
 
     return {
         editorInstances: [] as MockEditor[],
-        buildAttachmentPromptMetasMock: vi.fn(),
         createSearchEditorExtensionsMock: vi.fn((options?: SearchEditorExtensionOptions) => {
             void options;
             return [];
@@ -145,10 +143,6 @@ vi.mock('@/views/SearchView/components/SearchBar/tags', () => ({}));
 
 vi.mock('@tiptap/vue-3', () => ({
     Editor: MockEditor,
-}));
-
-vi.mock('@/services/AgentService/infrastructure/attachments', () => ({
-    buildAttachmentPromptMetas: buildAttachmentPromptMetasMock,
 }));
 
 vi.mock('@/views/SearchView/components/SearchBar/tags/attachment', () => ({
@@ -305,11 +299,6 @@ describe('when the search input first appears', () => {
             })),
             loadActiveModel: vi.fn(),
         };
-        buildAttachmentPromptMetasMock.mockImplementation((attachments: Array<{ id: string }>) =>
-            attachments.map((attachment, index) => ({
-                alias: `A${index + 1}-${attachment.id}`,
-            }))
-        );
         getModelSelectionMock().modelCapabilities.value = {
             supportsImages: true,
             supportsFiles: false,
@@ -339,7 +328,7 @@ describe('when the search input first appears', () => {
         document.body.innerHTML = '';
     });
 
-    it('reports multi-line state from a single measurement per update', async () => {
+    it('user given a wrapped draft when typing then sees multiline state without repeated layout reads', async () => {
         const mounted = await mountComposable(() =>
             useSearchInput({
                 searchBarContainerRef: ref(null),
@@ -414,7 +403,7 @@ describe('when the search input first appears', () => {
             editor,
             {
                 attachmentId: 'file-1',
-                alias: 'A1-file-1',
+                alias: 'A1',
                 fileName: 'file-1.txt',
                 fileType: 'file',
                 preview: undefined,
@@ -464,7 +453,6 @@ describe('when the page replaces the draft behind the editor', () => {
             getModelDropdownContext: vi.fn(),
             loadActiveModel: vi.fn(),
         };
-        buildAttachmentPromptMetasMock.mockReturnValue([]);
         getModelTagMock.mockReturnValue(null);
         getAttachmentTagsMock.mockReturnValue([]);
         vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
@@ -530,7 +518,6 @@ describe('when the user removes a chip from the editor', () => {
             getModelDropdownContext: vi.fn(),
             loadActiveModel: vi.fn(),
         };
-        buildAttachmentPromptMetasMock.mockReturnValue([]);
         getModelTagMock.mockReturnValue(null);
         getAttachmentTagsMock.mockReturnValue([]);
         vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
@@ -585,11 +572,6 @@ describe('when the user recalls a previously sent prompt', () => {
             getModelDropdownContext: vi.fn(),
             loadActiveModel: vi.fn(),
         };
-        buildAttachmentPromptMetasMock.mockImplementation((attachments: Array<{ id: string }>) =>
-            attachments.map((attachment, index) => ({
-                alias: `A${index + 1}-${attachment.id}`,
-            }))
-        );
         getModelTagMock.mockReturnValue(null);
         getAttachmentTagsMock.mockReturnValue([]);
         vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
@@ -652,7 +634,7 @@ describe('when the user recalls a previously sent prompt', () => {
             editor,
             {
                 attachmentId: 'restored',
-                alias: 'A1-restored',
+                alias: 'A1',
                 fileName: 'restored.txt',
                 fileType: 'file',
                 preview: undefined,
@@ -686,7 +668,6 @@ describe('when the user switches the application language', () => {
             getModelDropdownContext: vi.fn(),
             loadActiveModel: vi.fn(),
         };
-        buildAttachmentPromptMetasMock.mockReturnValue([]);
         getModelTagMock.mockReturnValue(null);
         getAttachmentTagsMock.mockReturnValue([]);
         vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
@@ -749,7 +730,6 @@ describe('when the user is selecting text in a long draft', () => {
             getModelDropdownContext: vi.fn(),
             loadActiveModel: vi.fn(),
         };
-        buildAttachmentPromptMetasMock.mockReturnValue([]);
         getModelTagMock.mockReturnValue(null);
         getAttachmentTagsMock.mockReturnValue([]);
         vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {

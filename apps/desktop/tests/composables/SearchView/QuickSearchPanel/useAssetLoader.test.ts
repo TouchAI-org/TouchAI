@@ -1,14 +1,14 @@
-import type { QuickShortcutItem } from '@services/NativeService';
-import { log } from '@services/ObservabilityService';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ref } from 'vue';
 
+import { log } from '@/platform/diagnostics';
+import type { QuickShortcutItem } from '@/platform/native';
 import {
     useAssetLoader,
     type UseAssetLoaderDeps,
 } from '@/views/SearchView/components/QuickSearchPanel/composables/useAssetLoader';
 
-vi.mock('@services/NativeService', () => ({
+vi.mock('@/platform/native', () => ({
     native: {
         quickSearch: {
             getImageThumbnails: vi.fn(),

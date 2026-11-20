@@ -1,9 +1,11 @@
+import { toolMessages } from '@tests/utils/toolMessages';
 import { describe, expect, it } from 'vitest';
 
+import { AiErrorCode } from '@/app/api/agent/errors';
+import type { AskUserAnswer, AskUserQuestion } from '@/modules/tools';
+import { createAskUserTools } from '@/modules/tools';
 import instructions from '@/prompts/skills/skill-creator/SKILL.md?raw';
-import { AiErrorCode } from '@/services/AgentService/contracts/errors';
-import type { AskUserAnswer, AskUserQuestion } from '@/services/AgentService/contracts/tooling';
-import { askUserTool } from '@/services/BuiltInToolService/tools/askUser';
+const askUserTool = createAskUserTools(toolMessages)[0]!;
 
 function destinationQuestion(): Record<string, unknown> {
     const examples = [...instructions.matchAll(/```json\s*\n([\s\S]*?)\n```/g)].map(

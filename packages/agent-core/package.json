@@ -1,0 +1,27 @@
+{
+    "name": "@touchai/agent-core",
+    "private": true,
+    "version": "0.0.0",
+    "type": "module",
+    "license": "GPL-3.0-or-later",
+    "touchaiArchitecture": {
+        "neutralDependencies": []
+    },
+    "exports": {
+        ".": "./src/index.ts",
+        "./contracts": "./src/contracts/index.ts"
+    },
+    "scripts": {
+        "type:check": "tsc -p tsconfig.json --noEmit",
+        "test:unit": "vitest run --configLoader runner",
+        "test:typecheck": "tsc -p tsconfig.test.json --noEmit"
+    },
+    "dependencies": {
+        "@touchai/models": "workspace:*"
+    },
+    "devDependencies": {
+        "typescript": "~6.0.3",
+        "vitest": "^4.1.12",
+        "@types/node": "^25.9.9"
+    }
+}

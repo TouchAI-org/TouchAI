@@ -20,12 +20,12 @@ export function parseArgs(
 
 export function resolveBase(ref: string): string;
 
-export function readDiff(base: string, path: string): string;
+export function readChangedLines(base: string, paths: readonly string[]): Map<string, Set<number>>;
 
 export function runPatchCoverage(
     options: PatchCoverageCliOptions,
     deps?: {
-        readDiff?: (base: string, path: string) => string;
+        readChangedLines?: typeof readChangedLines;
         resolveBase?: (ref: string) => string;
     }
 ): PatchCoverageRun;

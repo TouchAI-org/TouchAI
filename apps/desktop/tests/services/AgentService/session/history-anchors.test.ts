@@ -6,10 +6,10 @@ import type { MessageRow } from '@database/queries/messages';
 import type { SessionTurnAttemptHistoryRow } from '@database/queries/sessionTurnAttempts';
 import type { SessionTurnHistoryRow } from '@database/queries/sessionTurns';
 import { createMessagePart, createMessageRow } from '@tests/utils/messages';
-import { describe, expect, it, vi } from 'vitest';
+import { buildSessionHistory } from '@tests/utils/sessionHistory';
+import { describe, expect, it } from 'vitest';
 
-import { buildSessionHistory } from '@/services/AgentService/session/history';
-import { selectToolCalls } from '@/utils/session';
+import { selectToolCalls } from '@/app/api/agent/history';
 
 /**
  * Complements history.test.ts with turns that point at messages which are no longer in the
@@ -19,9 +19,6 @@ import { selectToolCalls } from '@/utils/session';
  * page loads a window of history. Losing the anchor must degrade to "put the note at the
  * end", never throw and never drop the whole conversation.
  */
-vi.mock('@database/queries/mcpServers', () => ({
-    findAllMcpServers: vi.fn(async () => []),
-}));
 
 const BASE_TIME = '2026-05-22T10:00:00.000Z';
 

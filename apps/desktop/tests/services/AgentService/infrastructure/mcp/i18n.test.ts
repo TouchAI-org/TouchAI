@@ -1,15 +1,8 @@
+import { mcpFormatting } from '@tests/utils/mcpFormatting';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
-import {
-    formatMcpToolResponse,
-    raceWithTimeoutAndSignal,
-} from '@/services/AgentService/infrastructure/mcp/utils';
-
-vi.mock('@/services/AgentService/infrastructure/attachments', () => ({
-    base64ToUint8Array: vi.fn(),
-    createPersistedAttachmentFromData: vi.fn(),
-}));
+const { formatMcpToolResponse, raceWithTimeoutAndSignal } = mcpFormatting;
 
 describe('user reads MCP tool results in their own language', () => {
     beforeEach(() => {

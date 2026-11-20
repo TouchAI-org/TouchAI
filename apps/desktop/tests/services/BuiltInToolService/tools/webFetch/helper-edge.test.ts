@@ -1,7 +1,9 @@
+import { createWebFetchToolsFixture } from '@tests/utils/webFetchTools';
 import { describe, expect, it } from 'vitest';
 
 import { setLocale } from '@/i18n';
-import {
+import type { WebFetchRequest } from '@/modules/tools/builtin/web-fetch/operations';
+const {
     buildPageMarkdown,
     buildPageText,
     extractHtmlContent,
@@ -9,8 +11,7 @@ import {
     getContentType,
     readResponseText,
     validateWebFetchUrl,
-    type WebFetchRequest,
-} from '@/services/BuiltInToolService/tools/webFetch/helper';
+} = createWebFetchToolsFixture().operations;
 
 /**
  * Pages on the real web are messy: they carry fragment links, blocked resource schemes on

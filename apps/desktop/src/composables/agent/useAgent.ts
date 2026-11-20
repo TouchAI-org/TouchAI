@@ -1,23 +1,22 @@
-﻿// Copyright (c) 2026. 千诚. Licensed under GPL v3
+// Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { findSessionById } from '@database/queries/sessions';
-import { notify } from '@services/NotificationService';
-import { log } from '@services/ObservabilityService';
 import { computed, onUnmounted, ref } from 'vue';
 
+import type {
+    AskUserAnswer,
+    AttachmentReference as Index,
+    InputHistorySnapshot,
+    PendingUserMessage,
+    PendingUserMessageDelivery,
+    PendingUserMessageInput,
+    SessionInformation as LoadedSessionInfo,
+} from '@/app/api/agent';
+import { useAgentApi } from '@/app/api/agent';
+import { AiError, AiErrorCode } from '@/app/api/agent/errors';
+import { AppEvent, eventService } from '@/app/api/agent/events';
+import { log } from '@/app/api/diagnostics';
+import { notify } from '@/app/api/windows/notifications';
 import { t } from '@/i18n';
-import {
-    type PendingUserMessage,
-    type PendingUserMessageDelivery,
-    type PendingUserMessageInput,
-    sessionTaskCenter,
-} from '@/services/AgentService';
-import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
-import { type Index } from '@/services/AgentService/infrastructure/attachments';
-import { loadCompleteSessionHistory } from '@/services/AgentService/session';
-import { eventService } from '@/services/EventService';
-import { AppEvent } from '@/services/EventService/types';
-import type { InputHistorySnapshot, LoadedSessionInfo } from '@/types/session';
 
 import { useAgentState } from './useAgentState';
 
@@ -44,6 +43,7 @@ function isCancelledError(requestError: Error): boolean {
  * - 把任务视图层状态重新整理为页面可直接消费的接口
  */
 export function useAgent(options: UseAiRequestOptions = {}) {
+    const agent = useAgentApi();
     const isStartingTask = ref(false);
 
     const {
@@ -139,22 +139,22 @@ export function useAgent(options: UseAiRequestOptions = {}) {
     async function loadPersistedSession(sessionId: number): Promise<LoadedSessionInfo> {
         const observationId = requestId;
         const [loaded, restoredPendingMessages] = await Promise.all([
-            loadCompleteSessionHistory(sessionId),
-            sessionTaskCenter.restoreSessionQueue(sessionId),
+            agent.loadSession(sessionId),
+            agent.restoreSessionQueue(sessionId),
         ]);
         if (observationId === requestId) {
             sessionHistory.value = loaded.history;
-            currentSessionId.value = loaded.session.id;
+            currentSessionId.value = loaded.sessionId;
             pendingUserMessages.value = restoredPendingMessages;
             resetTransientState();
-            sessionTaskCenter.resumeSessionQueue(sessionId);
+            agent.resumeSessionQueue(sessionId);
         }
 
         return {
-            sessionId: loaded.session.id,
-            title: loaded.session.title,
-            modelId: loaded.model?.model_id ?? loaded.session.model ?? null,
-            providerId: loaded.model?.provider_id ?? loaded.session.provider_id ?? null,
+            sessionId: loaded.sessionId,
+            title: loaded.title,
+            modelId: loaded.modelId,
+            providerId: loaded.providerId,
         };
     }
 
@@ -177,10 +177,10 @@ export function useAgent(options: UseAiRequestOptions = {}) {
     async function openSession(sessionId: number): Promise<LoadedSessionInfo> {
         invalidateRequestObservation();
 
-        const activeTask = sessionTaskCenter.attachSessionView(sessionId);
+        const activeTask = agent.attachSessionView(sessionId);
         if (activeTask) {
             attachTaskView(activeTask.taskId, activeTask.snapshot);
-            const session = await findSessionById(sessionId);
+            const session = await agent.getSession(sessionId);
             return {
                 sessionId,
                 title: session?.title ?? '',
@@ -222,7 +222,7 @@ export function useAgent(options: UseAiRequestOptions = {}) {
         markTaskStartPending(currentRequestId, startAbortController);
 
         try {
-            const startedTask = await sessionTaskCenter.startTask({
+            const startedTask = await agent.startTask({
                 prompt,
                 sessionId: currentSessionId.value ?? undefined,
                 modelId,
@@ -310,7 +310,7 @@ export function useAgent(options: UseAiRequestOptions = {}) {
             return;
         }
 
-        sessionTaskCenter.cancelTask(attachedTaskId.value);
+        agent.cancelTask(attachedTaskId.value);
     }
 
     /**
@@ -321,7 +321,7 @@ export function useAgent(options: UseAiRequestOptions = {}) {
             return false;
         }
 
-        return sessionTaskCenter.approveTaskToolCall(attachedTaskId.value, callId, decisionId);
+        return agent.approveTaskToolCall(attachedTaskId.value, callId, decisionId);
     }
 
     /**
@@ -332,23 +332,18 @@ export function useAgent(options: UseAiRequestOptions = {}) {
             return false;
         }
 
-        return sessionTaskCenter.rejectTaskToolCall(attachedTaskId.value, callId, decisionId);
+        return agent.rejectTaskToolCall(attachedTaskId.value, callId, decisionId);
     }
 
     function settleUserQuestion(
         callId: string,
-        answers: import('@/services/AgentService/contracts/tooling').AskUserAnswer[] | null,
+        answers: AskUserAnswer[] | null,
         decisionId?: string
     ): boolean {
         if (!attachedTaskId.value) {
             return false;
         }
-        return sessionTaskCenter.settleTaskUserQuestion(
-            attachedTaskId.value,
-            callId,
-            answers,
-            decisionId
-        );
+        return agent.settleTaskUserQuestion(attachedTaskId.value, callId, answers, decisionId);
     }
 
     function enqueueUserMessage(
@@ -356,11 +351,7 @@ export function useAgent(options: UseAiRequestOptions = {}) {
         delivery: PendingUserMessageDelivery
     ): PendingUserMessage | null {
         if (attachedTaskId.value) {
-            const message = sessionTaskCenter.enqueueTaskUserMessage(
-                attachedTaskId.value,
-                input,
-                delivery
-            );
+            const message = agent.enqueueTaskUserMessage(attachedTaskId.value, input, delivery);
             if (message) {
                 return message;
             }
@@ -371,25 +362,22 @@ export function useAgent(options: UseAiRequestOptions = {}) {
         if (currentSessionId.value === null) {
             return null;
         }
-        return sessionTaskCenter.enqueueSessionUserMessage(currentSessionId.value, input, delivery);
+        return agent.enqueueSessionUserMessage(currentSessionId.value, input, delivery);
     }
 
     function removePendingUserMessage(messageId: string): boolean {
-        if (
-            attachedTaskId.value &&
-            sessionTaskCenter.removeTaskUserMessage(attachedTaskId.value, messageId)
-        ) {
+        if (attachedTaskId.value && agent.removeTaskUserMessage(attachedTaskId.value, messageId)) {
             return true;
         }
         return currentSessionId.value === null
             ? false
-            : sessionTaskCenter.removeSessionUserMessage(currentSessionId.value, messageId);
+            : agent.removeSessionUserMessage(currentSessionId.value, messageId);
     }
 
     function updatePendingUserMessage(messageId: string, input: PendingUserMessageInput): boolean {
         if (
             attachedTaskId.value &&
-            sessionTaskCenter.updateTaskUserMessage(attachedTaskId.value, messageId, input)
+            agent.updateTaskUserMessage(attachedTaskId.value, messageId, input)
         ) {
             return true;
         }
@@ -397,24 +385,20 @@ export function useAgent(options: UseAiRequestOptions = {}) {
         // message may already belong to the session hand-over queue even
         // though the page still holds the previous task id.
         return currentSessionId.value !== null
-            ? sessionTaskCenter.updateSessionUserMessage(currentSessionId.value, messageId, input)
+            ? agent.updateSessionUserMessage(currentSessionId.value, messageId, input)
             : false;
     }
 
     function setPendingUserMessageEditing(messageId: string, editing: boolean): boolean {
         if (
             attachedTaskId.value &&
-            sessionTaskCenter.setTaskUserMessageEditing(attachedTaskId.value, messageId, editing)
+            agent.setTaskUserMessageEditing(attachedTaskId.value, messageId, editing)
         ) {
             return true;
         }
         return currentSessionId.value === null
             ? false
-            : sessionTaskCenter.setSessionUserMessageEditing(
-                  currentSessionId.value,
-                  messageId,
-                  editing
-              );
+            : agent.setSessionUserMessageEditing(currentSessionId.value, messageId, editing);
     }
 
     function beginPendingMessageEdit(messageId: string): boolean {
@@ -428,43 +412,37 @@ export function useAgent(options: UseAiRequestOptions = {}) {
         // The page may have switched sessions while the composer still held an
         // edit. Clear the flag at its owning task or hand-over queue instead of
         // leaving that message permanently excluded from delivery.
-        return sessionTaskCenter.clearUserMessageEditing(messageId);
+        return agent.clearUserMessageEditing(messageId);
     }
 
     function promotePendingUserMessage(messageId: string): boolean {
-        if (
-            attachedTaskId.value &&
-            sessionTaskCenter.promoteTaskUserMessage(attachedTaskId.value, messageId)
-        ) {
+        if (attachedTaskId.value && agent.promoteTaskUserMessage(attachedTaskId.value, messageId)) {
             return true;
         }
         return currentSessionId.value === null
             ? false
-            : sessionTaskCenter.promoteSessionUserMessage(currentSessionId.value, messageId);
+            : agent.promoteSessionUserMessage(currentSessionId.value, messageId);
     }
 
     function reorderPendingUserMessages(orderedQueueIds: string[]): boolean {
         if (
             attachedTaskId.value &&
-            sessionTaskCenter.reorderTaskQueuedMessages(attachedTaskId.value, orderedQueueIds)
+            agent.reorderTaskQueuedMessages(attachedTaskId.value, orderedQueueIds)
         ) {
             return true;
         }
         return currentSessionId.value === null
             ? false
-            : sessionTaskCenter.reorderSessionQueuedMessages(
-                  currentSessionId.value,
-                  orderedQueueIds
-              );
+            : agent.reorderSessionQueuedMessages(currentSessionId.value, orderedQueueIds);
     }
 
     function clearPendingUserMessages(): boolean {
-        if (attachedTaskId.value && sessionTaskCenter.clearTaskUserMessages(attachedTaskId.value)) {
+        if (attachedTaskId.value && agent.clearTaskUserMessages(attachedTaskId.value)) {
             return true;
         }
         return currentSessionId.value === null
             ? false
-            : sessionTaskCenter.clearSessionUserMessages(currentSessionId.value);
+            : agent.clearSessionUserMessages(currentSessionId.value);
     }
 
     function updatePendingUserMessagesModel(
@@ -474,11 +452,7 @@ export function useAgent(options: UseAiRequestOptions = {}) {
         if (!attachedTaskId.value) {
             return false;
         }
-        return sessionTaskCenter.updateTaskUserMessageModel(
-            attachedTaskId.value,
-            modelId,
-            providerId
-        );
+        return agent.updateTaskUserMessageModel(attachedTaskId.value, modelId, providerId);
     }
 
     let stopSessionTaskListener: (() => void) | null = null;
@@ -494,7 +468,7 @@ export function useAgent(options: UseAiRequestOptions = {}) {
                 return;
             }
 
-            const activeTask = sessionTaskCenter.attachSessionView(event.sessionId);
+            const activeTask = agent.attachSessionView(event.sessionId);
             if (activeTask?.taskId === event.taskId) {
                 attachTaskView(activeTask.taskId, activeTask.snapshot);
             }

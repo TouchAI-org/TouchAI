@@ -1,156 +1,50 @@
-import { mount } from '@vue/test-utils';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { defineComponent, nextTick } from 'vue';
+import { network } from '@tests/utils/agentWindow';
+import { createSettingsPanelFixture } from '@tests/utils/settingsPanel';
+import { flushPromises, mount } from '@vue/test-utils';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
 import AiServicesView from '@/views/SettingsView/components/AiServices/index.vue';
 
-const { capturedContextMenus } = vi.hoisted(() => ({
-    capturedContextMenus: [] as Array<Array<{ key: string; label: string }>>,
-}));
+let fixture: Awaited<ReturnType<typeof createSettingsPanelFixture>>;
+let wrapper: ReturnType<typeof mount> | undefined;
+afterEach(async () => {
+    wrapper?.unmount();
+    await fixture?.dispose();
+    vi.unstubAllGlobals();
+});
 
-vi.mock('@composables/useContextMenu.ts', () => ({
-    useContextMenu: (items: Array<{ key: string; label: string }>) => {
-        capturedContextMenus.push(items);
-        return {
-            open: vi.fn(),
-        };
-    },
-}));
-
-vi.mock('@composables/useAlert.ts', () => ({
-    useAlert: () => ({
-        success: vi.fn(),
-        error: vi.fn(),
-        warning: vi.fn(),
-    }),
-}));
-
-vi.mock('@composables/useScrollbarStabilizer', () => ({
-    useScrollbarStabilizer: vi.fn(),
-}));
-
-vi.mock('@components/AppIcon.vue', () => ({
-    default: defineComponent({
-        name: 'AppIcon',
-        template: '<span data-testid="app-icon" />',
-    }),
-}));
-
-vi.mock('@database', () => ({
-    db: {
-        transaction: vi.fn(),
-    },
-}));
-
-vi.mock('@database/queries', () => ({
-    createModel: vi.fn(),
-    createModels: vi.fn(),
-    createProvider: vi.fn(),
-    deleteModel: vi.fn(),
-    deleteProvider: vi.fn(),
-    findAllProvidersSorted: vi.fn(async () => []),
-    findDefaultModel: vi.fn(async () => null),
-    findModelsWithProvider: vi.fn(async () => []),
-    recordUpstreamModelMetadata: vi.fn(),
-    setDefaultModel: vi.fn(),
-    updateModel: vi.fn(),
-    updateProvider: vi.fn(),
-}));
-
-vi.mock('@/database/queries/llmMetadata.ts', () => ({
-    isLlmMetadataAliasEmpty: vi.fn(async () => false),
-    isLlmMetadataEmpty: vi.fn(async () => false),
-}));
-
-vi.mock('@services/EventService', () => ({
-    AppEvent: {
-        AI_MODELS_UPDATED: 'ai-models-updated',
-    },
-    eventService: {
-        emit: vi.fn(),
-        on: vi.fn(async () => vi.fn()),
-    },
-}));
-
-vi.mock('@/services/AgentService', () => ({
-    aiService: {
-        createProviderInstance: () => ({
-            listModels: vi.fn(async () => []),
-            getApiTargets: () => ({
-                generationTarget: '',
-            }),
-        }),
-    },
-}));
-
-vi.mock('@/services/AgentService/infrastructure/modelMetadata', () => ({
-    persistRefreshedModels: vi.fn(async () => ({ addedCount: 0 })),
-    refreshModelMetadataIfStale: vi.fn(async () => ({ status: 'skipped' })),
-    syncAllModelsMetadata: vi.fn(),
-    updateModelMetadata: vi.fn(),
-}));
-
-vi.mock('@/services/AgentService/infrastructure/providers', () => ({
-    getProviderDriverDefinition: () => ({
-        driver: 'openai',
-        label: 'OpenAI',
-        logo: 'openai.png',
-        placeholder: 'https://api.openai.com',
-    }),
-    parseProviderConfigJson: (configJson: string | null) =>
-        configJson ? JSON.parse(configJson) : {},
-}));
-
-vi.mock('@/views/SettingsView/components/AiServices/components/ProviderList.vue', () => ({
-    default: defineComponent({
-        name: 'ProviderList',
-        template: '<section data-testid="provider-list" />',
-    }),
-}));
-
-vi.mock('@/views/SettingsView/components/AiServices/components/ProviderConfig.vue', () => ({
-    default: defineComponent({
-        name: 'ProviderConfig',
-        template: '<section data-testid="provider-config" />',
-    }),
-}));
-
-vi.mock('@/views/SettingsView/components/AiServices/components/ModelList.vue', () => ({
-    default: defineComponent({
-        name: 'ModelList',
-        template: '<section data-testid="model-list" />',
-    }),
-}));
-
-vi.mock('@/views/SettingsView/components/AiServices/components/ProviderFormDialog.vue', () => ({
-    default: defineComponent({
-        name: 'ProviderFormDialog',
-        template: '<section data-testid="provider-form-dialog" />',
-    }),
-}));
-
-vi.mock('@/views/SettingsView/components/AiServices/components/ModelFormDialog.vue', () => ({
-    default: defineComponent({
-        name: 'ModelFormDialog',
-        template: '<section data-testid="model-form-dialog" />',
-    }),
-}));
-
-describe('user switches the provider menu language', () => {
-    beforeEach(() => {
-        capturedContextMenus.length = 0;
+describe('given a saved custom provider and the production settings client', () => {
+    it('user given a runtime language change when reopening the provider menu then reads the translated edit and delete commands', async () => {
+        vi.stubGlobal(
+            'ResizeObserver',
+            class {
+                observe() {}
+                unobserve() {}
+                disconnect() {}
+            }
+        );
+        fixture = await createSettingsPanelFixture();
+        network.respondToDiscovery = async () => new Response(null, { status: 304 });
         setLocale('zh-CN');
-    });
-
-    it('user refreshes provider context menu labels after runtime locale changes', async () => {
-        mount(AiServicesView);
-
-        expect(capturedContextMenus[0]?.map((item) => item.label)).toEqual(['编辑', '删除']);
-
+        wrapper = mount(AiServicesView, fixture.viewOptions);
+        await flushPromises();
+        await wrapper.get('.provider-card').trigger('contextmenu', { clientX: 20, clientY: 20 });
+        await flushPromises();
+        expect(
+            [...document.querySelectorAll('[role="menuitem"]')].map((item) =>
+                item.textContent?.trim()
+            )
+        ).toEqual(['编辑', '删除']);
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
         setLocale('en-US');
-        await nextTick();
-
-        expect(capturedContextMenus[0]?.map((item) => item.label)).toEqual(['Edit', 'Delete']);
+        await flushPromises();
+        await wrapper.get('.provider-card').trigger('contextmenu', { clientX: 20, clientY: 20 });
+        await flushPromises();
+        expect(
+            [...document.querySelectorAll('[role="menuitem"]')].map((item) =>
+                item.textContent?.trim()
+            )
+        ).toEqual(['Edit', 'Delete']);
     });
 });

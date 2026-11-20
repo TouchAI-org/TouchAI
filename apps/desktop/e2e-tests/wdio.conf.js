@@ -6,6 +6,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 import { provisionFontForAppRoot } from './e2e-font.js';
+import { createAgentFixture } from './test/support/agent-fixture.js';
 import { useIsolatedGlobalShortcut, waitForE2eBridge } from './test/support/desktop.js';
 import { SKILL_FIXTURE_CONTENT, SKILL_FIXTURE_NAME } from './test/support/fixtures.js';
 import {
@@ -26,6 +27,7 @@ const updateVisualBaselines = process.env.UPDATE_VISUAL_BASELINE === '1';
 let tauriDriver;
 let exitRequested = false;
 let sessionRuntimePath;
+let agentFixture;
 
 function resolveCargoTargetDirectory() {
     if (process.env.TOUCHAI_CARGO_TARGET_DIR) {
@@ -200,6 +202,9 @@ export const config = {
             path.join(__dirname, 'test/specs/queue-steer.e2e.js'),
             path.join(__dirname, 'test/specs/queue-recovery.e2e.js'),
         ],
+        path.join(__dirname, 'test/specs/agent-core.e2e.js'),
+        path.join(__dirname, 'test/specs/agent-tools.e2e.js'),
+        path.join(__dirname, 'test/specs/data-management.e2e.js'),
     ],
     bail: 1,
     maxInstances: 1,
@@ -296,14 +301,20 @@ export const config = {
 
         assertBuiltAppExists();
     },
-    beforeSession: async () => {
+    beforeSession: async (_config, _capabilities, specs) => {
         assertBuiltAppExists();
+        exitRequested = false;
 
         const tauriDriverPath = resolveTauriDriverPath();
         const nativeDriverPath = resolveNativeDriverPath();
 
         sessionRuntimePath = path.resolve(runtimeRoot, `session-${Date.now()}`);
         fs.mkdirSync(sessionRuntimePath, { recursive: true });
+        if (
+            specs.some((spec) => /(?:agent-core|agent-tools|data-management)\.e2e\.js$/.test(spec))
+        ) {
+            agentFixture = await createAgentFixture(sessionRuntimePath);
+        }
         const userHome = path.join(sessionRuntimePath, 'user-home');
         const appData = path.join(userHome, 'AppData', 'Roaming');
         const localAppData = path.join(userHome, 'AppData', 'Local');
@@ -370,7 +381,9 @@ export const config = {
         await waitForE2eBridge();
         await useIsolatedGlobalShortcut(sessionRuntimePath);
     },
-    afterSession: () => {
+    afterSession: async () => {
         closeTauriDriver();
+        await agentFixture?.close();
+        agentFixture = undefined;
     },
 };

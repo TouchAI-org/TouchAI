@@ -2,9 +2,9 @@
 
 <script setup lang="ts">
     import BarChart from '@components/ui/bar-chart/BarChart.vue';
-    import type { UsageTrendPoint } from '@database/queries/usageStats';
     import { computed, ref } from 'vue';
 
+    import type { UsageTrendPoint } from '@/app/api/usage/queries';
     import { t } from '@/i18n';
 
     import {

@@ -1,6 +1,5 @@
-import type { DatabaseQueryRequest } from '@services/NativeService/database';
+import { createSettingsPanelFixture } from '@tests/utils/settingsPanel';
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
-import { createPinia, disposePinia } from 'pinia';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
@@ -9,7 +8,7 @@ import DataManagement from '@/views/SettingsView/components/DataManagement/index
 import { getTauriInvokeCalls, mockTauriCommand } from '../utils/tauri';
 
 let wrapper: VueWrapper | undefined;
-let pinia: ReturnType<typeof createPinia>;
+let fixture: Awaited<ReturnType<typeof createSettingsPanelFixture>>;
 
 function clickButton(container: ParentNode, text: string) {
     const button = [...container.querySelectorAll<HTMLButtonElement>('button')].find(
@@ -26,23 +25,15 @@ function emitOldExit(element: Element) {
 }
 
 async function openDataManagement() {
-    wrapper = mount(DataManagement, { attachTo: document.body, global: { plugins: [pinia] } });
+    wrapper = mount(DataManagement, fixture.viewOptions);
     await flushPromises();
     return wrapper;
 }
 
-beforeEach(() => {
-    pinia = createPinia();
+beforeEach(async () => {
+    fixture = await createSettingsPanelFixture();
     setLocale('en-US');
     vi.stubGlobal('CSS', { escape: (value: string) => value });
-    mockTauriCommand('database_query', (payload: unknown) => {
-        const { request } = payload as { request: DatabaseQueryRequest };
-        return {
-            rows: request.sql.includes('count(') ? [{ count: 0 }] : [],
-            rowsAffected: 0,
-            lastInsertId: null,
-        };
-    });
     mockTauriCommand('analytics_get_state', () => ({
         status: 'disabled',
         consentEpoch: 0,
@@ -58,7 +49,7 @@ beforeEach(() => {
 afterEach(async () => {
     wrapper?.unmount();
     wrapper = undefined;
-    disposePinia(pinia);
+    await fixture.dispose();
     await flushPromises();
     document.body.innerHTML = '';
     vi.unstubAllGlobals();
@@ -123,5 +114,27 @@ describe('user opens and closes data-management dialogs', () => {
         await flushPromises();
         expect(document.querySelector('[data-testid=progress-message]')).toBeNull();
         expect(getTauriInvokeCalls('database_export_backup')).toHaveLength(2);
+    });
+
+    it('user given an admitted export when leaving the panel then receives no revived progress or success dialog', async () => {
+        mockTauriCommand('plugin:dialog|save', 'test-backup.db');
+        let complete!: () => void;
+        mockTauriCommand(
+            'database_export_backup',
+            () =>
+                new Promise<void>((resolve) => {
+                    complete = resolve;
+                })
+        );
+        const view = await openDataManagement();
+        clickButton(view.element, 'Export');
+        await flushPromises();
+        view.unmount();
+        wrapper = undefined;
+        await flushPromises();
+        complete();
+        await flushPromises();
+        expect(document.querySelector('[role=dialog]')).toBeNull();
+        expect(getTauriInvokeCalls('database_export_backup')).toHaveLength(1);
     });
 });

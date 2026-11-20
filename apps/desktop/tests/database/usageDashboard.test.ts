@@ -1,3 +1,5 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
 import {
     getToolUsageStats,
     getUsageByModel,
@@ -6,8 +8,7 @@ import {
     getUsageFilterOptions,
     getUsageHeatmap,
     getUsageTrend,
-} from '@database/queries/usageStats';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+} from '@/app/api/usage/queries';
 
 import { closeTestDatabases, openMigratedDatabase, routeQueriesTo } from './sqliteHarness';
 

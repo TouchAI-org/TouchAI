@@ -4,8 +4,8 @@
     import EmptyState from '@components/EmptyState.vue';
     import { onUnmounted, ref, watch } from 'vue';
 
+    import { serializeUpgradeModelToolConfig } from '@/app/api/tools/configuration';
     import { t } from '@/i18n';
-    import { serializeUpgradeModelToolConfig } from '@/services/BuiltInToolService/tools/upgradeModel/config';
 
     import type { BuiltInToolEntity, BuiltInToolUpdateData } from '../types';
     import {

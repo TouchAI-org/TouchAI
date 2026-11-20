@@ -1,17 +1,10 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import { LiveUsageTracker } from '@services/UsageService/liveUsage';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { emitMock } = vi.hoisted(() => ({ emitMock: vi.fn() }));
+import { LiveUsageTracker } from '@/modules/usage';
 
-vi.mock('@services/EventService', async (importOriginal) => {
-    const actual = await importOriginal<typeof import('@services/EventService')>();
-    return {
-        ...actual,
-        eventService: { emit: emitMock, on: vi.fn(), once: vi.fn() },
-    };
-});
+const { emitMock } = vi.hoisted(() => ({ emitMock: vi.fn() }));
 
 interface EmittedPayload {
     taskId: string;
@@ -36,6 +29,7 @@ function tracker(options: Partial<ConstructorParameters<typeof LiveUsageTracker>
         sessionId: 1,
         modelName: 'test-model',
         estimatedOutputCostPerMillion: 10,
+        publish: (payload) => emitMock('session:task:usage-progress', payload),
         ...options,
     });
 }

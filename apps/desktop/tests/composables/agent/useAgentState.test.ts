@@ -1,144 +1,114 @@
+import {
+    createAgentWindowFixture,
+    network,
+    response,
+    toolResponse,
+} from '@tests/utils/agentWindow';
 import { mountComposable } from '@tests/utils/composables';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { nextTick } from 'vue';
+import { emitTauriChannelMessage, mockTauriCommand } from '@tests/utils/tauri';
+import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 
+import { agentApiKey } from '@/app/api/agent';
+import { selectToolCalls } from '@/app/api/agent/history';
 import { useAgentState } from '@/composables/agent/useAgentState';
-import type { SessionTaskSnapshot } from '@/services/AgentService';
-import type { SessionMessage, ToolCallInfo } from '@/types/session';
-import { selectToolCalls } from '@/utils/session';
 
-const { subscribeTaskMock } = vi.hoisted(() => ({
-    subscribeTaskMock: vi.fn(),
-}));
+const shellChannel = z.object({
+    request: z.object({
+        executionId: z.string(),
+        command: z.string(),
+        workingDirectory: z.string(),
+    }),
+    events: z.unknown(),
+});
 
-vi.mock('@/services/AgentService', () => ({
-    sessionTaskCenter: {
-        subscribeTask: subscribeTaskMock,
-    },
-}));
-
-function createToolCall(
-    result: string,
-    status: ToolCallInfo['status'] = 'executing'
-): ToolCallInfo {
-    return {
-        id: 'call-bash-1',
-        name: 'Bash',
-        namespacedName: 'builtin__bash',
-        source: 'builtin',
-        sourceLabel: '内置工具',
-        arguments: {
-            command: 'Write-Output "stream-1"',
-        },
-        status,
-        result,
-    };
-}
-
-function createAssistantMessage(toolCall: ToolCallInfo): SessionMessage {
-    return {
-        id: 'assistant-1',
-        role: 'assistant',
-        content: '',
-        parts: [
-            {
-                id: 'part-tool-call-1',
-                type: 'tool_call',
-                toolCall,
-            },
-        ],
-        timestamp: Date.now(),
-        isStreaming: toolCall.status === 'executing',
-    };
-}
-
-function createSnapshot(toolCall: ToolCallInfo): SessionTaskSnapshot {
-    const now = Date.now();
-    return {
-        taskId: 'task-1',
-        sessionId: 7,
-        turnId: 11,
-        status: toolCall.status === 'executing' ? 'running' : 'completed',
-        executionMode: 'foreground',
-        sessionHistory: [createAssistantMessage(toolCall)],
-        pendingUserMessages: [],
-        pendingToolApproval: null,
-        pendingApprovals: [],
-        pendingUserQuestion: null,
-        error: null,
-        currentModel: null,
-        startedAt: now,
-        updatedAt: now,
-        modelSwitchCount: 0,
-    };
-}
-
-describe('when a tool streams output into the conversation', () => {
-    afterEach(() => {
-        vi.clearAllMocks();
-        document.body.innerHTML = '';
-    });
-
-    it('user sees the tool output as it streams, before the tool finishes', async () => {
-        let listener: ((snapshot: SessionTaskSnapshot) => void) | null = null;
-        subscribeTaskMock.mockImplementation(
-            (_taskId: string, callback: (snapshot: SessionTaskSnapshot) => void) => {
-                listener = callback;
-                callback(
-                    createSnapshot(
-                        createToolCall(
-                            [
-                                'Shell: powershell',
-                                'Working directory: D:\\Project\\TouchAI',
-                                'Exit code: none',
-                                'Duration: 500ms',
-                                '',
-                                'stream-1',
-                            ].join('\n')
-                        )
-                    )
+describe('given a main-owned task streams native shell output', () => {
+    it('user sees running output in the conversation and unmounting leaves the task able to commit', async () => {
+        const fixture = createAgentWindowFixture();
+        let channel: z.infer<typeof shellChannel> | undefined;
+        let index = 0;
+        mockTauriCommand('built_in_tools_start_bash', (payload) => {
+            channel = shellChannel.parse(payload);
+            return true;
+        });
+        network.replies.push(
+            toolResponse([
+                {
+                    id: 'live-shell',
+                    name: 'builtin__bash',
+                    arguments: JSON.stringify({
+                        command: 'Write-Output alpha',
+                        reason: 'Show the command output',
+                        workingDirectory: 'C:/fixture',
+                    }),
+                },
+            ]),
+            response('shell finished')
+        );
+        const mounted = await mountComposable(
+            () => useAgentState(),
+            (app) => app.provide(agentApiKey, fixture.window.api)
+        );
+        try {
+            const started = await fixture.window.api.startTask({
+                prompt: 'run the safe shell command',
+            });
+            mounted.result.attachTaskView(started.taskId);
+            await expect.poll(() => channel).toBeTruthy();
+            const stream = channel!;
+            for (const chunk of ['alpha\n', 'beta']) {
+                emitTauriChannelMessage(
+                    stream.events,
+                    {
+                        kind: 'chunk',
+                        executionId: stream.request.executionId,
+                        stream: 'stdout',
+                        chunk,
+                    },
+                    index++
                 );
-                return () => {};
+                await expect
+                    .poll(
+                        () =>
+                            mounted.result.sessionHistory.value
+                                .flatMap(selectToolCalls)
+                                .find((tool) => tool.id === 'live-shell')?.result
+                    )
+                    .toContain(chunk.trim());
+                expect(mounted.result.isLoading.value).toBe(true);
             }
-        );
-
-        const mounted = await mountComposable(() => useAgentState());
-        mounted.result.attachTaskView('task-1');
-        await nextTick();
-
-        const firstMessage = mounted.result.sessionHistory.value[0];
-        expect(firstMessage ? selectToolCalls(firstMessage)[0] : undefined).toMatchObject({
-            status: 'executing',
-        });
-        expect(firstMessage ? selectToolCalls(firstMessage)[0]?.result : undefined).toContain(
-            'stream-1'
-        );
-
-        expect(listener).not.toBeNull();
-        listener!(
-            createSnapshot(
-                createToolCall(
-                    [
-                        'Shell: powershell',
-                        'Working directory: D:\\Project\\TouchAI',
-                        'Exit code: none',
-                        'Duration: 900ms',
-                        '',
-                        'stream-1\nstream-2',
-                    ].join('\n')
-                )
-            )
-        );
-        await nextTick();
-
-        const secondMessage = mounted.result.sessionHistory.value[0];
-        expect(secondMessage ? selectToolCalls(secondMessage)[0] : undefined).toMatchObject({
-            status: 'executing',
-        });
-        expect(secondMessage ? selectToolCalls(secondMessage)[0]?.result : undefined).toContain(
-            'stream-2'
-        );
-
-        mounted.unmount();
+            mounted.unmount();
+            emitTauriChannelMessage(
+                stream.events,
+                {
+                    kind: 'completed',
+                    executionId: stream.request.executionId,
+                    response: {
+                        ...stream.request,
+                        shell: 'powershell',
+                        exitCode: 0,
+                        success: true,
+                        timedOut: false,
+                        cancelled: false,
+                        durationMs: 100,
+                        stdout: 'alpha\nbeta',
+                        stderr: '',
+                        combinedOutput: 'alpha\nbeta',
+                    },
+                },
+                index++
+            );
+            expect((await started.completion).response).toBe('shell finished');
+            expect(fixture.window.api.getTaskSnapshot(started.taskId)?.status).toBe('completed');
+            const sessionId = fixture.window.api.getTaskSnapshot(started.taskId)!.sessionId!;
+            const loaded = await fixture.window.api.loadSession(sessionId);
+            expect(
+                loaded.history.flatMap(selectToolCalls).find((tool) => tool.id === 'live-shell')
+                    ?.result
+            ).toContain('beta');
+        } finally {
+            mounted.unmount();
+            await fixture.window.dispose();
+        }
     });
 });

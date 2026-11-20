@@ -1,15 +1,28 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import type { ProviderDriver } from '@/database/schema';
-import { setLocale } from '@/i18n';
 import {
     getProviderDriverDefinition,
     getProviderDriverDefinitions,
     isProviderDriver,
     parseProviderDriver,
     providerDriverDefinitions,
-} from '@/services/AgentService/infrastructure/providers';
-import { createProviderFromRegistry } from '@/services/AgentService/infrastructure/providers/drivers';
+} from '@/app/api/models/catalog';
+import { createProviderRegistry } from '@/app/composition/providers';
+import type { ProviderDriver } from '@/database/schema';
+import { setLocale } from '@/i18n';
+function createProviderFromRegistry(
+    driver: ProviderDriver,
+    config: Parameters<ReturnType<typeof createProviderRegistry>['createConnection']>[0]['config']
+) {
+    return createProviderRegistry().createConnection({
+        driver,
+        config,
+        host: {
+            fetch: globalThis.fetch,
+            remoteRefs: { read: async () => null, touch: async () => {}, write: async () => {} },
+        },
+    });
+}
 
 describe('user picks a provider driver in their own language', () => {
     beforeEach(() => {

@@ -18,7 +18,8 @@ vi.mock('@tauri-apps/api/window', () => ({
     currentMonitor: () => currentMonitor(),
 }));
 
-const { applyDesktopPlatformClass, initializeDesktopShell } = await import('@/utils/windowChrome');
+const { applyDesktopPlatformClass, initializeDesktopShell } =
+    await import('@/platform/windows/chrome');
 const { detectDesktopPlatform } = await import('@/utils/platform');
 
 function stubUserAgent(userAgent: string, platform = '') {

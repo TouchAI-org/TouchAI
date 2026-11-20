@@ -1,179 +1,117 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { log } from '@services/ObservabilityService';
-import type { Ref } from 'vue';
-import { computed, ref, watch } from 'vue';
+import { computed, onScopeDispose, type Ref, ref, watch } from 'vue';
 
+import { log } from '@/app/api/diagnostics';
+import { McpCommandError, useMcpApi } from '@/app/api/tools/mcp';
 import { t } from '@/i18n';
-import { mcpManager } from '@/services/AgentService/infrastructure/mcp';
 import { useMcpStore } from '@/stores/mcp';
+import { awaitAbortable } from '@/utils/abort';
 
-/**
- * MCP 服务器连接管理
- * 封装连接、断开、重连逻辑和状态跟踪
- */
+type ConnectionOutcome = { success: boolean; error?: string };
+
+/** Main's acknowledgement owns completion; status is only a display projection. */
 export function useMcpConnection(serverId: Ref<number>) {
-    const mcpStore = useMcpStore();
-
+    const mcp = useMcpApi();
+    const store = useMcpStore();
     const status = computed(() =>
-        serverId.value === -1 ? 'disconnected' : mcpStore.getServerStatus(serverId.value)
+        serverId.value === -1 ? 'disconnected' : store.getServerStatus(serverId.value)
     );
-    const lastError = computed(() =>
-        serverId.value === -1 ? null : mcpStore.getServerError(serverId.value)
-    );
-
     const isConnecting = ref(false);
     const isDisconnecting = ref(false);
     const isReconnecting = ref(false);
+    const pending = new Set<AbortController>();
+    let disposed = false;
+    let selection = 0;
+    const busy = () => isConnecting.value || isDisconnecting.value || isReconnecting.value;
+    const releaseWaits = () => {
+        selection++;
+        for (const controller of pending) controller.abort();
+    };
+    const stopSelection = watch(serverId, releaseWaits, { flush: 'sync' });
 
-    // 跟踪活跃的 watcher 以防止内存泄漏
-    // 每个连接/断开操作都会创建一个监听状态变化的 watcher
-    // 如果组件在操作完成前卸载，需要清理这些 watcher 以避免内存泄漏
-    const activeUnwatchers = new Set<() => void>();
-
-    const handleConnect = async (): Promise<{ success: boolean; error?: string }> => {
-        if (isConnecting.value) return { success: false };
-
-        isConnecting.value = true;
+    async function perform(operation: 'connect' | 'disconnect'): Promise<ConnectionOutcome> {
+        if (disposed) return { success: false };
+        const id = serverId.value;
+        if (!store.serverById(id))
+            return { success: false, error: t('settings.mcp.connection.serverMissing') };
+        const controller = new AbortController();
+        const flag = operation === 'connect' ? isConnecting : isDisconnecting;
+        pending.add(controller);
+        flag.value = true;
         try {
-            const server = mcpStore.serverById(serverId.value);
-            if (!server) {
-                isConnecting.value = false;
-                return { success: false, error: t('settings.mcp.connection.serverMissing') };
-            }
-            // 发起连接请求但不等待结果，实际结果通过状态事件返回
-            mcpManager.connectServer(server).catch(() => {});
-
-            // 通过响应式 watch 模式等待状态变化
-            // 这是必要的，因为 MCP 连接是异步的，状态更新通过事件系统传递，而非直接返回值
-            return await new Promise<{ success: boolean; error?: string }>((resolve) => {
-                // 连接尝试的 15 秒超时
-                const timeoutId = setTimeout(() => {
-                    unwatch();
-                    activeUnwatchers.delete(unwatch);
-                    isConnecting.value = false;
-                    resolve({ success: false, error: t('settings.mcp.connection.connectTimeout') });
-                }, 15000);
-
-                const unwatch = watch(status, (newStatus) => {
-                    if (newStatus === 'connected') {
-                        clearTimeout(timeoutId);
-                        unwatch();
-                        activeUnwatchers.delete(unwatch);
-                        isConnecting.value = false;
-                        resolve({ success: true });
-                    } else if (newStatus === 'error') {
-                        clearTimeout(timeoutId);
-                        unwatch();
-                        activeUnwatchers.delete(unwatch);
-                        isConnecting.value = false;
-                        resolve({
-                            success: false,
-                            error: lastError.value || t('settings.mcp.connection.connectFailed'),
-                        });
-                    }
-                });
-                activeUnwatchers.add(unwatch);
-            });
+            await awaitAbortable(
+                () => (operation === 'connect' ? mcp.connectServer(id) : mcp.disconnectServer(id)),
+                controller.signal
+            );
+            return { success: true };
         } catch (error) {
-            isConnecting.value = false;
-            log.error('Failed to connect:', error);
+            // Closing a panel detaches its wait, never the shared native connection.
+            if (controller.signal.aborted) return { success: false };
+            log.warn('[MCP] Connection command failed', {
+                operation,
+                code: error instanceof McpCommandError ? error.code : 'MCP_COMMAND_FAILED',
+            });
+            const timeout =
+                error instanceof McpCommandError && error.code === 'MCP_COMMAND_UNCONFIRMED';
             return {
                 success: false,
-                error: error instanceof Error ? error.message : String(error),
+                error: timeout
+                    ? t(
+                          operation === 'connect'
+                              ? 'settings.mcp.connection.connectTimeout'
+                              : 'settings.mcp.connection.disconnectTimeout'
+                      )
+                    : t(
+                          operation === 'connect'
+                              ? 'settings.mcp.connection.connectFailed'
+                              : 'settings.mcp.messages.disconnectFailed'
+                      ),
             };
+        } finally {
+            pending.delete(controller);
+            flag.value = false;
         }
-    };
-
-    const handleDisconnect = async (): Promise<{ success: boolean; error?: string }> => {
-        if (isDisconnecting.value) return { success: false };
-
-        isDisconnecting.value = true;
-        try {
-            mcpManager.disconnectServer(serverId.value).catch(() => {});
-
-            return await new Promise<{ success: boolean; error?: string }>((resolve) => {
-                const timeoutId = setTimeout(() => {
-                    unwatch();
-                    activeUnwatchers.delete(unwatch);
-                    isDisconnecting.value = false;
-                    resolve({
-                        success: false,
-                        error: t('settings.mcp.connection.disconnectTimeout'),
-                    });
-                }, 5000);
-
-                const unwatch = watch(status, (newStatus) => {
-                    if (newStatus === 'disconnected') {
-                        clearTimeout(timeoutId);
-                        unwatch();
-                        activeUnwatchers.delete(unwatch);
-                        isDisconnecting.value = false;
-                        resolve({ success: true });
-                    }
-                });
-                activeUnwatchers.add(unwatch);
-            });
-        } catch (error) {
-            isDisconnecting.value = false;
-            log.error('Failed to disconnect:', error);
-            return {
-                success: false,
-                error: error instanceof Error ? error.message : String(error),
-            };
-        }
-    };
-
-    const handleReconnect = async (): Promise<{ success: boolean; error?: string }> => {
-        if (isConnecting.value || isDisconnecting.value || isReconnecting.value) {
-            return { success: false };
-        }
-
+    }
+    const handleConnect = (): Promise<ConnectionOutcome> =>
+        busy() ? Promise.resolve({ success: false }) : perform('connect');
+    const handleDisconnect = (): Promise<ConnectionOutcome> =>
+        busy() ? Promise.resolve({ success: false }) : perform('disconnect');
+    async function handleReconnect(): Promise<ConnectionOutcome> {
+        if (busy() || disposed) return { success: false };
         isReconnecting.value = true;
+        const captured = selection;
         try {
-            const disconnectResult = await handleDisconnect();
-            if (!disconnectResult.success) {
+            const disconnected = await perform('disconnect');
+            if (disposed || captured !== selection) return { success: false };
+            if (!disconnected.success)
                 return {
                     success: false,
                     error: t('settings.mcp.connection.disconnectFailedWithError', {
-                        error: disconnectResult.error ?? '',
+                        error: disconnected.error ?? '',
                     }),
                 };
-            }
-
-            // 等待状态稳定后再重新连接
-            // 这可以防止竞态条件：新连接尝试在旧连接完全清理前就开始
-            await new Promise((resolve) => setTimeout(resolve, 500));
-
-            const connectResult = await handleConnect();
-            if (!connectResult.success) {
-                return {
-                    success: false,
-                    error: t('settings.mcp.connection.reconnectFailedWithError', {
-                        error: connectResult.error ?? '',
-                    }),
-                };
-            }
-
-            return { success: true };
-        } catch (error) {
-            log.error('Failed to reconnect:', error);
-            return {
-                success: false,
-                error: error instanceof Error ? error.message : String(error),
-            };
+            const connected = await perform('connect');
+            if (disposed || captured !== selection) return { success: false };
+            return connected.success
+                ? connected
+                : {
+                      success: false,
+                      error: t('settings.mcp.connection.reconnectFailedWithError', {
+                          error: connected.error ?? '',
+                      }),
+                  };
         } finally {
             isReconnecting.value = false;
         }
-    };
-
-    const cleanup = () => {
-        for (const unwatch of activeUnwatchers) {
-            unwatch();
-        }
-        activeUnwatchers.clear();
-    };
-
+    }
+    function cleanup() {
+        if (disposed) return;
+        disposed = true;
+        stopSelection();
+        releaseWaits();
+    }
+    onScopeDispose(cleanup);
     return {
         status,
         isConnecting,

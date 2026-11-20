@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { debugMock } = vi.hoisted(() => ({ debugMock: vi.fn() }));
 
-vi.mock('@services/ObservabilityService', () => ({
+vi.mock('@/platform/diagnostics', () => ({
     log: { debug: debugMock, info: vi.fn(), warn: vi.fn(), error: vi.fn(), trace: vi.fn() },
 }));
 

@@ -1,218 +1,149 @@
-import { flushPromises, mount } from '@vue/test-utils';
+import { mockWindows } from '@tauri-apps/api/mocks';
+import { createAgentWindowFixture } from '@tests/utils/agentWindow';
+import { DOMWrapper, flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { nextTick } from 'vue';
 
+import { toolSettingsApiKey } from '@/app/api/settings/tools';
+import { toolsAdministrationApiKey } from '@/app/api/tools/administration';
+import { initializeAgentWindow } from '@/app/bootstrap/agent';
 import { setLocale } from '@/i18n';
 import SettingsBuiltInToolsSection from '@/views/SettingsView/components/BuiltInTools/index.vue';
-import type { BuiltInToolEntity } from '@/views/SettingsView/components/BuiltInTools/types';
 
-const mocks = vi.hoisted(() => ({
-    findAllBuiltInToolsMock: vi.fn(),
-    updateBuiltInToolMock: vi.fn(),
-    updateBuiltInToolsMock: vi.fn(),
-    alertErrorMock: vi.fn(),
-}));
+let fixture: ReturnType<typeof createAgentWindowFixture>;
+let client: ReturnType<typeof initializeAgentWindow>;
+let wrapper: VueWrapper | undefined;
+let refuseUpdate = false;
 
-vi.mock('@database/queries', () => ({
-    findAllBuiltInTools: mocks.findAllBuiltInToolsMock,
-    updateBuiltInTool: mocks.updateBuiltInToolMock,
-    updateBuiltInTools: mocks.updateBuiltInToolsMock,
-    findBuiltInToolLogsByToolId: vi.fn().mockResolvedValue([]),
-}));
-
-vi.mock('@/views/SettingsView/components/BuiltInTools/components/BuiltInToolList.vue', () => ({
-    default: {
-        name: 'BuiltInToolList',
-        props: ['tools', 'selectedToolId', 'togglingToolIds'],
-        emits: ['select', 'toggle-enabled'],
-        template: '<div data-testid="tool-list"></div>',
-    },
-}));
-
-vi.mock('@/views/SettingsView/components/BuiltInTools/components/BuiltInToolConfig.vue', () => ({
-    default: {
-        name: 'BuiltInToolConfig',
-        props: ['tool', 'saving'],
-        emits: ['save'],
-        template: '<div data-testid="tool-config"></div>',
-    },
-}));
-
-vi.mock('@/views/SettingsView/components/BuiltInTools/components/BuiltInToolLogViewer.vue', () => ({
-    default: {
-        name: 'BuiltInToolLogViewer',
-        props: ['tool'],
-        template: '<div data-testid="tool-logs"></div>',
-    },
-}));
-
-vi.mock('@components/AlertMessage.vue', () => ({
-    default: {
-        name: 'AlertMessage',
-        methods: {
-            error: mocks.alertErrorMock,
-        },
-        template: '<div data-testid="alert-message"></div>',
-    },
-}));
-
-function createTool(
-    id: number,
-    toolId: string,
-    patch: Partial<BuiltInToolEntity> = {}
-): BuiltInToolEntity {
-    return {
-        id,
-        tool_id: toolId,
-        display_name: toolId,
-        description: null,
-        enabled: 1,
-        risk_level: 'medium',
-        config_json: null,
-        last_used_at: null,
-        created_at: '2026-06-03T00:00:00.000Z',
-        updated_at: '2026-06-03T00:00:00.000Z',
-        ...patch,
-    };
-}
-
-function createBrowserTools() {
-    return [createTool(1, 'browser'), createTool(2, 'bash')];
-}
-
-async function mountSection(tools = createBrowserTools()) {
-    mocks.findAllBuiltInToolsMock.mockResolvedValue(tools);
-    mocks.updateBuiltInToolMock.mockImplementation(
-        async (id: number, patch: Partial<BuiltInToolEntity>) => {
-            const tool = tools.find((candidate) => candidate.id === id);
-            return tool
-                ? { ...tool, ...patch, id, updated_at: '2026-06-03T00:00:01.000Z' }
-                : undefined;
+beforeEach(async () => {
+    vi.stubGlobal(
+        'ResizeObserver',
+        class {
+            observe() {}
+            unobserve() {}
+            disconnect() {}
         }
     );
-    mocks.updateBuiltInToolsMock.mockImplementation(
-        async (ids: number[], patch: Partial<BuiltInToolEntity>) =>
-            ids.map((id) => {
-                const tool = tools.find((candidate) => candidate.id === id);
-                if (!tool) {
-                    throw new Error(`missing tool ${id}`);
-                }
-                return { ...tool, ...patch, id, updated_at: '2026-06-03T00:00:01.000Z' };
-            })
-    );
+    setLocale('en-US');
+    refuseUpdate = false;
+    fixture = createAgentWindowFixture('main', undefined, {
+        beforeQuery({ sql }) {
+            if (refuseUpdate && sql.startsWith('update "built_in_tools"')) {
+                throw new Error('fixture storage unavailable');
+            }
+        },
+    });
+    await fixture.window.ready;
+    await fixture.window.capabilities.waitForAgent();
+    fixture.database
+        .exec(`DELETE FROM built_in_tools WHERE tool_id NOT IN ('browser', 'bash', 'computer_use');
+        UPDATE built_in_tools SET display_name = 'Browser' WHERE tool_id = 'browser';
+        UPDATE built_in_tools SET display_name = 'Shell' WHERE tool_id = 'bash';
+        UPDATE built_in_tools SET display_name = 'Computer' WHERE tool_id = 'computer_use';`);
+    mockWindows('settings');
+    client = initializeAgentWindow();
+});
 
-    const wrapper = mount(SettingsBuiltInToolsSection, {
+afterEach(async () => {
+    wrapper?.unmount();
+    wrapper = undefined;
+    await client.dispose();
+    await fixture.window.dispose();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+});
+
+async function openPanel() {
+    wrapper = mount(SettingsBuiltInToolsSection, {
         global: {
-            stubs: {
-                SectionTabs: {
-                    name: 'SectionTabs',
-                    props: ['modelValue', 'tabs'],
-                    emits: ['update:modelValue'],
-                    template: '<div data-testid="section-tabs"></div>',
-                },
-                AppIcon: true,
-                LoadingState: true,
+            provide: {
+                [toolsAdministrationApiKey as symbol]: client.tools,
+                [toolSettingsApiKey as symbol]: client.toolSettings!,
             },
         },
     });
-    await nextTick();
     await flushPromises();
-    await nextTick();
     return wrapper;
 }
 
-describe('user toggles the browser automation tool', () => {
-    beforeEach(() => {
-        setLocale('en-US');
-        vi.clearAllMocks();
-        class ResizeObserverMock {
-            observe = vi.fn();
-            unobserve = vi.fn();
-            disconnect = vi.fn();
-        }
-        vi.stubGlobal('ResizeObserver', ResizeObserverMock);
-    });
+function toolRow(panel: VueWrapper, name: string) {
+    const heading = panel.findAll('h3').find((candidate) => candidate.text() === name);
+    if (!heading) throw new Error(`Missing visible tool: ${name}`);
+    return new DOMWrapper(heading.element.closest('.cursor-pointer')!);
+}
 
-    afterEach(() => {
-        vi.restoreAllMocks();
-        vi.unstubAllGlobals();
-    });
+function savedTool(toolId: string) {
+    return fixture.database
+        .prepare('SELECT enabled, config_json FROM built_in_tools WHERE tool_id = ?')
+        .get(toolId);
+}
 
-    it('user toggles the consolidated browser automation row', async () => {
-        const wrapper = await mountSection();
-        const toolList = wrapper.getComponent({ name: 'BuiltInToolList' });
-
-        await toolList.vm.$emit('toggle-enabled', 1, false);
+describe('given settings administers the one production tools owner', () => {
+    it('user disables browser automation and sees its committed choice without changing other tools', async () => {
+        const panel = await openPanel();
+        await toolRow(panel, 'Browser').get('[role="switch"]').trigger('click');
         await flushPromises();
-        await nextTick();
-
-        expect(mocks.updateBuiltInToolMock).toHaveBeenCalledTimes(1);
-        expect(mocks.updateBuiltInToolMock).toHaveBeenCalledWith(1, { enabled: 0 });
-        expect(mocks.updateBuiltInToolsMock).not.toHaveBeenCalled();
-    });
-
-    it('user does not show built-in tool config for browser rows because configuration lives in Browser settings', async () => {
-        const wrapper = await mountSection();
-
-        expect(wrapper.findComponent({ name: 'BuiltInToolConfig' }).exists()).toBe(false);
-        expect(wrapper.findComponent({ name: 'BuiltInToolLogViewer' }).exists()).toBe(true);
-
-        expect(mocks.updateBuiltInToolsMock).not.toHaveBeenCalled();
-        expect(mocks.updateBuiltInToolMock).not.toHaveBeenCalled();
-    });
-
-    it('user does not fan out unrelated tool config updates', async () => {
-        const tools = createBrowserTools();
-        const wrapper = await mountSection(tools);
-        const toolList = wrapper.getComponent({ name: 'BuiltInToolList' });
-
-        await toolList.vm.$emit('select', tools[1]);
-        await wrapper.getComponent({ name: 'BuiltInToolConfig' }).vm.$emit('save', {
-            config_json: '{"timeoutMs":15000}',
-        });
-        await flushPromises();
-        await nextTick();
-
-        expect(mocks.updateBuiltInToolMock).toHaveBeenCalledTimes(1);
-        expect(mocks.updateBuiltInToolMock).toHaveBeenCalledWith(2, {
-            config_json: '{"timeoutMs":15000}',
-        });
-        expect(mocks.updateBuiltInToolsMock).not.toHaveBeenCalled();
-    });
-
-    it('user given computer control settings when selecting its built-in entry then sees logs without duplicate configuration', async () => {
-        const tools = [createTool(1, 'bash'), createTool(2, 'computer_use')];
-        const wrapper = await mountSection(tools);
-        await wrapper.getComponent({ name: 'BuiltInToolList' }).vm.$emit('select', tools[1]);
-        await nextTick();
-        expect(wrapper.find('[data-testid="tool-config"]').exists()).toBe(false);
-        expect(wrapper.find('[data-testid="tool-logs"]').exists()).toBe(true);
-        expect(wrapper.getComponent({ name: 'SectionTabs' }).props('tabs')).toEqual([
-            { value: 'logs', label: 'Call logs' },
-        ]);
-        wrapper.unmount();
-    });
-
-    it('user gets browser update failures', async () => {
-        const wrapper = await mountSection();
-        const toolList = wrapper.getComponent({ name: 'BuiltInToolList' });
-        mocks.updateBuiltInToolMock.mockRejectedValue(new Error('browser update failed'));
-
-        await wrapper
-            .getComponent({ name: 'BuiltInToolList' })
-            .vm.$emit('toggle-enabled', 1, false);
-        await flushPromises();
-        await nextTick();
-
-        expect(mocks.updateBuiltInToolMock).toHaveBeenCalledTimes(1);
-        expect(mocks.updateBuiltInToolMock).toHaveBeenCalledWith(1, { enabled: 0 });
-        expect(mocks.updateBuiltInToolsMock).not.toHaveBeenCalled();
-        expect(mocks.alertErrorMock).toHaveBeenCalledWith(
-            expect.stringContaining('Failed to update'),
-            6000
+        expect(savedTool('browser')).toMatchObject({ enabled: 0 });
+        expect(savedTool('bash')).toMatchObject({ enabled: 1 });
+        expect(toolRow(panel, 'Browser').get('[role="switch"]').attributes('aria-checked')).toBe(
+            'false'
         );
-        expect(
-            toolList.props('tools').filter((tool: BuiltInToolEntity) => tool.tool_id === 'browser')
-        ).toEqual([expect.objectContaining({ tool_id: 'browser', enabled: 1 })]);
+    });
+
+    it('user selects browser automation and sees logs without a second browser configuration', async () => {
+        const browserBefore = savedTool('browser');
+        const panel = await openPanel();
+        await toolRow(panel, 'Browser').trigger('click');
+        await flushPromises();
+        expect(panel.text()).toContain('Call logs');
+        expect(panel.find('input[type="number"]').exists()).toBe(false);
+        expect(savedTool('browser')).toEqual(browserBefore);
+    });
+
+    it('user changes the shell timeout and only that tool receives the serialized configuration', async () => {
+        vi.useFakeTimers();
+        const browserBefore = savedTool('browser');
+        const panel = await openPanel();
+        await toolRow(panel, 'Shell').trigger('click');
+        await panel.get('input[type="number"][min="0"]').setValue('15000');
+        await vi.advanceTimersByTimeAsync(450);
+        await flushPromises();
+        expect(JSON.parse(String(savedTool('bash')?.config_json))).toMatchObject({
+            timeoutMs: 15000,
+        });
+        expect(savedTool('browser')).toEqual(browserBefore);
+    });
+
+    it('user selects computer control and sees logs without duplicate configuration', async () => {
+        const panel = await openPanel();
+        await toolRow(panel, 'Computer').trigger('click');
+        await flushPromises();
+        expect(panel.text()).toContain('Call logs');
+        expect(panel.find('input[type="number"]').exists()).toBe(false);
+        expect(panel.text()).not.toContain('Configuration coming soon');
+    });
+
+    it('user sees a rejected toggle remain enabled and can save after storage recovers', async () => {
+        const panel = await openPanel();
+        refuseUpdate = true;
+        await toolRow(panel, 'Browser').get('[role="switch"]').trigger('click');
+        await flushPromises();
+        expect(savedTool('browser')).toMatchObject({ enabled: 1 });
+        expect(toolRow(panel, 'Browser').get('[role="switch"]').attributes('aria-checked')).toBe(
+            'true'
+        );
+        refuseUpdate = false;
+        await toolRow(panel, 'Browser').get('[role="switch"]').trigger('click');
+        await flushPromises();
+        expect(savedTool('browser')).toMatchObject({ enabled: 0 });
+    });
+
+    it('user opens tools after main closes and receives no local database fallback', async () => {
+        vi.useFakeTimers();
+        await fixture.window.dispose();
+        const panel = await openPanel();
+        await vi.advanceTimersByTimeAsync(5_000);
+        await flushPromises();
+        expect(panel.findAll('h3').map((heading) => heading.text())).not.toContain('Browser');
+        expect(savedTool('browser')).toMatchObject({ enabled: 1 });
     });
 });

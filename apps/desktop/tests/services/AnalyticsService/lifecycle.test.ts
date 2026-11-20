@@ -1,15 +1,15 @@
-import { resetAnalyticsAdmissionForTests } from '@services/AnalyticsService/admission';
-import {
-    beginUpdateOperation,
-    boundedVersion,
-    finishUpdateOperation,
-    trackUpdateTransition,
-} from '@services/AnalyticsService/lifecycle';
-import type { AnalyticsState } from '@services/AnalyticsService/types';
-import { native } from '@services/NativeService';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('@services/NativeService', () => ({
+import {
+    createAnalytics,
+    createAnalyticsAdmission,
+    createUpdateAnalytics,
+} from '@/modules/analytics';
+import { boundedVersion } from '@/modules/analytics/lifecycle';
+import type { AnalyticsState } from '@/modules/analytics/public';
+import { native } from '@/platform/native';
+
+vi.mock('@/platform/native', () => ({
     native: {
         analytics: {
             getState: vi.fn(),
@@ -24,10 +24,13 @@ vi.mock('@services/NativeService', () => ({
 }));
 
 const nativeAnalytics = vi.mocked(native.analytics);
+let observer: ReturnType<typeof createUpdateAnalytics>;
+beforeEach(() => {
+    observer = createUpdateAnalytics(createAnalyticsAdmission(createAnalytics(native.analytics)));
+});
 
 afterEach(() => {
     vi.useRealTimers();
-    resetAnalyticsAdmissionForTests();
 });
 
 function state(partial: Partial<AnalyticsState> = {}): AnalyticsState {
@@ -56,14 +59,14 @@ describe('user updates the app', () => {
     });
 
     it('user gets the check and download phases correlated to one update operation', async () => {
-        const update = await beginUpdateOperation();
+        const update = await observer.beginUpdateOperation();
 
-        await trackUpdateTransition(update, 'check_started', {
+        await observer.trackUpdateTransition(update, 'check_started', {
             result: 'success',
             source: 'user',
             fromVersion: '1.2.0',
         });
-        await trackUpdateTransition(update, 'download_started', {
+        await observer.trackUpdateTransition(update, 'download_started', {
             result: 'success',
             source: 'user',
             toVersion: '1.3.0',
@@ -96,9 +99,9 @@ describe('user updates the app', () => {
     });
 
     it('user gets a handoff phase that never claims a completed restart', async () => {
-        const update = await beginUpdateOperation();
+        const update = await observer.beginUpdateOperation();
 
-        await trackUpdateTransition(update, 'install_handoff', {
+        await observer.trackUpdateTransition(update, 'install_handoff', {
             result: 'success',
             source: 'background',
             toVersion: '1.3.0',
@@ -119,9 +122,9 @@ describe('user updates the app', () => {
     });
 
     it('user gets a failure phase when a download fails', async () => {
-        const update = await beginUpdateOperation();
+        const update = await observer.beginUpdateOperation();
 
-        await trackUpdateTransition(update, 'download_finished', {
+        await observer.trackUpdateTransition(update, 'download_finished', {
             result: 'failure',
             source: 'user',
             toVersion: '1.3.0',
@@ -143,31 +146,34 @@ describe('user updates the app', () => {
             enabled: false,
             consentEpoch: 0,
         });
-        const update = await beginUpdateOperation();
+        const update = await observer.beginUpdateOperation();
 
-        await trackUpdateTransition(update, 'check_started', { result: 'success', source: 'user' });
+        await observer.trackUpdateTransition(update, 'check_started', {
+            result: 'success',
+            source: 'user',
+        });
 
         expect(nativeAnalytics.track).not.toHaveBeenCalled();
     });
 
     it('user gets the update handle released exactly once after the terminal phase', async () => {
-        const update = await beginUpdateOperation();
+        const update = await observer.beginUpdateOperation();
 
-        await trackUpdateTransition(update, 'install_handoff', {
+        await observer.trackUpdateTransition(update, 'install_handoff', {
             result: 'success',
             source: 'user',
             fromVersion: '1.2.0',
             toVersion: '1.3.0',
         });
-        await finishUpdateOperation(update);
-        await finishUpdateOperation(update);
+        await observer.finishUpdateOperation(update);
+        await observer.finishUpdateOperation(update);
 
         expect(nativeAnalytics.completeOperation).toHaveBeenCalledTimes(1);
         expect(nativeAnalytics.completeOperation).toHaveBeenCalledWith('op-1');
     });
 
     it('user gets the update phase queued before its handle is released', async () => {
-        const update = await beginUpdateOperation();
+        const update = await observer.beginUpdateOperation();
         const order: string[] = [];
         nativeAnalytics.track.mockImplementation(async () => {
             order.push('track');
@@ -177,21 +183,24 @@ describe('user updates the app', () => {
             order.push('release');
         });
 
-        const transition = trackUpdateTransition(update, 'download_finished', {
+        const transition = observer.trackUpdateTransition(update, 'download_finished', {
             result: 'failure',
             source: 'user',
         });
-        await finishUpdateOperation(update);
+        await observer.finishUpdateOperation(update);
         await transition;
 
         expect(order).toEqual(['track', 'release']);
     });
 
     it('user gets no native-owned startup or restart event from the update helper', async () => {
-        const update = await beginUpdateOperation();
+        const update = await observer.beginUpdateOperation();
 
-        await trackUpdateTransition(update, 'check_started', { result: 'success', source: 'user' });
-        await trackUpdateTransition(update, 'install_handoff', {
+        await observer.trackUpdateTransition(update, 'check_started', {
+            result: 'success',
+            source: 'user',
+        });
+        await observer.trackUpdateTransition(update, 'install_handoff', {
             result: 'success',
             source: 'user',
             fromVersion: '1.2.0',
@@ -209,9 +218,9 @@ describe('user updates the app', () => {
     });
 
     it('user gets the handoff phase carrying the real from/to versions and source', async () => {
-        const update = await beginUpdateOperation();
+        const update = await observer.beginUpdateOperation();
 
-        await trackUpdateTransition(update, 'install_handoff', {
+        await observer.trackUpdateTransition(update, 'install_handoff', {
             result: 'success',
             source: 'background',
             fromVersion: '1.2.0',
@@ -234,11 +243,11 @@ describe('user updates the app', () => {
 
     it('user gets a bounded update chain when 300 phases start while tracking hangs', async () => {
         vi.useFakeTimers();
-        const update = await beginUpdateOperation();
+        const update = await observer.beginUpdateOperation();
         nativeAnalytics.track.mockReturnValue(new Promise(() => undefined));
 
         const transitions = Array.from({ length: 300 }, (_, index) =>
-            trackUpdateTransition(update, 'download_started', {
+            observer.trackUpdateTransition(update, 'download_started', {
                 result: index === 0 ? 'success' : 'failure',
                 source: 'user',
             })

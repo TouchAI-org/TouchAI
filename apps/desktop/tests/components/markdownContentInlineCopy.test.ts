@@ -1,7 +1,7 @@
+import { mockTauriCommand } from '@tests/utils/tauri';
 import { flushPromises, mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-
-import { clipboardService } from '@/services/ClipboardService';
+const clipboardWriteTextMock = vi.fn();
 
 /*
  * MarkdownContent-i18n covers the rendering, the parser options and the clipboard
@@ -34,11 +34,7 @@ vi.mock('markstream-vue', () => ({
     setDefaultI18nMap: setDefaultI18nMapMock,
 }));
 
-vi.mock('@services/NotificationService', () => ({ notify: notifyMock }));
-
-vi.mock('@/services/ClipboardService', () => ({
-    clipboardService: { writeText: vi.fn() },
-}));
+vi.mock('@/app/api/windows/notifications', () => ({ notify: notifyMock }));
 
 async function mountContent(content = '`pnpm test`') {
     const { setLocale } = await import('@/i18n');
@@ -71,9 +67,12 @@ async function click(element: HTMLElement) {
 }
 
 beforeEach(() => {
+    mockTauriCommand('write_clipboard_text', (payload) =>
+        clipboardWriteTextMock((payload as { text: string }).text)
+    );
     vi.clearAllMocks();
     document.body.innerHTML = '';
-    vi.mocked(clipboardService.writeText).mockResolvedValue(undefined);
+    vi.mocked(clipboardWriteTextMock).mockResolvedValue(undefined);
 });
 
 describe('user copies a piece of inline code by clicking it', () => {
@@ -82,7 +81,7 @@ describe('user copies a piece of inline code by clicking it', () => {
 
         await click(appendCode(wrapper, 'pnpm test'));
 
-        expect(clipboardService.writeText).toHaveBeenCalledWith('pnpm test');
+        expect(clipboardWriteTextMock).toHaveBeenCalledWith('pnpm test');
         expect(notifyMock).toHaveBeenCalledWith({ title: 'TouchAI', body: '已复制' });
     });
 
@@ -91,12 +90,12 @@ describe('user copies a piece of inline code by clicking it', () => {
 
         await click(appendCode(wrapper, '  npm run build  '));
 
-        expect(clipboardService.writeText).toHaveBeenCalledWith('npm run build');
+        expect(clipboardWriteTextMock).toHaveBeenCalledWith('npm run build');
     });
 
     it('user is told the copy failed when the clipboard refuses', async () => {
         const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
-        vi.mocked(clipboardService.writeText).mockRejectedValue(new Error('clipboard denied'));
+        vi.mocked(clipboardWriteTextMock).mockRejectedValue(new Error('clipboard denied'));
         const wrapper = await mountContent();
 
         await click(appendCode(wrapper, 'pnpm test'));
@@ -110,7 +109,7 @@ describe('user copies a piece of inline code by clicking it', () => {
 
         await click(appendCode(wrapper, '   '));
 
-        expect(clipboardService.writeText).not.toHaveBeenCalled();
+        expect(clipboardWriteTextMock).not.toHaveBeenCalled();
     });
 
     it('user does not get a fenced block copied on click, because its own header has a copy action', async () => {
@@ -118,7 +117,7 @@ describe('user copies a piece of inline code by clicking it', () => {
 
         await click(appendCode(wrapper, 'const value = 1;', 'pre'));
 
-        expect(clipboardService.writeText).not.toHaveBeenCalled();
+        expect(clipboardWriteTextMock).not.toHaveBeenCalled();
     });
 
     it('user does not get a code block copied on click inside the block wrapper', async () => {
@@ -133,7 +132,7 @@ describe('user copies a piece of inline code by clicking it', () => {
 
         await click(code);
 
-        expect(clipboardService.writeText).not.toHaveBeenCalled();
+        expect(clipboardWriteTextMock).not.toHaveBeenCalled();
     });
 
     it('user clicking plain prose is not treated as a copy request', async () => {
@@ -144,7 +143,7 @@ describe('user copies a piece of inline code by clicking it', () => {
         (wrapper.element as HTMLElement).append(paragraph);
         await click(paragraph);
 
-        expect(clipboardService.writeText).not.toHaveBeenCalled();
+        expect(clipboardWriteTextMock).not.toHaveBeenCalled();
         expect(notifyMock).not.toHaveBeenCalled();
     });
 });

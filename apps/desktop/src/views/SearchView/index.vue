@@ -3,17 +3,6 @@
 
     import { useMotion } from '@composables/useMotion';
     import { useSessionStatus } from '@composables/useSessionStatus';
-    import { AppEvent, eventService } from '@services/EventService';
-    import type {
-        SearchSurfaceCommandEvent,
-        SessionStatusReminderActionEvent,
-    } from '@services/EventService/types';
-    import type { QuickShortcutItem } from '@services/NativeService';
-    import { native } from '@services/NativeService';
-    import { notify } from '@services/NotificationService';
-    import { log } from '@services/ObservabilityService';
-    import { resolvePastedPathAttachment } from '@services/SearchService/pastedPath';
-    import { getCurrentWindow } from '@tauri-apps/api/window';
     import { storeToRefs } from 'pinia';
     import { useStateMachine } from 'reka-ui';
     import {
@@ -28,6 +17,21 @@
         watch,
     } from 'vue';
 
+    import type { PendingUserMessage, SessionTaskStatus } from '@/app/api/agent/contracts';
+    import type { ClipboardPayload } from '@/app/api/attachments/drafts';
+    import { useClipboardDraftApi } from '@/app/api/attachments/drafts';
+    import { log } from '@/app/api/diagnostics';
+    import type {
+        SearchSurfaceCommandEvent,
+        SessionStatusReminderActionEvent,
+    } from '@/app/api/search/events';
+    import { AppEvent, eventService } from '@/app/api/search/events';
+    import type { QuickShortcutItem } from '@/app/api/search/queries';
+    import { resolvePastedPathAttachment } from '@/app/api/search/references';
+    import type { ToolApprovalDecisionRequest } from '@/app/api/tools/decisions';
+    import { useMainToolsStartupApi } from '@/app/api/tools/startup';
+    import { notify } from '@/app/api/windows/notifications';
+    import { useSearchWindowApi } from '@/app/api/windows/presentation';
     import type { SearchKeybindingActionId, SearchKeybindings } from '@/config/searchKeybindings';
     import {
         SEARCH_SURFACE_EASING,
@@ -35,26 +39,20 @@
         SEARCH_SURFACE_REVEAL_EASING,
     } from '@/config/searchWindow';
     import { type AppLocale, t } from '@/i18n';
-    import type { ToolApprovalDecisionRequest } from '@/services/AgentService/contracts/tooling';
-    import { mcpManager } from '@/services/AgentService/infrastructure/mcp';
-    import type { PendingUserMessage, SessionTaskStatus } from '@/services/AgentService/task/types';
-    import { clipboardService } from '@/services/ClipboardService';
-    import type {
-        ClipboardPayload,
-        SearchSurfacePreparation,
-        SearchWindowState,
-    } from '@/services/NativeService/types';
-    import type { SearchActionOutcome, SearchActivationContext } from '@/services/SearchService';
-    import { type AskUserConfirmOptions, useAskUserStore } from '@/stores/askUser';
-    import { useMcpStore } from '@/stores/mcp';
-    import { useSettingsStore } from '@/stores/settings';
+    const searchWindow = useSearchWindowApi();
+    const clipboardService = useClipboardDraftApi();
     import {
         createInputHistorySnapshot,
         getInputHistorySnapshotKey,
         type InputHistorySnapshot,
         type SessionMessage,
-    } from '@/types/session';
-    import { isE2eTestMode } from '@/utils/runtimeMode';
+    } from '@/app/api/agent/history';
+    import type { SearchActionOutcome, SearchActivationContext } from '@/app/api/search/queries';
+    import type { SearchSurfacePreparation, SearchWindowState } from '@/app/api/windows/contracts';
+    import { isE2eTestMode } from '@/app/api/windows/runtime';
+    import { type AskUserConfirmOptions, useAskUserStore } from '@/stores/askUser';
+    import { useMcpStore } from '@/stores/mcp';
+    import { useSettingsStore } from '@/stores/settings';
 
     import {
         buildLatestCompletedMessageMarker,
@@ -339,7 +337,7 @@
                     preparation: SearchSurfacePreparation | undefined
                 ) => {
                     try {
-                        const update = await native.window.setSearchWindowRegions(
+                        const update = await searchWindow.setSearchWindowRegions(
                             regions,
                             generation,
                             preparation
@@ -368,6 +366,7 @@
     const suppressInputHistoryBrowseReset = ref(false);
     const inputHistoryRestoreVersion = ref(0);
     const mcpStore = useMcpStore();
+    const toolsStartup = useMainToolsStartupApi();
     const settingsStore = useSettingsStore();
     const { searchWindowDefaultSize, searchKeybindings } = storeToRefs(settingsStore);
     const { sessionStatuses, refreshAllStatuses: refreshSessionStatuses } = useSessionStatus();
@@ -383,19 +382,16 @@
             setSearchQuery: (text: string) => void;
             sendPrompt: (text: string) => Promise<void>;
             getSearchWindowState: () => Promise<SearchWindowState>;
-            resizeWindowHeight: typeof native.window.resizeWindowHeight;
+            resizeWindowHeight: typeof searchWindow.resizeWindowHeight;
             resetSearchWindowBounds: () => Promise<void>;
             setSearchFixture: (query: string, results: QuickShortcutItem[]) => void;
             setConversation: (messages: SessionMessage[]) => Promise<void>;
             setAskUserRequest: (request: E2eAskUserRequest) => void;
             clearAskUser: () => void;
             setLanguage: (locale: AppLocale) => Promise<void>;
+            setGlobalShortcut: (shortcut: string) => Promise<void>;
             setSearchKeybindings: (keybindings: Partial<SearchKeybindings>) => Promise<void>;
-            configureE2eModel: (
-                endpoint: string,
-                modelId: string,
-                modelName: string
-            ) => Promise<void>;
+            refreshE2eModel: () => Promise<void>;
             cancelSearchRequest: () => Promise<void>;
             clearPendingSearchMessages: () => Promise<void>;
             getQuickSearchFallbackResults?: (query: string) => QuickShortcutItem[];
@@ -429,7 +425,7 @@
     function handleRegionSyncFailure(error: unknown) {
         log.error('[SearchView] Failed to prepare search window region:', error);
         surfaceHiding.value = true;
-        void native.window.hideSearchWindow().catch((hideError) => {
+        void searchWindow.hideSearchWindow().catch((hideError) => {
             log.error('[SearchView] Failed to hide unsafe search window region:', hideError);
         });
     }
@@ -1191,7 +1187,7 @@
                 await handleToggleMaximize();
                 return;
             case 'search.settings.open':
-                await native.window.openSettingsWindow();
+                await searchWindow.openSettingsWindow();
                 return;
             default: {
                 const exhaustiveActionId: never = actionId;
@@ -1233,13 +1229,13 @@
         handleAiModelsUpdated,
         handleShortcutAutoPaste: tryShortcutAutoPaste,
     });
-    const searchHostWindow = getCurrentWindow();
+    const searchHostWindow = useSearchWindowApi();
     const searchSurfacePreparationController = createSearchSurfacePreparationController({
         listenPrepare: (handler) => eventService.on(AppEvent.SEARCH_SURFACE_PREPARE, handler),
         listenShown: (handler) => eventService.on(AppEvent.SEARCH_SURFACE_SHOWN, handler),
         listenHidden: (handler) => eventService.on(AppEvent.SEARCH_SURFACE_HIDDEN, handler),
-        getRendererEpoch: () => native.window.getSearchWindowRendererEpoch(),
-        markRendererReady: (rendererEpoch) => native.window.markSearchWindowReady(rendererEpoch),
+        getRendererEpoch: () => searchWindow.getSearchWindowRendererEpoch(),
+        markRendererReady: (rendererEpoch) => searchWindow.markSearchWindowReady(rendererEpoch),
         getViewport: async () => {
             const [position, size, scaleFactor] = await Promise.all([
                 searchHostWindow.outerPosition(),
@@ -1276,7 +1272,7 @@
                 cardWidth: card?.width ?? 0,
                 cardHeight: card?.height ?? 0,
             });
-            void native.window.hideSearchWindow().catch((hideError) => {
+            void searchWindow.hideSearchWindow().catch((hideError) => {
                 log.error('[SearchView] Failed to hide unsafe prepared surface:', hideError);
             });
         },
@@ -2581,7 +2577,7 @@
 
         widgetBridgeWindow.__TOUCHAI_E2E__ = {
             async openSettingsWindow() {
-                await native.window.openSettingsWindow();
+                await searchWindow.openSettingsWindow();
             },
             setSearchQuery(text: string) {
                 applyE2eSearchQuery(text);
@@ -2605,9 +2601,9 @@
                     ? fixture.results.map((item) => ({ ...item }))
                     : [];
             },
-            getSearchWindowState: native.window.getSearchWindowState,
-            resizeWindowHeight: native.window.resizeWindowHeight,
-            resetSearchWindowBounds: native.window.resetSearchWindowBounds,
+            getSearchWindowState: searchWindow.getSearchWindowState,
+            resizeWindowHeight: searchWindow.resizeWindowHeight,
+            resetSearchWindowBounds: searchWindow.resetSearchWindowBounds,
             setSearchFixture(query: string, results: QuickShortcutItem[]) {
                 e2eSearchFixture.value = { query, results };
             },
@@ -2674,6 +2670,10 @@
                 await settingsStore.initialize();
                 await settingsStore.updateLanguage(locale);
             },
+            async setGlobalShortcut(shortcut: string) {
+                await settingsStore.initialize();
+                await settingsStore.updateGlobalShortcut(shortcut);
+            },
             async setSearchKeybindings(keybindings: Partial<SearchKeybindings>) {
                 await settingsStore.initialize();
                 await settingsStore.updateSearchKeybindings({
@@ -2681,71 +2681,7 @@
                     ...keybindings,
                 });
             },
-            async configureE2eModel(endpoint: string, modelId: string, modelName: string) {
-                const {
-                    createModel,
-                    createProvider,
-                    findModelsWithProvider,
-                    setDefaultModel,
-                    updateModel,
-                    updateProvider,
-                } = await import('@database/queries');
-                const providerName = 'TouchAI E2E Local';
-                const existingModels = await findModelsWithProvider();
-                const existingProvider = existingModels.find(
-                    (model) => model.provider_name === providerName
-                );
-                let providerId: number;
-
-                if (existingProvider) {
-                    providerId = existingProvider.provider_id;
-                    await updateProvider({
-                        id: providerId,
-                        providerPatch: {
-                            driver: 'openai-compatible',
-                            api_endpoint: endpoint,
-                            enabled: 1,
-                            is_builtin: 0,
-                        },
-                    });
-                } else {
-                    providerId = (
-                        await createProvider({
-                            name: providerName,
-                            driver: 'openai-compatible',
-                            api_endpoint: endpoint,
-                            api_key: null,
-                            config_json: null,
-                            logo: 'openai.png',
-                            enabled: 1,
-                            is_builtin: 0,
-                        })
-                    ).id;
-                }
-
-                const existingModel = existingModels.find(
-                    (model) => model.provider_id === providerId && model.model_id === modelId
-                );
-                const modelPatch = {
-                    name: modelName,
-                    tool_call: 1,
-                    context_limit: 65_536,
-                    output_limit: 8_192,
-                };
-                let modelDbId = existingModel?.id;
-                if (modelDbId === undefined) {
-                    modelDbId = (
-                        await createModel({
-                            provider_id: providerId,
-                            model_id: modelId,
-                            ...modelPatch,
-                        })
-                    ).id;
-                } else {
-                    await updateModel({ id: modelDbId, modelPatch });
-                }
-
-                await setDefaultModel({ modelId: modelDbId });
+            async refreshE2eModel() {
                 modelOverride.value = { modelId: null, providerId: null };
                 controller.invalidateModelDropdownData();
                 await controller.loadActiveModel();
@@ -2822,7 +2758,7 @@
             syncSearchWindowState,
             isE2eTestMode,
             autoConnectMcp: async () => {
-                await mcpManager.autoConnect();
+                await toolsStartup.autoConnectMcp();
             },
             onReady: (ready) => {
                 viewReady.value = ready;

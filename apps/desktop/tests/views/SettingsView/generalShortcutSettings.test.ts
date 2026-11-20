@@ -1,4 +1,6 @@
+import { createTestWindowPresentation } from '@tests/utils/windowPresentation';
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
+import { beforeEach as beforePresentation } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
@@ -54,11 +56,11 @@ vi.mock('@/stores/settings', () => ({
     useSettingsStore: () => settingsMock,
 }));
 
-vi.mock('@services/NativeService', () => ({ native: nativeMock }));
+vi.mock('@/platform/native', () => ({ native: nativeMock }));
 
-vi.mock('@services/NotificationService', () => ({ notify: notifyMock }));
+vi.mock('@/app/api/windows/notifications', () => ({ notify: notifyMock }));
 
-vi.mock('@services/EventService', () => ({
+vi.mock('@/app/api/settings/events', () => ({
     AppEvent: { SHORTCUT_CAPTURE_SYSTEM_KEY: 'shortcut:capture-system-key' },
     eventService: eventServiceMock,
 }));
@@ -368,4 +370,8 @@ describe('user records a shortcut the system reports separately', () => {
 
         expect(settingsMock.settings.value.globalShortcut).toBe('Alt+Space');
     });
+});
+
+beforePresentation(async () => {
+    (await createTestWindowPresentation('settings')).install();
 });

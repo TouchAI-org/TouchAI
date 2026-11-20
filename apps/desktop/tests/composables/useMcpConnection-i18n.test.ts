@@ -1,134 +1,67 @@
-import { createPinia, setActivePinia } from 'pinia';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ref } from 'vue';
 
 import { useMcpConnection } from '@/composables/useMcpConnection';
-import type { McpServerEntity } from '@/database/types';
 import { setLocale } from '@/i18n';
-import { mcpManager } from '@/services/AgentService/infrastructure/mcp';
-import { useMcpStore } from '@/stores/mcp';
 
-vi.mock('@database/queries', () => ({
-    findAllMcpServers: vi.fn(async () => []),
-    findMcpToolsByServerId: vi.fn(async () => []),
-}));
+import { closeTestDatabases } from '../database/sqliteHarness';
+import { mountMcpWindow } from '../utils/mcpWindow';
+import { mockTauriCommand } from '../utils/tauri';
 
-vi.mock('@services/EventService', () => ({
-    AppEvent: { MCP_STATUS: 'mcp-status' },
-    eventService: { on: vi.fn(async () => undefined) },
-}));
+type Fixture = Awaited<ReturnType<typeof mountMcpWindow<ReturnType<typeof useMcpConnection>>>>;
+let fixture: Fixture;
+const selected = ref(1);
+beforeEach(async () => {
+    selected.value = 1;
+    setLocale('en-US');
+    fixture = await mountMcpWindow(() => useMcpConnection(selected));
+    await fixture.store.initialize();
+});
+afterEach(async () => {
+    await fixture.dispose();
+    closeTestDatabases();
+    vi.useRealTimers();
+});
 
-vi.mock('@/services/AgentService/infrastructure/mcp', () => ({
-    mcpManager: {
-        connectServer: vi.fn(),
-        disconnectServer: vi.fn(),
-        refreshAllServerStatuses: vi.fn(),
-        setStatusFromEvent: vi.fn(),
-    },
-}));
-
-describe('when an MCP server connection goes wrong', () => {
-    beforeEach(() => {
-        setActivePinia(createPinia());
-        setLocale('zh-CN');
-        vi.clearAllMocks();
-    });
-
-    function createServer(overrides: Partial<McpServerEntity> = {}): McpServerEntity {
-        return {
-            id: 1,
-            name: 'Local MCP',
-            transport_type: 'stdio',
-            command: 'node',
-            args: null,
-            env: null,
-            cwd: null,
-            url: null,
-            headers: null,
-            enabled: 1,
-            tool_timeout: 30000,
-            version: null,
-            last_error: null,
-            last_connected_at: null,
-            created_at: '2026-01-01T00:00:00.000Z',
-            updated_at: '2026-01-01T00:00:00.000Z',
-            ...overrides,
-        };
-    }
-
-    function addServer(server: McpServerEntity = createServer()) {
-        const store = useMcpStore();
-        store.servers = [server];
-        store.setServerStatus(server.id, 'disconnected');
-        return store;
-    }
-
-    it('user is told why the server setup failed', async () => {
-        setLocale('en-US');
-
-        const connection = useMcpConnection(ref(404));
-        const result = await connection.handleConnect();
-
-        expect(result).toEqual({
+describe('given a main-owned MCP command is unavailable or unconfirmed', () => {
+    it('user sees a localized missing-server message when connecting an absent selection', async () => {
+        selected.value = 404;
+        await expect(fixture.value.handleConnect()).resolves.toEqual({
             success: false,
             error: 'Server does not exist',
         });
     });
 
-    it('user is told the connection timed out', async () => {
+    it('user sees a localized connection timeout when main cannot confirm the operation', async () => {
         vi.useFakeTimers();
-        setLocale('en-US');
-        addServer();
-        vi.mocked(mcpManager.connectServer).mockResolvedValue(undefined);
-
-        const connection = useMcpConnection(ref(1));
-        const resultPromise = connection.handleConnect();
-
-        await vi.advanceTimersByTimeAsync(15000);
-
-        await expect(resultPromise).resolves.toEqual({
-            success: false,
-            error: 'Connection timed out',
-        });
-
-        vi.useRealTimers();
+        mockTauriCommand('mcp_connect_server', () => new Promise(() => {}));
+        const pending = fixture.value.handleConnect();
+        await vi.advanceTimersByTimeAsync(15_000);
+        await expect(pending).resolves.toEqual({ success: false, error: 'Connection timed out' });
+        expect(fixture.value.isConnecting.value).toBe(false);
     });
 
-    it('user is told the disconnect timed out', async () => {
+    it('user sees a localized disconnect timeout when main cannot confirm native shutdown', async () => {
         vi.useFakeTimers();
-        setLocale('en-US');
-        addServer();
-        vi.mocked(mcpManager.disconnectServer).mockResolvedValue(undefined);
-
-        const connection = useMcpConnection(ref(1));
-        const resultPromise = connection.handleDisconnect();
-
-        await vi.advanceTimersByTimeAsync(5000);
-
-        await expect(resultPromise).resolves.toEqual({
-            success: false,
-            error: 'Disconnect timed out',
-        });
-
-        vi.useRealTimers();
+        mockTauriCommand('mcp_disconnect_server', () => new Promise(() => {}));
+        const pending = fixture.value.handleDisconnect();
+        await vi.advanceTimersByTimeAsync(5_000);
+        await expect(pending).resolves.toEqual({ success: false, error: 'Disconnect timed out' });
+        expect(fixture.value.isDisconnecting.value).toBe(false);
+        // Host cleanup has its own native shutdown deadline; restore that boundary for disposal.
+        mockTauriCommand('mcp_disconnect_server', null);
     });
 
-    it('user is told both that reconnecting failed and why', async () => {
+    it('user sees both the reconnect failure and its localized reason without a new connection attempt', async () => {
         vi.useFakeTimers();
-        setLocale('en-US');
-        addServer();
-        vi.mocked(mcpManager.disconnectServer).mockResolvedValue(undefined);
-
-        const connection = useMcpConnection(ref(1));
-        const resultPromise = connection.handleReconnect();
-
-        await vi.advanceTimersByTimeAsync(5000);
-
-        await expect(resultPromise).resolves.toEqual({
+        mockTauriCommand('mcp_disconnect_server', () => new Promise(() => {}));
+        const pending = fixture.value.handleReconnect();
+        await vi.advanceTimersByTimeAsync(5_000);
+        await expect(pending).resolves.toEqual({
             success: false,
             error: 'Disconnect failed: Disconnect timed out',
         });
-
-        vi.useRealTimers();
+        expect(fixture.value.isReconnecting.value).toBe(false);
+        mockTauriCommand('mcp_disconnect_server', null);
     });
 });

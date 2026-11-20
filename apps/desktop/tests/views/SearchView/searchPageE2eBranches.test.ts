@@ -1,4 +1,6 @@
-import { mountComposable } from '@tests/utils/composables';
+import { mountComposable as mountBaseComposable } from '@tests/utils/composables';
+import { createStartupNoticeFixture } from '@tests/utils/startupNotices';
+import { mockTauriCommand } from '@tests/utils/tauri';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick, ref } from 'vue';
 
@@ -11,37 +13,34 @@ import { useSearchPageLifecycle } from '@/views/SearchView/composables/useSearch
  * memoises its probe for the lifetime of the module, so this case needs its own
  * module instance instead of a shared setup — hence a separate file.
  */
-const { currentWindowMock, initNotificationPermissionMock, nativeMock, runStartupTasksMock } =
-    vi.hoisted(() => ({
-        currentWindowMock: {
-            isVisible: vi.fn(),
-            isAlwaysOnTop: vi.fn(),
-            setAlwaysOnTop: vi.fn(),
+const { currentWindowMock, initNotificationPermissionMock, nativeMock } = vi.hoisted(() => ({
+    currentWindowMock: {
+        label: 'main',
+        isVisible: vi.fn(),
+        isAlwaysOnTop: vi.fn(),
+        setAlwaysOnTop: vi.fn(),
+    },
+    initNotificationPermissionMock: vi.fn(),
+    nativeMock: {
+        runtime: { getRuntimeInfo: vi.fn() },
+        shortcut: {
+            registerGlobalShortcut: vi.fn(),
+            setSearchSurfaceShortcuts: vi.fn(),
         },
-        initNotificationPermissionMock: vi.fn(),
-        nativeMock: {
-            runtime: { getRuntimeInfo: vi.fn() },
-            shortcut: {
-                registerGlobalShortcut: vi.fn(),
-                setSearchSurfaceShortcuts: vi.fn(),
-            },
-            window: {
-                hideSearchWindow: vi.fn(),
-                setSearchSurfaceHideOnAppBlur: vi.fn(),
-            },
+        window: {
+            hideSearchWindow: vi.fn(),
+            setSearchSurfaceHideOnAppBlur: vi.fn(),
         },
-        runStartupTasksMock: vi.fn(),
-    }));
+    },
+}));
 
 vi.mock('@tauri-apps/api/window', () => ({
     getCurrentWindow: () => currentWindowMock,
 }));
-vi.mock('@services/NativeService', () => ({ native: nativeMock }));
-vi.mock('@services/NotificationService', () => ({
+vi.mock('@/app/api/windows/notifications', () => ({
     initNotificationPermission: initNotificationPermissionMock,
     notify: vi.fn(),
 }));
-vi.mock('@services/StartupService', () => ({ runStartupTasks: runStartupTasksMock }));
 vi.mock('@composables/useAlert', () => ({ useAlert: vi.fn() }));
 vi.mock('@/stores/settings', () => ({
     useSettingsStore: () => ({
@@ -49,6 +48,16 @@ vi.mock('@/stores/settings', () => ({
         globalShortcut: 'Alt+Space',
     }),
 }));
+
+let startupFixture: ReturnType<typeof createStartupNoticeFixture>;
+const mountComposable: typeof mountBaseComposable = (factory, configure) =>
+    mountBaseComposable(factory, (app) => {
+        startupFixture.provide(app);
+        configure?.(app);
+    });
+beforeEach(() => {
+    startupFixture = createStartupNoticeFixture();
+});
 
 async function flushLifecycle() {
     for (let index = 0; index < 10; index += 1) {
@@ -69,7 +78,6 @@ beforeEach(() => {
     nativeMock.window.hideSearchWindow.mockResolvedValue(undefined);
     nativeMock.window.setSearchSurfaceHideOnAppBlur.mockResolvedValue(undefined);
     initNotificationPermissionMock.mockResolvedValue(undefined);
-    runStartupTasksMock.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -129,4 +137,23 @@ describe('when the app runs under the e2e harness', () => {
         // The e2e browser profile must not be blocked by an OS permission dialog.
         expect(initNotificationPermissionMock).not.toHaveBeenCalled();
     });
+});
+
+beforeEach(() => {
+    mockTauriCommand('get_runtime_info', () => nativeMock.runtime.getRuntimeInfo());
+    mockTauriCommand('register_global_shortcut', (payload) =>
+        nativeMock.shortcut.registerGlobalShortcut((payload as { shortcut: string }).shortcut)
+    );
+    mockTauriCommand('hide_search_window', (payload) => {
+        if ((payload as { ifUnfocused?: boolean } | undefined)?.ifUnfocused) return undefined;
+        return nativeMock.window.hideSearchWindow();
+    });
+    mockTauriCommand('set_search_surface_hide_on_app_blur', (payload) =>
+        nativeMock.window.setSearchSurfaceHideOnAppBlur(
+            (payload as { shouldHide: boolean }).shouldHide
+        )
+    );
+    mockTauriCommand('set_search_surface_shortcuts', (payload) =>
+        nativeMock.shortcut.setSearchSurfaceShortcuts((payload as { entries: unknown }).entries)
+    );
 });

@@ -1,7 +1,7 @@
 import { mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { WebSearchSource } from '@/services/BuiltInToolService/tools/webSearch/sources';
+import type { WebSearchSource } from '@/modules/tools/builtin/web-search/sources';
 import WebSearchSourcesCard from '@/views/SearchView/components/ConversationPanel/components/WebSearchSourcesCard.vue';
 
 vi.mock('@components/MotionCollapse.vue', () => ({

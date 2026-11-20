@@ -137,10 +137,7 @@
     import MotionCollapse from '@components/MotionCollapse.vue';
     import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
-    import {
-        webSearchHostname,
-        type WebSearchSource,
-    } from '@/services/BuiltInToolService/tools/webSearch/sources';
+    import { webSearchHostname, type WebSearchSource } from '@/app/api/tools/results';
     import SourceFavicon from '@/views/SearchView/components/WebSearch/SourceFavicon.vue';
 
     const FADE_WIDTH = 40;

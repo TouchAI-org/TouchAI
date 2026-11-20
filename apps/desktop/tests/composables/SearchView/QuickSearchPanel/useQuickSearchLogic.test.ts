@@ -1,9 +1,10 @@
-import type { QuickSearchResult, QuickShortcutItem } from '@services/NativeService';
 import { mountComposable } from '@tests/utils/composables';
+import { withTestSearch } from '@tests/utils/searchHost';
 import { flushPromises } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ref } from 'vue';
 
+import type { QuickSearchResult, QuickShortcutItem } from '@/platform/native';
 import { useQuickSearchLogic } from '@/views/SearchView/components/QuickSearchPanel/composables/useQuickSearchLogic';
 
 const {
@@ -169,7 +170,7 @@ describe('useQuickSearchLogic', () => {
                         open.value = value;
                     },
                 },
-                quickSearchDeps
+                withTestSearch(quickSearchDeps)
             )
         );
 
@@ -215,7 +216,7 @@ describe('useQuickSearchLogic', () => {
                         open.value = value;
                     },
                 },
-                {
+                withTestSearch({
                     quickSearch: {
                         getStatus: vi.fn().mockResolvedValue({
                             provider: 'everything',
@@ -232,7 +233,7 @@ describe('useQuickSearchLogic', () => {
                     },
                     openPath: vi.fn().mockResolvedValue(undefined),
                     loadReferenceSuggestions,
-                }
+                })
             )
         );
 
@@ -270,7 +271,7 @@ describe('useQuickSearchLogic', () => {
                         open.value = value;
                     },
                 },
-                {
+                withTestSearch({
                     quickSearch: {
                         getStatus: vi.fn().mockResolvedValue({
                             provider: 'everything',
@@ -287,7 +288,7 @@ describe('useQuickSearchLogic', () => {
                         hideSearchWindow: vi.fn().mockResolvedValue(undefined),
                     },
                     openPath: vi.fn().mockResolvedValue(undefined),
-                }
+                })
             )
         );
 
@@ -317,7 +318,7 @@ describe('useQuickSearchLogic', () => {
                         open.value = value;
                     },
                 },
-                {
+                withTestSearch({
                     quickSearch: {
                         getStatus: vi.fn().mockResolvedValue({
                             provider: 'everything',
@@ -334,7 +335,7 @@ describe('useQuickSearchLogic', () => {
                     },
                     openPath: vi.fn().mockResolvedValue(undefined),
                     loadReferenceSuggestions: vi.fn().mockResolvedValue([]),
-                }
+                })
             )
         );
 
@@ -384,7 +385,7 @@ describe('useQuickSearchLogic', () => {
                         open.value = value;
                     },
                 },
-                quickSearchDeps
+                withTestSearch(quickSearchDeps)
             )
         );
 
@@ -453,7 +454,7 @@ describe('useQuickSearchLogic', () => {
                         open.value = value;
                     },
                 },
-                quickSearchDeps
+                withTestSearch(quickSearchDeps)
             )
         );
 
@@ -518,7 +519,7 @@ describe('useQuickSearchLogic', () => {
                         open.value = value;
                     },
                 },
-                quickSearchDeps
+                withTestSearch(quickSearchDeps)
             )
         );
 
@@ -566,7 +567,7 @@ describe('useQuickSearchLogic', () => {
                         open.value = value;
                     },
                 },
-                quickSearchDeps
+                withTestSearch(quickSearchDeps)
             )
         );
 
@@ -616,7 +617,7 @@ describe('useQuickSearchLogic', () => {
                         open.value = value;
                     },
                 },
-                quickSearchDeps
+                withTestSearch(quickSearchDeps)
             )
         );
 
@@ -665,7 +666,7 @@ describe('useQuickSearchLogic', () => {
                         open.value = value;
                     },
                 },
-                quickSearchDeps
+                withTestSearch(quickSearchDeps)
             )
         );
 
@@ -719,7 +720,7 @@ describe('useQuickSearchLogic', () => {
                         open.value = value;
                     },
                 },
-                quickSearchDeps
+                withTestSearch(quickSearchDeps)
             )
         );
 
@@ -781,7 +782,7 @@ describe('useQuickSearchLogic', () => {
                         open.value = value;
                     },
                 },
-                quickSearchDeps
+                withTestSearch(quickSearchDeps)
             )
         );
 
@@ -834,7 +835,7 @@ describe('useQuickSearchLogic', () => {
                         open.value = value;
                     },
                 },
-                quickSearchDeps
+                withTestSearch(quickSearchDeps)
             )
         );
 
@@ -888,7 +889,7 @@ describe('useQuickSearchLogic', () => {
                         open.value = value;
                     },
                 },
-                quickSearchDeps
+                withTestSearch(quickSearchDeps)
             )
         );
 
@@ -947,7 +948,7 @@ describe('useQuickSearchLogic', () => {
                         open.value = value;
                     },
                 },
-                quickSearchDeps
+                withTestSearch(quickSearchDeps)
             )
         );
 
@@ -993,7 +994,7 @@ describe('useQuickSearchLogic', () => {
                         open.value = value;
                     },
                 },
-                quickSearchDeps
+                withTestSearch(quickSearchDeps)
             )
         );
 
@@ -1046,7 +1047,7 @@ describe('useQuickSearchLogic', () => {
                         if (value) open.value = true;
                     },
                 },
-                deps
+                withTestSearch(deps)
             )
         );
         mounted.result.triggerSearch('app');

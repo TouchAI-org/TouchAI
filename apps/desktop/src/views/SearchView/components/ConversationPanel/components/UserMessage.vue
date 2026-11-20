@@ -163,13 +163,13 @@
     import ActionButton from '@components/ActionButton.vue';
     import AppIcon from '@components/AppIcon.vue';
     import SkillLabel from '@components/SkillLabel.vue';
-    import { notify } from '@services/NotificationService';
-    import { log } from '@services/ObservabilityService';
     import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 
+    import type { SessionMessage } from '@/app/api/agent/history';
+    import { log } from '@/app/api/diagnostics';
+    import { writeClipboardText } from '@/app/api/windows/clipboard';
+    import { notify } from '@/app/api/windows/notifications';
     import { t } from '@/i18n';
-    import { clipboardService } from '@/services/ClipboardService';
-    import type { SessionMessage } from '@/types/session';
 
     import { buildUserMessageInlineParts } from './userMessageParts';
 
@@ -301,7 +301,7 @@
 
     async function handleCopy() {
         try {
-            await clipboardService.writeText(props.message.content);
+            await writeClipboardText(props.message.content);
             notify({ title: 'TouchAI', body: t('notification.copy.copiedToClipboard') });
         } catch (error) {
             log.error('[UserMessage] Failed to copy:', error);

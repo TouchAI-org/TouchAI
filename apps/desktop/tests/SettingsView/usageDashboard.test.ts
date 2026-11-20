@@ -2,15 +2,10 @@
 
 import type { UsageSummary } from '@database/queries/usageStats';
 import { flushPromises, mount } from '@vue/test-utils';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { setLocale } from '@/i18n';
 import UsageDashboard from '@/views/SettingsView/components/Usage/components/UsageDashboard.vue';
-
-vi.mock('@services/EventService', () => ({
-    AppEvent: { SESSION_TASK_USAGE_PROGRESS: 'session:task:usage-progress' },
-    eventService: { on: vi.fn(async () => () => undefined) },
-}));
 
 const summary: UsageSummary = {
     requestCount: 6,

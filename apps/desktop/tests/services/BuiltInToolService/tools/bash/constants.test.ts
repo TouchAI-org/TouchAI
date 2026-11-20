@@ -6,7 +6,7 @@ import {
     bashCommandContextSchema,
     bashToolConfigSchema,
     DEFAULT_BASH_TOOL_CONFIG,
-} from '@/services/BuiltInToolService/tools/bash/constants';
+} from '@/modules/tools/builtin/bash/constants';
 
 describe('user runs shell commands with a documented tool contract', () => {
     it('user sees the tool description mention rg is available on PATH', () => {

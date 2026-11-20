@@ -1,3 +1,5 @@
+import { createTestWindowPresentation } from '@tests/utils/windowPresentation';
+import { beforeEach as beforePresentation } from 'vitest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -80,4 +82,8 @@ describe('user resizes the settings window', () => {
         stop();
         expect(disconnect).toHaveBeenCalledOnce();
     });
+});
+
+beforePresentation(async () => {
+    (await createTestWindowPresentation('settings')).install();
 });

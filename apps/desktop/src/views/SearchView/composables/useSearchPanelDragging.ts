@@ -1,6 +1,6 @@
-import { native } from '@services/NativeService';
-import { getCurrentWindow } from '@tauri-apps/api/window';
 import type { Ref } from 'vue';
+
+import { type SearchWindowApi, useSearchWindowApi } from '@/app/api/windows/presentation';
 
 interface UseSearchPanelDraggingOptions {
     maximized: Readonly<Ref<boolean>>;
@@ -10,7 +10,10 @@ interface UseSearchPanelDraggingOptions {
 }
 
 /** Bounded hosts move as native windows; the renderer never translates the panel. */
-export function useSearchPanelDragging(options: UseSearchPanelDraggingOptions) {
+export function useSearchPanelDragging(
+    options: UseSearchPanelDraggingOptions,
+    searchWindow: SearchWindowApi = useSearchWindowApi()
+) {
     let cancelPendingDrag: (() => void) | null = null;
 
     async function startDragging(event: MouseEvent): Promise<void> {
@@ -25,8 +28,8 @@ export function useSearchPanelDragging(options: UseSearchPanelDraggingOptions) {
         try {
             const prepared = (await options.prepareForNativeDrag?.()) ?? true;
             if (prepared && !cancelled && !options.maximized.value) {
-                if (options.monitorHost?.value) await native.window.dragSearchWindow();
-                else await getCurrentWindow().startDragging();
+                if (options.monitorHost?.value) await searchWindow.dragSearchWindow();
+                else await searchWindow.startDragging();
             }
         } finally {
             window.removeEventListener('mouseup', cancel, true);

@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 import semver from 'semver';
 import { describe, expect, it } from 'vitest';
+import { parse } from 'yaml';
 
 const testDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(testDirectory, '../../..');
@@ -25,6 +26,8 @@ const affectedRanges: Record<string, string[]> = {
     dompurify: ['<=3.4.16'],
     esbuild: ['<=0.24.2'],
     'fast-uri': ['<2.4.8', '>=3.0.0 <3.1.9', '>=4.0.0 <4.2.3'],
+    // https://github.com/advisories/GHSA-rxp7-6hxx-x8q5 also covers the earlier affected ranges.
+    'ip-address': ['<=10.7.3'],
     'serialize-javascript': ['<7.1.3'],
     zod: ['<4.6.6'],
 };
@@ -124,6 +127,9 @@ describe('user gets a guard that rejects every affected advisory branch', () => 
         ['fast-uri', '3.1.9', false],
         ['fast-uri', '4.0.0', true],
         ['fast-uri', '4.2.3', false],
+        ['ip-address', '10.7.3', true],
+        ['ip-address', '10.7.4', false],
+        ['ip-address', '10.7.6', false],
         ['dompurify', '3.4.16', true],
         ['dompurify', '3.4.17', false],
         ['zod', '4.6.5', true],
@@ -152,13 +158,54 @@ describe('user gets a guard that rejects every affected advisory branch', () => 
     }
 });
 
+async function readWebdriverDependencyNames(): Promise<Set<string>> {
+    const lockfile = parse(await readFile(lockfilePath, 'utf8')) as {
+        importers: Record<string, { devDependencies: Record<string, { version: string }> }>;
+        snapshots: Record<
+            string,
+            {
+                dependencies?: Record<string, string>;
+                optionalDependencies?: Record<string, string>;
+            }
+        >;
+    };
+    const pending = Object.entries(lockfile.importers['apps/desktop']!.devDependencies)
+        .filter(([name]) => name.startsWith('@wdio/') || name === 'webdriverio')
+        .map(([name, entry]): [string, string] => [name, entry.version]);
+    expect(
+        pending.length,
+        'The guard must inspect the installed WebdriverIO tools'
+    ).toBeGreaterThan(0);
+    const visited = new Set<string>();
+    const names = new Set<string>();
+    while (pending.length) {
+        const [name, version] = pending.pop()!;
+        // Aliases carry the actual package name in their snapshot reference.
+        const directKey = `${name}@${version}`;
+        const key = Object.prototype.hasOwnProperty.call(lockfile.snapshots, directKey)
+            ? directKey
+            : version;
+        if (visited.has(key)) continue;
+        visited.add(key);
+        names.add(name);
+        names.add(key.slice(0, key.indexOf('@', 1)));
+        const snapshot = lockfile.snapshots[key];
+        expect(snapshot, `Missing locked WebdriverIO dependency ${key}`).toBeDefined();
+        pending.push(...Object.entries(snapshot!.dependencies ?? {}));
+        pending.push(...Object.entries(snapshot!.optionalDependencies ?? {}));
+    }
+    return names;
+}
+
 describe('user runs the E2E harness without the WebdriverIO 9 download chain', () => {
     for (const packageName of ['basic-ftp', 'extract-zip', 'ip-address']) {
-        it(`user gets no ${packageName} in the lockfile`, async () => {
-            expect(
-                await readLockedVersions(packageName),
-                `${packageName} must be gone after the WebdriverIO 10 migration`
-            ).toHaveLength(0);
+        it(`user gets no ${packageName} through the installed WebdriverIO tools`, async () => {
+            // The MCP fixture uses patched ip-address through express-rate-limit;
+            // the obsolete browser download chain must remain absent from WebdriverIO.
+            expect((await readWebdriverDependencyNames()).has(packageName)).toBe(false);
+            if (packageName !== 'ip-address') {
+                expect(await readLockedVersions(packageName)).toHaveLength(0);
+            }
         });
     }
 });

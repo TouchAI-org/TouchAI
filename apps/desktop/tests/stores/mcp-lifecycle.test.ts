@@ -1,16 +1,11 @@
-import { AppEvent, eventService } from '@services/EventService';
 import { flushPromises } from '@vue/test-utils';
-import { createPinia, disposePinia, setActivePinia } from 'pinia';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { useMcpStore } from '@/stores/mcp';
+import { AppEvent, eventService } from '@/app/workflows/windows/events';
 
-import {
-    getTauriInvokeCalls,
-    interceptTauriInvoke,
-    mockTauriCommand,
-    type TauriInvokeCall,
-} from '../utils/tauri';
+import { closeTestDatabases } from '../database/sqliteHarness';
+import { mountMcpWindow } from '../utils/mcpWindow';
+import { getTauriInvokeCalls, interceptTauriInvoke, type TauriInvokeCall } from '../utils/tauri';
 
 function deferred() {
     let resolve!: () => void;
@@ -32,23 +27,20 @@ async function broadcastStatus() {
     await flushPromises();
 }
 
-let pinia: ReturnType<typeof createPinia>;
+let fixture: Awaited<ReturnType<typeof mountMcpWindow<undefined>>>;
 
-beforeEach(() => {
-    pinia = createPinia();
-    setActivePinia(pinia);
-    mockTauriCommand('database_query', () => ({ rows: [], rowsAffected: 0, lastInsertId: null }));
-    mockTauriCommand('mcp_get_all_client_statuses', () => []);
+beforeEach(async () => {
+    fixture = await mountMcpWindow(() => undefined, { label: 'main' });
 });
 
 afterEach(async () => {
-    disposePinia(pinia);
-    await flushPromises();
+    await fixture.dispose();
+    closeTestDatabases();
 });
 
 describe('user initializes and leaves the MCP status view', () => {
     it('user initializes concurrently and receives one status subscription', async () => {
-        const store = useMcpStore();
+        const store = fixture.store;
 
         await Promise.all([store.initialize(), store.initialize()]);
         await broadcastStatus();
@@ -59,7 +51,7 @@ describe('user initializes and leaves the MCP status view', () => {
     });
 
     it('user disposes the store scope and queued status events no longer mutate it', async () => {
-        const store = useMcpStore();
+        const store = fixture.store;
         await store.initialize();
 
         store.$dispose();
@@ -67,7 +59,11 @@ describe('user initializes and leaves the MCP status view', () => {
 
         expect(store.initialized).toBe(false);
         expect(store.getServerStatus(7)).toBe('disconnected');
-        expect(getTauriInvokeCalls('plugin:event|unlisten')).toEqual([
+        expect(
+            getTauriInvokeCalls('plugin:event|unlisten').filter(
+                (call) => (call.payload as { event?: string }).event === AppEvent.MCP_STATUS
+            )
+        ).toEqual([
             expect.objectContaining({
                 payload: expect.objectContaining({ event: AppEvent.MCP_STATUS }),
             }),
@@ -84,7 +80,7 @@ describe('user initializes and leaves the MCP status view', () => {
             }
             return next();
         });
-        const store = useMcpStore();
+        const store = fixture.store;
         const initialization = store.initialize();
         await started.promise;
 
@@ -108,7 +104,7 @@ describe('user initializes and leaves the MCP status view', () => {
             }
             return next();
         });
-        const store = useMcpStore();
+        const store = fixture.store;
         const initialization = store.initialize();
         await started.promise;
 
@@ -132,7 +128,7 @@ describe('user initializes and leaves the MCP status view', () => {
             }
             return next();
         });
-        const store = useMcpStore();
+        const store = fixture.store;
 
         await expect(store.initialize()).rejects.toThrow('registration unavailable');
         expect(store.initialized).toBe(false);

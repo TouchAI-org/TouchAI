@@ -62,9 +62,9 @@ const modules = {
     'probe:log': 'export const log=console;',
 };
 const aliases = {
-    '@services/NativeService': 'probe:boundary',
+    '@/platform/native': 'probe:boundary',
     '@tauri-apps/api/window': 'probe:boundary',
-    '@services/ObservabilityService': 'probe:log',
+    '@/platform/diagnostics': 'probe:log',
 };
 const entry = `${outputDirectory}/geometry-entry.ts`;
 await writeFile(

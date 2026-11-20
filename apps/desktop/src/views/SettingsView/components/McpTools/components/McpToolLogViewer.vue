@@ -6,12 +6,12 @@
     import { Button } from '@components/ui/button';
     import { Input } from '@components/ui/input';
     import { useListFilter } from '@composables/useListFilter';
-    import { findMcpToolLogById, findMcpToolLogSummariesByServerId } from '@database/queries';
-    import type { McpToolLogSummary } from '@database/queries/mcpToolLogs';
-    import type { McpServerEntity, McpToolLogEntity } from '@database/types';
-    import { log as appLog } from '@services/ObservabilityService';
     import { onMounted, ref } from 'vue';
 
+    import { log as appLog } from '@/app/api/diagnostics';
+    import type { McpToolLogSummary } from '@/app/api/tools/mcpAdministration';
+    import type { McpServerEntity, McpToolLogEntity } from '@/app/api/tools/mcpAdministration';
+    import { useMcpAdministrationApi } from '@/app/api/tools/mcpAdministration';
     import { t } from '@/i18n';
 
     import ToolLogEntry from '../../common/ToolLogEntry.vue';
@@ -22,6 +22,7 @@
     }
 
     const props = defineProps<Props>();
+    const { findMcpToolLogById, findMcpToolLogSummariesByServerId } = useMcpAdministrationApi();
 
     // 列表只拿摘要；完整 input/output 在展开时按 id 拉取。
     const logs = ref<McpToolLogSummary[]>([]);

@@ -174,8 +174,6 @@
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
     import { MARKDOWN_SCROLL_ROOT_KEY } from '@components/markdownScrollRoot';
-    import { notify } from '@services/NotificationService';
-    import { log } from '@services/ObservabilityService';
     import { storeToRefs } from 'pinia';
     import { Virtualizer, type VirtualizerHandle } from 'virtua/vue';
     import {
@@ -190,6 +188,10 @@
     } from 'vue';
     import { VueDraggable } from 'vue-draggable-plus';
 
+    import type { PendingUserMessage } from '@/app/api/agent/contracts';
+    import type { ContextCompactionMessagePart, SessionMessage } from '@/app/api/agent/history';
+    import { log } from '@/app/api/diagnostics';
+    import { notify } from '@/app/api/windows/notifications';
     import {
         MessageScroller,
         type MessageScrollerHandle,
@@ -198,9 +200,7 @@
         type MessageScrollerState,
     } from '@/components/ui/message-scroller';
     import { t, tt } from '@/i18n';
-    import type { PendingUserMessage } from '@/services/AgentService/task/types';
     import { useSettingsStore } from '@/stores/settings';
-    import type { ContextCompactionMessagePart, SessionMessage } from '@/types/session';
 
     import ConversationReadingColumn from './components/ConversationReadingColumn.vue';
     import ConversationToolbar from './components/ConversationToolbar.vue';

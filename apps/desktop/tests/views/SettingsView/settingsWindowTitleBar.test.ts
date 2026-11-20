@@ -1,10 +1,13 @@
+import { createTestWindowPresentation } from '@tests/utils/windowPresentation';
 import { flushPromises, mount } from '@vue/test-utils';
+import { beforeEach as beforePresentation } from 'vitest';
 import { vi } from 'vitest';
 
 import SettingsWindowTitleBar from '@/views/SettingsView/components/SettingsWindowTitleBar.vue';
 
 const windowApiMock = vi.hoisted(() => ({
     currentWindow: {
+        label: 'settings',
         close: vi.fn().mockResolvedValue(undefined),
         isMaximized: vi.fn().mockResolvedValue(false),
         maximize: vi.fn().mockResolvedValue(undefined),
@@ -139,4 +142,8 @@ describe('user controls the settings window', () => {
             wrapper.unmount();
         }
     });
+});
+
+beforePresentation(async () => {
+    (await createTestWindowPresentation('settings')).install();
 });

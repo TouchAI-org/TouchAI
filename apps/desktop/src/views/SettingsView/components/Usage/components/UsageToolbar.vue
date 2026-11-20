@@ -4,9 +4,9 @@
     import AppIcon from '@components/AppIcon.vue';
     import CustomSelect from '@components/CustomSelect.vue';
     import { Input } from '@components/ui/input';
-    import type { UsageFilterOptions, UsageRangePreset } from '@database/queries/usageStats';
     import { computed } from 'vue';
 
+    import type { UsageFilterOptions, UsageRangePreset } from '@/app/api/usage/queries';
     import { t } from '@/i18n';
 
     import { USAGE_RANGE_PRESETS } from '../utils/usageRange';

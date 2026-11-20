@@ -1,17 +1,25 @@
+import { closeTestDatabases } from '@tests/database/sqliteHarness';
+import { withTestSkillSearch } from '@tests/utils/searchHost';
+import { createTestSearchHost } from '@tests/utils/searchHost';
+import { createSettingsWindowFixture } from '@tests/utils/settingsWindow';
 import { mockTauriCommand } from '@tests/utils/tauri';
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
 import { createPinia } from 'pinia';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent, h, ref } from 'vue';
 
+import { searchApiKey } from '@/app/api/search/queries';
+import { settingsApiKey } from '@/app/api/settings/preferences';
 import { setLocale } from '@/i18n';
-import type { SkillMetadata } from '@/services/AgentService/skills';
-import type { QuickSearchResult } from '@/services/NativeService';
+import type { SkillMetadata } from '@/modules/skills';
+import type { QuickSearchResult } from '@/platform/native';
 import QuickSearchPanel from '@/views/SearchView/components/QuickSearchPanel/index.vue';
 import { useSkillAutocomplete } from '@/views/SearchView/components/SearchBar/composables/useSkillAutocomplete';
 import SkillPickerPanel from '@/views/SearchView/components/SearchBar/SkillPickerPanel.vue';
 
 enableAutoUnmount(afterEach);
+
+let preferences: ReturnType<typeof createSettingsWindowFixture>;
 
 function deferred<T>() {
     let resolve!: (value: T) => void;
@@ -38,7 +46,9 @@ const summary: SkillMetadata = {
     directory: 'D:/skills/summary',
 };
 
-beforeEach(() => {
+beforeEach(async () => {
+    preferences = createSettingsWindowFixture();
+    await preferences.initialize();
     setLocale('zh-CN');
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
         queueMicrotask(() => callback(performance.now()));
@@ -53,6 +63,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+    preferences.dispose();
+    closeTestDatabases();
     vi.useRealTimers();
     vi.unstubAllGlobals();
 });
@@ -84,7 +96,15 @@ describe('given a file query can complete without matching files', () => {
                             'onUpdate:open': (value) => (open.value = value),
                         }),
                 }),
-                { global: { plugins: [createPinia()] } }
+                {
+                    global: {
+                        plugins: [createPinia()],
+                        provide: {
+                            [searchApiKey as symbol]: createTestSearchHost().api,
+                            [settingsApiKey as symbol]: preferences.window.api,
+                        },
+                    },
+                }
             );
             wrapper.getComponent(QuickSearchPanel).vm.triggerSearch(query.value);
             await vi.advanceTimersByTimeAsync(80);
@@ -145,7 +165,13 @@ describe('given a file query can complete without matching files', () => {
             mockTauriCommand('quick_search_file_reference_suggestions', unavailable);
             const wrapper = mount(QuickSearchPanel, {
                 props: { open: true, searchQuery, referenceMode: true },
-                global: { plugins: [createPinia()] },
+                global: {
+                    plugins: [createPinia()],
+                    provide: {
+                        [searchApiKey as symbol]: createTestSearchHost().api,
+                        [settingsApiKey as symbol]: preferences.window.api,
+                    },
+                },
             });
             await flushPromises();
             expect(wrapper.text()).not.toContain('未找到匹配的文件');
@@ -164,11 +190,13 @@ describe('given a skill query can complete without matching skills', () => {
             const wrapper = mount(
                 defineComponent({
                     setup() {
-                        picker = useSkillAutocomplete({
-                            discoverSkills: () => (reloading ? refresh.promise : first.promise),
-                            getSelectedSkills: () => [],
-                            onSelect: () => undefined,
-                        });
+                        picker = useSkillAutocomplete(
+                            withTestSkillSearch({
+                                discoverSkills: () => (reloading ? refresh.promise : first.promise),
+                                getSelectedSkills: () => [],
+                                onSelect: () => undefined,
+                            })
+                        );
                         return () =>
                             picker.isOpen.value
                                 ? h(SkillPickerPanel, {

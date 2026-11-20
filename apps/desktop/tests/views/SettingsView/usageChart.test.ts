@@ -1,7 +1,8 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3.
-
 import type { UsageTrendPoint } from '@database/queries/usageStats';
+import { createTestWindowPresentation } from '@tests/utils/windowPresentation';
 import { mount } from '@vue/test-utils';
+import { beforeEach as beforePresentation } from 'vitest';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { setLocale } from '@/i18n';
@@ -137,4 +138,8 @@ describe('user reviews the usage trend', () => {
         expect(wrapper.text()).toContain('By model');
         expect(wrapper.text()).toContain('Other');
     });
+});
+
+beforePresentation(async () => {
+    (await createTestWindowPresentation('settings')).install();
 });

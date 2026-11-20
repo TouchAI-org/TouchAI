@@ -1,7 +1,4 @@
-import type {
-    AnalyticsOperationHandle,
-    AnalyticsTrackRequest,
-} from '@/services/AnalyticsService/types';
+import type { AnalyticsOperationHandle, AnalyticsTrackRequest } from '@/modules/analytics/public';
 
 import { mockTauriCommand } from './tauri';
 

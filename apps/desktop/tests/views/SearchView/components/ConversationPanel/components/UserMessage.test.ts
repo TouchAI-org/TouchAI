@@ -2,11 +2,10 @@ import { mount } from '@vue/test-utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { nextTick } from 'vue';
 
-import type { SessionMessage } from '@/types/session';
+import type { SessionMessage } from '@/app/api/agent/history';
 import UserMessage from '@/views/SearchView/components/ConversationPanel/components/UserMessage.vue';
 
-vi.mock('@services/NotificationService', () => ({ notify: vi.fn() }));
-vi.mock('@/services/ClipboardService', () => ({ clipboardService: { writeText: vi.fn() } }));
+vi.mock('@/app/api/windows/notifications', () => ({ notify: vi.fn() }));
 vi.mock('@components/AppIcon.vue', () => ({
     default: {
         name: 'AppIconStub',

@@ -1,27 +1,16 @@
-import type { McpServerEntity } from '@database/types';
-import { mount } from '@vue/test-utils';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { emit } from '@tauri-apps/api/event';
+import { createSettingsPanelFixture } from '@tests/utils/settingsPanel';
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { AppEvent, type McpServerStatus } from '@/app/api/tools/events';
+import type { McpServerEntity } from '@/app/api/tools/mcpAdministration';
+import { setLocale } from '@/i18n';
+import { useMcpStore } from '@/stores/mcp';
 import McpServerCard from '@/views/SettingsView/components/McpTools/components/McpServerCard.vue';
 
-/**
- * The card is how the user starts, stops and removes an MCP server. Deleting asks first, and the
- * card has to reflect the live connection state, because a wrong dot sends the user looking for a
- * problem in the wrong place.
- */
-const { confirmMock, getServerStatusMock } = vi.hoisted(() => ({
-    confirmMock: vi.fn(),
-    getServerStatusMock: vi.fn(),
-}));
-
-vi.mock('@composables/useConfirm', () => ({
-    useConfirm: () => ({ confirm: confirmMock }),
-}));
-
-vi.mock('@/stores/mcp', () => ({
-    useMcpStore: () => ({ getServerStatus: getServerStatusMock }),
-}));
-
+let fixture: Awaited<ReturnType<typeof createSettingsPanelFixture>>;
+const wrappers: VueWrapper[] = [];
 function server(overrides: Partial<McpServerEntity> = {}): McpServerEntity {
     return {
         id: 1,
@@ -45,134 +34,111 @@ function server(overrides: Partial<McpServerEntity> = {}): McpServerEntity {
 }
 
 function mountCard(props: { server?: McpServerEntity; selected?: boolean } = {}) {
-    return mount(McpServerCard, {
+    const wrapper = mount(McpServerCard, {
+        ...fixture.viewOptions,
         props: { server: server(), selected: false, ...props },
-        global: {
-            stubs: {
-                Switch: {
-                    props: ['checked'],
-                    emits: ['change', 'update:checked'],
-                    template:
-                        '<button role="switch" :aria-checked="checked" @click="$emit(\'change\', !checked)" />',
-                },
-            },
-        },
     });
+    wrappers.push(wrapper);
+    return wrapper;
+}
+async function broadcastStatus(status: McpServerStatus) {
+    await emit(AppEvent.MCP_STATUS, { serverId: 1, status, error: null });
+    await flushPromises();
+}
+async function answerDeletion(wrapper: VueWrapper, answer: 'Delete' | 'Cancel') {
+    const request = (wrapper.vm as unknown as { handleDelete: () => Promise<void> }).handleDelete();
+    await flushPromises();
+    const dialog = document.querySelector('[role="alertdialog"]')!;
+    expect(dialog.textContent).toContain('filesystem');
+    const button = [...dialog.querySelectorAll('button')].find(
+        (element) => element.textContent?.trim() === answer
+    );
+    expect(button).toBeDefined();
+    button!.click();
+    await request;
+    await flushPromises();
 }
 
-beforeEach(() => {
-    vi.clearAllMocks();
-    confirmMock.mockResolvedValue(true);
-    getServerStatusMock.mockReturnValue('connected');
+beforeEach(async () => {
+    fixture = await createSettingsPanelFixture();
+    setLocale('en-US');
+    const catalog = fixture.runWithContext(() => useMcpStore(fixture.pinia));
+    await catalog.initialize();
+    await broadcastStatus('connected');
+});
+afterEach(async () => {
+    for (const wrapper of wrappers.splice(0)) wrapper.unmount();
+    await fixture.dispose();
+    document.body.innerHTML = '';
+    setLocale('zh-CN');
 });
 
-describe('user manages an MCP server from its card', () => {
-    it('user sees the server name', () => {
-        const wrapper = mountCard();
-
-        expect(wrapper.text()).toContain('filesystem');
-        wrapper.unmount();
+describe('given a saved MCP server in settings', () => {
+    it('user opens its card and sees the server name', () => {
+        expect(mountCard().text()).toContain('filesystem');
     });
 
     it('user toggles the server and its id is reported', async () => {
         const wrapper = mountCard({ server: server({ id: 7 }) });
-
-        await wrapper.find('[role="switch"]').trigger('click');
-
+        await wrapper.get('[role="switch"]').trigger('click');
         expect(wrapper.emitted('toggle-enabled')).toEqual([[7]]);
-        wrapper.unmount();
     });
 
-    it('user asks to delete and confirms, then the delete is reported', async () => {
+    it('user confirms the named server deletion and the delete is reported', async () => {
         const wrapper = mountCard();
-
-        await (wrapper.vm as unknown as { handleDelete: () => Promise<void> }).handleDelete();
-
-        expect(confirmMock).toHaveBeenCalledWith(
-            expect.objectContaining({
-                type: 'danger',
-                message: expect.stringContaining('filesystem'),
-            })
-        );
+        await answerDeletion(wrapper, 'Delete');
         expect(wrapper.emitted('delete')).toHaveLength(1);
-        wrapper.unmount();
     });
 
-    it('user asks to delete and cancels, then nothing is deleted', async () => {
-        confirmMock.mockResolvedValue(false);
+    it('user cancels the named server deletion and nothing is deleted', async () => {
         const wrapper = mountCard();
-
-        await (wrapper.vm as unknown as { handleDelete: () => Promise<void> }).handleDelete();
-
-        // A cancelled confirmation must not delete the server.
+        await answerDeletion(wrapper, 'Cancel');
         expect(wrapper.emitted('delete')).toBeUndefined();
-        wrapper.unmount();
     });
 
-    it('user gets the connected state shown in green', () => {
-        getServerStatusMock.mockReturnValue('connected');
-        const wrapper = mountCard();
+    it.each([
+        ['connected', '.bg-green-500'],
+        ['connecting', '.bg-yellow-500'],
+        ['error', '.bg-red-500'],
+    ] as const)(
+        'user receives the %s connection state and sees the matching indicator',
+        async (status, color) => {
+            const wrapper = mountCard();
+            await broadcastStatus(status);
+            expect(wrapper.find(color).exists()).toBe(true);
+        }
+    );
 
-        expect(wrapper.find('.bg-green-500').exists()).toBe(true);
-        wrapper.unmount();
+    it('user opens an unknown server and sees a disconnected indicator', () => {
+        expect(
+            mountCard({ server: server({ id: 99 }) })
+                .find('.bg-gray-400')
+                .exists()
+        ).toBe(true);
     });
 
-    it('user gets the connecting state shown in amber', () => {
-        getServerStatusMock.mockReturnValue('connecting');
-        const wrapper = mountCard();
-
-        expect(wrapper.find('.bg-yellow-500').exists()).toBe(true);
-        wrapper.unmount();
-    });
-
-    it('user gets the error state shown in red', () => {
-        getServerStatusMock.mockReturnValue('error');
-        const wrapper = mountCard();
-
-        expect(wrapper.find('.bg-red-500').exists()).toBe(true);
-        wrapper.unmount();
-    });
-
-    it('user gets an unknown state shown as disconnected', () => {
-        getServerStatusMock.mockReturnValue(undefined);
-        const wrapper = mountCard();
-
-        // An unknown state must not look like a healthy connection.
-        expect(wrapper.find('.bg-gray-400').exists()).toBe(true);
-        wrapper.unmount();
-    });
-
-    it('user gets each transport labelled', () => {
+    it('user views each transport and sees its label', () => {
         for (const [transport, label] of [
             ['stdio', 'Stdio'],
             ['sse', 'SSE'],
             ['http', 'HTTP'],
         ] as const) {
-            const wrapper = mountCard({ server: server({ transport_type: transport }) });
-            expect(wrapper.text()).toContain(label);
-            wrapper.unmount();
+            expect(mountCard({ server: server({ transport_type: transport }) }).text()).toContain(
+                label
+            );
         }
     });
 
-    it('user opens the context menu on the card and the event is reported', async () => {
+    it('user opens the card context menu and the application receives the event without the browser menu', async () => {
         const wrapper = mountCard();
-
-        await wrapper.find('button').trigger('contextmenu');
-
+        await wrapper.get('button').trigger('contextmenu');
         const events = wrapper.emitted('context-menu');
         expect(events).toHaveLength(1);
-        // The browser menu must be suppressed so only the app's menu opens.
         expect((events![0]![0] as MouseEvent).defaultPrevented).toBe(true);
-        wrapper.unmount();
     });
 
-    it('user gets the selected card marked so the detail pane matches', () => {
-        const selected = mountCard({ selected: true });
-        const plain = mountCard({ selected: false });
-
-        expect(selected.classes()).toContain('settings-item-selected');
-        expect(plain.classes()).toContain('settings-item-unselected');
-        selected.unmount();
-        plain.unmount();
+    it('user selects a card and sees it marked to match the detail pane', () => {
+        expect(mountCard({ selected: true }).classes()).toContain('settings-item-selected');
+        expect(mountCard({ selected: false }).classes()).toContain('settings-item-unselected');
     });
 });

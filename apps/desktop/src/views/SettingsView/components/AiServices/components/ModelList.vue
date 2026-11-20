@@ -7,9 +7,9 @@
     import { Input } from '@components/ui/input';
     import { useAlert } from '@composables/useAlert';
     import { useMotion } from '@composables/useMotion';
-    import type { Model, NewModel, Provider } from '@database/schema';
     import { computed, ref } from 'vue';
 
+    import type { Model, ModelPatch, NewModel, Provider } from '@/app/api/models/administration';
     import { t, tp } from '@/i18n';
 
     import ModelFormDialog from './ModelFormDialog.vue';
@@ -24,7 +24,7 @@
 
     interface Emits {
         (e: 'create', data: NewModel): void;
-        (e: 'update', id: number, data: Partial<Model>): void;
+        (e: 'update', id: number, data: ModelPatch): void;
         (e: 'delete', id: number, silent?: boolean): void;
         (e: 'set-default', id: number): void;
         (e: 'refresh'): void;
@@ -214,7 +214,7 @@
         showEditDialog.value = true;
     };
 
-    const handleUpdate = (data: Partial<Model>) => {
+    const handleUpdate = (data: ModelPatch) => {
         if (editingModel.value) {
             emit('update', editingModel.value.id, data);
             showEditDialog.value = false;

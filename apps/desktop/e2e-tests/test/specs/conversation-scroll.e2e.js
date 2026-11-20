@@ -34,6 +34,7 @@ import {
     waitForE2eBridge,
     waitForTestIdDisplayed,
 } from '../support/desktop.js';
+import { configureE2eModel } from '../support/model-administration.js';
 
 const MESSAGE_COUNT = 40;
 const BOTTOM_TOLERANCE_PX = 8;
@@ -416,12 +417,7 @@ describe('user reads earlier text while a real answer continues streaming', () =
         await waitForE2eBridge();
         await useInterfaceLanguage();
         await resetSearchSurface();
-        await callE2eBridge(
-            'configureE2eModel',
-            server.endpoint,
-            server.modelId,
-            'TouchAI E2E Model'
-        );
+        await configureE2eModel(server.endpoint, server.modelId, 'TouchAI E2E Model');
         await callE2eBridge('setSearchKeybindings', { 'search.submit.queue': 'Enter' });
     });
 

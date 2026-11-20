@@ -1,84 +1,32 @@
-import type { McpServerEntity } from '@database/types';
+import { createSettingsPanelFixture } from '@tests/utils/settingsPanel';
+import { createTestWindowPresentation } from '@tests/utils/windowPresentation';
 import { flushPromises, mount } from '@vue/test-utils';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach as beforePresentation } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { McpServerEntity } from '@/app/api/tools/mcpAdministration';
 import { setLocale } from '@/i18n';
 import McpToolList from '@/views/SettingsView/components/McpTools/components/McpToolList.vue';
 
-/*
- * The tool list is what a user reads to decide whether to enable an MCP tool: the
- * name, the description, and the parameters the model will have to fill in. The
- * parameter table is built from the tool's JSON schema, so every branch asserted
- * here is a different schema shape a real server can return.
- */
-
-const { updateMcpToolMock } = vi.hoisted(() => ({ updateMcpToolMock: vi.fn() }));
-
-const store = await vi.hoisted(async () => {
-    const { reactive } = await import('vue');
-    return reactive({
-        tools: {} as Record<number, Array<Record<string, unknown>>>,
-        loadServerTools: vi.fn(async () => undefined),
-        getServerTools(id: number) {
-            return (this.tools as Record<number, Array<Record<string, unknown>>>)[id] ?? [];
-        },
-    });
+let fixture: Awaited<ReturnType<typeof createSettingsPanelFixture>>;
+const wrappers: ReturnType<typeof mount>[] = [];
+let failToolRead = false;
+afterEach(async () => {
+    wrappers.splice(0).forEach((wrapper) => wrapper.unmount());
+    await fixture?.dispose();
+    vi.restoreAllMocks();
 });
 
-vi.mock('@/stores/mcp', () => ({
-    useMcpStore: () => store,
-}));
-
-vi.mock('@database/queries', () => ({
-    updateMcpTool: updateMcpToolMock,
-}));
-
-vi.mock('@components/AppIcon.vue', () => ({
-    default: {
-        name: 'AppIcon',
-        props: ['name'],
-        template: '<span data-testid="app-icon" :data-name="name" />',
-    },
-}));
-
-vi.mock('@components/MotionCollapse.vue', () => ({
-    default: {
-        name: 'MotionCollapse',
-        props: ['open', 'lazy'],
-        template: '<div v-if="open"><slot /></div>',
-    },
-}));
-
-vi.mock('@components/EmptyState.vue', () => ({
-    default: {
-        name: 'EmptyState',
-        props: ['title', 'description', 'icon'],
-        template: `
-            <div data-testid="empty-state">
-                <p data-testid="empty-title">{{ title }}</p>
-                <p data-testid="empty-description">{{ description }}</p>
-                <slot name="actions" />
-            </div>
-        `,
-    },
-}));
-
-vi.mock('@components/ui/switch', () => ({
-    Switch: {
-        name: 'UiSwitch',
-        props: ['modelValue', 'size'],
-        emits: ['update:model-value'],
-        template:
-            '<button data-testid="tool-switch" @click="$emit(\'update:model-value\', !modelValue)" />',
-    },
-}));
-
-vi.mock('@components/ui/button', () => ({
-    Button: {
-        name: 'UiButton',
-        template: '<button data-testid="ui-button"><slot /></button>',
-    },
-}));
+function saveTools(values: ReturnType<typeof tool>[]) {
+    for (const value of values) {
+        const keys = Object.keys(value);
+        fixture.database
+            .prepare(
+                `INSERT INTO mcp_tools (${keys.join(',')}) VALUES (${keys.map(() => '?').join(',')})`
+            )
+            .run(...Object.values(value));
+    }
+}
 
 const server: McpServerEntity = {
     args: null,
@@ -121,7 +69,9 @@ function tool(overrides: Record<string, unknown> = {}) {
 }
 
 function mountToolList(props: Record<string, unknown> = {}) {
-    return mount(McpToolList, { props: { server, ...props } });
+    const wrapper = mount(McpToolList, { props: { server, ...props }, ...fixture.viewOptions });
+    wrappers.push(wrapper);
+    return wrapper;
 }
 
 async function expandFirstTool(wrapper: ReturnType<typeof mountToolList>) {
@@ -135,21 +85,33 @@ function filterButton(wrapper: ReturnType<typeof mountToolList>, label: string) 
     return found!;
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+    failToolRead = false;
+    fixture = await createSettingsPanelFixture({
+        query: {
+            beforeQuery: ({ sql }) => {
+                if (failToolRead && /select.*mcp_tools/i.test(sql))
+                    throw new Error('read unavailable');
+            },
+        },
+    });
+    const keys = Object.keys(server);
+    fixture.database
+        .prepare(
+            `INSERT INTO mcp_servers (${keys.join(',')}) VALUES (${keys.map(() => '?').join(',')})`
+        )
+        .run(...Object.values(server));
     setLocale('zh-CN');
-    store.tools = {};
-    store.loadServerTools = vi.fn(async () => undefined);
-    updateMcpToolMock.mockReset();
-    updateMcpToolMock.mockResolvedValue(undefined);
     vi.spyOn(console, 'error').mockImplementation(() => {});
 });
 
 describe('user opens the tool list of a server', () => {
     it('user gets the tools fetched for the server they opened', async () => {
-        mountToolList();
+        saveTools([tool()]);
+        const wrapper = mountToolList();
         await flushPromises();
 
-        expect(store.loadServerTools).toHaveBeenCalledWith(4);
+        expect(wrapper.text()).toContain('read_file');
     });
 
     it('user sees a placeholder for every tool still loading', () => {
@@ -159,7 +121,7 @@ describe('user opens the tool list of a server', () => {
     });
 
     it('user sees the tools once they arrive', async () => {
-        store.tools = { 4: [tool()] };
+        saveTools([tool()]);
         const wrapper = mountToolList();
         await flushPromises();
 
@@ -171,30 +133,26 @@ describe('user opens the tool list of a server', () => {
         const wrapper = mountToolList();
         await flushPromises();
 
-        expect(wrapper.get('[data-testid="empty-title"]').text()).toBe('暂无工具');
-        expect(wrapper.get('[data-testid="empty-description"]').text()).toContain('连接');
+        expect(wrapper.get('[role="status"]').text()).toContain('暂无工具');
+        expect(wrapper.get('[role="status"]').text()).toContain('连接');
     });
 
     it('user sees the empty state instead of a stuck loader when loading failed', async () => {
-        store.loadServerTools = vi.fn(async () => {
-            throw new Error('network down');
-        });
+        failToolRead = true;
         const wrapper = mountToolList();
         await flushPromises();
 
-        expect(wrapper.get('[data-testid="empty-title"]').text()).toBe('暂无工具');
+        expect(wrapper.get('[role="status"]').text()).toContain('暂无工具');
         expect(wrapper.find('.animate-pulse').exists()).toBe(false);
     });
 });
 
 describe('user narrows the tool list', () => {
     beforeEach(() => {
-        store.tools = {
-            4: [
-                tool({ id: 10, name: 'read_file', enabled: 1 }),
-                tool({ id: 11, name: 'write_file', enabled: 0 }),
-            ],
-        };
+        saveTools([
+            tool({ id: 10, name: 'read_file', enabled: 1 }),
+            tool({ id: 11, name: 'write_file', enabled: 0 }),
+        ]);
     });
 
     it('user sees only the enabled tools after choosing enabled', async () => {
@@ -244,8 +202,8 @@ describe('user narrows the tool list', () => {
 
         await wrapper.get('input').setValue('nothing-matches');
 
-        expect(wrapper.get('[data-testid="empty-title"]').text()).toBe('未找到匹配的工具');
-        expect(wrapper.get('[data-testid="ui-button"]').text()).toBe('清除筛选');
+        expect(wrapper.get('[role="status"]').text()).toContain('未找到匹配的工具');
+        expect(filterButton(wrapper, '清除筛选').text()).toBe('清除筛选');
     });
 
     it('user gets every tool back after clearing the filters', async () => {
@@ -253,7 +211,7 @@ describe('user narrows the tool list', () => {
         await flushPromises();
         await wrapper.get('input').setValue('nothing-matches');
 
-        await wrapper.get('[data-testid="ui-button"]').trigger('click');
+        await filterButton(wrapper, '清除筛选').trigger('click');
         await flushPromises();
 
         expect(wrapper.text()).toContain('read_file');
@@ -263,7 +221,7 @@ describe('user narrows the tool list', () => {
 
 describe('user reads a tool schema', () => {
     it('user sees the parameter names, types and required marks when expanding a tool', async () => {
-        store.tools = { 4: [tool()] };
+        saveTools([tool()]);
         const wrapper = mountToolList();
         await flushPromises();
 
@@ -280,15 +238,13 @@ describe('user reads a tool schema', () => {
     });
 
     it('user sees a dash where a parameter has no description', async () => {
-        store.tools = {
-            4: [
-                tool({
-                    input_schema: JSON.stringify({
-                        properties: { depth: { type: 'number' } },
-                    }),
+        saveTools([
+            tool({
+                input_schema: JSON.stringify({
+                    properties: { depth: { type: 'number' } },
                 }),
-            ],
-        };
+            }),
+        ]);
         const wrapper = mountToolList();
         await flushPromises();
 
@@ -298,15 +254,13 @@ describe('user reads a tool schema', () => {
     });
 
     it('user sees a parameter that accepts several types listed as alternatives', async () => {
-        store.tools = {
-            4: [
-                tool({
-                    input_schema: JSON.stringify({
-                        properties: { value: { type: ['string', 'null'] } },
-                    }),
+        saveTools([
+            tool({
+                input_schema: JSON.stringify({
+                    properties: { value: { type: ['string', 'null'] } },
                 }),
-            ],
-        };
+            }),
+        ]);
         const wrapper = mountToolList();
         await flushPromises();
 
@@ -316,15 +270,13 @@ describe('user reads a tool schema', () => {
     });
 
     it('user sees a parameter restricted to a fixed set of values called an enum', async () => {
-        store.tools = {
-            4: [
-                tool({
-                    input_schema: JSON.stringify({
-                        properties: { mode: { enum: ['read', 'write'] } },
-                    }),
+        saveTools([
+            tool({
+                input_schema: JSON.stringify({
+                    properties: { mode: { enum: ['read', 'write'] } },
                 }),
-            ],
-        };
+            }),
+        ]);
         const wrapper = mountToolList();
         await flushPromises();
 
@@ -334,13 +286,11 @@ describe('user reads a tool schema', () => {
     });
 
     it('user sees an untyped parameter listed rather than dropped', async () => {
-        store.tools = {
-            4: [
-                tool({
-                    input_schema: JSON.stringify({ properties: { anything: {} } }),
-                }),
-            ],
-        };
+        saveTools([
+            tool({
+                input_schema: JSON.stringify({ properties: { anything: {} } }),
+            }),
+        ]);
         const wrapper = mountToolList();
         await flushPromises();
 
@@ -351,9 +301,7 @@ describe('user reads a tool schema', () => {
     });
 
     it('user sees the schema itself for a tool that declares no parameters', async () => {
-        store.tools = {
-            4: [tool({ input_schema: JSON.stringify({ properties: {} }) })],
-        };
+        saveTools([tool({ input_schema: JSON.stringify({ properties: {} }) })]);
         const wrapper = mountToolList();
         await flushPromises();
 
@@ -365,7 +313,7 @@ describe('user reads a tool schema', () => {
     });
 
     it('user sees a readable schema even when the server sent unusable JSON', async () => {
-        store.tools = { 4: [tool({ input_schema: '{not valid json' })] };
+        saveTools([tool({ input_schema: '{not valid json' })]);
         const wrapper = mountToolList();
         await flushPromises();
 
@@ -377,7 +325,7 @@ describe('user reads a tool schema', () => {
     });
 
     it('user sees the parameters folded away again after collapsing the tool', async () => {
-        store.tools = { 4: [tool()] };
+        saveTools([tool()]);
         const wrapper = mountToolList();
         await flushPromises();
         await expandFirstTool(wrapper);
@@ -385,11 +333,11 @@ describe('user reads a tool schema', () => {
 
         await wrapper.get('button.w-full').trigger('click');
 
-        expect(wrapper.find('table').exists()).toBe(false);
+        expect(wrapper.get('.t-acc-panel').attributes('aria-hidden')).toBe('true');
     });
 
     it('user sees no description line for a tool the server did not describe', async () => {
-        store.tools = { 4: [tool({ description: null })] };
+        saveTools([tool({ description: null })]);
         const wrapper = mountToolList();
         await flushPromises();
 
@@ -400,37 +348,48 @@ describe('user reads a tool schema', () => {
 
 describe('user switches a tool on or off', () => {
     it('user gets the enabled tool switched off', async () => {
-        store.tools = { 4: [tool({ enabled: 1 })] };
+        saveTools([tool({ enabled: 1 })]);
         const wrapper = mountToolList();
         await flushPromises();
 
-        await wrapper.get('[data-testid="tool-switch"]').trigger('click');
+        await wrapper.get('[role="switch"]').trigger('click');
         await flushPromises();
 
-        expect(updateMcpToolMock).toHaveBeenCalledWith(10, { enabled: 0 });
-        expect(store.loadServerTools).toHaveBeenCalledTimes(2);
+        expect(
+            fixture.database.prepare('SELECT enabled FROM mcp_tools WHERE id = 10').get()?.enabled
+        ).toBe(0);
+        expect(wrapper.get('[role="switch"]').attributes('aria-checked')).toBe('false');
     });
 
     it('user gets the disabled tool switched on', async () => {
-        store.tools = { 4: [tool({ enabled: 0 })] };
+        saveTools([tool({ enabled: 0 })]);
         const wrapper = mountToolList();
         await flushPromises();
 
-        await wrapper.get('[data-testid="tool-switch"]').trigger('click');
+        await wrapper.get('[role="switch"]').trigger('click');
         await flushPromises();
 
-        expect(updateMcpToolMock).toHaveBeenCalledWith(10, { enabled: 1 });
+        expect(
+            fixture.database.prepare('SELECT enabled FROM mcp_tools WHERE id = 10').get()?.enabled
+        ).toBe(1);
+        expect(wrapper.get('[role="switch"]').attributes('aria-checked')).toBe('true');
     });
 
     it('user keeps the list they had when the switch could not be saved', async () => {
-        store.tools = { 4: [tool({ enabled: 1 })] };
-        updateMcpToolMock.mockRejectedValue(new Error('locked'));
+        saveTools([tool({ enabled: 1 })]);
+        fixture.database.exec(
+            "CREATE TEMP TRIGGER reject_tool_write BEFORE UPDATE ON mcp_tools BEGIN SELECT RAISE(ABORT, 'locked'); END;"
+        );
         const wrapper = mountToolList();
         await flushPromises();
 
-        await wrapper.get('[data-testid="tool-switch"]').trigger('click');
+        await wrapper.get('[role="switch"]').trigger('click');
         await flushPromises();
 
         expect(wrapper.text()).toContain('read_file');
     });
+});
+
+beforePresentation(async () => {
+    (await createTestWindowPresentation('settings')).install();
 });

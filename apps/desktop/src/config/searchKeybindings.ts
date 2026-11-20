@@ -1,4 +1,3 @@
-import type { MessageKey } from '@/i18n';
 import {
     hasCommandModifier,
     isModifierlessFunctionShortcut,
@@ -25,13 +24,26 @@ export type SearchKeybindingActionId = (typeof SEARCH_KEYBINDING_ACTION_IDS)[num
 
 export interface SearchKeybindingDefinition {
     id: SearchKeybindingActionId;
-    labelKey: MessageKey;
-    descriptionKey: MessageKey;
+    labelKey: `settings.general.searchActions.${SearchKeybindingName}`;
+    descriptionKey: `settings.general.searchActionDescriptions.${SearchKeybindingName}`;
     defaultShortcut: string | null;
     allowModifierlessFunctionShortcut: boolean;
     /** Present when the shortcut selects what happens to a submission during a run. */
     submitIntent?: 'queue' | 'priority';
 }
+
+type SearchKeybindingName =
+    | 'queueMessage'
+    | 'priorityMessage'
+    | 'history'
+    | 'focusInput'
+    | 'newSession'
+    | 'reopenLastClosedSession'
+    | 'modelToggle'
+    | 'quickSearchToggleView'
+    | 'windowPin'
+    | 'windowMaximize'
+    | 'openSettings';
 
 export type SearchKeybindings = Record<SearchKeybindingActionId, string | null>;
 

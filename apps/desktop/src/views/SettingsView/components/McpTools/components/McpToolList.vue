@@ -8,13 +8,13 @@
     import { Input } from '@components/ui/input';
     import { Switch } from '@components/ui/switch';
     import { useListFilter } from '@composables/useListFilter';
-    import { updateMcpTool } from '@database/queries';
-    import type { McpServerEntity, McpToolEntity } from '@database/types';
-    import { log } from '@services/ObservabilityService';
     import { computed, onMounted, ref } from 'vue';
 
+    import { log } from '@/app/api/diagnostics';
+    import type { McpServerEntity, McpToolEntity } from '@/app/api/tools/mcpAdministration';
+    import { useMcpAdministrationApi } from '@/app/api/tools/mcpAdministration';
     import { t } from '@/i18n';
-    import { useMcpStore } from '@/stores/mcp';
+    import { useMcpAdministrationStore as useMcpStore } from '@/stores/mcpAdministration';
     import {
         type McpToolProperty,
         type McpToolSchema,
@@ -25,6 +25,7 @@
     }
 
     const props = defineProps<Props>();
+    const { updateMcpTool } = useMcpAdministrationApi();
 
     const mcpStore = useMcpStore();
     const loading = ref(true);

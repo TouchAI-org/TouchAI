@@ -1,60 +1,38 @@
-import type { BrowserInstalledBrowser } from '@/services/NativeService/types';
+import type { InstalledBrowser } from '@/app/api/settings/browser';
 
-let installedBrowsersCache: BrowserInstalledBrowser[] | null = null;
-let installedBrowsersPromise: Promise<BrowserInstalledBrowser[]> | null = null;
-let defaultBrowserDataPathCache: string | null = null;
-let defaultBrowserDataPathPromise: Promise<string> | null = null;
-
-export async function loadCachedInstalledBrowsers(
-    loader: () => Promise<BrowserInstalledBrowser[]>,
-    options: { force?: boolean } = {}
-): Promise<BrowserInstalledBrowser[]> {
-    if (!options.force && installedBrowsersCache) {
-        return installedBrowsersCache;
-    }
-
-    if (installedBrowsersPromise) {
-        return installedBrowsersPromise;
-    }
-
-    installedBrowsersPromise = loader()
-        .then((browsers) => {
-            installedBrowsersCache = browsers;
-            return browsers;
-        })
-        .finally(() => {
-            installedBrowsersPromise = null;
-        });
-
-    return installedBrowsersPromise;
-}
-
-export async function loadCachedDefaultBrowserDataPath(
-    loader: () => Promise<string>
-): Promise<string> {
-    if (defaultBrowserDataPathCache) {
-        return defaultBrowserDataPathCache;
-    }
-
-    if (defaultBrowserDataPathPromise) {
-        return defaultBrowserDataPathPromise;
-    }
-
-    defaultBrowserDataPathPromise = loader()
-        .then((path) => {
-            defaultBrowserDataPathCache = path;
-            return path;
-        })
-        .finally(() => {
-            defaultBrowserDataPathPromise = null;
-        });
-
-    return defaultBrowserDataPathPromise;
-}
-
-export function resetBrowserRuntimeCacheForTests() {
-    installedBrowsersCache = null;
-    installedBrowsersPromise = null;
-    defaultBrowserDataPathCache = null;
-    defaultBrowserDataPathPromise = null;
+/** One cache for a window's settings projection; failed loads remain retryable. */
+export function createBrowserRuntimeCache(input: {
+    installed(): Promise<InstalledBrowser[]>;
+    defaultDataPath(): Promise<string>;
+}) {
+    let browsers: InstalledBrowser[] | undefined;
+    let browsersPending: Promise<InstalledBrowser[]> | undefined;
+    let dataPath: string | undefined;
+    let dataPathPending: Promise<string> | undefined;
+    return {
+        async installed(options: { force?: boolean } = {}) {
+            if (!options.force && browsers) return browsers;
+            return (browsersPending ??= input
+                .installed()
+                .then((value) => {
+                    browsers = value;
+                    return value;
+                })
+                .finally(() => {
+                    browsersPending = undefined;
+                }));
+        },
+        async defaultDataPath() {
+            if (dataPath) return dataPath;
+            return (dataPathPending ??= input
+                .defaultDataPath()
+                .then((value) => {
+                    dataPath = value;
+                    return value;
+                })
+                .finally(() => {
+                    dataPathPending = undefined;
+                }));
+        },
+    };
 }

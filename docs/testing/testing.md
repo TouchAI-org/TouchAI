@@ -86,13 +86,13 @@ The keys must stay at the top level of `thresholds`. A nested `global` object is
 
 **Raising is one-way.** Run `pnpm test:coverage:raise` after a change that earns it; it is vitest's `thresholds.autoUpdate`, which rewrites a metric only when the measured value exceeds it. Run it on the full suite, not a filtered subset, or it ratchets to the subset. It also rewrites the per-file thresholds to exact measured values with no headroom, so raise the global floor by hand when the per-file numbers should keep their slack.
 
-**The floor alone is not enough for a pull request.** A global percentage cannot see a change that adds 400 uncovered lines while covering 400 old ones: the total stays flat and the gate stays green. So the `frontend-tests` job also runs a **patch coverage** check (`scripts/ci/coverage/patch-coverage.mjs`), which takes the lines the diff added to `apps/desktop/src` and asks the v8 report how many of them ran. It fails below **85%**.
+**The floor alone is not enough for a pull request.** A global percentage cannot see a change that adds 400 uncovered lines while covering 400 old ones: the total stays flat and the gate stays green. So the `frontend-tests` job also runs a **patch coverage** check (`apps/desktop/scripts/ci/coverage/patch-coverage-cli.mjs`), which takes the lines the diff added to `apps/desktop/src` and `packages/*/src` and asks the v8 report how many of them ran. It fails below **85%**.
 
 - A changed source file that no test ever loaded counts as fully uncovered, which is the point: new behaviour has to arrive with a test that exercises it.
-- Only files the report can contain are measured: `apps/desktop/src/**/*.{ts,vue}`, mirroring `coverage.include`. A generated snapshot, a stylesheet or an asset under `src` is skipped instead of counting as uncovered, because it can never appear in the v8 report.
+- Only files the report can contain are measured: `apps/desktop/src/**/*.{ts,vue}` and `packages/*/src/**/*.ts`, mirroring `coverage.include`. A generated snapshot, a stylesheet or an asset under `src` is skipped instead of counting as uncovered, because it can never appear in the v8 report.
 - Blank lines, comments and closing braces carry no statement, so they are skipped rather than counted as failures.
 - Deleted lines, test files and scripts are out of scope.
-- Run it locally with `pnpm test:coverage:patch` after `pnpm test:coverage`.
+- Run it locally with `pnpm --filter @touchai/desktop test:coverage:patch` after `pnpm test:coverage`.
 - The floor lives in the workflow step, not in a config file, because it is a policy number rather than a measured one.
 
 Rust floor in `apps/desktop/src-tauri/coverage-floors.json`, from **cargo-llvm-cov** (rustc's own `-C instrument-coverage`, not a ptrace debugger). It reports line and region coverage; region is the finer signal because it flags an expression that was only partly evaluated.
@@ -138,17 +138,22 @@ tests/ci/
 apps/desktop/tests/
 ├── setup/                  # Vitest global setup, Tauri mocks
 ├── utils/                  # Shared test helpers and fixtures
-├── services/               # Service tests (EventService, NativeService)
+├── app/                    # Bootstrap and workflow tests
+├── modules/                # Business-owner tests
+├── adapters/               # Package / Desktop contract translation
+├── platform/               # Native and window capabilities
 ├── composables/
 │   └── SearchView/         # SearchView composable tests
 └── SearchView/             # SearchView view-level tests (windowSizing, utils)
 
 apps/desktop/e2e-tests/     # Desktop E2E (WebDriverIO)
+packages/*/tests/           # Agent Core and Models (Node)
 
 apps/desktop/src-tauri/tests/ # Rust integration / command tests
 ```
 
 - Frontend tests: `apps/desktop/tests/**/*.test.ts`, mirroring the `src/` structure (`src/views/SearchView/windowSizing.ts` → `tests/SearchView/windowSizing.test.ts`)
+- Package source and tests are included in the workspace typechecks, Desktop Vitest run and coverage gates.
 - Repository CI tests: `tests/ci/**/*.test.ts`. Workflow and CODEOWNERS contracts live in `tests/ci/workflows/`; lockfile policy in `tests/ci/repository/`; ESLint design-system guards in `tests/ci/design-system/`. A test that imports `apps/desktop/scripts/**` stays in `apps/desktop/tests/ci/`, because it covers desktop build or release tooling.
 - UI preview tests: `tests/ci/ui-preview/**/*.test.js`, colocated with the repository automation they cover.
 - Desktop E2E: `apps/desktop/e2e-tests/**/*.e2e.js`

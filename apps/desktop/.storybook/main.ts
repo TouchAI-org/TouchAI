@@ -36,7 +36,6 @@ const config: StorybookConfig = {
             '@utils': fileURLToPath(new URL('../src/utils', import.meta.url)),
             '@types': fileURLToPath(new URL('../src/types', import.meta.url)),
             '@styles': fileURLToPath(new URL('../src/styles', import.meta.url)),
-            '@services': fileURLToPath(new URL('../src/services', import.meta.url)),
             '@composables': fileURLToPath(new URL('../src/composables', import.meta.url)),
             '@database': fileURLToPath(new URL('../src/database', import.meta.url)),
         };

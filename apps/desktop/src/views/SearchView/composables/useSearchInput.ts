@@ -2,19 +2,19 @@
  * SearchView 输入层。
  * 统一承载草稿与附件输入编排，保持输入业务收敛。
  */
-import { resolvePastedPathAttachment } from '@services/SearchService/pastedPath';
-import { convertFileSrc } from '@tauri-apps/api/core';
 import { type Ref, ref } from 'vue';
 
-import { t } from '@/i18n';
+import type { ClipboardPayload } from '@/app/api/attachments/drafts';
+import { useClipboardDraftApi } from '@/app/api/attachments/drafts';
 import {
+    attachmentPreviewUrl,
     type AttachmentSupportStatus,
-    createAttachment,
     type Index,
     isAttachmentSupported,
-} from '@/services/AgentService/infrastructure/attachments';
-import { clipboardService } from '@/services/ClipboardService';
-import type { ClipboardPayload, QuickShortcutItem } from '@/services/NativeService/types';
+} from '@/app/api/attachments/presentation';
+import type { QuickShortcutItem } from '@/app/api/search/queries';
+import { resolvePastedPathAttachment } from '@/app/api/search/references';
+import { t } from '@/i18n';
 import { isImagePath } from '@/utils/path';
 
 import type { SearchModelCapabilities, SearchModelOverride } from '../types';
@@ -46,6 +46,7 @@ interface ImportClipboardPayloadOptions {
  * 负责维护附件列表、模型能力对应的支持状态，以及剪贴板导入。
  */
 export function useSearchAttachments(options: UseSearchAttachmentsOptions = {}) {
+    const { createAttachment } = useClipboardDraftApi();
     const attachments = options.attachments ?? ref<Index[]>([]);
     const modelCapabilities = ref<SearchModelCapabilities>({
         supportsImages: false,
@@ -141,7 +142,7 @@ export function useSearchAttachments(options: UseSearchAttachmentsOptions = {}) 
             originPath: item.path,
             name: item.name,
             mimeType: isFolder ? 'application/x-directory' : undefined,
-            preview: type === 'image' ? convertFileSrc(item.path) : undefined,
+            preview: type === 'image' ? attachmentPreviewUrl(item.path) : undefined,
         };
         attachment.supportStatus = getAttachmentSupportStatus(attachment);
         return attachment;
@@ -167,6 +168,7 @@ export function useSearchAttachments(options: UseSearchAttachmentsOptions = {}) 
  * 负责统一维护搜索词草稿，并在清理时同步收敛附件。
  */
 export function useSearchDraftController(options: UseSearchDraftControllerOptions) {
+    const clipboardService = useClipboardDraftApi();
     const {
         queryText,
         attachments,

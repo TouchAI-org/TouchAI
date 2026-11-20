@@ -1,6 +1,14 @@
+import { config } from '@vue/test-utils';
 import { afterEach, beforeEach, vi } from 'vitest';
 
+import { productAnalyticsApiKey } from '@/app/api/analytics/product';
+
+import { createTestAnalyticsWindow } from '../utils/analyticsWindow';
 import { installTauriMocks, resetTauriMocks } from '../utils/tauri';
+import {
+    createTestWindowPresentation,
+    disposeTestWindowPresentations,
+} from '../utils/windowPresentation';
 
 const webStreamGlobals = {
     ReadableStream: globalThis.ReadableStream,
@@ -21,11 +29,15 @@ for (const [name, value] of Object.entries(webStreamGlobals)) {
     }
 }
 
-beforeEach(() => {
+beforeEach(async () => {
     installTauriMocks();
+    (await createTestWindowPresentation()).install();
+    Reflect.set(config.global.provide, productAnalyticsApiKey, createTestAnalyticsWindow().product);
 });
 
-afterEach(() => {
+afterEach(async () => {
+    disposeTestWindowPresentations();
+    await Promise.resolve();
     vi.restoreAllMocks();
     resetTauriMocks();
 });

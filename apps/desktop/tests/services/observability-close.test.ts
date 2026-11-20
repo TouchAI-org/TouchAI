@@ -1,5 +1,6 @@
-import { createWindowCloseHandler } from '@services/ObservabilityService';
 import { vi } from 'vitest';
+
+import { createWindowCloseHandler } from '@/platform/diagnostics';
 
 describe('user closes a window with pending logs', () => {
     it('user retries closing after a synchronous flush failure and the window closes', async () => {

@@ -49,6 +49,7 @@
     import SkillScopeBadge from '@components/SkillScopeBadge.vue';
     import { computed, ref, watch } from 'vue';
 
+    import type { SkillMetadata } from '@/app/api/skills/catalog';
     import {
         ResultItem,
         ResultPanel,
@@ -64,7 +65,6 @@
     } from '@/components/ui/result-panel/layout';
     import { resultExpansionAfterNavigation } from '@/components/ui/result-panel/navigation';
     import { t } from '@/i18n';
-    import type { SkillMetadata } from '@/services/AgentService/skills';
     import { buildMatchTokens, splitNameByTokens } from '@/utils/searchHighlight';
     import { collapseWhitespace } from '@/utils/text';
 

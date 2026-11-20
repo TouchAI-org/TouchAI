@@ -1,9 +1,9 @@
 import { mockTauriCommand } from '@tests/utils/tauri';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { composePromptSnapshot } from '@/services/AgentService/prompt/composer';
-import { serializePromptSnapshot } from '@/services/AgentService/prompt/serialization';
-import { buildPromptTransportMessages } from '@/services/AgentService/prompt/transport';
+import { composePromptSnapshot } from '@/app/workflows/agent/prompt';
+import { buildPromptTransportMessages } from '@/app/workflows/agent/transport';
+import { serializePromptSnapshot } from '@/modules/agent/prompt/serialization';
 
 const path = '/home/user/.agents/skills/summary/SKILL.md';
 const content =

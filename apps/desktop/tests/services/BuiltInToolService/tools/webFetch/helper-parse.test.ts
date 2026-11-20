@@ -1,7 +1,9 @@
+import { createWebFetchToolsFixture } from '@tests/utils/webFetchTools';
 import { describe, expect, it, vi } from 'vitest';
 
 import { setLocale, tt } from '@/i18n';
-import {
+import type { WebFetchRequest } from '@/modules/tools/builtin/web-fetch/operations';
+const {
     buildPageMarkdown,
     buildPageText,
     createRequestSignal,
@@ -17,8 +19,7 @@ import {
     readResponseText,
     truncateContent,
     validateWebFetchUrl,
-    type WebFetchRequest,
-} from '@/services/BuiltInToolService/tools/webFetch/helper';
+} = createWebFetchToolsFixture().operations;
 
 function createRequest(overrides: Partial<WebFetchRequest> = {}): WebFetchRequest {
     return {

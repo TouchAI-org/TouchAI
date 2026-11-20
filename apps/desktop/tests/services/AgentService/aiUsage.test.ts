@@ -1,7 +1,7 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import { addAiUsage, emptyAiUsage } from '@services/AgentService/contracts/protocol';
-import { normalizeAiUsage } from '@services/AgentService/infrastructure/providers/ai-sdk/stream';
+import { normalizeAiUsage } from '@touchai/models';
+import { addAiUsage, emptyAiUsage } from '@touchai/models/contracts';
 import type { LanguageModelUsage } from 'ai';
 import { describe, expect, it } from 'vitest';
 

@@ -1,12 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import {
-    ANALYTICS_EVENT_SCHEMAS,
-    validateAnalyticsAttributes,
-} from '@services/AnalyticsService/events';
-import { ANALYTICS_EVENT_NAMES, type AnalyticsAttributes } from '@services/AnalyticsService/types';
 import { describe, expect, it } from 'vitest';
+
+import { ANALYTICS_EVENT_SCHEMAS, validateAnalyticsAttributes } from '@/modules/analytics/events';
+import { ANALYTICS_EVENT_NAMES, type AnalyticsAttributes } from '@/modules/analytics/public';
 
 interface FixtureEvent {
     name: string;

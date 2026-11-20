@@ -1,8 +1,10 @@
+import { createTestSearchHost } from '@tests/utils/searchHost';
 import { mockTauriCommand } from '@tests/utils/tauri';
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
 import { createPinia } from 'pinia';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { searchApiKey } from '@/app/api/search/queries';
 import SearchBar from '@/views/SearchView/components/SearchBar/index.vue';
 
 enableAutoUnmount(afterEach);
@@ -33,7 +35,10 @@ describe('given the main input displays a draft', () => {
                 startDragging: vi.fn().mockResolvedValue(undefined),
                 queryText: 'Draft',
             },
-            global: { plugins: [createPinia()] },
+            global: {
+                plugins: [createPinia()],
+                provide: { [searchApiKey as symbol]: createTestSearchHost().api },
+            },
         });
         await flushPromises();
         return wrapper;

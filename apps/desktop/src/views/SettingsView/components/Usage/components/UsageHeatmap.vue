@@ -2,9 +2,9 @@
 
 <script setup lang="ts">
     import ActivityHeatmap from '@components/ui/activity-heatmap/ActivityHeatmap.vue';
-    import type { UsageHeatmapDay } from '@database/queries/usageStats';
     import { computed } from 'vue';
 
+    import type { UsageHeatmapDay } from '@/app/api/usage/queries';
     import { getLocale, t } from '@/i18n';
 
     import { formatCost, formatInt, formatTokensCompact } from '../utils/format';

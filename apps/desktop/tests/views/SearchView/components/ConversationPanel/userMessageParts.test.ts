@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { createInputHistorySnapshot } from '@/types/session';
+import { createInputHistorySnapshot } from '@/app/api/agent/history';
 import { buildUserMessageInlineParts } from '@/views/SearchView/components/ConversationPanel/components/userMessageParts';
 
 const skill = {

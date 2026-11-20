@@ -12,7 +12,7 @@ const {
     inspectAttachmentsMock: vi.fn(),
 }));
 
-vi.mock('@/services/AgentService/infrastructure/attachments/content', () => ({
+vi.mock('@/modules/attachments/content.io', () => ({
     readAttachmentAsBase64: readAttachmentAsBase64Mock,
     readAttachmentAsText: readAttachmentAsTextMock,
     readAttachmentImageForTransport: readAttachmentImageForTransportMock,
@@ -21,16 +21,16 @@ vi.mock('@/services/AgentService/infrastructure/attachments/content', () => ({
     formatAttachmentAnchorText: () => 'anchor',
 }));
 
-vi.mock('@/services/AgentService/infrastructure/attachments/inspect', () => ({
+vi.mock('@/modules/attachments/inspect.io', () => ({
     inspectAttachments: inspectAttachmentsMock,
 }));
 
-vi.mock('@/services/AgentService/infrastructure/attachments/support', () => ({
+vi.mock('@/modules/attachments/support', () => ({
     isAttachmentSupported: vi.fn(() => true),
 }));
 
-import type { AttachmentInspection } from '@/services/AgentService/infrastructure/attachments/inspect';
-import { buildAttachmentParts } from '@/services/AgentService/infrastructure/attachments/materialize';
+import type { AttachmentInspection } from '@/modules/attachments/inspect.io';
+import { buildAttachmentParts } from '@/modules/attachments/materialize.io';
 
 function inspection(
     overrides: Partial<AttachmentInspection> & {

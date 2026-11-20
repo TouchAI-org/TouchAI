@@ -72,6 +72,9 @@ jobs:
                       const desktopPatterns = [
                         /^apps\/desktop\//,
                         /^packages\//,
+                        /^tooling\/architecture\//,
+                        /^tests\/ci\/architecture\//,
+                        /^vitest\.ci\.config\.ts$/,
                         /^package\.json$/,
                         /^pnpm-lock\.yaml$/,
                         /^pnpm-workspace\.yaml$/,
@@ -502,6 +505,9 @@ jobs:
 
             - name: Lint repository CI tests
               run: pnpm exec eslint tests/ci vitest.ci.config.ts
+
+            - name: Check repository architecture
+              run: pnpm check:architecture
 
             - name: Run repository CI tests
               run: pnpm test:ci

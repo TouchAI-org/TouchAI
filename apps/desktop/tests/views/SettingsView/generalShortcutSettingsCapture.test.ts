@@ -1,7 +1,9 @@
-import { formatShortcutRegistrationError } from '@services/SettingsService/messages';
+import { createTestWindowPresentation } from '@tests/utils/windowPresentation';
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
+import { beforeEach as beforePresentation } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { formatShortcutRegistrationError } from '@/app/api/settings/messages';
 import { setLocale } from '@/i18n';
 import GeneralShortcutSettings from '@/views/SettingsView/components/General/GeneralShortcutSettings.vue';
 
@@ -47,11 +49,11 @@ vi.mock('pinia', () => ({
 
 vi.mock('@/stores/settings', () => ({ useSettingsStore: () => settingsMock }));
 
-vi.mock('@services/NativeService', () => ({ native: nativeMock }));
+vi.mock('@/platform/native', () => ({ native: nativeMock }));
 
-vi.mock('@services/NotificationService', () => ({ notify: notifyMock }));
+vi.mock('@/app/api/windows/notifications', () => ({ notify: notifyMock }));
 
-vi.mock('@services/EventService', () => ({
+vi.mock('@/app/api/settings/events', () => ({
     AppEvent: { SHORTCUT_CAPTURE_SYSTEM_KEY: 'shortcut:capture-system-key' },
     eventService: eventServiceMock,
 }));
@@ -442,4 +444,8 @@ describe('user leaves the settings page', () => {
 
         expect(unsubscribe).toHaveBeenCalled();
     });
+});
+
+beforePresentation(async () => {
+    (await createTestWindowPresentation('settings')).install();
 });

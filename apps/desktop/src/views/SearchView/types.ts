@@ -1,12 +1,11 @@
-import type { ModelWithProvider } from '@database/queries/models';
-import type { SessionEntity } from '@database/types';
-import type { QuickShortcutItem } from '@services/NativeService';
-
-import type { Index } from '@/services/AgentService/infrastructure/attachments';
-import type { SelectedSkill } from '@/services/AgentService/skills';
-import type { SessionTaskStatus } from '@/services/AgentService/task/types';
-import type { SearchActivationContext } from '@/services/SearchService';
-import type { InputHistorySnapshot, SessionMessage } from '@/types/session';
+import type { SessionTaskStatus } from '@/app/api/agent/contracts';
+import type { InputHistorySnapshot, SessionMessage } from '@/app/api/agent/history';
+import type { SessionListItem } from '@/app/api/agent/sessions';
+import type { Index } from '@/app/api/attachments/presentation';
+import type { ModelOption } from '@/app/api/models/selection';
+import type { QuickShortcutItem } from '@/app/api/search/queries';
+import type { SearchActivationContext } from '@/app/api/search/queries';
+import type { SelectedSkill } from '@/app/api/skills/catalog';
 
 import type {
     SearchCursorContext,
@@ -136,7 +135,7 @@ export interface SearchModelDropdownContext {
     activeProviderId: number | null;
     selectedModelId: string | null;
     selectedProviderId: number | null;
-    models: ModelWithProvider[];
+    models: ModelOption[];
 }
 
 export interface SearchDraftState {
@@ -176,7 +175,7 @@ export interface ModelDropdownData {
     models?: ModelDropdownItem[];
 }
 
-export interface SessionHistorySessionItem extends SessionEntity {
+export interface SessionHistorySessionItem extends SessionListItem {
     displayStatus: Exclude<SessionTaskStatus, 'cancelled'> | null;
 }
 

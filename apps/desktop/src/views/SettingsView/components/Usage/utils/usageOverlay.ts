@@ -1,12 +1,12 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
+import type { SessionTaskUsageProgressEvent } from '@/app/api/usage/events';
 import type {
     UsageBucket,
     UsageLiveTurn,
     UsageSummary,
     UsageTrendPoint,
-} from '@database/queries/usageStats';
-import type { SessionTaskUsageProgressEvent } from '@services/EventService';
+} from '@/app/api/usage/queries';
 
 /** Default bucket widths, used only when the caller has no real width. */
 function bucketMsOf(bucket: UsageBucket): number {

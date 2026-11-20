@@ -1,51 +1,7 @@
-import { describe, expect, it, vi } from 'vitest';
+import { createToolsHostFixture } from '@tests/utils/toolsHost';
+import { describe, expect, it } from 'vitest';
 
 import { setLocale } from '@/i18n';
-
-vi.mock('@/services/BuiltInToolService/registry', () => ({
-    builtInToolRegistry: {
-        get: (toolId: string) =>
-            toolId === 'computer_use'
-                ? {
-                      id: 'computer_use',
-                      displayName: 'Computer use',
-                      buildConversationSemantic: () => ({
-                          action: 'process',
-                          target: 'Computer use',
-                      }),
-                  }
-                : toolId === 'bash'
-                  ? {
-                        id: 'bash',
-                        displayName: 'Bash',
-                        buildConversationSemantic: () => ({
-                            action: 'process',
-                            target: 'Bash',
-                        }),
-                    }
-                  : toolId === 'empty'
-                    ? {
-                          id: 'empty',
-                          displayName: 'Empty',
-                          buildConversationSemantic: () => null,
-                      }
-                    : null,
-        list: () => [
-            {
-                id: 'bash',
-                displayName: 'Bash',
-            },
-            {
-                id: 'ghost',
-                displayName: 'Ghost',
-            },
-            {
-                id: 'empty',
-                displayName: 'Empty',
-            },
-        ],
-    },
-}));
 
 describe('user reads tool activity in their own language', () => {
     it.each([
@@ -57,8 +13,8 @@ describe('user reads tool activity in their own language', () => {
         'user given a desktop action in %s when it is %s then sees its operation without a result suffix',
         async (locale, status, verb) => {
             setLocale(locale);
-            const { buildBuiltInToolConversationPresentation } =
-                await import('@/services/BuiltInToolService/presentation');
+            const { host } = await createToolsHostFixture();
+            const buildBuiltInToolConversationPresentation = host.presentation.presentation;
             expect(
                 buildBuiltInToolConversationPresentation(
                     'builtin__computer_use',
@@ -74,8 +30,8 @@ describe('user reads tool activity in their own language', () => {
     );
 
     it('user reads built-in tool verbs in the active runtime language', async () => {
-        const { buildBuiltInToolConversationPresentation } =
-            await import('@/services/BuiltInToolService/presentation');
+        const { host } = await createToolsHostFixture();
+        const buildBuiltInToolConversationPresentation = host.presentation.presentation;
 
         const cases = [
             ['run', 'executing', 'Started'],
@@ -116,14 +72,18 @@ describe('user reads tool activity in their own language', () => {
 
     it('user sees prefixed and display-name tool identifiers recognized', async () => {
         setLocale('en-US');
-        const { buildBuiltInToolConversationPresentation } =
-            await import('@/services/BuiltInToolService/presentation');
+        const { host } = await createToolsHostFixture();
+        const buildBuiltInToolConversationPresentation = host.presentation.presentation;
 
         expect(
-            buildBuiltInToolConversationPresentation('builtin__bash', {}, 'completed')
+            buildBuiltInToolConversationPresentation(
+                'builtin__bash',
+                { command: 'echo hello' },
+                'completed'
+            )
         ).toMatchObject({
-            verb: 'Processed',
-            content: 'Bash',
+            verb: 'Ran',
+            content: 'echo hello',
         });
         expect(buildBuiltInToolConversationPresentation('not-a-tool', {}, 'completed')).toBeNull();
         expect(buildBuiltInToolConversationPresentation('   ', {}, 'completed')).toBeNull();
@@ -132,8 +92,9 @@ describe('user reads tool activity in their own language', () => {
 
     it('user sees explicit semantic hints preferred over default tool semantics', async () => {
         setLocale('en-US');
-        const { buildBuiltInToolConversationPresentation, resolveBuiltInToolConversationSemantic } =
-            await import('@/services/BuiltInToolService/presentation');
+        const { host } = await createToolsHostFixture();
+        const buildBuiltInToolConversationPresentation = host.presentation.presentation;
+        const resolveBuiltInToolConversationSemantic = host.presentation.resolveSemantic;
 
         expect(
             resolveBuiltInToolConversationSemantic(
@@ -163,9 +124,10 @@ describe('user reads tool activity in their own language', () => {
         });
     });
 
-    it('user sees no presentation when a resolved tool has no semantic meaning', async () => {
-        const { buildBuiltInToolConversationPresentation, resolveBuiltInToolConversationSemantic } =
-            await import('@/services/BuiltInToolService/presentation');
+    it('user sees no presentation when a name has no registered descriptor', async () => {
+        const { host } = await createToolsHostFixture();
+        const buildBuiltInToolConversationPresentation = host.presentation.presentation;
+        const resolveBuiltInToolConversationSemantic = host.presentation.resolveSemantic;
 
         expect(resolveBuiltInToolConversationSemantic('   ', {})).toBeNull();
         expect(resolveBuiltInToolConversationSemantic('Ghost', {})).toBeNull();

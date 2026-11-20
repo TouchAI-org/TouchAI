@@ -1,221 +1,158 @@
-﻿import { mountComposable } from '@tests/utils/composables';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createAgentWindowFixture, network, streamingResponse } from '@tests/utils/agentWindow';
+import { mountComposable } from '@tests/utils/composables';
+import { describe, expect, it } from 'vitest';
 
+import { agentApiKey } from '@/app/api/agent';
 import { useAgent } from '@/composables/agent/useAgent';
-import type { PendingUserMessage } from '@/services/AgentService';
 
-/**
- * When a conversation is reopened the page has to pick a model and provider to show in the
- * composer. The saved model row wins; if it was deleted the session's own columns are the only
- * record left of what the conversation used.
- */
-const { getSessionDataMock, sessionTaskCenterMock } = vi.hoisted(() => ({
-    getSessionDataMock: vi.fn(),
-    sessionTaskCenterMock: {
-        attachSessionView: vi.fn(() => null),
-        approveTaskToolCall: vi.fn(() => true),
-        cancelTask: vi.fn(() => true),
-        rejectTaskToolCall: vi.fn(() => true),
-        restoreSessionQueue: vi.fn<() => Promise<PendingUserMessage[]>>(async () => []),
-        resumeSessionQueue: vi.fn(),
-        startTask: vi.fn(),
-        subscribeTask: vi.fn(),
-    },
-}));
-
-vi.mock('@database/queries/sessions', () => ({
-    findSessionById: vi.fn(async () => ({ id: 1, title: 'Active session' })),
-}));
-
-vi.mock('@services/NotificationService', () => ({ notify: vi.fn() }));
-
-vi.mock('@/services/AgentService', async () => {
-    const actual =
-        await vi.importActual<typeof import('@/services/AgentService')>('@/services/AgentService');
-    return { ...actual, sessionTaskCenter: sessionTaskCenterMock };
-});
-
-vi.mock('@/services/AgentService/session', async () => {
-    const actual = await vi.importActual<typeof import('@/services/AgentService/session')>(
-        '@/services/AgentService/session'
-    );
-    return {
-        ...actual,
-        getSessionData: getSessionDataMock,
-        loadCompleteSessionHistory: vi.fn(async (sessionId: number) => {
-            const data = (await getSessionDataMock(sessionId)) as {
-                session: unknown;
-                model: unknown;
-            };
-            return { history: [], session: data.session, model: data.model };
-        }),
-        buildSessionHistoryFromData: vi.fn(async () => []),
-    };
-});
-
-function sessionData(overrides: Record<string, unknown> = {}) {
-    return {
-        session: {
-            id: 7,
-            title: 'Deploy plan',
-            model: 'gpt-5',
-            provider_id: 3,
-        },
-        messages: [],
-        turns: [],
-        attempts: [],
-        model: { model_id: 'gpt-5', provider_id: 3 },
-        ...overrides,
-    };
-}
-
-beforeEach(() => {
-    vi.clearAllMocks();
-    sessionTaskCenterMock.attachSessionView.mockReturnValue(null);
-});
-
-describe('user reopens a conversation whose model still exists', () => {
-    it('user gets the model and provider from the saved model row', async () => {
-        getSessionDataMock.mockResolvedValue(sessionData());
-        const mounted = await mountComposable(() => useAgent());
-
-        const loaded = await mounted.result.openSession(7);
-
-        expect(loaded).toMatchObject({ sessionId: 7, title: 'Deploy plan' });
-        expect(loaded.modelId).toBe('gpt-5');
-        expect(loaded.providerId).toBe(3);
-
-        mounted.unmount();
-    });
-});
-
-describe('user reopens a conversation whose model was deleted', () => {
-    it('user gets the model id from the session record instead', async () => {
-        // The model row is gone, so the session's own columns are the only record left.
-        getSessionDataMock.mockResolvedValue(sessionData({ model: null }));
-        const mounted = await mountComposable(() => useAgent());
-
-        const loaded = await mounted.result.openSession(7);
-
-        expect(loaded.modelId).toBe('gpt-5');
-        expect(loaded.providerId).toBe(3);
-
-        mounted.unmount();
-    });
-
-    it('user gets no model shown when the session never recorded one', async () => {
-        getSessionDataMock.mockResolvedValue(
-            sessionData({
-                model: null,
-                session: { id: 7, title: 'Deploy plan', model: null, provider_id: null },
-            })
-        );
-        const mounted = await mountComposable(() => useAgent());
-
-        const loaded = await mounted.result.openSession(7);
-
-        // A null is honest here; inventing a default would send the next prompt to the wrong model.
-        expect(loaded.modelId).toBeNull();
-        expect(loaded.providerId).toBeNull();
-
-        mounted.unmount();
-    });
-
-    it('user gets the provider kept even when the model id is missing', async () => {
-        getSessionDataMock.mockResolvedValue(
-            sessionData({
-                model: null,
-                session: { id: 7, title: 'Deploy plan', model: null, provider_id: 5 },
-            })
-        );
-        const mounted = await mountComposable(() => useAgent());
-
-        const loaded = await mounted.result.openSession(7);
-
-        expect(loaded.modelId).toBeNull();
-        expect(loaded.providerId).toBe(5);
-
-        mounted.unmount();
-    });
-});
-
-describe('user reopens a conversation with durable pending messages', () => {
-    it('user gets the queued bubbles restored and the queue resumed', async () => {
-        const pending = {
-            id: 'pending-1',
-            prompt: 'continue later',
-            delivery: 'queue' as const,
-            attachments: [],
-            createdAt: 1,
-        };
-        getSessionDataMock.mockResolvedValue(sessionData());
-        sessionTaskCenterMock.restoreSessionQueue.mockResolvedValueOnce([pending]);
-        const mounted = await mountComposable(() => useAgent());
-
-        await mounted.result.openSession(7);
-
-        expect(mounted.result.pendingUserMessages.value).toEqual([pending]);
-        expect(sessionTaskCenterMock.resumeSessionQueue).toHaveBeenCalledWith(7);
-
-        mounted.unmount();
-    });
-});
-
-describe('user changes views while saved history is still loading', () => {
-    it('user opens another conversation and keeps its queue when the earlier history arrives later', async () => {
-        let resolveEarlier!: (data: ReturnType<typeof sessionData>) => void;
-        const earlierData = new Promise<ReturnType<typeof sessionData>>((resolve) => {
-            resolveEarlier = resolve;
+describe('given a persisted conversation is reopened through the main session API', () => {
+    it('user switches back to a running conversation and its queue survives an older history read', async () => {
+        const historyRead = Promise.withResolvers<void>();
+        let waiting = false;
+        const fixture = createAgentWindowFixture('main', undefined, {
+            beforeQuery: (request) => {
+                if (
+                    request.method === 'get' &&
+                    request.sql.includes('from "sessions"') &&
+                    Number(request.params.at(-1)) === 7
+                ) {
+                    waiting = true;
+                    return historyRead.promise;
+                }
+            },
         });
-        getSessionDataMock.mockImplementation((sessionId: number) =>
-            sessionId === 7
-                ? earlierData
-                : Promise.resolve(sessionData({ session: { id: 8, title: 'Newer conversation' } }))
+        fixture.database
+            .exec(`INSERT INTO sessions (id, session_id, title, model, provider_id) VALUES
+            (7, 'earlier', 'Earlier conversation', 'fixture-model', 1),
+            (8, 'newer', 'Newer conversation', 'fixture-model', 1);`);
+        const mounted = await mountComposable(
+            () => useAgent(),
+            (app) => app.provide(agentApiKey, fixture.window.api)
         );
-        const earlierPending: PendingUserMessage = {
-            id: 'earlier-pending',
-            prompt: 'earlier queue',
-            delivery: 'queue',
-            attachments: [],
-            createdAt: 1,
-        };
-        const newerPending = { ...earlierPending, id: 'newer-pending', prompt: 'newer queue' };
-        sessionTaskCenterMock.restoreSessionQueue
-            .mockResolvedValueOnce([earlierPending])
-            .mockResolvedValueOnce([newerPending]);
-        const mounted = await mountComposable(() => useAgent());
-
-        const earlierOpen = mounted.result.openSession(7);
-        await mounted.result.openSession(8);
-        resolveEarlier(sessionData());
-        await expect(earlierOpen).resolves.toMatchObject({ sessionId: 7 });
-
-        expect(mounted.result.currentSessionId.value).toBe(8);
-        expect(mounted.result.pendingUserMessages.value).toEqual([newerPending]);
-        mounted.unmount();
+        const channel = streamingResponse();
+        network.replies.push(channel.response);
+        try {
+            await mounted.result.openSession(8);
+            const sending = mounted.result.sendRequest('Keep the newer conversation');
+            await expect.poll(() => network.requests.length).toBe(1);
+            const queued = mounted.result.enqueueUserMessage(
+                { prompt: 'Newer queued prompt' },
+                'queue'
+            )!;
+            const earlierOpen = mounted.result.openSession(7);
+            await expect.poll(() => waiting).toBe(true);
+            await mounted.result.openSession(8);
+            historyRead.resolve();
+            await expect(earlierOpen).resolves.toMatchObject({ sessionId: 7 });
+            expect(mounted.result.currentSessionId.value).toBe(8);
+            expect(mounted.result.pendingUserMessages.value).toMatchObject([
+                { id: queued.id, prompt: 'Newer queued prompt' },
+            ]);
+            expect(mounted.result.sessionHistory.value[0]?.content).toBe(
+                'Keep the newer conversation'
+            );
+            mounted.result.cancel();
+            await sending;
+        } finally {
+            historyRead.resolve();
+            channel.finish();
+            mounted.unmount();
+            await fixture.window.dispose();
+        }
     });
 
     it.each(['clear', 'unmount'] as const)(
-        'user leaves the conversation through %s and is not brought back by a late history load',
+        'user leaves through %s and a late history read cannot restore the old conversation',
         async (action) => {
-            let resolveEarlier!: (data: ReturnType<typeof sessionData>) => void;
-            getSessionDataMock.mockReturnValue(
-                new Promise<ReturnType<typeof sessionData>>((resolve) => {
-                    resolveEarlier = resolve;
-                })
+            const historyRead = Promise.withResolvers<void>();
+            let waiting = false;
+            const fixture = createAgentWindowFixture('main', undefined, {
+                beforeQuery: (request) => {
+                    if (
+                        request.method === 'get' &&
+                        request.sql.includes('from "sessions"') &&
+                        Number(request.params.at(-1)) === 7
+                    ) {
+                        waiting = true;
+                        return historyRead.promise;
+                    }
+                },
+            });
+            fixture.database.exec(`INSERT INTO sessions (id, session_id, title, model, provider_id)
+                VALUES (7, 'late-session', 'Late conversation', 'fixture-model', 1);`);
+            const mounted = await mountComposable(
+                () => useAgent(),
+                (app) => app.provide(agentApiKey, fixture.window.api)
             );
-            const mounted = await mountComposable(() => useAgent());
-            const earlierOpen = mounted.result.openSession(7);
+            try {
+                const opening = mounted.result.openSession(7);
+                await expect.poll(() => waiting).toBe(true);
+                if (action === 'clear') mounted.result.clearSession();
+                else mounted.unmount();
+                historyRead.resolve();
+                await expect(opening).resolves.toMatchObject({ sessionId: 7 });
+                expect(mounted.result.currentSessionId.value).toBeNull();
+                expect(mounted.result.pendingUserMessages.value).toEqual([]);
+                expect(mounted.result.sessionHistory.value).toEqual([]);
+            } finally {
+                historyRead.resolve();
+                mounted.unmount();
+                await fixture.window.dispose();
+            }
+        }
+    );
 
-            if (action === 'clear') mounted.result.clearSession();
-            else mounted.unmount();
-            resolveEarlier(sessionData());
-            await expect(earlierOpen).resolves.toMatchObject({ sessionId: 7 });
-
-            expect(mounted.result.currentSessionId.value).toBeNull();
-            expect(mounted.result.pendingUserMessages.value).toEqual([]);
-            expect(mounted.result.sessionHistory.value).toEqual([]);
-            if (action === 'clear') mounted.unmount();
+    it.each([
+        { label: 'existing model row', model: 'fixture-model', provider: 1 },
+        { label: 'deleted model row', model: 'deleted-model', provider: 1 },
+        { label: 'no recorded model', model: null, provider: null },
+        { label: 'only a recorded provider', model: null, provider: 1 },
+    ])(
+        'user retains the recorded selection when reopening a conversation with $label',
+        async ({ model, provider }) => {
+            const fixture = createAgentWindowFixture('main', undefined, {
+                aroundInvoke: async (call, next) => {
+                    const result = await next();
+                    const request = (call.payload as { request?: { sql?: string } } | undefined)
+                        ?.request;
+                    // Historical native readers may omit identity; shipped SQLite requires a string.
+                    if (
+                        model === null &&
+                        call.cmd === 'database_query' &&
+                        request?.sql?.includes('from "sessions"')
+                    ) {
+                        const reply = result as { rows: Record<string, unknown>[] };
+                        return {
+                            ...reply,
+                            rows: reply.rows.map((row) => ({ ...row, model: null })),
+                        };
+                    }
+                    return result;
+                },
+            });
+            fixture.database
+                .prepare(
+                    `INSERT INTO sessions (id, session_id, title, model, provider_id)
+            VALUES (7, 'reopened-session', 'Deploy plan', ?, ?)`
+                )
+                .run(model ?? '', provider);
+            const mounted = await mountComposable(
+                () => useAgent(),
+                (app) => app.provide(agentApiKey, fixture.window.api)
+            );
+            try {
+                expect(await mounted.result.openSession(7)).toEqual({
+                    sessionId: 7,
+                    title: 'Deploy plan',
+                    modelId: model,
+                    providerId: provider,
+                });
+                expect(mounted.result.currentSessionId.value).toBe(7);
+                expect(mounted.result.isLoading.value).toBe(false);
+            } finally {
+                mounted.unmount();
+                await fixture.window.dispose();
+            }
         }
     );
 });

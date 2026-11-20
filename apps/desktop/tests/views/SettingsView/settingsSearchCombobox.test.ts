@@ -1,4 +1,6 @@
+import { createTestWindowPresentation } from '@tests/utils/windowPresentation';
 import { mount } from '@vue/test-utils';
+import { beforeEach as beforePresentation } from 'vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick } from 'vue';
 
@@ -385,4 +387,8 @@ describe('user opens the search from a collapsed sidebar', () => {
 
         expect(wrapper.emitted('expand')).toHaveLength(1);
     });
+});
+
+beforePresentation(async () => {
+    (await createTestWindowPresentation('settings')).install();
 });

@@ -1,66 +1,35 @@
-import type { McpServerEntity } from '@database/types';
+import { emit } from '@tauri-apps/api/event';
+import { createSettingsPanelFixture } from '@tests/utils/settingsPanel';
+import { getTauriInvokeCalls, mockTauriCommand } from '@tests/utils/tauri';
+import { createTestWindowPresentation } from '@tests/utils/windowPresentation';
 import { flushPromises, mount } from '@vue/test-utils';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ref } from 'vue';
+import { beforeEach as beforePresentation } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { setLocale } from '@/i18n';
+import { AppEvent } from '@/app/api/tools/events';
+import type { McpServerEntity } from '@/app/api/tools/mcpAdministration';
+import { setLocale, t } from '@/i18n';
+import { useMcpStore } from '@/stores/mcp';
 import McpServerHeader from '@/views/SettingsView/components/McpTools/components/McpServerHeader.vue';
 
-/*
- * The header is the only place a user can start or stop an MCP server, so what
- * matters is which action it offers for each connection state and what it tells
- * the user afterwards. The connection layer is mocked only because it owns the
- * transport; every assertion below is about the DOM the user sees or the alert
- * the parent receives.
- */
-
-// Captured so a test can prove the header hands the connection layer a live ref
-// of the server id, which is what keeps it following the selected server.
-const passedServerId = vi.hoisted(() => ({ value: null as unknown }));
-
-const connection = vi.hoisted(() => ({
-    status: { value: 'disconnected' },
-    isConnecting: { value: false },
-    isDisconnecting: { value: false },
-    isReconnecting: { value: false },
-    handleConnect: vi.fn(async () => ({ success: true })),
-    handleDisconnect: vi.fn(async () => ({ success: true })),
-    handleReconnect: vi.fn(async () => ({ success: true })),
-    cleanup: vi.fn(),
-}));
-
-const serverError = vi.hoisted(() => ({ value: null as string | null }));
-
-vi.mock('@composables/useMcpConnection', () => ({
-    useMcpConnection: (serverId: unknown) => {
-        passedServerId.value = serverId;
-        return {
-            status: connection.status,
-            isConnecting: connection.isConnecting,
-            isDisconnecting: connection.isDisconnecting,
-            isReconnecting: connection.isReconnecting,
-            handleConnect: connection.handleConnect,
-            handleDisconnect: connection.handleDisconnect,
-            handleReconnect: connection.handleReconnect,
-            cleanup: connection.cleanup,
-        };
-    },
-}));
-
-vi.mock('@/stores/mcp', () => ({
-    useMcpStore: () => ({
-        getServerError: () => serverError.value,
-    }),
-}));
-
-vi.mock('@components/AppIcon.vue', () => ({
-    default: {
-        name: 'AppIcon',
-        props: ['name'],
-        template: '<span data-testid="app-icon" :data-name="name" />',
-    },
-}));
-
+let fixture: Awaited<ReturnType<typeof createSettingsPanelFixture>>;
+const wrappers: ReturnType<typeof mount>[] = [];
+const releases: (() => void)[] = [];
+afterEach(async () => {
+    releases.splice(0).forEach((release) => release());
+    await flushPromises();
+    wrappers.splice(0).forEach((wrapper) => wrapper.unmount());
+    await fixture?.dispose();
+});
+function deferCommand(command: string) {
+    let release!: () => void;
+    const promise = new Promise<void>((resolve) => {
+        release = resolve;
+    });
+    releases.push(release);
+    mockTauriCommand(command, () => promise);
+    return release;
+}
 const server: McpServerEntity = {
     args: null,
     command: 'npx',
@@ -81,307 +50,251 @@ const server: McpServerEntity = {
 };
 
 function mountHeader(props: Record<string, unknown> = {}) {
-    return mount(McpServerHeader, {
+    const wrapper = mount(McpServerHeader, {
         props: { server, isNewServer: false, ...props },
+        ...fixture.viewOptions,
     });
+    wrappers.push(wrapper);
+    return wrapper;
 }
-
-function alertCalls(wrapper: ReturnType<typeof mountHeader>) {
+function alerts(wrapper: ReturnType<typeof mountHeader>) {
     return wrapper.emitted('showAlert') ?? [];
 }
-
-function setStatus(value: string) {
-    connection.status = ref(value) as unknown as typeof connection.status;
+async function setStatus(
+    status: 'connected' | 'disconnected' | 'connecting' | 'error',
+    error?: string
+) {
+    await emit(AppEvent.MCP_STATUS, { serverId: server.id, status, ...(error ? { error } : {}) });
+    await flushPromises();
 }
-
-beforeEach(() => {
+beforeEach(async () => {
+    fixture = await createSettingsPanelFixture();
+    const keys = Object.keys(server);
+    for (const value of [server, { ...server, id: 12, name: 'github' }]) {
+        fixture.database
+            .prepare(
+                `INSERT INTO mcp_servers (${keys.join(',')}) VALUES (${keys.map(() => '?').join(',')})`
+            )
+            .run(...Object.values(value));
+    }
+    mockTauriCommand('mcp_connect_server', null);
+    mockTauriCommand('mcp_disconnect_server', null);
+    mockTauriCommand('mcp_list_tools', []);
+    mockTauriCommand('mcp_get_client_status', (payload) => ({
+        server_id: (payload as { serverId: number }).serverId,
+        status: 'connected',
+        version: '2026.05.22',
+    }));
+    await fixture.runWithContext(() => useMcpStore(fixture.pinia)).initialize();
     setLocale('zh-CN');
-    connection.status = ref('disconnected') as unknown as typeof connection.status;
-    connection.isConnecting = ref(false) as unknown as typeof connection.isConnecting;
-    connection.isDisconnecting = ref(false) as unknown as typeof connection.isDisconnecting;
-    connection.isReconnecting = ref(false) as unknown as typeof connection.isReconnecting;
-    connection.handleConnect.mockReset();
-    connection.handleDisconnect.mockReset();
-    connection.handleReconnect.mockReset();
-    connection.handleConnect.mockResolvedValue({ success: true });
-    connection.handleDisconnect.mockResolvedValue({ success: true });
-    connection.handleReconnect.mockResolvedValue({ success: true });
-    connection.cleanup.mockReset();
-    serverError.value = null;
 });
 
-describe('user reads the connection state of a server', () => {
+describe('given a saved MCP connection through production main and settings', () => {
     it('user sees a disconnected server named and labelled', () => {
         const wrapper = mountHeader();
-
         expect(wrapper.text()).toContain('filesystem');
         expect(wrapper.text()).toContain('stdio');
         expect(wrapper.text()).toContain('2026.05.22');
-        expect(wrapper.text()).toContain('未连接');
+        expect(wrapper.text()).toContain(t('settings.mcp.status.disconnected'));
     });
-
-    it('user sees a connected server said to be connected', () => {
-        setStatus('connected');
-
+    it.each([
+        ['connected', 'settings.mcp.status.connected'],
+        ['connecting', 'settings.mcp.status.connecting'],
+        ['error', 'settings.mcp.status.connectionError'],
+    ] as const)(
+        'user sees the current %s state when the native status arrives',
+        async (status, key) => {
+            const wrapper = mountHeader();
+            await setStatus(status);
+            expect(wrapper.text()).toContain(t(key));
+        }
+    );
+    it('user sees the last error text when a connection fails', async () => {
         const wrapper = mountHeader();
-
-        expect(wrapper.text()).toContain('已连接');
-    });
-
-    it('user sees a connecting server said to be connecting', () => {
-        setStatus('connecting');
-
-        const wrapper = mountHeader();
-
-        expect(wrapper.text()).toContain('连接中');
-    });
-
-    it('user sees a broken server reported as a connection error', () => {
-        setStatus('error');
-
-        const wrapper = mountHeader();
-
-        expect(wrapper.text()).toContain('连接错误');
-    });
-
-    it('user sees the last error text when a connect attempt failed', () => {
-        setStatus('error');
-        serverError.value = 'spawn npx ENOENT';
-
-        const wrapper = mountHeader();
-
+        await setStatus('error', 'spawn npx ENOENT');
         expect(wrapper.text()).toContain('spawn npx ENOENT');
     });
-
-    it('user does not see an error block for a stored error while the server is connected', () => {
-        setStatus('connected');
-        serverError.value = 'a stale failure';
-
+    it('user sees no stale error block while connected', async () => {
         const wrapper = mountHeader();
-
+        await setStatus('connected', 'a stale failure');
         expect(wrapper.text()).not.toContain('a stale failure');
     });
-
-    it('user sees no version badge when the server reported no version', () => {
-        const wrapper = mountHeader({ server: { ...server, version: null } });
-
-        expect(wrapper.text()).toContain('filesystem');
-        expect(wrapper.text()).not.toContain('2026.05.22');
+    it('user sees no version badge when the server reported none', () => {
+        expect(mountHeader({ server: { ...server, version: null } }).text()).not.toContain(
+            '2026.05.22'
+        );
     });
 });
 
-describe('user adds a server that does not exist yet', () => {
-    it('user sees only a title while the server is unsaved', () => {
+describe('given an unsaved server', () => {
+    it('user sees its title without the saved server name', () => {
         const wrapper = mountHeader({ isNewServer: true });
-
-        expect(wrapper.text()).toContain('新建服务器');
+        expect(wrapper.text()).toContain(t('settings.mcp.servers.new'));
         expect(wrapper.text()).not.toContain('filesystem');
     });
-
-    it('user gets no transport badge for an unsaved server', () => {
-        const wrapper = mountHeader({ isNewServer: true });
-
-        expect(wrapper.text()).not.toContain('stdio');
+    it('user sees no transport badge before saving', () => {
+        expect(mountHeader({ isNewServer: true }).text()).not.toContain('stdio');
     });
-
-    it('user gets no connect or disconnect action before the server is saved', () => {
-        const wrapper = mountHeader({ isNewServer: true });
-
-        expect(wrapper.findAll('button')).toHaveLength(0);
+    it('user cannot connect or disconnect before saving', () => {
+        expect(mountHeader({ isNewServer: true }).findAll('button')).toHaveLength(0);
     });
 });
 
-describe('user starts a stopped server', () => {
-    it('user gets a confirmation naming the server once it connects', async () => {
+describe('given an available connection action', () => {
+    it.each([
+        [
+            'connect',
+            'disconnected',
+            'mcp_connect_server',
+            0,
+            'settings.mcp.messages.serverConnectSuccess',
+        ],
+        [
+            'disconnect',
+            'connected',
+            'mcp_disconnect_server',
+            0,
+            'settings.mcp.messages.serverDisconnectSuccess',
+        ],
+        [
+            'reconnect',
+            'connected',
+            'mcp_disconnect_server',
+            1,
+            'settings.mcp.messages.serverReconnectSuccess',
+        ],
+    ] as const)(
+        'user receives one confirmation when %s completes through main',
+        async (_action, status, _command, index, key) => {
+            await setStatus(status);
+            const wrapper = mountHeader();
+            await wrapper.findAll('button')[index]!.trigger('click');
+            await flushPromises();
+            expect(alerts(wrapper)).toEqual([[t(key, { serverName: 'filesystem' }), 'success']]);
+        }
+    );
+    it.each([
+        ['connect', 'disconnected', 'mcp_connect_server', 0],
+        ['disconnect', 'connected', 'mcp_disconnect_server', 0],
+        ['reconnect', 'connected', 'mcp_disconnect_server', 1],
+    ] as const)(
+        'user receives a safe failure when %s is rejected by native',
+        async (_action, status, command, index) => {
+            await setStatus(status);
+            mockTauriCommand(command, () => {
+                throw new Error('private native path');
+            });
+            const wrapper = mountHeader();
+            await wrapper.findAll('button')[index]!.trigger('click');
+            await flushPromises();
+            expect(alerts(wrapper)).toHaveLength(1);
+            expect(alerts(wrapper)[0]?.[1]).toBe('error');
+            expect(JSON.stringify(alerts(wrapper))).not.toContain('private native path');
+        }
+    );
+    it.each([
+        ['connect', 'disconnected', 'mcp_connect_server', 0, 'settings.mcp.actions.connecting'],
+        [
+            'disconnect',
+            'connected',
+            'mcp_disconnect_server',
+            0,
+            'settings.mcp.actions.disconnecting',
+        ],
+        ['reconnect', 'connected', 'mcp_disconnect_server', 1, 'settings.mcp.actions.reconnecting'],
+    ] as const)(
+        'user sees a busy %s action until its native acknowledgement arrives',
+        async (_action, status, command, index, key) => {
+            await setStatus(status);
+            const release = deferCommand(command);
+            const wrapper = mountHeader();
+            await wrapper.findAll('button')[index]!.trigger('click');
+            await flushPromises();
+            expect(wrapper.findAll('button')[index]!.text()).toContain(t(key));
+            expect(wrapper.findAll('button')[index]!.attributes('disabled')).toBeDefined();
+            expect(alerts(wrapper)).toHaveLength(0);
+            release();
+            await flushPromises();
+            expect(alerts(wrapper)).toHaveLength(1);
+        }
+    );
+    it.each([
+        ['connect', 'disconnected', 'mcp_connect_server', 0],
+        ['disconnect', 'connected', 'mcp_disconnect_server', 0],
+        ['reconnect', 'connected', 'mcp_disconnect_server', 1],
+    ] as const)(
+        'user receives no duplicate confirmation when %s is clicked again while busy',
+        async (_action, status, command, index) => {
+            await setStatus(status);
+            const release = deferCommand(command);
+            const wrapper = mountHeader();
+            await wrapper.findAll('button')[index]!.trigger('click');
+            await flushPromises();
+            await wrapper.findAll('button')[index]!.trigger('click');
+            expect(alerts(wrapper)).toHaveLength(0);
+            release();
+            await flushPromises();
+            expect(alerts(wrapper)).toHaveLength(1);
+        }
+    );
+    it('user cannot reconnect while disconnect is in flight', async () => {
+        await setStatus('connected');
+        deferCommand('mcp_disconnect_server');
         const wrapper = mountHeader();
-
-        await wrapper.get('button').trigger('click');
+        await wrapper.findAll('button')[0]!.trigger('click');
         await flushPromises();
-
-        expect(connection.handleConnect).toHaveBeenCalledOnce();
-        expect(alertCalls(wrapper)[0]).toEqual(['服务器 "filesystem" 连接成功', 'success']);
-    });
-
-    it('user gets the failure reason when the server refuses to start', async () => {
-        connection.handleConnect.mockResolvedValue({
-            success: false,
-            error: 'no such command',
-        } as never);
-        const wrapper = mountHeader();
-
-        await wrapper.get('button').trigger('click');
-        await flushPromises();
-
-        expect(alertCalls(wrapper)[0]).toEqual(['连接失败: no such command', 'error']);
-    });
-
-    it('user gets no alert when the connect was already in flight', async () => {
-        connection.handleConnect.mockResolvedValue({ success: false });
-        const wrapper = mountHeader();
-
-        await wrapper.get('button').trigger('click');
-        await flushPromises();
-
-        expect(alertCalls(wrapper)).toHaveLength(0);
-    });
-
-    it('user sees the button become busy while the connection opens', async () => {
-        connection.isConnecting = ref(true) as unknown as typeof connection.isConnecting;
-        const wrapper = mountHeader();
-
-        const button = wrapper.get('button');
-        expect(button.text()).toContain('连接中...');
-        expect(button.attributes('disabled')).toBeDefined();
-    });
-});
-
-describe('user stops a running server', () => {
-    it('user gets a confirmation naming the server once it stops', async () => {
-        setStatus('connected');
-        const wrapper = mountHeader();
-
-        await wrapper.get('button').trigger('click');
-        await flushPromises();
-
-        expect(connection.handleDisconnect).toHaveBeenCalledOnce();
-        expect(alertCalls(wrapper)[0]).toEqual(['服务器 "filesystem" 已断开', 'success']);
-    });
-
-    it('user gets the failure reason when the server will not stop', async () => {
-        setStatus('connected');
-        connection.handleDisconnect.mockResolvedValue({
-            success: false,
-            error: 'timed out',
-        } as never);
-        const wrapper = mountHeader();
-
-        await wrapper.get('button').trigger('click');
-        await flushPromises();
-
-        expect(alertCalls(wrapper)[0]).toEqual(['断开失败: timed out', 'error']);
-    });
-
-    it('user gets no alert when the disconnect was already in flight', async () => {
-        setStatus('connected');
-        connection.handleDisconnect.mockResolvedValue({ success: false });
-        const wrapper = mountHeader();
-
-        await wrapper.get('button').trigger('click');
-        await flushPromises();
-
-        expect(alertCalls(wrapper)).toHaveLength(0);
-    });
-
-    it('user sees the button become busy while the server shuts down', () => {
-        setStatus('connected');
-        connection.isDisconnecting = ref(true) as unknown as typeof connection.isDisconnecting;
-        const wrapper = mountHeader();
-
-        const button = wrapper.get('button');
-        expect(button.text()).toContain('断开中...');
-        expect(button.attributes('disabled')).toBeDefined();
-    });
-});
-
-describe('user reconnects a running server', () => {
-    it('user gets a confirmation naming the server once it reconnects', async () => {
-        setStatus('connected');
-        const wrapper = mountHeader();
-
-        await wrapper.findAll('button')[1]!.trigger('click');
-        await flushPromises();
-
-        expect(connection.handleReconnect).toHaveBeenCalledOnce();
-        expect(alertCalls(wrapper)[0]).toEqual(['服务器 "filesystem" 重新连接成功', 'success']);
-    });
-
-    it('user gets the failure reason when the reconnect fails', async () => {
-        setStatus('connected');
-        connection.handleReconnect.mockResolvedValue({
-            success: false,
-            error: 'handshake failed',
-        } as never);
-        const wrapper = mountHeader();
-
-        await wrapper.findAll('button')[1]!.trigger('click');
-        await flushPromises();
-
-        expect(alertCalls(wrapper)[0]).toEqual(['重新连接失败: handshake failed', 'error']);
-    });
-
-    it('user gets no alert when the reconnect was already in flight', async () => {
-        setStatus('connected');
-        connection.handleReconnect.mockResolvedValue({ success: false });
-        const wrapper = mountHeader();
-
-        await wrapper.findAll('button')[1]!.trigger('click');
-        await flushPromises();
-
-        expect(alertCalls(wrapper)).toHaveLength(0);
-    });
-
-    it('user sees the reconnect action become busy while it runs', () => {
-        setStatus('connected');
-        connection.isReconnecting = ref(true) as unknown as typeof connection.isReconnecting;
-        const wrapper = mountHeader();
-
-        expect(wrapper.findAll('button')[1]!.text()).toContain('重新连接中...');
-    });
-
-    it('user gets the reconnect action blocked while the server is stopping', () => {
-        setStatus('connected');
-        connection.isDisconnecting = ref(true) as unknown as typeof connection.isDisconnecting;
-        const wrapper = mountHeader();
-
         expect(wrapper.findAll('button')[1]!.attributes('disabled')).toBeDefined();
     });
 });
 
-describe('user waits for a server that is already coming up', () => {
-    it('user sees a disabled notice instead of a start action', () => {
-        setStatus('connecting');
-        const wrapper = mountHeader();
-
-        const buttons = wrapper.findAll('button');
+describe('given a server already connecting', () => {
+    it('user sees a disabled connecting notice', async () => {
+        await setStatus('connecting');
+        const buttons = mountHeader().findAll('button');
         expect(buttons).toHaveLength(1);
-        expect(buttons[0]!.text()).toContain('连接中...');
+        expect(buttons[0]!.text()).toContain(t('settings.mcp.actions.connecting'));
         expect(buttons[0]!.attributes('disabled')).toBeDefined();
     });
-
-    it('user gets no reconnect action while the server is still connecting', () => {
-        setStatus('connecting');
-        const wrapper = mountHeader();
-
-        expect(wrapper.text()).not.toContain('重新连接');
+    it('user sees no reconnect action until connected', async () => {
+        await setStatus('connecting');
+        expect(mountHeader().text()).not.toContain(t('settings.mcp.actions.reconnect'));
     });
 });
 
-describe('user switches to another server in the panel', () => {
-    it('user gets the connection layer pointed at the server currently on screen', () => {
+describe('given a settings panel selection and lifetime', () => {
+    it('user connects the currently visible server', async () => {
         const wrapper = mountHeader();
-
-        const serverId = passedServerId.value as { value: number };
-        expect(serverId.value).toBe(7);
-        wrapper.unmount();
+        await wrapper.get('button').trigger('click');
+        await flushPromises();
+        expect(getTauriInvokeCalls('mcp_connect_server').at(-1)?.payload).toMatchObject({
+            config: { id: 7 },
+        });
     });
-
-    it('user gets the connection layer following the panel to the next server', async () => {
+    it('user connects the next server after changing selection', async () => {
         const wrapper = mountHeader();
-
         await wrapper.setProps({ server: { ...server, id: 12, name: 'github' } });
-
-        const serverId = passedServerId.value as { value: number };
-        expect(serverId.value).toBe(12);
+        await wrapper.get('button').trigger('click');
+        await flushPromises();
+        expect(getTauriInvokeCalls('mcp_connect_server').at(-1)?.payload).toMatchObject({
+            config: { id: 12 },
+        });
+        expect(alerts(wrapper)[0]).toEqual([
+            t('settings.mcp.messages.serverConnectSuccess', { serverName: 'github' }),
+            'success',
+        ]);
+    });
+    it('user receives no late success after leaving a panel with a pending native connection', async () => {
+        const release = deferCommand('mcp_connect_server');
+        const wrapper = mountHeader();
+        await wrapper.get('button').trigger('click');
+        await flushPromises();
         wrapper.unmount();
+        release();
+        await flushPromises();
+        expect(alerts(wrapper)).toHaveLength(0);
     });
 });
 
-describe('user leaves the panel', () => {
-    it('user gets the connection listener released on unmount', () => {
-        const wrapper = mountHeader();
-
-        wrapper.unmount();
-
-        expect(connection.cleanup).toHaveBeenCalledOnce();
-    });
+beforePresentation(async () => {
+    (await createTestWindowPresentation('settings')).install();
 });

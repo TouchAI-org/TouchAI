@@ -2,8 +2,8 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick, toRaw } from 'vue';
 
+import type { SessionMessage } from '@/app/api/agent/history';
 import { setLocale } from '@/i18n';
-import type { SessionMessage } from '@/types/session';
 import ConversationPanel from '@/views/SearchView/components/ConversationPanel/index.vue';
 
 type OutputScrollBehavior = 'follow_output' | 'stay_position' | 'jump_to_top';

@@ -1,5 +1,7 @@
 ﻿import type { Provider } from '@database/schema';
+import { createTestWindowPresentation } from '@tests/utils/windowPresentation';
 import { mount } from '@vue/test-utils';
+import { beforeEach as beforePresentation } from 'vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
@@ -23,14 +25,6 @@ vi.mock('@composables/useAlert', () => ({
         show: vi.fn(),
         close: vi.fn(),
     }),
-}));
-
-vi.mock('@/services/AgentService', () => ({
-    aiService: {
-        createProviderInstance: () => ({
-            getApiTargets: () => ({ generationTarget: 'https://api.openai.com/v1' }),
-        }),
-    },
 }));
 
 vi.mock('@components/DialogShell.vue', () => ({
@@ -340,4 +334,8 @@ describe('user backs out of the dialog', () => {
 
         expect(wrapper.emitted('closed')).toHaveLength(1);
     });
+});
+
+beforePresentation(async () => {
+    (await createTestWindowPresentation('settings')).install();
 });

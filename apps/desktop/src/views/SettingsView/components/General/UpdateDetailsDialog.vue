@@ -6,9 +6,9 @@
     import { Dialog, DialogContent, DialogTitle } from '@components/ui/dialog';
     import { computed } from 'vue';
 
+    import type { AppUpdateReleaseSection } from '@/app/api/updates/releaseNotes';
     import { getLocale, t } from '@/i18n';
     import { formatShortDate } from '@/i18n/format';
-    import type { AppUpdateReleaseSection } from '@/services/AppUpdateService/releaseNotes';
 
     const props = defineProps<{
         title: string;

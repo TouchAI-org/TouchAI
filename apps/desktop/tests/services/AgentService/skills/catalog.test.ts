@@ -22,7 +22,7 @@ const {
     openUserSkillDirectoryMock: vi.fn(),
 }));
 
-vi.mock('@/services/NativeService/skills', () => ({
+vi.mock('@/platform/native/skills', () => ({
     skills: {
         getUserSkillsRoot: getUserSkillsRootMock,
         discoverUserSkillFiles: discoverUserSkillFilesMock,
@@ -46,7 +46,7 @@ import {
     readEnabledSkillContent,
     readSkillContent,
     setUserSkillDisabled,
-} from '@/services/AgentService/skills';
+} from '@/modules/skills';
 
 function skillFile(
     overrides: Partial<{

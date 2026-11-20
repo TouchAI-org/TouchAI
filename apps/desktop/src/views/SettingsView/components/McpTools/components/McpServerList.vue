@@ -1,11 +1,11 @@
 <!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
-    import type { McpServerEntity } from '@database/types';
     import { computed, onMounted, ref } from 'vue';
 
+    import type { McpServerEntity } from '@/app/api/tools/mcpAdministration';
     import { t } from '@/i18n';
-    import { useMcpStore } from '@/stores/mcp';
+    import { useMcpAdministrationStore as useMcpStore } from '@/stores/mcpAdministration';
 
     import McpServerCard from './McpServerCard.vue';
     interface Props {
@@ -87,11 +87,15 @@
     };
 
     const handleServerSaved = async () => {
+        const previousIds = new Set(servers.value.map((server) => server.id));
         newServer.value = null;
         await loadServers();
-        // 选中最新创建的服务器（通常是列表中的最后一个）
         if (servers.value.length > 0) {
-            emit('select', servers.value[servers.value.length - 1]!);
+            emit(
+                'select',
+                servers.value.find((server) => !previousIds.has(server.id)) ??
+                    servers.value[servers.value.length - 1]!
+            );
         }
     };
 

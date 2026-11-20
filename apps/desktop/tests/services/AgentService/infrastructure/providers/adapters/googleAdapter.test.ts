@@ -1,7 +1,7 @@
+import { GoogleProviderAdapter } from '@touchai/models/providers/google';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { AiErrorCode } from '@/services/AgentService/contracts/errors';
-import { GoogleProviderAdapter } from '@/services/AgentService/infrastructure/providers/adapters/google';
+import { AiErrorCode } from '@/app/api/agent/errors';
 
 /**
  * Gemini is reached through a different address shape and a different error vocabulary than the
@@ -14,12 +14,8 @@ import { GoogleProviderAdapter } from '@/services/AgentService/infrastructure/pr
 
 const { tauriFetchMock } = vi.hoisted(() => ({ tauriFetchMock: vi.fn() }));
 
-vi.mock('@services/HttpService', () => ({
-    createTauriFetch: () => tauriFetchMock,
-}));
-
 function adapter(config: { apiEndpoint: string; apiKey?: string; config?: unknown }) {
-    return new GoogleProviderAdapter(config as never);
+    return new GoogleProviderAdapter(config as never, createTestModelsHost(tauriFetchMock));
 }
 
 function modelsResponse(models: unknown[]): Response {
@@ -377,3 +373,4 @@ describe('user sees a Gemini failure explained', () => {
         ).toBeNull();
     });
 });
+import { createTestModelsHost } from '@tests/utils/provider';

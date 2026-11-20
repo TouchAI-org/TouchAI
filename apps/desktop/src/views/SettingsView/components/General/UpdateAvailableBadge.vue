@@ -1,7 +1,7 @@
 <script setup lang="ts">
-    import { getAvailableAppUpdateVersion } from '@services/AppUpdateService/availability';
     import { computed } from 'vue';
 
+    import { getAvailableAppUpdateVersion } from '@/app/api/updates/contracts';
     import { useAppUpdateState } from '@/composables/useAppUpdateState';
     import { t } from '@/i18n';
 

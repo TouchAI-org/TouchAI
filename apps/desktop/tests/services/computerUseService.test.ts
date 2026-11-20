@@ -1,30 +1,37 @@
 import { posix } from 'node:path';
 
-import { setSetting } from '@database/queries/settings';
-import { installTauriMocks, resetTauriMocks } from '@tests/utils/tauri';
+import { listen } from '@tauri-apps/api/event';
+import {
+    closeTestDatabases,
+    openMigratedDatabase,
+    routeQueriesTo,
+} from '@tests/database/sqliteHarness';
+import { installTauriMocks, mockTauriCommand, resetTauriMocks } from '@tests/utils/tauri';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const settingsStore = new Map<string, string>();
-let toolEnabled = 1;
+import { getLocale } from '@/i18n';
+import {
+    createComputerControl,
+    DEFAULT_COMPUTER_USE_SETTINGS as DEFAULT_SETTINGS,
+} from '@/modules/tools';
 
-vi.mock('@database/queries/builtInTools', () => ({
-    findBuiltInToolByToolId: async () => ({ id: 1, enabled: toolEnabled }),
-    updateBuiltInTool: async (_id: number, patch: { enabled: number }) => {
-        toolEnabled = patch.enabled;
-        return { id: 1, enabled: toolEnabled };
+let database: ReturnType<typeof openMigratedDatabase>;
+let failSettingWrite: Error | undefined;
+const settingsStore = {
+    get(key: string): string | undefined {
+        return database.prepare('SELECT value FROM settings WHERE key = ?').get(key)?.value as
+            | string
+            | undefined;
     },
-}));
-
-vi.mock('@database/queries/settings', () => ({
-    getSettingValues: async ({ keys }: { keys: string[] }) =>
-        Object.fromEntries(keys.map((key) => [key, settingsStore.get(key) ?? null])),
-    getSettingValue: vi.fn(async ({ key }: { key: string }) => settingsStore.get(key) ?? null),
-    setSetting: vi.fn(async ({ key, value }: { key: string; value: string }) => {
-        settingsStore.set(key, value);
-        return { key, value };
-    }),
-}));
-
+    set(key: string, value: string) {
+        database
+            .prepare(
+                'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+            )
+            .run(key, value);
+    },
+};
+let control: ReturnType<typeof createComputerControl>;
 const nativeStatus = vi.fn();
 const nativeDirectory = vi.fn(async () => 'C:/drivers');
 const nativeMoveDirectory = vi.fn(async (directory: string) => directory);
@@ -35,7 +42,6 @@ const nativeApply = vi.fn();
 const nativeRecording = vi.fn();
 const nativePulseGlow = vi.fn();
 const nativeCancelAll = vi.fn(async () => 0);
-const nativeCursorPosition = vi.fn(async () => ({ x: 345, y: -120 }));
 const nativeCall = vi.fn(
     async (request: unknown): Promise<Record<string, unknown>> => ({ request })
 );
@@ -44,62 +50,133 @@ vi.mock('@tauri-apps/api/path', () => ({
     join: async (...parts: string[]) => posix.join(...parts),
 }));
 
-vi.mock('@services/NativeService', () => ({
-    paths: { getAppDirectoryPath: async () => 'C:/cache' },
-    computerUse: {
-        driverDirectory: () => nativeDirectory(),
-        setDriverDirectory: (directory: string) => nativeMoveDirectory(directory),
-        status: (driver: string) => nativeStatus(driver),
-        prepare: () => nativeStatus(),
-        pulseGlow: (...args: unknown[]) => nativePulseGlow(...args),
-        setActivity: vi.fn(async () => undefined),
-        checkUpdate: () => nativeUpdate(),
-        installUpdate: (driver: string, version: string) => nativeInstallUpdate(driver, version),
-        remove: (driver: string) => nativeRemove(driver),
-        applySettings: (request: unknown) => nativeApply(request),
-        setRecording: (...args: unknown[]) => nativeRecording(...args),
-        call: (request: unknown) => nativeCall(request),
-        cancel: vi.fn(),
-        shutdown: vi.fn(),
-        cancelAll: () => nativeCancelAll(),
-        cursorPosition: () => nativeCursorPosition(),
-    },
-}));
-
-const {
-    DEFAULT_SETTINGS,
-    allowForSession,
-    applySettings,
-    checkUpdate,
-    installUpdate,
-    clearSessionApprovals,
-    isAllowedForSession,
-    loadSettings,
-    loadRecordingDirectory,
-    saveRecordingDirectory,
-    prepare,
-    pulseGlow,
-    remove,
-    saveSettings,
-    setRecording,
-    status,
-    targetKey,
-    isEnabled,
-    setEnabled,
-    loadGroups,
-    setGroupEnabled,
-    execute,
-    startActivity,
-    endActivity,
-    loadDriver,
-    selectDriver,
-    saveDriverDirectory,
-    loadDriverDirectory,
-} = await import('@services/ComputerUseService');
+const allowForSession = (
+    ...args: Parameters<ReturnType<typeof createComputerControl>['allowForSession']>
+) => control.allowForSession(...args);
+const applySettings = (
+    ...args: Parameters<ReturnType<typeof createComputerControl>['applySettings']>
+) => control.applySettings(...args);
+const checkUpdate = (
+    ...args: Parameters<ReturnType<typeof createComputerControl>['checkUpdate']>
+) => control.checkUpdate(...args);
+const installUpdate = (
+    ...args: Parameters<ReturnType<typeof createComputerControl>['installUpdate']>
+) => control.installUpdate(...args);
+const clearSessionApprovals = (
+    ...args: Parameters<ReturnType<typeof createComputerControl>['clearSessionApprovals']>
+) => control.clearSessionApprovals(...args);
+const isAllowedForSession = (
+    ...args: Parameters<ReturnType<typeof createComputerControl>['isAllowedForSession']>
+) => control.isAllowedForSession(...args);
+const loadSettings = (
+    ...args: Parameters<ReturnType<typeof createComputerControl>['loadSettings']>
+) => control.loadSettings(...args);
+const loadRecordingDirectory = (
+    ...args: Parameters<ReturnType<typeof createComputerControl>['loadRecordingDirectory']>
+) => control.loadRecordingDirectory(...args);
+const saveRecordingDirectory = (
+    ...args: Parameters<ReturnType<typeof createComputerControl>['saveRecordingDirectory']>
+) => control.saveRecordingDirectory(...args);
+const prepare = (...args: Parameters<ReturnType<typeof createComputerControl>['prepare']>) =>
+    control.prepare(...args);
+const pulseGlow = (...args: Parameters<ReturnType<typeof createComputerControl>['pulseGlow']>) =>
+    control.pulseGlow(...args);
+const remove = (...args: Parameters<ReturnType<typeof createComputerControl>['remove']>) =>
+    control.remove(...args);
+const saveSettings = (
+    ...args: Parameters<ReturnType<typeof createComputerControl>['saveSettings']>
+) => control.saveSettings(...args);
+const setRecording = (
+    ...args: Parameters<ReturnType<typeof createComputerControl>['setRecording']>
+) => control.setRecording(...args);
+const status = (...args: Parameters<ReturnType<typeof createComputerControl>['status']>) =>
+    control.status(...args);
+const targetKey = (...args: Parameters<ReturnType<typeof createComputerControl>['targetKey']>) =>
+    control.targetKey(...args);
+const isEnabled = (...args: Parameters<ReturnType<typeof createComputerControl>['isEnabled']>) =>
+    control.isEnabled(...args);
+const setEnabled = (...args: Parameters<ReturnType<typeof createComputerControl>['setEnabled']>) =>
+    control.setEnabled(...args);
+const loadGroups = (...args: Parameters<ReturnType<typeof createComputerControl>['loadGroups']>) =>
+    control.loadGroups(...args);
+const setGroupEnabled = (
+    ...args: Parameters<ReturnType<typeof createComputerControl>['setGroupEnabled']>
+) => control.setGroupEnabled(...args);
+const execute = (...args: Parameters<ReturnType<typeof createComputerControl>['execute']>) =>
+    control.execute(...args);
+const startActivity = (
+    ...args: Parameters<ReturnType<typeof createComputerControl>['startActivity']>
+) => control.startActivity(...args);
+const endActivity = (
+    ...args: Parameters<ReturnType<typeof createComputerControl>['endActivity']>
+) => control.endActivity(...args);
+const loadDriver = (...args: Parameters<ReturnType<typeof createComputerControl>['loadDriver']>) =>
+    control.loadDriver(...args);
+const selectDriver = (
+    ...args: Parameters<ReturnType<typeof createComputerControl>['selectDriver']>
+) => control.selectDriver(...args);
+const saveDriverDirectory = (
+    ...args: Parameters<ReturnType<typeof createComputerControl>['saveDriverDirectory']>
+) => control.saveDriverDirectory(...args);
+const loadDriverDirectory = (
+    ...args: Parameters<ReturnType<typeof createComputerControl>['loadDriverDirectory']>
+) => control.loadDriverDirectory(...args);
 
 beforeEach(async () => {
     installTauriMocks();
-    settingsStore.clear();
+    database = openMigratedDatabase();
+    routeQueriesTo(database, {
+        beforeQuery({ sql }) {
+            if (failSettingWrite && /insert into "settings"/i.test(sql)) {
+                const error = failSettingWrite;
+                failSettingWrite = undefined;
+                throw error;
+            }
+        },
+    });
+    database.exec(
+        "INSERT INTO built_in_tools (id, tool_id, display_name, enabled) VALUES (1, 'computer_use', 'Computer', 1)"
+    );
+    failSettingWrite = undefined;
+    control = createComputerControl({
+        locale: getLocale,
+        warn: () => undefined,
+        onStopped: (handler) =>
+            listen<string[]>('computer-use-stopped', ({ payload }) => handler(payload)),
+    });
+    mockTauriCommand('get_app_directory_path', 'C:/cache');
+    mockTauriCommand('computer_use_driver_directory', () => nativeDirectory());
+    mockTauriCommand('computer_use_set_driver_directory', (payload) =>
+        nativeMoveDirectory((payload as { directory: string }).directory)
+    );
+    mockTauriCommand('computer_use_status', (payload) =>
+        nativeStatus((payload as { driver?: string }).driver)
+    );
+    mockTauriCommand('computer_use_prepare', () => nativeStatus());
+    mockTauriCommand('computer_use_glow_pulse', (payload) => nativePulseGlow(payload));
+    mockTauriCommand('computer_use_glow_set_active', null);
+    mockTauriCommand('computer_use_check_update', () => nativeUpdate());
+    mockTauriCommand('computer_use_install_update', (payload) => {
+        const { driver, version } = payload as { driver: string; version: string };
+        return nativeInstallUpdate(driver, version);
+    });
+    mockTauriCommand('computer_use_remove', (payload) =>
+        nativeRemove((payload as { driver?: string }).driver)
+    );
+    mockTauriCommand('computer_use_set_recording', (payload) => {
+        const { enabled, outputDir, driver } = payload as {
+            enabled: boolean;
+            outputDir?: string;
+            driver?: string;
+        };
+        return driver
+            ? nativeRecording(enabled, outputDir, driver)
+            : nativeRecording(enabled, outputDir);
+    });
+    mockTauriCommand('computer_use_invoke', (payload) => nativeCall(payload));
+    mockTauriCommand('computer_use_cancel_all', () => nativeCancelAll());
+    mockTauriCommand('computer_use_cancel', true);
+    mockTauriCommand('computer_use_shutdown', null);
     await loadDriver();
     nativeStatus.mockReset();
     nativeDirectory.mockReset().mockResolvedValue('C:/drivers');
@@ -114,10 +191,11 @@ beforeEach(async () => {
     nativeCancelAll.mockClear();
     nativeCall.mockReset();
     nativeCall.mockImplementation(async (request: unknown) => ({ request }));
-    toolEnabled = 1;
 });
 
-afterEach(() => {
+afterEach(async () => {
+    await control.dispose();
+    closeTestDatabases();
     vi.useRealTimers();
     resetTauriMocks();
 });
@@ -207,8 +285,10 @@ describe('computer control driver selection', () => {
     });
 
     it('user given a failed preference write when switching then retains the previous driver', async () => {
-        vi.mocked(setSetting).mockRejectedValueOnce(new Error('Storage full'));
-        await expect(selectDriver('agent-desktop')).rejects.toThrow('Storage full');
+        failSettingWrite = new Error('Storage full');
+        await expect(selectDriver('agent-desktop')).rejects.toMatchObject({
+            cause: { message: 'Storage full' },
+        });
         await expect(loadDriver()).resolves.toBe('cua-driver');
     });
 });
@@ -347,7 +427,9 @@ describe('computer use capability preferences', () => {
     });
     it('user given an enabled tool when disabling the master switch then disables the registered tool', async () => {
         await setEnabled(false);
-        expect(toolEnabled).toBe(0);
+        expect(
+            database.prepare('SELECT enabled FROM built_in_tools WHERE id = 1').get()?.enabled
+        ).toBe(0);
         expect(await isEnabled()).toBe(false);
         expect(nativeCancelAll).toHaveBeenCalled();
     });
@@ -375,7 +457,7 @@ describe('computer use settings', () => {
     });
 
     it('user given one failed preference write when another is pending then saves the other change and can retry', async () => {
-        vi.mocked(setSetting).mockRejectedValueOnce(new Error('Storage unavailable'));
+        failSettingWrite = new Error('Storage unavailable');
         const results = await Promise.allSettled([
             saveSettings({ allowForeground: false }),
             saveSettings({ cursorVisible: false }),
@@ -658,8 +740,10 @@ describe('computer use recording location', () => {
         await saveRecordingDirectory('C:/previous');
         await saveSettings({ recordingEnabled: true });
         nativeRecording.mockClear();
-        vi.mocked(setSetting).mockRejectedValueOnce(new Error('Storage full'));
-        await expect(saveRecordingDirectory('C:/new')).rejects.toThrow('Storage full');
+        failSettingWrite = new Error('Storage full');
+        await expect(saveRecordingDirectory('C:/new')).rejects.toMatchObject({
+            cause: { message: 'Storage full' },
+        });
         await expect(loadRecordingDirectory()).resolves.toBe('C:/previous/cua-driver');
         expect(nativeRecording).not.toHaveBeenCalled();
     });

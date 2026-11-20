@@ -7,16 +7,18 @@
     import ModelLogo from '@components/ModelLogo.vue';
     import SearchableSelect from '@components/SearchableSelect.vue';
     import { Button } from '@components/ui/button';
-    import { findModelsWithProvider } from '@database/queries';
-    import type { ModelWithProvider } from '@database/queries/models';
-    import { AppEvent, eventService } from '@services/EventService';
-    import { log } from '@services/ObservabilityService';
     import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
     import type { SortableEvent } from 'vue-draggable-plus';
     import { VueDraggable } from 'vue-draggable-plus';
 
+    import { log } from '@/app/api/diagnostics';
+    import {
+        listModelOptions,
+        type ModelOption,
+        onModelOptionsChanged,
+    } from '@/app/api/models/selection';
+    import type { UpgradeModelChainEntry } from '@/app/api/tools/configuration';
     import { t } from '@/i18n';
-    import type { UpgradeModelChainEntry } from '@/services/BuiltInToolService/tools/upgradeModel/chain';
 
     import type { UpgradeModelToolConfig } from '../types';
     interface Props {
@@ -31,6 +33,7 @@
         value: string | number;
         label: string;
         description?: string;
+        unavailable?: boolean;
         searchText?: string;
         providerLogo?: string;
         providerName?: string;
@@ -61,12 +64,14 @@
         }
     }
 
-    const availableModels = ref<ModelWithProvider[]>([]);
+    const availableModels = ref<ModelOption[]>([]);
     const loading = ref(false);
     const chainRows = ref<UpgradeModelChainRow[]>([]);
     const draggingRowUid = ref<string | null>(null);
     const lastAppliedChainJson = ref('');
     let unlistenAiModelsUpdated: (() => void) | null = null;
+    let disposed = false;
+    let readGeneration = 0;
 
     const buildUpgradeModelKey = (entry: UpgradeModelChainEntry): string =>
         `${entry.providerId}:${entry.modelId}`;
@@ -109,7 +114,7 @@
         return null;
     });
 
-    function resolveModel(entry: UpgradeModelChainEntry): ModelWithProvider | undefined {
+    function resolveModel(entry: UpgradeModelChainEntry): ModelOption | undefined {
         return availableModels.value.find(
             (model) => model.provider_id === entry.providerId && model.model_id === entry.modelId
         );
@@ -214,6 +219,7 @@
         return {
             value: row.modelId,
             label: model?.name ?? row.modelId,
+            unavailable: true,
             description:
                 model?.provider_enabled === 0
                     ? t('settings.builtInTools.upgradeModel.selectedModelProviderDisabled')
@@ -301,7 +307,7 @@
         rowUid: string,
         providerId: number,
         preferredModelId?: string
-    ): ModelWithProvider | undefined {
+    ): ModelOption | undefined {
         const providerModels = getEnabledModelsForProvider(providerId, rowUid);
         if (!preferredModelId) {
             return providerModels[0];
@@ -384,21 +390,32 @@
     }
 
     async function loadModels() {
+        if (disposed) return;
+        const generation = ++readGeneration;
         loading.value = true;
         try {
-            availableModels.value = await findModelsWithProvider();
+            const models = await listModelOptions();
+            if (!disposed && generation === readGeneration) availableModels.value = models;
         } catch (error) {
+            if (disposed || generation !== readGeneration) return;
             log.error('[UpgradeModelToolConfig] Failed to load models:', error);
             availableModels.value = [];
         } finally {
-            loading.value = false;
+            if (!disposed && generation === readGeneration) loading.value = false;
         }
     }
 
     async function bindModelsUpdatedListener() {
-        unlistenAiModelsUpdated = await eventService.on(AppEvent.AI_MODELS_UPDATED, () => {
-            void loadModels();
-        });
+        try {
+            const stop = await onModelOptionsChanged(() => {
+                void loadModels();
+            });
+            if (disposed) stop();
+            else unlistenAiModelsUpdated = stop;
+        } catch (error) {
+            if (!disposed)
+                log.error('[UpgradeModelToolConfig] Failed to listen for model updates:', error);
+        }
     }
 
     watch(
@@ -415,6 +432,8 @@
     });
 
     onUnmounted(() => {
+        disposed = true;
+        readGeneration += 1;
         unlistenAiModelsUpdated?.();
         unlistenAiModelsUpdated = null;
     });
@@ -645,8 +664,16 @@
                                                 {{ option.label }}
                                             </div>
                                             <div class="mt-1">
+                                                <div
+                                                    v-if="option.unavailable && option.description"
+                                                    class="truncate text-xs text-text-tertiary"
+                                                    data-no-i18n="true"
+                                                    translate="no"
+                                                >
+                                                    {{ option.description }}
+                                                </div>
                                                 <ModelCapabilityTags
-                                                    v-if="
+                                                    v-else-if="
                                                         option.reasoning !== undefined ||
                                                         option.tool_call !== undefined ||
                                                         option.modalities !== undefined ||
@@ -674,6 +701,7 @@
                         <button
                             type="button"
                             class="flex-shrink-0 text-neutral-400 transition-colors hover:text-red-600"
+                            :aria-label="t('settings.builtInTools.upgradeModel.removeModel')"
                             @click="removeModel(row.uid)"
                         >
                             <AppIcon name="x" class="h-5 w-5" />

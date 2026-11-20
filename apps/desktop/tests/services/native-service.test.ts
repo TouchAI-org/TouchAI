@@ -1,3 +1,7 @@
+import { getLastTauriInvokeCall, interceptTauriInvoke, mockTauriCommand } from '@tests/utils/tauri';
+import { describe, expect, expectTypeOf, it } from 'vitest';
+
+import { APP_PRODUCT_CONFIG } from '@/config/product';
 import {
     type AppUpdateCheckResult,
     type AppUpdateInfo,
@@ -26,13 +30,9 @@ import {
     shortcut,
     updater,
     window as windowCommands,
-} from '@services/NativeService';
-import type { DatabaseQueryResponse } from '@services/NativeService/database';
-import type { SearchWindowState } from '@services/NativeService/types';
-import { getLastTauriInvokeCall, interceptTauriInvoke, mockTauriCommand } from '@tests/utils/tauri';
-import { describe, expect, expectTypeOf, it } from 'vitest';
-
-import { APP_PRODUCT_CONFIG } from '@/config/product';
+} from '@/platform/native';
+import type { DatabaseQueryResponse } from '@/platform/native/database';
+import type { SearchWindowState } from '@/platform/native/types';
 
 async function callAndExpectInvoke(
     call: () => Promise<unknown>,

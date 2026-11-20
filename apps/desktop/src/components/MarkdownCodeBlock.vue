@@ -1,14 +1,15 @@
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
     import { Button } from '@components/ui/button';
-    import { notify } from '@services/NotificationService';
-    import { log } from '@services/ObservabilityService';
     import { CodeBlockNode, type CodeBlockNodeProps } from 'markstream-vue';
     import { onUnmounted, ref } from 'vue';
 
+    import { useProductAnalyticsApi } from '@/app/api/analytics/product';
+    import { log } from '@/app/api/diagnostics';
+    import { writeClipboardText } from '@/app/api/windows/clipboard';
+    import { notify } from '@/app/api/windows/notifications';
     import { t } from '@/i18n';
-    import { runResultAction } from '@/services/AnalyticsService/productInteractions';
-    import { clipboardService } from '@/services/ClipboardService';
+    const { runResultAction } = useProductAnalyticsApi();
 
     defineOptions({ inheritAttrs: false });
     const props = withDefaults(
@@ -25,7 +26,7 @@
 
     async function copyCode() {
         try {
-            await runResultAction('copy_code', () => clipboardService.writeText(props.node.code));
+            await runResultAction('copy_code', () => writeClipboardText(props.node.code));
             if (disposed) return;
             copied.value = true;
             clearTimeout(copyTimer);

@@ -1,9 +1,10 @@
 import { installSkillCommands, skillFile } from '@tests/utils/skills';
+import { createSkillToolsFixture } from '@tests/utils/skillTools';
 import { getTauriInvokeCalls, mockTauriCommand } from '@tests/utils/tauri';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { setLocale } from '@/i18n';
-import { activateSkillTool } from '@/services/BuiltInToolService/tools/activateSkill';
+const activateSkillTool = createSkillToolsFixture();
 
 const context = () => ({ callId: 'call', iteration: 0 });
 
@@ -117,9 +118,10 @@ describe('given a model requests a user skill', () => {
         mockTauriCommand('agent_skills_discover_user_files', () => {
             throw new Error('Read failed');
         });
-        expect((await activateSkillTool.buildToolDefinition('builtin__activate_skill')).name).toBe(
-            'builtin__activate_skill'
-        );
+        await expect(
+            activateSkillTool.buildToolDefinition('builtin__activate_skill')
+        ).rejects.toThrow('Read failed');
+        expect(getTauriInvokeCalls('agent_skills_read_enabled_user_file')).toEqual([]);
         installSkillCommands();
         expect(
             (await activateSkillTool.execute({ path: skillFile().path }, {}, context())).isError

@@ -1,7 +1,7 @@
 import { mount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
 
-import type { WebSearchSource } from '@/services/BuiltInToolService/tools/webSearch/sources';
+import type { WebSearchSource } from '@/modules/tools/builtin/web-search/sources';
 import { buildFaviconCandidates } from '@/views/SearchView/components/WebSearch/favicon';
 import SourceFavicon from '@/views/SearchView/components/WebSearch/SourceFavicon.vue';
 

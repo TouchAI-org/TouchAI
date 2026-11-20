@@ -1,15 +1,17 @@
-import type { UpdateOperation, UpdatePhase } from '@services/AnalyticsService/lifecycle';
-import { type AppUpdateAnalytics, AppUpdateController } from '@services/AppUpdateService';
+import { deferred, installProductAnalytics } from '@tests/utils/productAnalytics';
+import { createTestUpdateController } from '@tests/utils/updates';
+import { describe, expect, it, type Mock, vi } from 'vitest';
+
+import type { UpdateOperation, UpdatePhase } from '@/modules/analytics/lifecycle';
+import { type AppUpdateAnalytics } from '@/modules/updates';
 import type {
     AppUpdateChannel,
     AppUpdateCheckResult,
     AppUpdateInfo,
-} from '@services/AppUpdateService/types';
-import { native } from '@services/NativeService';
-import { deferred, installProductAnalytics } from '@tests/utils/productAnalytics';
-import { describe, expect, it, type Mock, vi } from 'vitest';
+} from '@/modules/updates/types';
+import { native } from '@/platform/native';
 
-vi.mock('@services/ObservabilityService', () => ({
+vi.mock('@/platform/diagnostics', () => ({
     log: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() },
 }));
 
@@ -106,7 +108,7 @@ function createController(options: {
         ? vi.fn().mockRejectedValue(options.installError)
         : vi.fn().mockResolvedValue(true);
 
-    const controller = new AppUpdateController({
+    const controller = createTestUpdateController({
         native: { checkForUpdates, downloadUpdate, installUpdate },
         settings: {
             initialize: vi.fn().mockResolvedValue(undefined),

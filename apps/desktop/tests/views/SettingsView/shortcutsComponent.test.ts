@@ -1,9 +1,11 @@
+import { createTestWindowPresentation } from '@tests/utils/windowPresentation';
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
+import { beforeEach as beforePresentation } from 'vitest';
 import { vi } from 'vitest';
 
+import { AppEvent } from '@/app/api/settings/events';
 import { createDefaultSearchKeybindings } from '@/config/searchKeybindings';
 import { setLocale } from '@/i18n';
-import { AppEvent, eventService } from '@/services/EventService';
 import GeneralSection from '@/views/SettingsView/components/Shortcuts/index.vue';
 
 const originalPlatform = navigator.platform;
@@ -82,11 +84,11 @@ vi.mock('@/stores/settings', () => ({
     useSettingsStore: () => settingsStoreMock,
 }));
 
-vi.mock('@services/NativeService', () => ({
+vi.mock('@/platform/native', () => ({
     native: nativeMock,
 }));
 
-vi.mock('@services/NotificationService', () => ({
+vi.mock('@/app/api/windows/notifications', () => ({
     notify: vi.fn(),
 }));
 
@@ -568,7 +570,7 @@ describe('user configures keyboard shortcuts', () => {
         await input.trigger('focus');
         await flushPromises();
 
-        await eventService.emit(AppEvent.SHORTCUT_CAPTURE_SYSTEM_KEY, {
+        await emit(AppEvent.SHORTCUT_CAPTURE_SYSTEM_KEY, {
             key: 'Space',
             alt: true,
             ctrl: false,
@@ -924,3 +926,8 @@ describe('user configures keyboard shortcuts', () => {
         expect((input.element as HTMLInputElement).value).toBe('Ctrl+H');
     });
 });
+
+beforePresentation(async () => {
+    (await createTestWindowPresentation('settings')).install();
+});
+import { emit } from '@tauri-apps/api/event';

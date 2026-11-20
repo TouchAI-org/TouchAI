@@ -3,7 +3,7 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { BASH_TOOL_TIMEOUT_MAX_MS } from '@/services/BuiltInToolService/tools/bash/constants';
+import { BASH_TOOL_TIMEOUT_MAX_MS } from '@/modules/tools/builtin/bash/constants';
 
 const BASH_EXECUTOR_PATH = join(
     process.cwd(),
@@ -19,7 +19,7 @@ describe('Bash adaptive timeout ceiling', () => {
     // Rust hard limit in lockstep so a model request is never silently truncated.
     // It does not exercise the Rust execution path (the existing
     // `resolve_timeout_ms_clamps_to_max` unit test covers the clamp itself).
-    it('keeps the TypeScript ceiling equal to the Rust MAX_TIMEOUT_MS constant', async () => {
+    it('user receives the same shell timeout ceiling from the model contract and native executor', async () => {
         const source = await readFile(BASH_EXECUTOR_PATH, 'utf8');
         const match = source.match(/const\s+MAX_TIMEOUT_MS\s*:\s*u64\s*=\s*([0-9_]+)\s*;/);
 

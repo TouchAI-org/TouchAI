@@ -1,15 +1,15 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
+import { describe, expect, it } from 'vitest';
+
+import type { SessionMessage, WidgetInfo } from '@/app/api/agent/history';
 import {
     ensureAssistantWidgets,
     ensureWidgetPart,
     findWidgetTarget,
     findWidgetTargetByCallId,
     retargetWidgetPart,
-} from '@services/AgentService/session/widgets';
-import { describe, expect, it } from 'vitest';
-
-import type { SessionMessage, WidgetInfo } from '@/types/session';
+} from '@/modules/agent/history/widgets';
 
 function widget(widgetId: string, callId = `call-${widgetId}`): WidgetInfo {
     return {

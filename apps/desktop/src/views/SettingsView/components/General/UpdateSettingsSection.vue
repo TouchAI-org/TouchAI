@@ -2,30 +2,31 @@
     import CustomSelect from '@components/CustomSelect.vue';
     import SettingsRow from '@components/SettingsRow.vue';
     import { Switch } from '@components/ui/switch';
-    import { appUpdateService } from '@services/AppUpdateService';
+    import { computed, onMounted, ref } from 'vue';
+
+    import { log } from '@/app/api/diagnostics';
+    import { useUpdatePreferencesApi, useUpdatesApi } from '@/app/api/updates';
+    import type { AppUpdateChannel } from '@/app/api/updates/contracts';
     import {
         getAvailableAppUpdateVersion,
         getDownloadableAppUpdate,
         getInstallableAppUpdate,
-    } from '@services/AppUpdateService/availability';
-    import type { AppUpdateChannel } from '@services/AppUpdateService/types';
-    import { log } from '@services/ObservabilityService';
-    import { getVersion } from '@tauri-apps/api/app';
-    import { openUrl } from '@tauri-apps/plugin-opener';
-    import { computed, onMounted, ref } from 'vue';
-
+    } from '@/app/api/updates/contracts';
+    import { preferredAppUpdateDownload } from '@/app/api/updates/downloads';
+    import {
+        appUpdateReleaseNotes,
+        appUpdateReleaseSections,
+    } from '@/app/api/updates/releaseNotes';
     import { useAppUpdateState } from '@/composables/useAppUpdateState';
     import { APP_UPDATE_CHANNELS, appUpdateChannelLabel } from '@/config/appUpdate';
     import { APP_PRODUCT_CONFIG, APP_VERSION } from '@/config/product';
     import { getLocale, t } from '@/i18n';
     import { formatDateTime } from '@/i18n/format';
-    import { preferredAppUpdateDownload } from '@/services/AppUpdateService/downloads';
-    import {
-        appUpdateReleaseNotes,
-        appUpdateReleaseSections,
-    } from '@/services/AppUpdateService/releaseNotes';
 
     import UpdateDetailsDialog from './UpdateDetailsDialog.vue';
+
+    const updates = useUpdatesApi();
+    const updatePreferences = useUpdatePreferencesApi();
 
     defineOptions({
         name: 'SettingsGeneralUpdateSection',
@@ -200,14 +201,14 @@
 
     async function initializeUpdates() {
         try {
-            appVersion.value = await getVersion();
+            appVersion.value = await updates.getVersion();
         } catch (error) {
             log.error('[SettingsGeneralUpdateSection] Failed to initialize updates:', error);
         }
     }
 
     async function checkForUpdates(source: 'manual' | 'settings-open' = 'manual') {
-        return appUpdateService.checkNow(source);
+        return updates.checkNow(source);
     }
 
     async function checkAndOpenUpdates(source: 'manual' | 'settings-open' = 'manual') {
@@ -231,7 +232,7 @@
             return;
         }
 
-        await appUpdateService.setChannel(channel);
+        await updatePreferences.setChannel(channel);
         await checkForUpdates('settings-open');
     }
 
@@ -240,7 +241,7 @@
             return;
         }
 
-        await appUpdateService.setAutoCheckEnabled(!updateState.value.autoCheckEnabled);
+        await updatePreferences.setAutoCheckEnabled(!updateState.value.autoCheckEnabled);
     }
 
     async function runDetailsAction() {
@@ -249,16 +250,16 @@
         }
 
         if (canInstall.value) {
-            await appUpdateService.install();
+            await updates.install();
             return;
         }
 
         if (canUseInAppUpdate.value) {
-            await appUpdateService.download();
+            await updates.download();
             return;
         }
 
-        await openUrl(updateDownloadUrl.value);
+        await updates.openDownload(updateDownloadUrl.value);
     }
 
     async function handlePrimaryAction() {

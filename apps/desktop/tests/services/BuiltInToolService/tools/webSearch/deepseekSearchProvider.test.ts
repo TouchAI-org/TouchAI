@@ -1,7 +1,7 @@
+import { createWebSearchToolsFixture, saveWebSearchSettings } from '@tests/utils/webSearchTools';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-
-import { executeWebSearchTool } from '@/services/BuiltInToolService/tools/webSearch';
-import type { WebSearchRequest } from '@/services/BuiltInToolService/tools/webSearch/helper';
+const { execute: executeWebSearchTool } = createWebSearchToolsFixture();
+import type { WebSearchRequest } from '@/modules/tools/builtin/web-search/helper';
 import {
     buildDeepSeekQuery,
     buildDeepSeekToolsUrl,
@@ -13,22 +13,14 @@ import {
     rankDeepSeekResults,
     runWithDeepSeekRetry,
     toDeepSeekResult,
-} from '@/services/BuiltInToolService/tools/webSearch/providers/deepseek';
-import { WebSearchHttpError } from '@/services/BuiltInToolService/tools/webSearch/providers/types';
+} from '@/modules/tools/builtin/web-search/providers/deepseek';
+import { WebSearchHttpError } from '@/modules/tools/builtin/web-search/providers/types';
 
-const { readEffectiveSettingValueMock, tauriFetchMock } = vi.hoisted(() => ({
-    readEffectiveSettingValueMock: vi.fn<() => Promise<string | null>>(async () => null),
+const { tauriFetchMock } = vi.hoisted(() => ({
     tauriFetchMock: vi.fn(),
 }));
 
-vi.mock('@/services/BuiltInToolService/settingsReader', () => ({
-    readEffectiveSettingValue: readEffectiveSettingValueMock,
-}));
-
-vi.mock('@/services/HttpService', () => ({
-    createTauriFetch: () => tauriFetchMock,
-    cancelResponseBody: vi.fn(async () => {}),
-}));
+vi.mock('@tauri-apps/plugin-http', () => ({ fetch: tauriFetchMock }));
 
 function createExecutionContext(): Parameters<typeof executeWebSearchTool>[2] {
     return {
@@ -319,11 +311,11 @@ describe('user sees throttled and retried searches', () => {
 describe('user gets search results from the DeepSeek provider', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        readEffectiveSettingValueMock.mockResolvedValue(null);
+        saveWebSearchSettings(null);
     });
 
     it('user sees the documented endpoint called with an inline key', async () => {
-        readEffectiveSettingValueMock.mockResolvedValueOnce(
+        saveWebSearchSettings(
             deepseekSettings({ apiKey: 'inline-key', endpoint: 'https://api.deepseek.com' })
         );
         tauriFetchMock.mockResolvedValueOnce(
@@ -369,7 +361,7 @@ describe('user gets search results from the DeepSeek provider', () => {
     });
 
     it('user sees the provider kept in the semantic target when a search fails', async () => {
-        readEffectiveSettingValueMock.mockResolvedValueOnce(
+        saveWebSearchSettings(
             deepseekSettings({ apiKey: 'inline-key', endpoint: 'https://api.deepseek.com' })
         );
         tauriFetchMock.mockResolvedValueOnce(jsonResponse({ error: 'boom' }, 402));
@@ -388,7 +380,7 @@ describe('user gets search results from the DeepSeek provider', () => {
     });
 
     it('user sees another provider used when no DeepSeek key is configured', async () => {
-        readEffectiveSettingValueMock.mockResolvedValueOnce(deepseekSettings({}));
+        saveWebSearchSettings(deepseekSettings({}));
         tauriFetchMock.mockResolvedValueOnce(jsonResponse({ results: [] }));
 
         const result = await executeWebSearchTool(
@@ -404,7 +396,7 @@ describe('user gets search results from the DeepSeek provider', () => {
     });
 
     it('user does not see a duplicated version prefix for /v1 endpoints', async () => {
-        readEffectiveSettingValueMock.mockResolvedValueOnce(
+        saveWebSearchSettings(
             deepseekSettings({ apiKey: 'relay-key', endpoint: 'https://relay.example.com/v1' })
         );
         tauriFetchMock.mockResolvedValueOnce(jsonResponse({ results: [] }));
@@ -417,7 +409,7 @@ describe('user gets search results from the DeepSeek provider', () => {
     });
 
     it('user sees inline page content requested only when asked', async () => {
-        readEffectiveSettingValueMock.mockResolvedValueOnce(
+        saveWebSearchSettings(
             deepseekSettings({ apiKey: 'inline-key', endpoint: 'https://api.deepseek.com' })
         );
         tauriFetchMock.mockResolvedValueOnce(
@@ -443,7 +435,7 @@ describe('user gets search results from the DeepSeek provider', () => {
     });
 
     it('user sees domain and recency hints passed through query operators', async () => {
-        readEffectiveSettingValueMock.mockResolvedValueOnce(
+        saveWebSearchSettings(
             deepseekSettings({ apiKey: 'inline-key', endpoint: 'https://api.deepseek.com' })
         );
         tauriFetchMock.mockResolvedValueOnce(jsonResponse({ results: [] }));
@@ -476,7 +468,7 @@ describe('user gets search results from the DeepSeek provider', () => {
     });
 
     it('user sees rate-limited requests retried before succeeding', async () => {
-        readEffectiveSettingValueMock.mockResolvedValueOnce(
+        saveWebSearchSettings(
             deepseekSettings({ apiKey: 'inline-key', endpoint: 'https://api.deepseek.com' })
         );
         tauriFetchMock
@@ -501,7 +493,7 @@ describe('user gets search results from the DeepSeek provider', () => {
     });
 
     it('user sees billing failures surfaced without retrying', async () => {
-        readEffectiveSettingValueMock.mockResolvedValueOnce(
+        saveWebSearchSettings(
             deepseekSettings({ apiKey: 'inline-key', endpoint: 'https://api.deepseek.com' })
         );
         tauriFetchMock.mockResolvedValueOnce(

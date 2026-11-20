@@ -1,4 +1,4 @@
-﻿import type { AppUpdateState } from '@services/AppUpdateService/types';
+import { createUpdateClientBoundary } from '@tests/utils/updateClient';
 import { mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick } from 'vue';
@@ -6,6 +6,7 @@ import { nextTick } from 'vue';
 import AppUpdateRequiredGate from '@/components/AppUpdateRequiredGate.vue';
 import { APP_PRODUCT_CONFIG } from '@/config/product';
 import { setLocale } from '@/i18n';
+import type { AppUpdateState } from '@/modules/updates/types';
 
 const neutralRequirement = {
     required: false,
@@ -55,23 +56,10 @@ const baseState: AppUpdateState = {
     unsupportedReason: null,
 };
 
-const appUpdateServiceMock = vi.hoisted(() => ({
-    state: null as AppUpdateState | null,
-    getState: vi.fn(() => appUpdateServiceMock.state),
-    subscribe: vi.fn((listener: (state: AppUpdateState) => void) => {
-        listener(appUpdateServiceMock.state as AppUpdateState);
-        return () => undefined;
-    }),
-    initialize: vi.fn().mockResolvedValue(undefined),
-    checkNow: vi.fn().mockResolvedValue(true),
-    download: vi.fn().mockResolvedValue(true),
-    install: vi.fn().mockResolvedValue(true),
+let updatesBoundary: Awaited<ReturnType<typeof createUpdateClientBoundary>>;
+vi.mock('@tauri-apps/plugin-opener', () => ({
+    openUrl: vi.fn().mockResolvedValue(undefined),
 }));
-
-vi.mock('@services/AppUpdateService', () => ({
-    appUpdateService: appUpdateServiceMock,
-}));
-
 vi.mock('@components/AppIcon.vue', () => ({
     default: {
         name: 'AppIconStub',
@@ -84,25 +72,28 @@ vi.mock('@tauri-apps/plugin-opener', () => ({
 }));
 
 describe('user must update before continuing', () => {
-    beforeEach(() => {
+    beforeEach(async () => {
+        updatesBoundary = await createUpdateClientBoundary();
         vi.clearAllMocks();
         setLocale('zh-CN');
-        appUpdateServiceMock.state = { ...baseState };
+        updatesBoundary.state = { ...baseState };
     });
 
-    afterEach(() => {
+    afterEach(async () => {
+        await updatesBoundary.dispose();
         document.body.innerHTML = '';
     });
 
     it('user stays hidden when the current version is supported', async () => {
-        const wrapper = mount(AppUpdateRequiredGate);
+        await updatesBoundary.synchronize();
+        const wrapper = mount(AppUpdateRequiredGate, updatesBoundary.viewOptions);
         await nextTick();
 
         expect(wrapper.find('[data-testid="app-update-required-gate"]').exists()).toBe(false);
     });
 
     it('user blocks the app and downloads a satisfying required update', async () => {
-        appUpdateServiceMock.state = {
+        updatesBoundary.state = {
             ...baseState,
             status: 'available',
             latestUpdate,
@@ -115,7 +106,8 @@ describe('user must update before continuing', () => {
             updateRequirement: requiredRequirement,
         };
 
-        const wrapper = mount(AppUpdateRequiredGate);
+        await updatesBoundary.synchronize();
+        const wrapper = mount(AppUpdateRequiredGate, updatesBoundary.viewOptions);
         await nextTick();
 
         expect(wrapper.get('[data-testid="app-update-required-gate"]').text()).toContain(
@@ -128,7 +120,7 @@ describe('user must update before continuing', () => {
 
         await wrapper.get('[data-testid="app-update-required-primary"]').trigger('click');
 
-        expect(appUpdateServiceMock.download).toHaveBeenCalledTimes(1);
+        expect(updatesBoundary.download).toHaveBeenCalledTimes(1);
     });
 
     it('user opens the release page when no direct download is selected', async () => {
@@ -136,7 +128,7 @@ describe('user must update before continuing', () => {
             ...latestUpdate,
             downloads: [],
         };
-        appUpdateServiceMock.state = {
+        updatesBoundary.state = {
             ...baseState,
             status: 'not_available',
             latestUpdate: latestUpdateWithoutDirectDownload,
@@ -147,7 +139,8 @@ describe('user must update before continuing', () => {
         };
         const { openUrl } = await import('@tauri-apps/plugin-opener');
 
-        const wrapper = mount(AppUpdateRequiredGate);
+        await updatesBoundary.synchronize();
+        const wrapper = mount(AppUpdateRequiredGate, updatesBoundary.viewOptions);
         await nextTick();
         expect(wrapper.text()).toContain('可更新到 0.2.1');
         expect(wrapper.text()).toContain('修复问题');
@@ -157,14 +150,15 @@ describe('user must update before continuing', () => {
     });
 
     it('user sees raw update errors only as localized details', async () => {
-        appUpdateServiceMock.state = {
+        updatesBoundary.state = {
             ...baseState,
             status: 'failed',
             error: 'download failed: 504',
             updateRequirement: requiredRequirement,
         };
 
-        const wrapper = mount(AppUpdateRequiredGate);
+        await updatesBoundary.synchronize();
+        const wrapper = mount(AppUpdateRequiredGate, updatesBoundary.viewOptions);
         await nextTick();
 
         expect(wrapper.text()).toContain('原因：download failed: 504');
@@ -177,7 +171,7 @@ describe('user must update before continuing', () => {
             notes: 'Security fixes',
             sizeBytes: 12_000_000,
         };
-        appUpdateServiceMock.state = {
+        updatesBoundary.state = {
             ...baseState,
             status: 'downloaded',
             latestUpdate,
@@ -186,17 +180,18 @@ describe('user must update before continuing', () => {
             updateRequirement: requiredRequirement,
         };
 
-        const wrapper = mount(AppUpdateRequiredGate);
+        await updatesBoundary.synchronize();
+        const wrapper = mount(AppUpdateRequiredGate, updatesBoundary.viewOptions);
         await nextTick();
 
         const recheck = wrapper.get('[data-testid="app-update-required-check"]');
         expect(recheck.attributes('disabled')).toBeUndefined();
         await recheck.trigger('click');
 
-        expect(appUpdateServiceMock.checkNow).toHaveBeenCalledWith('manual');
+        expect(updatesBoundary.checkNow).toHaveBeenCalledWith('manual');
 
         await wrapper.get('[data-testid="app-update-required-primary"]').trigger('click');
-        expect(appUpdateServiceMock.install).toHaveBeenCalledOnce();
+        expect(updatesBoundary.install).toHaveBeenCalledOnce();
         wrapper.unmount();
     });
 
@@ -209,7 +204,7 @@ describe('user must update before continuing', () => {
                 notes: 'Security fixes',
                 sizeBytes: 12_000_000,
             };
-            appUpdateServiceMock.state = {
+            updatesBoundary.state = {
                 ...baseState,
                 status: 'failed',
                 latestUpdate,
@@ -219,14 +214,15 @@ describe('user must update before continuing', () => {
                 error: 'temporary failure',
             };
             const { openUrl } = await import('@tauri-apps/plugin-opener');
-            const wrapper = mount(AppUpdateRequiredGate);
+            await updatesBoundary.synchronize();
+            const wrapper = mount(AppUpdateRequiredGate, updatesBoundary.viewOptions);
             await nextTick();
 
             await wrapper.get('[data-testid="app-update-required-primary"]').trigger('click');
 
-            expect(appUpdateServiceMock[phase]).toHaveBeenCalledOnce();
+            expect(updatesBoundary[phase]).toHaveBeenCalledOnce();
             expect(
-                appUpdateServiceMock[phase === 'install' ? 'download' : 'install']
+                updatesBoundary[phase === 'install' ? 'download' : 'install']
             ).not.toHaveBeenCalled();
             expect(openUrl).not.toHaveBeenCalled();
             expect(wrapper.text()).toContain('temporary failure');

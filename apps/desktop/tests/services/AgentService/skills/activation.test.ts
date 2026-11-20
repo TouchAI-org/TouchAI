@@ -22,7 +22,7 @@ const { discoverUserSkillFilesMock, readEnabledUserSkillFileMock } = vi.hoisted(
     readEnabledUserSkillFileMock: vi.fn(),
 }));
 
-vi.mock('@/services/NativeService/skills', () => ({
+vi.mock('@/platform/native/skills', () => ({
     skills: {
         getUserSkillsRoot: vi.fn(async () => 'C:/Users/demo/.agents/skills'),
         discoverUserSkillFiles: discoverUserSkillFilesMock,
@@ -39,7 +39,7 @@ import {
     loadSelectedSkillsWithReader,
     MAX_SKILL_CONTENT_CHARS,
     summarizeLoadedSkills,
-} from '@/services/AgentService/skills';
+} from '@/modules/skills';
 
 describe('skill activation', () => {
     it('user gets a bounded error when selecting more than sixteen distinct skills', async () => {

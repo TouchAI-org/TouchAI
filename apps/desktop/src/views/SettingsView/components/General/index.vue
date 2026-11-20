@@ -3,10 +3,10 @@
     import CustomSelect from '@components/CustomSelect.vue';
     import SettingsRow from '@components/SettingsRow.vue';
     import { Switch } from '@components/ui/switch';
-    import { log } from '@services/ObservabilityService';
     import { storeToRefs } from 'pinia';
     import { computed, onMounted, ref, watch } from 'vue';
 
+    import { log } from '@/app/api/diagnostics';
     import { type SearchWindowSizePreset } from '@/config/searchWindow';
     import { type AppLocale, LOCALE_LABELS, SUPPORTED_LOCALES, t } from '@/i18n';
     import { type OutputScrollBehavior, useSettingsStore } from '@/stores/settings';

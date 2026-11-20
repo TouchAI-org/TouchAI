@@ -1,48 +1,35 @@
-import { native } from '@services/NativeService';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { getTauriInvokeCalls, mockTauriCommand } from '@tests/utils/tauri';
+import { createTestWindowPresentation } from '@tests/utils/windowPresentation';
+import { describe, expect, it } from 'vitest';
+import { createApp } from 'vue';
 
 import { createSessionStatusReminderCoordinator } from '@/views/SearchView/composables/sessionStatusReminder';
 
-vi.mock('@services/NativeService', () => ({
-    native: {
-        window: {
-            setTrayStatusIndicator: vi.fn(),
-            clearTrayStatusIndicator: vi.fn(),
-            clearSessionStatusReminderNotifications: vi.fn(),
-            showSessionStatusReminderNotification: vi.fn(),
-        },
-    },
-}));
-
-describe('user is reminded about a session that needs attention', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
-        vi.mocked(native.window.setTrayStatusIndicator).mockResolvedValue(undefined);
-        vi.mocked(native.window.clearTrayStatusIndicator).mockResolvedValue(undefined);
-        vi.mocked(native.window.clearSessionStatusReminderNotifications).mockResolvedValue(
-            undefined
-        );
-        vi.mocked(native.window.showSessionStatusReminderNotification).mockResolvedValue(undefined);
-    });
-
-    it('user still gets the notification when the tray indicator cannot be updated', async () => {
-        vi.mocked(native.window.setTrayStatusIndicator).mockRejectedValue(
-            new Error('tray unavailable')
-        );
-        const coordinator = createSessionStatusReminderCoordinator({
-            isSearchSurfaceForegrounded: () => false,
+describe('given a background session that needs attention', () => {
+    it('user receives the notification when updating the tray indicator fails', async () => {
+        mockTauriCommand('set_tray_status_indicator', () => {
+            throw new Error('tray unavailable');
         });
+        const presentation = await createTestWindowPresentation('main');
+        const app = createApp({ render: () => null });
+        presentation.provide(app);
+        const coordinator = app.runWithContext(() =>
+            createSessionStatusReminderCoordinator({
+                isSearchSurfaceForegrounded: () => false,
+            })
+        );
 
         coordinator.handleTaskStatusChanged({
             sessionId: 1,
-            taskId: 2,
+            taskId: 'reminder-task',
             previousStatus: 'running',
-            status: 'running',
-            reminder: { kind: 'completed' },
-        } as never);
+            status: 'completed',
+            reminder: { kind: 'completed', title: 'Session finished', body: 'Ready to view' },
+        });
         await Promise.resolve();
         await Promise.resolve();
 
-        expect(native.window.showSessionStatusReminderNotification).toHaveBeenCalled();
+        expect(getTauriInvokeCalls('show_session_status_reminder_notification')).toHaveLength(1);
+        expect(getTauriInvokeCalls('set_tray_status_indicator')).toHaveLength(1);
     });
 });

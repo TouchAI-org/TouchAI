@@ -28,11 +28,7 @@ vi.mock('markstream-vue', () => ({
     setDefaultI18nMap: vi.fn(),
 }));
 
-vi.mock('@services/NotificationService', () => ({ notify: vi.fn() }));
-
-vi.mock('@/services/ClipboardService', () => ({
-    clipboardService: { writeText: vi.fn() },
-}));
+vi.mock('@/app/api/windows/notifications', () => ({ notify: vi.fn() }));
 
 /**
  * The component pulls in the markdown renderer, so it is imported once in `beforeAll` and only

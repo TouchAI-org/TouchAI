@@ -1,676 +1,300 @@
-﻿// Copyright (c) 2026. Qian Cheng. Licensed under GPL v3.
-
-/**
- * Startup behavior.
- *
- * What a user observes from the boot path: a window that renders,
- * tray windows that start without the main-window warm-up, links that stay in
- * the app, and background work whose failure never blocks the window.
- *
- * The router and the i18n runtime are real; the router uses in-memory history
- * and stub screens so a click proves navigation happened without loading the
- * real settings screens.
- */
-import { appUpdateService } from '@services/AppUpdateService';
-import { initializeAppUpdateNotifications } from '@services/AppUpdateService/notifications';
-import { log } from '@services/ObservabilityService';
-import { getCurrentWindow } from '@tauri-apps/api/window';
+import { mockWindows } from '@tauri-apps/api/mocks';
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { defineComponent, h } from 'vue';
+import {
+    closeTestDatabases,
+    openMigratedDatabase,
+    routeQueriesTo,
+} from '@tests/database/sqliteHarness';
+import { network } from '@tests/utils/agentWindow';
+import { getTauriInvokeCalls, mockTauriCommand } from '@tests/utils/tauri';
+import { flushPromises } from '@vue/test-utils';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { type App, defineComponent, h } from 'vue';
 import { useRoute } from 'vue-router';
 
-import { initializeApp } from '@/bootstrap';
+import { initializeApp } from '@/app/bootstrap';
+import { resetObservabilityForTests } from '@/platform/diagnostics';
 import router from '@/router';
-import { initializeFontLoader } from '@/utils/font';
-
-const settingsStoreMock = vi.hoisted(() => ({
-    initialize: vi.fn(),
-    dispose: vi.fn(),
-    usageDetailRetentionDays: 0,
-}));
-
-const metadataMock = vi.hoisted(() => ({
-    refreshModelMetadataIfStale: vi.fn(),
-    syncAllModelsMetadata: vi.fn(),
-}));
-
-// 内置快照种子有独立入口（1.6MB 快照只在空库兜底时解析）。
-const metadataSeedMock = vi.hoisted(() => ({
-    seedModelMetadataFromSnapshot: vi.fn(),
-}));
-
-const toolServiceMock = vi.hoisted(() => ({
-    syncRegisteredTools: vi.fn(),
-}));
-
-const prewarmBashMock = vi.hoisted(() => vi.fn());
-
-const llmMetadataMock = vi.hoisted(() => ({
-    isLlmMetadataAliasEmpty: vi.fn(),
-    isLlmMetadataEmpty: vi.fn(),
-}));
-
-vi.mock('@/App.vue', () => ({
-    default: defineComponent({
-        name: 'AppStub',
-        setup() {
-            const route = useRoute();
-            return () => h('div', { 'data-testid': 'app-root' }, `route:${route.path}`);
-        },
-    }),
-}));
-
-vi.mock('@/router', async () => {
-    const { createMemoryHistory, createRouter } = await import('vue-router');
-    const screen = defineComponent({ name: 'ScreenStub', render: () => h('div') });
-    const memoryRouter = createRouter({
-        history: createMemoryHistory(),
-        routes: [
-            { path: '/', component: screen },
-            { path: '/settings', component: screen },
-            { path: '/tray-menu', component: screen },
-        ],
-    });
-    return { default: memoryRouter };
-});
-
-vi.mock('@/stores/settings', () => ({
-    useSettingsStore: () => settingsStoreMock,
-}));
-
-vi.mock('@/services/AgentService/infrastructure/modelMetadata', () => metadataMock);
-
-vi.mock('@/services/AgentService/infrastructure/modelMetadata/seed', () => metadataSeedMock);
-
-vi.mock('@/services/AgentService/infrastructure/modelMetadata/syncEntry', () => metadataMock);
-
-vi.mock('@/services/BuiltInToolService/service', () => ({
-    builtInToolService: toolServiceMock,
-}));
-
-vi.mock('@/services/BuiltInToolService/tools/bash/helper', () => ({
-    prewarmBashToolRuntime: prewarmBashMock,
-}));
-
-vi.mock('@services/UsageService/maintenance', () => ({
-    runUsageMaintenance: vi.fn().mockResolvedValue(undefined),
-}));
-
-vi.mock('@database/queries', () => llmMetadataMock);
-
-vi.mock('@services/AppUpdateService', () => ({
-    appUpdateService: {
-        checkNow: vi.fn(),
-        getAutomaticCheckInterval: vi.fn(() => 60 * 60 * 1000),
-        getLastCheckAttemptAt: vi.fn(() => null),
-    },
-}));
-
-vi.mock('@services/AppUpdateService/notifications', () => ({
-    initializeAppUpdateNotifications: vi.fn(),
-}));
-
-vi.mock('@services/ObservabilityService', async (importOriginal) => ({
-    ...(await importOriginal<typeof import('@services/ObservabilityService')>()),
-    initObservability: vi.fn(),
-}));
-
-vi.mock('@tauri-apps/api/window', () => ({
-    getCurrentWindow: vi.fn(),
-}));
+import { useSettingsStore } from '@/stores/settings';
 
 vi.mock('@tauri-apps/plugin-opener', () => ({
     openUrl: vi.fn(),
+    openPath: vi.fn(),
+    revealItemInDir: vi.fn(),
 }));
 
-vi.mock('@/utils/font', () => ({
-    initializeFontLoader: vi.fn(),
-}));
+// A small route keeps this test on the real root/bootstrap without loading unrelated screens.
+const screen = defineComponent({
+    setup() {
+        const route = useRoute();
+        const preferences = useSettingsStore();
+        return () =>
+            h(
+                'div',
+                { 'data-testid': 'startup-screen' },
+                `route:${route.path};speed:${preferences.animationSpeed}`
+            );
+    },
+});
+router.addRoute({ path: '/bootstrap-fixture', component: screen });
+router.addRoute({ path: '/bootstrap-next', component: screen });
 
-function stubRoot(): void {
-    const root = document.createElement('div');
-    root.id = 'app';
-    document.body.append(root);
-}
+let database: ReturnType<typeof openMigratedDatabase>;
+let release: (() => void) | undefined;
+const realOpen = window.open;
+const observeListeners = (target: EventTarget) => vi.spyOn(target, 'addEventListener');
+let windowListeners: ReturnType<typeof observeListeners>;
+let documentListeners: ReturnType<typeof observeListeners>;
+let lastApp: App | undefined;
+const root = () => document.querySelector<HTMLElement>('[data-testid="startup-screen"]');
 
-function mainWindowAt(hash = '/'): void {
-    stubRoot();
-    window.history.replaceState(null, '', hash);
-    vi.mocked(getCurrentWindow).mockReturnValue({ label: 'main' } as never);
-}
-
-/** Start the app and hand back what the user sees: the mounted root element. */
-async function startApp(): Promise<HTMLElement> {
-    await initializeApp();
-    const root = document.querySelector<HTMLElement>('[data-testid="app-root"]');
-    if (!root) throw new Error('app root did not mount');
-    return root;
-}
-
-beforeEach(() => {
+beforeEach(async () => {
+    database = openMigratedDatabase();
+    routeQueriesTo(database);
+    database.exec(`INSERT INTO settings (key,value) VALUES ('animation_speed','faster'),('language','en-US'),('app_update_auto_check','false');
+        INSERT INTO llm_metadata (model_id,name,modalities) VALUES ('cached','Cached model','{}');
+        INSERT INTO llm_metadata_aliases (alias,model_id) VALUES ('cached','cached');`);
+    mockWindows('main');
+    mockTauriCommand('get_runtime_info', { isE2eTestMode: false });
+    mockTauriCommand('get_app_directory_path', '/fixture/fonts');
+    mockTauriCommand('mcp_get_all_client_statuses', []);
+    mockTauriCommand('computer_use_list_tools', []);
+    mockTauriCommand('agent_skills_discover_system_files', []);
+    mockTauriCommand('agent_skills_discover_user_files', []);
+    network.respondToDiscovery = async () => new Response(null, { status: 304 });
+    vi.mocked(openUrl).mockReset().mockResolvedValue(undefined);
+    document.body.innerHTML = '<div id="app"></div>';
+    await router.replace('/bootstrap-fixture');
+    windowListeners = observeListeners(window);
+    documentListeners = observeListeners(document);
+});
+afterEach(async () => {
+    release?.();
+    release = undefined;
     window.dispatchEvent(new Event('pagehide'));
-    vi.clearAllMocks();
+    await flushPromises();
+    lastApp = (document.getElementById('app') as HTMLElement & { __vue_app__?: App })?.__vue_app__;
+    lastApp?.unmount();
+    resetObservabilityForTests();
+    for (const [event, handler, options] of windowListeners?.mock.calls ?? [])
+        if (handler) window.removeEventListener(event, handler, options);
+    for (const [event, handler, options] of documentListeners?.mock.calls ?? [])
+        if (handler) document.removeEventListener(event, handler, options);
+    windowListeners?.mockRestore();
+    documentListeners?.mockRestore();
+    window.open = realOpen;
     document.body.innerHTML = '';
-    vi.mocked(getCurrentWindow).mockReturnValue({ label: 'main' } as never);
-    vi.mocked(openUrl).mockResolvedValue(undefined);
-    vi.mocked(initializeAppUpdateNotifications).mockResolvedValue(undefined);
-    vi.mocked(appUpdateService.checkNow).mockResolvedValue(false);
-    vi.mocked(appUpdateService.getAutomaticCheckInterval).mockReturnValue(60 * 60 * 1000);
-    vi.mocked(appUpdateService.getLastCheckAttemptAt).mockReturnValue(null);
-    vi.mocked(toolServiceMock.syncRegisteredTools).mockResolvedValue(undefined);
-    vi.mocked(prewarmBashMock).mockResolvedValue(undefined);
-    vi.mocked(llmMetadataMock.isLlmMetadataEmpty).mockResolvedValue(false);
-    vi.mocked(llmMetadataMock.isLlmMetadataAliasEmpty).mockResolvedValue(false);
-    vi.mocked(metadataMock.syncAllModelsMetadata).mockResolvedValue(undefined);
-    vi.mocked(metadataSeedMock.seedModelMetadataFromSnapshot).mockResolvedValue(undefined);
-    vi.mocked(metadataMock.refreshModelMetadataIfStale).mockResolvedValue({ status: 'unchanged' });
-    settingsStoreMock.initialize.mockResolvedValue(undefined);
+    closeTestDatabases();
 });
+async function start() {
+    await initializeApp();
+    await expect.poll(() => root()?.textContent).toContain('route:/bootstrap-fixture');
+    return root()!;
+}
+function click(href: string, nested = false) {
+    const anchor = document.createElement('a');
+    anchor.href = href;
+    const target = nested ? anchor.appendChild(document.createElement('span')) : anchor;
+    document.body.append(anchor);
+    return target.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+}
 
-describe('user opens the main window', () => {
-    it('user sees the app rendered with routing and translations installed', async () => {
-        mainWindowAt();
-
-        const root = await startApp();
-
-        expect(root.textContent).toBe('route:/');
+describe('given the actual application bootstrap owns main startup', () => {
+    it('user opens main and sees real routing and committed preferences on its first frame', async () => {
+        expect((await start()).textContent).toBe('route:/bootstrap-fixture;speed:faster');
     });
-
-    it('user never sees default settings because saved ones load before the window renders', async () => {
-        mainWindowAt();
-        let rootVisibleWhileLoading: boolean | null = null;
-        let finishLoading!: () => void;
-        settingsStoreMock.initialize.mockImplementation(
-            () =>
-                new Promise<void>((resolve) => {
-                    rootVisibleWhileLoading =
-                        document.querySelector('[data-testid="app-root"]') !== null;
-                    finishLoading = resolve;
-                })
-        );
-
+    it('user waits for saved preferences before seeing a default-valued first frame', async () => {
+        let waiting = false;
+        const barrier = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        routeQueriesTo(database, {
+            beforeQuery({ sql }) {
+                if (sql.startsWith('select') && sql.includes('from "settings"')) {
+                    waiting = true;
+                    return barrier;
+                }
+            },
+        });
         const startup = initializeApp();
-        await vi.waitFor(() => expect(settingsStoreMock.initialize).toHaveBeenCalled());
-
-        expect(rootVisibleWhileLoading).toBe(false);
-
-        finishLoading();
+        await expect.poll(() => waiting).toBe(true);
+        expect(root()).toBeNull();
+        release!();
         await startup;
-        expect(document.querySelector('[data-testid="app-root"]')).not.toBeNull();
+        expect(root()?.textContent).toContain('speed:faster');
     });
-
-    it('user gets the window before the background warm-up finishes', async () => {
-        mainWindowAt();
-        let finishTools!: () => void;
-        toolServiceMock.syncRegisteredTools.mockImplementation(
-            () =>
-                new Promise<void>((resolve) => {
-                    finishTools = resolve;
-                })
-        );
-
-        // 后台能力未完成时窗口也必须已挂载：首帧不被工具补种阻塞。
-        await initializeApp();
-        expect(document.querySelector('[data-testid="app-root"]')).not.toBeNull();
-
-        // 后台能力通过动态 import 启动，等待它真正进入补种调用后再放行。
-        await vi.waitFor(() => expect(finishTools).toBeTypeOf('function'));
-        finishTools();
-        await vi.waitFor(() => expect(toolServiceMock.syncRegisteredTools).toHaveBeenCalled());
+    it('user sees a usable frame while tool registration is still waiting on storage', async () => {
+        let waiting = false;
+        const barrier = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        routeQueriesTo(database, {
+            beforeQuery({ sql }) {
+                if (sql.includes('built_in_tools')) {
+                    waiting = true;
+                    return barrier;
+                }
+            },
+        });
+        await start();
+        await expect.poll(() => waiting).toBe(true);
+        expect(root()).not.toBeNull();
+        release!();
     });
-
-    it('user still gets a usable window when the saved settings cannot be loaded', async () => {
-        mainWindowAt();
-        const errorSpy = vi.spyOn(log, 'error').mockImplementation(() => {});
-        settingsStoreMock.initialize.mockRejectedValue(new Error('settings unavailable'));
-
+    it('user retains a usable frame when saved preferences cannot be read', async () => {
+        routeQueriesTo(database, {
+            beforeQuery({ sql }) {
+                if (sql.startsWith('select') && sql.includes('from "settings"'))
+                    throw new Error('fixture settings unavailable');
+            },
+        });
         await expect(initializeApp()).resolves.toBeUndefined();
-
-        expect(document.querySelector('[data-testid="app-root"]')).not.toBeNull();
-        errorSpy.mockRestore();
+        expect(root()).not.toBeNull();
     });
-
-    it('user gets the serif font prepared for the main window', async () => {
-        mainWindowAt();
-
-        await startApp();
-
-        expect(initializeFontLoader).toHaveBeenCalledTimes(1);
+    it('user retains a usable frame when optional tool registration fails', async () => {
+        routeQueriesTo(database, {
+            beforeQuery({ sql }) {
+                if (sql.includes('built_in_tools'))
+                    throw new Error('fixture tool storage unavailable');
+            },
+        });
+        await start();
+        expect(root()).not.toBeNull();
     });
-
-    it('user releases settings listeners when the window leaves', async () => {
-        mainWindowAt();
-        const addListener = vi.spyOn(window, 'addEventListener');
-        await startApp();
-        const startupHandlers = addListener.mock.calls
-            .filter(([type]) => type === 'pagehide' || type === 'beforeunload')
-            .map(([, handler]) => handler as EventListener);
-        addListener.mockRestore();
-
-        for (const handler of startupHandlers) {
-            handler(new Event('pagehide'));
-        }
-
-        expect(settingsStoreMock.dispose).toHaveBeenCalled();
+    it('user opens main and the product font is requested through the native files boundary', async () => {
+        await start();
+        await expect
+            .poll(() => getTauriInvokeCalls('get_app_directory_path'))
+            .toContainEqual(expect.objectContaining({ payload: { directory: 'ASSETS_FONT' } }));
     });
-
-    it('user still gets a window when the built-in tool warm-up fails', async () => {
-        mainWindowAt();
-        const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
-        toolServiceMock.syncRegisteredTools.mockRejectedValue(new Error('tool sync failed'));
-
-        await expect(initializeApp()).resolves.toBeUndefined();
-
-        expect(document.querySelector('[data-testid="app-root"]')).not.toBeNull();
-        warn.mockRestore();
+    it('user closes main and no later online event starts detached update work', async () => {
+        await start();
+        window.dispatchEvent(new Event('pagehide'));
+        await flushPromises();
+        const calls = getTauriInvokeCalls('updater_check_for_updates').length;
+        window.dispatchEvent(new Event('online'));
+        await flushPromises();
+        expect(getTauriInvokeCalls('updater_check_for_updates')).toHaveLength(calls);
     });
 });
 
-describe('user opens the tray menu or settings', () => {
-    it('user gets the tray immediately while its motion preferences load in the background', async () => {
-        stubRoot();
-        vi.mocked(getCurrentWindow).mockReturnValue({ label: 'tray-menu' } as never);
-        let finish!: () => void;
-        settingsStoreMock.initialize.mockReturnValue(
-            new Promise<void>((resolve) => {
-                finish = resolve;
-            })
-        );
-        await initializeApp();
-        expect(document.querySelector('[data-testid="app-root"]')).not.toBeNull();
-        expect(settingsStoreMock.initialize).toHaveBeenCalledOnce();
-        finish();
+describe('given auxiliary windows use the same bootstrap as bounded clients', () => {
+    it('user opens Tray and sees its frame before a main preference owner is available', async () => {
+        mockWindows('tray-menu');
+        await start();
+        expect(root()).not.toBeNull();
+        expect(getTauriInvokeCalls('database_query')).toEqual([]);
+        expect(getTauriInvokeCalls('get_app_directory_path')).toEqual([]);
+        expect(network.discovery).toEqual([]);
     });
-    it.each([
-        [
-            'the tray menu route',
-            () => {
-                stubRoot();
-                window.history.replaceState(null, '', '/#/tray-menu');
-            },
-        ],
-        [
-            'the tray menu window',
-            () => {
-                stubRoot();
-                window.history.replaceState(null, '', '/');
-                vi.mocked(getCurrentWindow).mockReturnValue({ label: 'tray-menu' } as never);
-            },
-        ],
-    ])('user gets a fast window with no font or tool warm-up on %s', async (_name, arrange) => {
-        arrange();
-
-        await startApp();
-
-        expect(initializeFontLoader).not.toHaveBeenCalled();
-        expect(toolServiceMock.syncRegisteredTools).not.toHaveBeenCalled();
-        expect(metadataMock.syncAllModelsMetadata).not.toHaveBeenCalled();
-        expect(initializeAppUpdateNotifications).not.toHaveBeenCalled();
-    });
-
-    it.each(['window label', 'route'])(
-        'user given computer control feedback when starting by %s then gets the product font without tool warm-up',
-        async (entry) => {
-            stubRoot();
-            window.history.replaceState(null, '', entry === 'route' ? '/#/computer-use-glow' : '/');
-            vi.mocked(getCurrentWindow).mockReturnValue({
-                label: entry === 'window label' ? 'computer-use-glow' : 'main',
-            } as never);
-
-            const root = await startApp();
-
-            expect(root).not.toBeNull();
-            expect(initializeFontLoader).toHaveBeenCalledOnce();
-            expect(toolServiceMock.syncRegisteredTools).not.toHaveBeenCalled();
-            expect(metadataMock.syncAllModelsMetadata).not.toHaveBeenCalled();
-            expect(initializeAppUpdateNotifications).not.toHaveBeenCalled();
+    it.each(['computer-use-glow', 'tray-menu'])(
+        'user opens %s without creating tool or update authority',
+        async (label) => {
+            mockWindows(label);
+            await start();
+            expect(getTauriInvokeCalls('computer_use_list_tools')).toEqual([]);
+            expect(getTauriInvokeCalls('updater_check_for_updates')).toEqual([]);
+            expect(network.discovery).toEqual([]);
+            if (label === 'computer-use-glow')
+                await expect
+                    .poll(() => getTauriInvokeCalls('get_app_directory_path').length)
+                    .toBeGreaterThan(0);
         }
     );
-
-    it('user sees the settings window without waiting for the main-window warm-up', async () => {
-        stubRoot();
-        window.history.replaceState(null, '', '/#/settings');
-        let releaseWarmUp!: () => void;
-        toolServiceMock.syncRegisteredTools.mockReturnValue(
-            new Promise<void>((resolve) => {
-                releaseWarmUp = resolve;
-            })
-        );
-
-        try {
-            const startup = initializeApp();
-
-            await vi.waitFor(() =>
-                expect(document.querySelector('[data-testid="app-root"]')).not.toBeNull()
-            );
-            expect(toolServiceMock.syncRegisteredTools).not.toHaveBeenCalled();
-            releaseWarmUp();
-            await startup;
-        } finally {
-            releaseWarmUp();
-        }
-    });
 });
 
-describe('user clicks a link inside the app', () => {
-    function anchorClick(href: string): boolean {
-        const anchor = document.createElement('a');
-        anchor.href = href;
-        anchor.textContent = 'link';
-        document.body.append(anchor);
-        return anchor.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    }
-
-    it('user stays in the app when clicking an app-relative link', async () => {
-        mainWindowAt();
-        await startApp();
-        const push = vi.spyOn(router, 'push');
-
-        expect(anchorClick('/settings')).toBe(false);
-
-        expect(push).toHaveBeenCalledWith('/settings');
+describe('given links are handled by the actual application bootstrap', () => {
+    it('user clicks an app-relative link and navigates inside the real router', async () => {
+        await start();
+        expect(click('/bootstrap-next')).toBe(false);
+        await expect.poll(() => root()?.textContent).toContain('route:/bootstrap-next');
         expect(openUrl).not.toHaveBeenCalled();
     });
-
-    it('user sees an external link open in the system browser', async () => {
-        mainWindowAt();
-        await startApp();
-
-        const anchor = document.createElement('a');
-        anchor.href = 'https://example.com/docs';
-        const child = document.createElement('span');
-        anchor.append(child);
-        document.body.append(anchor);
-
-        const dispatched = child.dispatchEvent(
-            new MouseEvent('click', { bubbles: true, cancelable: true })
-        );
-
-        expect(dispatched).toBe(false);
+    it('user clicks a nested external link and opens it in the system browser', async () => {
+        await start();
+        expect(click('https://example.com/docs', true)).toBe(false);
         expect(openUrl).toHaveBeenCalledWith('https://example.com/docs');
     });
-
-    it('user is not navigated by a click that is not a link', async () => {
-        mainWindowAt();
-        await startApp();
-        const push = vi.spyOn(router, 'push');
-
+    it('user clicks ordinary content without opening a browser or changing routes', async () => {
+        await start();
         document.body.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-
+        expect(root()?.textContent).toContain('route:/bootstrap-fixture');
         expect(openUrl).not.toHaveBeenCalled();
-        expect(push).not.toHaveBeenCalled();
     });
-});
-
-describe('user follows a link opened by app code', () => {
-    const realOpen = window.open;
-
-    /** The browser's own window.open, captured by the interceptor during startup. */
-    async function startWithBrowserOpen(): Promise<ReturnType<typeof vi.fn>> {
-        const browserOpen = vi.fn(() => ({ name: 'window' }) as unknown as Window);
-        window.open = browserOpen as unknown as typeof window.open;
-        mainWindowAt();
-        await startApp();
-        return browserOpen;
-    }
-
-    afterEach(() => {
-        window.open = realOpen;
-    });
-
-    it('user keeps app links in the app and sends external links to the system browser', async () => {
-        const browserOpen = await startWithBrowserOpen();
-
-        expect(window.open('/settings', '_self', 'noopener')).toEqual({ name: 'window' });
-        expect(window.open('https://example.com/docs', '_blank')).toBeNull();
-
-        expect(browserOpen).toHaveBeenCalledWith('/settings', '_self', 'noopener');
+    it('user opens links from application code and keeps local links in the current browser', async () => {
+        const browserOpen = vi.fn(() => ({ name: 'window' }) as Window);
+        window.open = browserOpen as typeof window.open;
+        await start();
+        for (const href of [
+            '/bootstrap-next',
+            'tauri://localhost/settings',
+            'asset://localhost/icon.png',
+        ])
+            expect(window.open(href)).toEqual({ name: 'window' });
+        expect(browserOpen).toHaveBeenCalledTimes(3);
+        expect(window.open('https://example.com/docs')).toBeNull();
         expect(openUrl).toHaveBeenCalledWith('https://example.com/docs');
     });
-
-    it('user keeps Tauri and asset URLs inside the app window', async () => {
-        const browserOpen = await startWithBrowserOpen();
-
-        expect(window.open('tauri://localhost/settings')).toEqual({ name: 'window' });
-        expect(window.open('asset://localhost/icon.png')).toEqual({ name: 'window' });
-
-        expect(browserOpen).toHaveBeenCalledTimes(2);
-        expect(openUrl).not.toHaveBeenCalled();
-    });
-
-    it('user gets the malformed link handed to the system browser instead of a crash', async () => {
-        await startWithBrowserOpen();
-
+    it('user opens a malformed external link without crashing the application', async () => {
+        await start();
         expect(window.open('http://[bad')).toBeNull();
         expect(openUrl).toHaveBeenCalledWith('http://[bad');
     });
 });
 
-describe('user leaves the app running overnight', () => {
-    it('user gets a bounded retry schedule and a fresh check on reconnect without duplicate timers', async () => {
-        const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(new Date(2026, 10, 10, 10).getTime());
-        const timeoutSpy = vi.spyOn(window, 'setTimeout').mockImplementation(vi.fn() as never);
-        vi.mocked(appUpdateService.getAutomaticCheckInterval).mockReturnValue(60_000);
-        try {
-            mainWindowAt();
-            await startApp();
-            await vi.waitFor(() =>
-                expect(timeoutSpy).toHaveBeenCalledWith(expect.any(Function), 60_000)
-            );
-            vi.mocked(appUpdateService.checkNow).mockClear();
-            window.dispatchEvent(new Event('online'));
-            await vi.waitFor(() => expect(appUpdateService.checkNow).toHaveBeenCalledOnce());
-            window.dispatchEvent(new Event('pagehide'));
-            vi.mocked(appUpdateService.checkNow).mockClear();
-            window.dispatchEvent(new Event('online'));
-            await Promise.resolve();
-            expect(appUpdateService.checkNow).not.toHaveBeenCalled();
-        } finally {
-            nowSpy.mockRestore();
-            timeoutSpy.mockRestore();
-        }
+describe('given main starts optional model metadata after paint', () => {
+    it('user receives bundled metadata when the existing cache is empty', async () => {
+        database.exec('DELETE FROM llm_metadata_aliases; DELETE FROM llm_metadata');
+        await start();
+        await expect
+            .poll(
+                () => Number(database.prepare('SELECT count(*) AS n FROM llm_metadata').get()!.n),
+                { timeout: 15000 }
+            )
+            .toBeGreaterThan(0);
+    }, 20000);
+    it('user retains cached metadata and aliases without replaying the bundled seed', async () => {
+        await start();
+        await expect.poll(() => network.discovery.length).toBe(1);
+        expect(database.prepare('SELECT model_id FROM llm_metadata').all()).toEqual([
+            { model_id: 'cached' },
+        ]);
     });
-
-    it('user gets an automatic update check once the daily window opens', async () => {
-        const nowSpy = vi
-            .spyOn(Date, 'now')
-            .mockReturnValue(new Date(2026, 9, 18, 7, 30).getTime());
-        const timeoutSpy = vi.spyOn(window, 'setTimeout').mockImplementation(vi.fn() as never);
-        try {
-            mainWindowAt();
-            await startApp();
-            for (let index = 0; index < 12; index += 1) await Promise.resolve();
-
-            expect(appUpdateService.checkNow).not.toHaveBeenCalled();
-            const timer = timeoutSpy.mock.calls.find(([, delay]) => delay === 30 * 60 * 1000)?.[0];
-            expect(timer).toBeTypeOf('function');
-
-            nowSpy.mockReturnValue(new Date(2026, 9, 18, 8).getTime());
-            timeoutSpy.mockClear();
-            await (timer as () => Promise<void>)();
-
-            expect(appUpdateService.checkNow).toHaveBeenCalledWith('automatic');
-            expect(timeoutSpy).toHaveBeenCalledWith(expect.any(Function), 60 * 60 * 1000);
-
-            // After midnight the window is closed again, so the next check waits for 08:00.
-            vi.mocked(appUpdateService.checkNow).mockClear();
-            timeoutSpy.mockClear();
-            nowSpy.mockReturnValue(new Date(2026, 9, 19, 0).getTime());
-            await (timer as () => Promise<void>)();
-
-            expect(appUpdateService.checkNow).not.toHaveBeenCalled();
-            expect(timeoutSpy).toHaveBeenCalledWith(expect.any(Function), 8 * 60 * 60 * 1000);
-        } finally {
-            nowSpy.mockRestore();
-            timeoutSpy.mockRestore();
-        }
+    it('user receives bundled aliases when the cached model list has no aliases', async () => {
+        database.exec('DELETE FROM llm_metadata_aliases');
+        await start();
+        await expect
+            .poll(
+                () =>
+                    Number(
+                        database.prepare('SELECT count(*) AS n FROM llm_metadata_aliases').get()!.n
+                    ),
+                { timeout: 15000 }
+            )
+            .toBeGreaterThan(0);
+    }, 20000);
+    it('user keeps a usable frame when bundled metadata storage refuses the seed', async () => {
+        database.exec('DELETE FROM llm_metadata_aliases; DELETE FROM llm_metadata');
+        routeQueriesTo(database, {
+            beforeQuery({ sql }) {
+                if (sql.startsWith('insert into "llm_metadata"'))
+                    throw new Error('fixture metadata storage unavailable');
+            },
+        });
+        await start();
+        await expect.poll(() => network.discovery.length).toBe(1);
+        expect(root()).not.toBeNull();
+        expect(database.prepare('SELECT count(*) AS n FROM llm_metadata').get()).toEqual({ n: 0 });
     });
-
-    it('user keeps a one-hour rhythm when a check takes minutes', async () => {
-        const startedAt = new Date(2026, 9, 18, 10).getTime();
-        const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(startedAt);
-        const timeoutSpy = vi.spyOn(window, 'setTimeout').mockImplementation(vi.fn() as never);
-        let finishCheck!: (checked: boolean) => void;
-        vi.mocked(appUpdateService.checkNow).mockReturnValueOnce(
-            new Promise<boolean>((resolve) => {
-                finishCheck = resolve;
-            })
-        );
-
-        try {
-            mainWindowAt();
-            await startApp();
-            for (let index = 0; index < 12; index += 1) await Promise.resolve();
-
-            expect(appUpdateService.checkNow).toHaveBeenCalledOnce();
-            expect(timeoutSpy).not.toHaveBeenCalled();
-
-            nowSpy.mockReturnValue(startedAt + 2 * 60 * 1000);
-            finishCheck(true);
-            for (let index = 0; index < 12; index += 1) await Promise.resolve();
-
-            expect(timeoutSpy).toHaveBeenCalledWith(expect.any(Function), 60 * 60 * 1000);
-            const nextCheck = timeoutSpy.mock.calls[0]![0] as () => Promise<void>;
-            nowSpy.mockReturnValue(startedAt + 62 * 60 * 1000);
-            await nextCheck();
-            expect(appUpdateService.checkNow).toHaveBeenCalledTimes(2);
-        } finally {
-            finishCheck(false);
-            nowSpy.mockRestore();
-            timeoutSpy.mockRestore();
-        }
-    });
-    it('user keeps the original deadline when reconnecting before the interval is due', async () => {
-        const startedAt = new Date(2026, 9, 18, 10).getTime();
-        const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(startedAt);
-        const timeoutSpy = vi.spyOn(window, 'setTimeout').mockImplementation(vi.fn() as never);
-        vi.mocked(appUpdateService.checkNow).mockResolvedValue(true);
-        vi.mocked(appUpdateService.getLastCheckAttemptAt).mockReturnValue(
-            new Date(startedAt).toISOString()
-        );
-
-        try {
-            mainWindowAt();
-            await startApp();
-
-            // The check ran and set the next deadline one interval later.
-            await vi.waitFor(() =>
-                expect(timeoutSpy).toHaveBeenCalledWith(expect.any(Function), 60 * 60 * 1000)
-            );
-            timeoutSpy.mockClear();
-            vi.mocked(appUpdateService.checkNow).mockResolvedValue(false);
-            vi.mocked(appUpdateService.checkNow).mockClear();
-
-            // Reconnecting 59 minutes later must not push the deadline to 11:59.
-            nowSpy.mockReturnValue(startedAt + 59 * 60 * 1000);
-            window.dispatchEvent(new Event('online'));
-
-            await vi.waitFor(() =>
-                expect(timeoutSpy).toHaveBeenCalledWith(expect.any(Function), 60 * 1000)
-            );
-        } finally {
-            nowSpy.mockRestore();
-            timeoutSpy.mockRestore();
-        }
-    });
-
-    it('user never gets a zero-delay retry loop from a stale check timestamp', async () => {
-        const now = new Date(2026, 9, 18, 10).getTime();
-        const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(now);
-        const timeoutSpy = vi.spyOn(window, 'setTimeout').mockImplementation(vi.fn() as never);
-        vi.mocked(appUpdateService.checkNow).mockResolvedValue(false);
-        vi.mocked(appUpdateService.getLastCheckAttemptAt).mockReturnValue(
-            new Date(2026, 9, 17, 10).toISOString()
-        );
-
-        try {
-            mainWindowAt();
-            await startApp();
-
-            await vi.waitFor(() =>
-                expect(timeoutSpy).toHaveBeenCalledWith(expect.any(Function), 60 * 60 * 1000)
-            );
-            expect(timeoutSpy).not.toHaveBeenCalledWith(expect.any(Function), 0);
-        } finally {
-            nowSpy.mockRestore();
-            timeoutSpy.mockRestore();
-        }
-    });
-});
-
-describe('user starts the app for the first time', () => {
-    it('user sees bundled model metadata seeded when the local catalog is empty', async () => {
-        llmMetadataMock.isLlmMetadataEmpty.mockResolvedValue(true);
-        mainWindowAt();
-
-        await startApp();
-
-        await vi.waitFor(() =>
-            expect(metadataSeedMock.seedModelMetadataFromSnapshot).toHaveBeenCalledTimes(1)
-        );
-        expect(metadataMock.syncAllModelsMetadata).not.toHaveBeenCalled();
-    });
-
-    it('user sees the cached catalog synchronized when the local catalog exists', async () => {
-        const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-        mainWindowAt();
-
-        await startApp();
-
-        // 本地目录已存在时走同步分支而不再重播内置快照。
-        // （同步函数在启动阶段由动态 import 引入，测试里只验证分支选择。）
-        await vi.waitFor(() => expect(llmMetadataMock.isLlmMetadataAliasEmpty).toHaveBeenCalled());
-        expect(metadataSeedMock.seedModelMetadataFromSnapshot).not.toHaveBeenCalled();
-        consoleWarn.mockRestore();
-    });
-
-    it('user sees bundled metadata reseeded when the cached catalog has no aliases', async () => {
-        llmMetadataMock.isLlmMetadataAliasEmpty.mockResolvedValue(true);
-        mainWindowAt();
-
-        await startApp();
-
-        await vi.waitFor(() =>
-            expect(metadataSeedMock.seedModelMetadataFromSnapshot).toHaveBeenCalledTimes(1)
-        );
-        expect(metadataMock.syncAllModelsMetadata).not.toHaveBeenCalled();
-    });
-
-    it('user still gets a window when seeding bundled metadata fails', async () => {
-        const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
-        llmMetadataMock.isLlmMetadataEmpty.mockResolvedValue(true);
-        metadataSeedMock.seedModelMetadataFromSnapshot.mockRejectedValue(
-            new Error('snapshot unavailable')
-        );
-        mainWindowAt();
-
-        await expect(initializeApp()).resolves.toBeUndefined();
-
-        expect(document.querySelector('[data-testid="app-root"]')).not.toBeNull();
-        warn.mockRestore();
-    });
-
-    it('user still gets a window when the remote catalog check fails', async () => {
-        const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
-        metadataMock.refreshModelMetadataIfStale.mockRejectedValue(
-            new Error('metadata unavailable')
-        );
-        mainWindowAt();
-
-        await startApp();
-
-        await vi.waitFor(() => expect(warn).toHaveBeenCalled());
-        warn.mockRestore();
-    });
-
-    it('user gets the remote catalog checked after the window is already usable', async () => {
-        mainWindowAt();
-
-        await startApp();
-
-        await vi.waitFor(() =>
-            expect(metadataMock.refreshModelMetadataIfStale).toHaveBeenCalledTimes(1)
-        );
+    it('user keeps a usable frame while an optional remote catalog check fails after paint', async () => {
+        let paintedAtRequest = false;
+        network.respondToDiscovery = async () => {
+            paintedAtRequest = root() !== null;
+            throw new Error('fixture catalog unavailable');
+        };
+        await start();
+        await expect.poll(() => network.discovery.length).toBe(1);
+        expect(paintedAtRequest).toBe(true);
+        expect(root()).not.toBeNull();
     });
 });

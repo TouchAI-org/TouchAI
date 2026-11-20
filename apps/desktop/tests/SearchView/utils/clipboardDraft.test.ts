@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ref } from 'vue';
 
-import type { ClipboardPayload } from '@/services/NativeService/types';
+import type { ClipboardPayload } from '@/platform/native/types';
 import {
     applyClipboardPayloadToDraft,
     canAutoPasteIntoDraft,

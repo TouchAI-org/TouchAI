@@ -1,8 +1,11 @@
 import type { UsageLiveTurn, UsageSummary, UsageTrendPoint } from '@database/queries/usageStats';
-import type { SessionTaskUsageProgressEvent } from '@services/EventService';
+import { emit } from '@tauri-apps/api/event';
+import { createTestWindowPresentation } from '@tests/utils/windowPresentation';
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
+import { beforeEach as beforePresentation } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { AppEvent, type SessionTaskUsageProgressEvent } from '@/app/api/usage/events';
 import { setLocale } from '@/i18n';
 import UsageDashboard from '@/views/SettingsView/components/Usage/components/UsageDashboard.vue';
 
@@ -12,18 +15,6 @@ import UsageDashboard from '@/views/SettingsView/components/Usage/components/Usa
  * file covers what a user does with a running turn — reading the live speed,
  * hovering the curve for a reading, and walking it with the keyboard.
  */
-
-const listeners = vi.hoisted(() => new Map<string, (payload: unknown) => void>());
-
-vi.mock('@services/EventService', () => ({
-    AppEvent: { SESSION_TASK_USAGE_PROGRESS: 'session:task:usage-progress' },
-    eventService: {
-        on: vi.fn(async (event: string, listener: (payload: unknown) => void) => {
-            listeners.set(event, listener);
-            return () => listeners.delete(event);
-        }),
-    },
-}));
 
 const summary: UsageSummary = {
     requestCount: 6,
@@ -92,18 +83,26 @@ function mountDashboard(overrides: Record<string, unknown> = {}) {
             range: { preset: '7d', from: '2026-05-01 00:00:00', to: '2026-05-08 00:00:00' },
             ...overrides,
         },
-        global: { stubs: { AppIcon: true, AnimatedCounter: true } },
+        global: {
+            stubs: {
+                AppIcon: true,
+                AnimatedCounter: {
+                    props: ['value', 'prefix', 'suffix'],
+                    template: '<span>{{ prefix }}{{ value }}{{ suffix }}</span>',
+                },
+            },
+        },
     });
 }
 
 function emitProgress(payload: SessionTaskUsageProgressEvent) {
-    listeners.get('session:task:usage-progress')?.(payload);
+    return emit(AppEvent.SESSION_TASK_USAGE_PROGRESS, payload);
 }
 
 async function mountLive(overrides: Record<string, unknown> = {}) {
     const wrapper = mountDashboard(overrides);
     await flushPromises();
-    emitProgress(progressEvent());
+    await emitProgress(progressEvent());
     await flushPromises();
     return wrapper;
 }
@@ -144,7 +143,6 @@ function hoverAt(wrapper: ReturnType<typeof mountDashboard>, fraction: number) {
 
 beforeEach(() => {
     setLocale('zh-CN');
-    listeners.clear();
     vi.useFakeTimers();
 });
 
@@ -156,7 +154,6 @@ afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
     vi.clearAllMocks();
-    listeners.clear();
     document.body.innerHTML = '';
 });
 
@@ -204,7 +201,7 @@ describe('user watches a turn stream', () => {
         await vi.advanceTimersByTimeAsync(600);
         await flushPromises();
 
-        emitProgress(progressEvent({ streaming: false }));
+        await emitProgress(progressEvent({ streaming: false }));
         await flushPromises();
 
         // The tail is still readable inside the grace window.
@@ -215,7 +212,7 @@ describe('user watches a turn stream', () => {
     it('user falls back to the range view once the grace window has passed', async () => {
         const wrapper = await mountLive();
         await vi.advanceTimersByTimeAsync(600);
-        emitProgress(progressEvent({ streaming: false }));
+        await emitProgress(progressEvent({ streaming: false }));
         await flushPromises();
 
         await vi.advanceTimersByTimeAsync(20_000);
@@ -229,7 +226,7 @@ describe('user watches a turn stream', () => {
     it('user gets the finished turn reported so the parent can stop tracking it', async () => {
         const wrapper = await mountLive();
 
-        emitProgress(progressEvent({ streaming: false }));
+        await emitProgress(progressEvent({ streaming: false }));
         await flushPromises();
 
         expect(lastTrackedTasks(wrapper)).toEqual([['task-1']]);
@@ -238,7 +235,7 @@ describe('user watches a turn stream', () => {
 
     it('user gets a long-finished turn dropped from the live set', async () => {
         const wrapper = await mountLive();
-        emitProgress(progressEvent({ streaming: false }));
+        await emitProgress(progressEvent({ streaming: false }));
         await flushPromises();
         const before = trackedTaskCalls(wrapper).length;
 
@@ -558,12 +555,12 @@ describe('user leaves the dashboard', () => {
         const wrapper = await mountLive();
         await vi.advanceTimersByTimeAsync(600);
 
+        const trackedBeforeLeaving = trackedTaskCalls(wrapper).length;
         wrapper.unmount();
-        emitProgress(progressEvent({ taskId: 'late' }));
+        await emitProgress(progressEvent({ taskId: 'late' }));
         await vi.advanceTimersByTimeAsync(600);
 
-        // Nothing throws after unmount and the listener was released.
-        expect(listeners.has('session:task:usage-progress')).toBe(false);
+        expect(trackedTaskCalls(wrapper)).toHaveLength(trackedBeforeLeaving);
     });
 });
 
@@ -670,7 +667,7 @@ describe('user resizes the dashboard', () => {
 describe('user leaves the dashboard open for a while', () => {
     it('user gets a finished turn dropped from tracking once it is old', async () => {
         const wrapper = await mountLive();
-        emitProgress(progressEvent({ streaming: false }));
+        await emitProgress(progressEvent({ streaming: false }));
         await flushPromises();
         const before = trackedTaskCalls(wrapper).length;
 
@@ -681,4 +678,8 @@ describe('user leaves the dashboard open for a while', () => {
         expect(trackedTaskCalls(wrapper).length).toBeGreaterThan(before);
         wrapper.unmount();
     });
+});
+
+beforePresentation(async () => {
+    (await createTestWindowPresentation('settings')).install();
 });

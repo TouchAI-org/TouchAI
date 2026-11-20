@@ -1,19 +1,19 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { findAllMcpServers, findMcpToolsByServerId } from '@database/queries';
-import type { McpServerEntity, McpToolEntity } from '@database/types';
-import { AppEvent, eventService, type McpServerStatus } from '@services/EventService';
-import { error as obsError, log } from '@services/ObservabilityService';
-import { ATTR } from '@services/ObservabilityService/attributes';
 import { defineStore } from 'pinia';
 import { useStateMachine } from 'reka-ui';
 import { computed, onScopeDispose, ref } from 'vue';
 
-import { mcpManager } from '@/services/AgentService/infrastructure/mcp';
+import { error as obsError, log } from '@/app/api/diagnostics';
+import { ATTR } from '@/app/api/diagnostics/attributes';
+import { AppEvent, eventService, type McpServerStatus } from '@/app/api/tools/events';
+import type { McpServerSummary, McpToolEntity } from '@/app/api/tools/mcp';
+import { useMcpApi } from '@/app/api/tools/mcp';
 
 export const useMcpStore = defineStore('mcp', () => {
+    const mcp = useMcpApi();
     // 状态
-    const servers = ref<McpServerEntity[]>([]);
+    const servers = ref<McpServerSummary[]>([]);
     const statuses = ref<Record<number, McpServerStatus>>({});
     const errors = ref<Record<number, string | null>>({});
     const tools = ref<Record<number, McpToolEntity[]>>({});
@@ -54,7 +54,7 @@ export const useMcpStore = defineStore('mcp', () => {
     });
 
     const serverById = computed(() => {
-        const map = new Map<number, McpServerEntity>();
+        const map = new Map<number, McpServerSummary>();
         for (const s of servers.value) map.set(s.id, s);
         return (id: number) => map.get(id);
     });
@@ -75,12 +75,9 @@ export const useMcpStore = defineStore('mcp', () => {
     async function loadServers() {
         try {
             pendingReads.value += 1;
-            const loaded = await findAllMcpServers();
+            const loaded = await mcp.listServers();
             if (isDisposed()) return;
             servers.value = loaded;
-            errors.value = Object.fromEntries(
-                servers.value.map((server) => [server.id, server.last_error])
-            );
         } catch (error) {
             log.error('[McpStore] Failed to load servers:', error);
         } finally {
@@ -90,7 +87,7 @@ export const useMcpStore = defineStore('mcp', () => {
 
     async function loadServerTools(serverId: number) {
         try {
-            const loaded = await findMcpToolsByServerId(serverId);
+            const loaded = await mcp.listTools(serverId);
             if (!isDisposed()) tools.value[serverId] = loaded;
         } catch (error) {
             log.error(`[McpStore] Failed to load tools for server ${serverId}:`, error);
@@ -150,9 +147,6 @@ export const useMcpStore = defineStore('mcp', () => {
                     `MCP server ${event.serverId} failed to connect`
                 );
             }
-            // 同步状态到 mcpManager 的缓存，以便 getEnabledToolDefinitions
-            // 在为 AI 请求构建工具列表时能读取最新状态
-            mcpManager.setStatusFromEvent(event.serverId, event.status, event.error ?? null);
             if (event.status === 'connected') {
                 loadServerTools(event.serverId);
             }
@@ -165,7 +159,12 @@ export const useMcpStore = defineStore('mcp', () => {
 
         // 从 Rust 后端批量刷新所有服务器状态
         // 这确保我们获得真实的连接状态，而不仅仅是数据库状态
-        await mcpManager.refreshAllServerStatuses();
+        for (const event of await mcp.refreshAllServerStatuses()) {
+            if (isDisposed()) return;
+            setServerStatus(event.serverId, event.status);
+            setServerError(event.serverId, event.error);
+            if (event.status === 'connected') void loadServerTools(event.serverId);
+        }
 
         lifecycle.dispatch('ready');
     }

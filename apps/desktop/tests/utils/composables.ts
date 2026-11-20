@@ -1,11 +1,18 @@
 import { type App, createApp, nextTick } from 'vue';
 
+import { provideTestAnalytics } from './analyticsWindow';
+import { provideTestSearch } from './searchHost';
+import { createTestWindowPresentation } from './windowPresentation';
+
 export interface MountedComposable<T> {
     result: T;
     unmount: () => void;
 }
 
-export async function mountComposable<T>(factory: () => T): Promise<MountedComposable<T>> {
+export async function mountComposable<T>(
+    factory: () => T,
+    configure?: (app: App) => void
+): Promise<MountedComposable<T>> {
     let result: T | undefined;
 
     const app: App = createApp({
@@ -14,6 +21,10 @@ export async function mountComposable<T>(factory: () => T): Promise<MountedCompo
             return () => null;
         },
     });
+    (await createTestWindowPresentation()).provide(app);
+    provideTestSearch(app);
+    provideTestAnalytics(app);
+    configure?.(app);
 
     const host = document.createElement('div');
     document.body.appendChild(host);

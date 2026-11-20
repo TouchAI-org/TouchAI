@@ -1,17 +1,19 @@
-import type { BuiltInBashExecutionResponse } from '@services/NativeService';
+import { createBashToolsFixture } from '@tests/utils/bashTools';
 import { getLastTauriInvokeCall, getTauriInvokeCalls, mockTauriCommand } from '@tests/utils/tauri';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { BaseBuiltInToolExecutionContext } from '@/modules/tools';
 import {
     BASH_TOOL_TIMEOUT_MAX_MS,
     DEFAULT_BASH_TOOL_CONFIG,
-} from '@/services/BuiltInToolService/tools/bash/constants';
-import {
-    bashTool,
-    createBashApprovalRequest,
-    executeBashTool,
-} from '@/services/BuiltInToolService/tools/bash/index';
-import type { BaseBuiltInToolExecutionContext } from '@/services/BuiltInToolService/types';
+} from '@/modules/tools/builtin/bash/constants';
+import type { BuiltInBashExecutionResponse } from '@/platform/native';
+
+const {
+    tool: bashTool,
+    execute: executeBashTool,
+    approval: createBashApprovalRequest,
+} = createBashToolsFixture();
 
 vi.mock('@tauri-apps/api/path', () => ({
     desktopDir: vi.fn().mockResolvedValue('C:\\Users\\test\\Desktop'),
@@ -289,8 +291,8 @@ describe('user runs a shell command from the assistant', () => {
 });
 
 describe('user sees how long a shell command may run', () => {
-    it('user sees the configured timeout advertised as the ceiling', () => {
-        const definition = bashTool.buildToolDefinition('builtin__bash', {
+    it('user sees the configured timeout advertised as the ceiling', async () => {
+        const definition = await bashTool.buildToolDefinition('builtin__bash', {
             ...DEFAULT_BASH_TOOL_CONFIG,
             timeoutMs: 30000,
         });
@@ -301,14 +303,17 @@ describe('user sees how long a shell command may run', () => {
         });
     });
 
-    it('user sees the executor limit advertised when the config allows it', () => {
-        const definition = bashTool.buildToolDefinition('builtin__bash', DEFAULT_BASH_TOOL_CONFIG);
+    it('user sees the executor limit advertised when the config allows it', async () => {
+        const definition = await bashTool.buildToolDefinition(
+            'builtin__bash',
+            DEFAULT_BASH_TOOL_CONFIG
+        );
 
         expect(definition.adaptiveTimeoutCeilingMs).toBe(BASH_TOOL_TIMEOUT_MAX_MS);
     });
 
-    it('user sees no ceiling advertised when timeouts are disabled', () => {
-        const definition = bashTool.buildToolDefinition('builtin__bash', {
+    it('user sees no ceiling advertised when timeouts are disabled', async () => {
+        const definition = await bashTool.buildToolDefinition('builtin__bash', {
             ...DEFAULT_BASH_TOOL_CONFIG,
             timeoutMs: 0,
         });
@@ -316,8 +321,8 @@ describe('user sees how long a shell command may run', () => {
         expect(definition.adaptiveTimeoutCeilingMs).toBeUndefined();
     });
 
-    it('user sees no ceiling advertised below the shared minimum', () => {
-        const definition = bashTool.buildToolDefinition('builtin__bash', {
+    it('user sees no ceiling advertised below the shared minimum', async () => {
+        const definition = await bashTool.buildToolDefinition('builtin__bash', {
             ...DEFAULT_BASH_TOOL_CONFIG,
             timeoutMs: 500,
         });
@@ -406,7 +411,7 @@ describe('user runs the shell tool end to end', () => {
             target: 'Write-Output "alpha"',
         });
         await expect(
-            bashTool.buildApprovalRequest(
+            createBashApprovalRequest(
                 {
                     command: 'Remove-Item test.txt',
                     reason: 'Need cleanup',

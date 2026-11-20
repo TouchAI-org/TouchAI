@@ -1,14 +1,13 @@
-import { AppEvent, eventService } from '@services/EventService';
-import type { DatabaseQueryRequest } from '@services/NativeService/database';
-import { setActiveSettingsService } from '@services/SettingsService';
-import { SettingsService } from '@services/SettingsService/service';
+import { createAgentWindowFixture } from '@tests/utils/agentWindow';
+import { createMainViewClients } from '@tests/utils/mainViewClients';
 import { installSearchSurfaceBoundary } from '@tests/utils/searchSurface';
-import { createSettingsBus } from '@tests/utils/settingsTransport';
 import { getTauriInvokeCalls, mockTauriCommand } from '@tests/utils/tauri';
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import { createPinia, disposePinia } from 'pinia';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { AppEvent } from '@/app/api/search/events';
+import type { DatabaseQueryRequest } from '@/platform/native/database';
 import SearchView from '@/views/SearchView/index.vue';
 
 vi.setConfig({ testTimeout: 20_000 });
@@ -32,14 +31,13 @@ const rangeGeometry = {
 
 let wrapper: VueWrapper | undefined;
 let pinia: ReturnType<typeof createPinia>;
+let fixture: ReturnType<typeof createAgentWindowFixture>;
+let clients: ReturnType<typeof createMainViewClients>;
 let reads: Array<(name: string) => void>;
 
-beforeEach(() => {
+beforeEach(async () => {
     reads = [];
     pinia = createPinia();
-    setActiveSettingsService(
-        new SettingsService({ transport: createSettingsBus().transport('main') })
-    );
     installSearchSurfaceBoundary();
     Object.defineProperties(Range.prototype, {
         getBoundingClientRect: { configurable: true, value: () => new DOMRect() },
@@ -54,45 +52,52 @@ beforeEach(() => {
         }
     );
     mockTauriCommand('get_runtime_info', { isE2eTestMode: true });
-    mockTauriCommand('database_query', async (payload: unknown) => {
-        const { request } = payload as { request: DatabaseQueryRequest };
-        if (request.method === 'all' && request.sql.includes('from "models" inner join')) {
-            const rows = await new Promise<Array<Record<string, unknown>>>((resolve) => {
-                reads.push((name) =>
-                    resolve([
-                        {
-                            id: 1,
-                            model_id: 'fixture-model',
-                            name,
-                            provider_id: 1,
-                            provider_enabled: 1,
-                            provider_name: 'Fixture',
-                            provider_driver: 'openai',
-                            provider_logo: null,
-                            is_default: 0,
-                            attachment: 0,
-                            reasoning: 0,
-                            tool_call: 0,
-                            open_weights: 0,
-                            modalities: null,
-                        },
-                    ])
-                );
-            });
-            return { rows, rowsAffected: 0, lastInsertId: null };
-        }
-        const rows = request.sql.startsWith('insert into "settings"')
-            ? [{ key: request.params?.[0], value: request.params?.[1] }]
-            : [];
-        return { rows, rowsAffected: 0, lastInsertId: null };
+    fixture = createAgentWindowFixture('main', undefined, {
+        async aroundInvoke(call, next) {
+            const { request } = (call.payload ?? {}) as { request?: DatabaseQueryRequest };
+            if (
+                call.cmd === 'database_query' &&
+                request?.method === 'all' &&
+                request.sql.includes('from "models" inner join')
+            ) {
+                const rows = await new Promise<Array<Record<string, unknown>>>((resolve) => {
+                    reads.push((name) =>
+                        resolve([
+                            {
+                                id: 1,
+                                model_id: 'fixture-model',
+                                name,
+                                provider_id: 1,
+                                provider_enabled: 1,
+                                provider_name: 'Fixture',
+                                provider_driver: 'openai',
+                                provider_logo: null,
+                                is_default: 0,
+                                attachment: 0,
+                                reasoning: 0,
+                                tool_call: 0,
+                                open_weights: 0,
+                                modalities: null,
+                            },
+                        ])
+                    );
+                });
+                return { rows, rowsAffected: 0, lastInsertId: null };
+            }
+            return next();
+        },
     });
+    await fixture.window.ready;
+    await fixture.window.settings.initialize();
+    clients = createMainViewClients(fixture.window);
 });
 
 afterEach(async () => {
     wrapper?.unmount();
     wrapper = undefined;
     disposePinia(pinia);
-    setActiveSettingsService(null);
+    clients.dispose();
+    await fixture.window.dispose();
     await flushPromises();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
@@ -104,7 +109,13 @@ afterEach(async () => {
 });
 
 async function openView() {
-    wrapper = mount(SearchView, { attachTo: document.body, global: { plugins: [pinia] } });
+    wrapper = mount(SearchView, {
+        attachTo: document.body,
+        global: {
+            plugins: [pinia],
+            provide: clients.provide,
+        },
+    });
     await flushPromises();
     await vi.waitFor(
         () =>
@@ -126,7 +137,7 @@ async function toggleModels() {
 }
 
 async function invalidateModels() {
-    await eventService.emit(AppEvent.AI_MODELS_UPDATED, { updatedAt: 0 });
+    await emit(AppEvent.AI_MODELS_UPDATED, { updatedAt: 0 });
     await flushPromises();
 }
 
@@ -210,3 +221,4 @@ describe('user opens models while the model list changes', () => {
         expect(wrapper!.get('[data-search-overlay-host]').text()).not.toContain('Previous model');
     });
 });
+import { emit } from '@tauri-apps/api/event';

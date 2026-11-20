@@ -14,11 +14,11 @@ vi.mock('@components/ModelLogo.vue', () => ({
 vi.mock('@components/ModelCapabilityTags.vue', () => ({
     default: { props: ['model', 'size'], template: '<span />' },
 }));
-vi.mock('@services/EventService', () => ({
+vi.mock('@/app/api/search/events', () => ({
     AppEvent: {},
     eventService: { emit: vi.fn() },
 }));
-vi.mock('@services/NativeService', () => ({
+vi.mock('@/platform/native', () => ({
     native: { window: { openSettingsWindow: vi.fn() } },
 }));
 

@@ -1,13 +1,11 @@
-import {
-    activeNotificationElapsedMs,
-    AppUpdateReminderController,
-} from '@services/AppUpdateService/reminders';
-import { createInitialAppUpdateState } from '@services/AppUpdateService/state';
-import type { AppUpdateState } from '@services/AppUpdateService/types';
-import type { AppUpdateNotificationAction } from '@services/NativeService/types';
+import { createTestUpdateReminder } from '@tests/utils/updates';
 import { describe, expect, it, vi } from 'vitest';
 
-import { log } from '@/services/ObservabilityService';
+import { activeNotificationElapsedMs } from '@/modules/updates/reminders';
+import { createInitialAppUpdateState } from '@/modules/updates/state';
+import type { AppUpdateState } from '@/modules/updates/types';
+import { log } from '@/platform/diagnostics';
+import type { AppUpdateNotificationAction } from '@/platform/native/types';
 
 const HOUR = 60 * 60 * 1000;
 
@@ -38,7 +36,7 @@ function createReminder(options: { raw?: string | null; now?: number } = {}) {
         raw = value;
     });
     const openSettings = vi.fn().mockResolvedValue(undefined);
-    const controller = new AppUpdateReminderController({
+    const controller = createTestUpdateReminder({
         updates: {
             getState: () => state,
             subscribe: (listener) => {

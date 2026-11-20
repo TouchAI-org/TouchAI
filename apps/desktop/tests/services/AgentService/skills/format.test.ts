@@ -1,12 +1,12 @@
+import { getTauriInvokeCalls } from '@tests/utils/tauri';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import { parseSkillMarkdown } from '@/modules/skills/parser';
 import {
     flushObservability,
     initObservability,
     resetObservabilityForTests,
-} from '@services/ObservabilityService';
-import { getTauriInvokeCalls } from '@tests/utils/tauri';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-
-import { parseSkillMarkdown } from '@/services/AgentService/skills/parser';
+} from '@/platform/diagnostics';
 
 afterEach(resetObservabilityForTests);
 

@@ -1,22 +1,15 @@
-import {
-    getSettingsService,
-    setActiveSettingsService,
-    SettingsErrorCode,
-    SettingsServiceError,
-} from '@services/SettingsService';
-import { SETTINGS_TRANSPORT_EVENT } from '@services/SettingsService/wire';
+import { closeTestDatabases } from '@tests/database/sqliteHarness';
+import { createSettingsWindowFixture } from '@tests/utils/settingsWindow';
 import { flushPromises } from '@vue/test-utils';
-import { createPinia, disposePinia, setActivePinia } from 'pinia';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { useSettingsStore } from '@/stores/settings';
-
-import {
-    getTauriInvokeCalls,
-    interceptTauriInvoke,
-    mockTauriCommand,
-    type TauriInvokeCall,
-} from '../utils/tauri';
+let fixture: ReturnType<typeof createSettingsWindowFixture> | undefined;
+afterEach(() => {
+    fixture?.dispose();
+    fixture = undefined;
+    closeTestDatabases();
+    vi.useRealTimers();
+});
 
 function deferred() {
     let resolve!: () => void;
@@ -26,314 +19,260 @@ function deferred() {
     return { promise, resolve };
 }
 
-function isSettingsRegistration(call: TauriInvokeCall): boolean {
+import { emitTo } from '@tauri-apps/api/event';
+import { getTauriInvokeCalls, type TauriInvokeCall } from '@tests/utils/tauri';
+import { createPinia, disposePinia } from 'pinia';
+import { createApp } from 'vue';
+
+import { settingsApiKey } from '@/app/api/settings/preferences';
+import { SETTINGS_TRANSPORT_EVENT } from '@/modules/settings';
+import { useSettingsStore } from '@/stores/settings';
+
+function registration(call: TauriInvokeCall) {
     return (
         call.cmd === 'plugin:event|listen' &&
         (call.payload as { event?: string })?.event === SETTINGS_TRANSPORT_EVENT
     );
 }
-
-function isSettingsUnregistration(call: TauriInvokeCall): boolean {
+function unregistration(call: TauriInvokeCall) {
     return (
         call.cmd === 'plugin:event|unlisten' &&
         (call.payload as { event?: string })?.event === SETTINGS_TRANSPORT_EVENT
     );
 }
 
-async function broadcastLanguage() {
-    try {
-        const result = await getSettingsService().mutate('language', 'en-US');
-        expect(result.status).toBe('committed');
-    } catch (error) {
-        if (
-            error instanceof SettingsServiceError &&
-            error.code === SettingsErrorCode.OwnerDisposed
-        ) {
-            return;
-        }
-        throw error;
-    }
-}
-
-let pinia: ReturnType<typeof createPinia>;
-
-beforeEach(() => {
-    pinia = createPinia();
-    setActivePinia(pinia);
-    const values = new Map<string, string>([['language', 'zh-CN']]);
-    mockTauriCommand('database_query', (payload: unknown) => {
-        const { request } = payload as {
-            request: { sql: string; params?: Array<string | number | null> };
-        };
-        const writing = request.sql.startsWith('insert');
-        if (writing) {
-            values.set(String(request.params?.[0]), String(request.params?.[1]));
-        }
-        const entries = writing
-            ? [[String(request.params?.[0]), String(request.params?.[1])] as const]
-            : [...values];
-        return {
-            rows: entries.map(([key, value]) => ({
-                id: 1,
-                key,
-                value,
-                created_at: '2026-11-10 00:00:00',
-                updated_at: '2026-11-10 00:00:00',
-            })),
-            rowsAffected: writing ? 1 : 0,
-            lastInsertId: writing ? 1 : null,
-        };
-    });
-    mockTauriCommand('database_operation', (payload: unknown) => {
-        const { request } = payload as {
-            request:
-                | { kind: 'setting_get_many'; keys: string[] }
-                | { kind: 'setting_get'; key: string }
-                | { kind: 'setting_set'; key: string; value: string };
-        };
-        if (request.kind === 'setting_get_many') {
-            return Object.fromEntries(request.keys.map((key) => [key, values.get(key) ?? null]));
-        }
-        if (request.kind === 'setting_get') {
-            return values.get(request.key) ?? null;
-        }
-        if (request.kind === 'setting_set') {
-            values.set(request.key, request.value);
-            return {
-                id: 1,
-                key: request.key,
-                value: request.value,
-                created_at: '2026-11-10 00:00:00',
-                updated_at: '2026-11-10 00:00:00',
-            };
-        }
-        return null;
-    });
-});
-
-afterEach(async () => {
-    disposePinia(pinia);
-    setActiveSettingsService(null);
-    await flushPromises();
-});
-
-describe('user shares and disposes settings initialization', () => {
-    it('user initializes twice concurrently and receives one live settings subscription', async () => {
-        const store = useSettingsStore();
-
+describe('given bootstrap owns the preferences listener and stores are projections', () => {
+    it('user initializes concurrently and receives one live subscription and committed updates', async () => {
+        fixture = createSettingsWindowFixture({ values: { language: 'zh-CN' } });
+        const store = fixture.store();
         await Promise.all([store.initialize(), store.initialize()]);
-        await broadcastLanguage();
-
+        await fixture.owner.api.mutate('language', 'en-US');
         expect(store.initialized).toBe(true);
         expect(store.settings.language).toBe('en-US');
-        expect(getTauriInvokeCalls().filter(isSettingsRegistration)).toHaveLength(1);
+        expect(getTauriInvokeCalls().filter(registration)).toHaveLength(1);
         await store.dispose();
+        expect(getTauriInvokeCalls().filter(unregistration)).toHaveLength(0);
+        expect((await fixture.owner.api.mutate('language', 'zh-CN')).status).toBe('committed');
     });
 
-    it('user disposes during storage loading and no late subscription becomes ready', async () => {
-        const readStarted = deferred();
+    it('user closes the window during loading and no late projection becomes ready', async () => {
+        const entered = deferred();
         const read = deferred();
-        interceptTauriInvoke(async (call, next) => {
-            if (call.cmd === 'database_query' || call.cmd === 'database_operation') {
-                readStarted.resolve();
-                await read.promise;
-            }
-            return next();
+        fixture = createSettingsWindowFixture({
+            query: {
+                async beforeQuery({ sql }) {
+                    if (sql.startsWith('select')) {
+                        entered.resolve();
+                        await read.promise;
+                    }
+                },
+            },
         });
-        const store = useSettingsStore();
-        const initialization = store.initialize();
-        await readStarted.promise;
-
+        const store = fixture.store();
+        const loading = store.initialize();
+        await entered.promise;
         await store.dispose();
+        fixture.owner.dispose();
         read.resolve();
-        await initialization;
-        await broadcastLanguage();
-
+        await loading;
         expect(store.initialized).toBe(false);
-        expect(store.settings.language).not.toBe('en-US');
-        expect(getTauriInvokeCalls().filter(isSettingsRegistration)).toHaveLength(1);
-        expect(getTauriInvokeCalls().filter(isSettingsUnregistration)).toEqual([
-            expect.objectContaining({
-                payload: expect.objectContaining({ event: SETTINGS_TRANSPORT_EVENT }),
-            }),
-        ]);
+        expect(store.loading).toBe(false);
+        expect(store.settings.language).toBe('zh-CN');
+        expect(getTauriInvokeCalls().filter(unregistration)).toHaveLength(1);
     });
 
-    it('user disposes during native registration and its eventual listener is released', async () => {
-        const registrationStarted = deferred();
-        const registration = deferred();
-        interceptTauriInvoke(async (call, next) => {
-            if (isSettingsRegistration(call)) {
-                registrationStarted.resolve();
-                await registration.promise;
-            }
-            return next();
+    it('user closes the window during native registration and its eventual listener is released', async () => {
+        const entered = deferred();
+        const registered = deferred();
+        fixture = createSettingsWindowFixture({
+            query: {
+                async aroundInvoke(call, next) {
+                    if (registration(call)) {
+                        entered.resolve();
+                        await registered.promise;
+                    }
+                    return next();
+                },
+            },
         });
-        const store = useSettingsStore();
-        const initialization = store.initialize();
-        await registrationStarted.promise;
-
+        const store = fixture.store();
+        const loading = store.initialize();
+        await entered.promise;
         await store.dispose();
-        registration.resolve();
-        await initialization;
+        fixture.owner.dispose();
+        registered.resolve();
+        await loading;
         await flushPromises();
-        await broadcastLanguage();
-
         expect(store.initialized).toBe(false);
         expect(store.settings.language).toBe('zh-CN');
-        expect(getTauriInvokeCalls('plugin:event|unlisten')).toEqual([
-            expect.objectContaining({
-                payload: expect.objectContaining({ event: SETTINGS_TRANSPORT_EVENT }),
-            }),
-        ]);
+        expect(getTauriInvokeCalls().filter(unregistration)).toHaveLength(1);
     });
 
-    it('user ignores already registered settings events after disposal while their native handle is pending', async () => {
-        const registrationStarted = deferred();
-        const registration = deferred();
-        interceptTauriInvoke(async (call, next) => {
-            if (isSettingsRegistration(call)) {
-                const result = await next();
-                registrationStarted.resolve();
-                await registration.promise;
-                return result;
-            }
-            return next();
+    it('user closes after native registration and ignores queued events while its handle is pending', async () => {
+        const entered = deferred();
+        const registered = deferred();
+        fixture = createSettingsWindowFixture({
+            query: {
+                async aroundInvoke(call, next) {
+                    const result = await next();
+                    if (registration(call)) {
+                        entered.resolve();
+                        await registered.promise;
+                    }
+                    return result;
+                },
+            },
         });
-        const store = useSettingsStore();
-        const initialization = store.initialize();
-        await registrationStarted.promise;
+        const store = fixture.store();
+        const loading = store.initialize();
+        await entered.promise;
+        await store.dispose();
+        fixture.owner.dispose();
+        await emitTo('main', SETTINGS_TRANSPORT_EVENT, {
+            kind: 'notice',
+            hostEpoch: 'stale',
+            revision: 1,
+            type: 'change',
+            changedKeys: ['language'],
+        });
+        expect(store.settings.language).toBe('zh-CN');
+        registered.resolve();
+        await loading;
+        await flushPromises();
+        expect(store.initialized).toBe(false);
+        expect(getTauriInvokeCalls().filter(unregistration)).toHaveLength(1);
+    });
 
+    it('user opens a fresh projection while registration is pending without creating another writer', async () => {
+        const entered = deferred();
+        const registered = deferred();
+        fixture = createSettingsWindowFixture({
+            values: { language: 'zh-CN' },
+            query: {
+                async aroundInvoke(call, next) {
+                    if (registration(call)) {
+                        entered.resolve();
+                        await registered.promise;
+                    }
+                    return next();
+                },
+            },
+        });
+        const previous = fixture.store();
+        const first = previous.initialize();
+        await entered.promise;
+        await previous.dispose();
+        disposePinia(fixture.pinia);
+        const pinia = createPinia();
+        const app = createApp({ render: () => null });
+        app.use(pinia);
+        app.provide(settingsApiKey, fixture.owner.api);
+        const current = app.runWithContext(() => useSettingsStore(pinia));
         try {
-            await store.dispose();
-            await broadcastLanguage();
-            expect(store.initialized).toBe(false);
-            expect(store.settings.language).toBe('zh-CN');
-        } finally {
-            registration.resolve();
-            await initialization;
+            const second = current.initialize();
             await flushPromises();
+            expect(current.initialized).toBe(false);
+            registered.resolve();
+            await Promise.all([first, second]);
+            await fixture.owner.api.mutate('language', 'en-US');
+            expect(current.initialized).toBe(true);
+            expect(current.settings.language).toBe('en-US');
+            expect(previous.initialized).toBe(false);
+            expect(previous.settings.language).toBe('zh-CN');
+            expect(getTauriInvokeCalls().filter(registration)).toHaveLength(1);
+        } finally {
+            registered.resolve();
+            disposePinia(pinia);
         }
-
-        await broadcastLanguage();
-        expect(store.settings.language).toBe('zh-CN');
-        expect(getTauriInvokeCalls('plugin:event|unlisten')).toEqual([
-            expect.objectContaining({
-                payload: expect.objectContaining({ event: SETTINGS_TRANSPORT_EVENT }),
-            }),
-        ]);
     });
 
-    it('user opens a fresh settings store while the previous registration is still pending', async () => {
-        const registrationStarted = deferred();
-        const registration = deferred();
-        let deferRegistration = true;
-        interceptTauriInvoke(async (call, next) => {
-            if (isSettingsRegistration(call) && deferRegistration) {
-                deferRegistration = false;
-                registrationStarted.resolve();
-                await registration.promise;
-            }
-            return next();
+    it('user retries failed native registration and receives updates after successful startup', async () => {
+        let reject = true;
+        fixture = createSettingsWindowFixture({
+            values: { language: 'zh-CN' },
+            query: {
+                aroundInvoke(call, next) {
+                    if (registration(call) && reject) throw new Error('registration failed');
+                    return next();
+                },
+            },
         });
-        const store = useSettingsStore();
-        const previous = store.initialize();
-        await registrationStarted.promise;
-        await store.dispose();
-
-        disposePinia(pinia);
-        setActiveSettingsService(null);
-        pinia = createPinia();
-        setActivePinia(pinia);
-        const currentStore = useSettingsStore();
-        const current = currentStore.initialize();
-        await flushPromises();
-        const readyBeforePreviousCompletion = currentStore.initialized;
-        registration.resolve();
-        await Promise.all([previous, current]);
-        await broadcastLanguage();
-
-        expect(readyBeforePreviousCompletion).toBe(true);
-        expect(currentStore.initialized).toBe(true);
-        expect(currentStore.settings.language).toBe('en-US');
-        await currentStore.dispose();
-    });
-
-    it('user retries after failed registration and receives updates from the new initialization', async () => {
-        let rejectRegistration = true;
-        interceptTauriInvoke((call, next) => {
-            if (isSettingsRegistration(call) && rejectRegistration) {
-                throw new Error('registration failed');
-            }
-            return next();
-        });
-        const store = useSettingsStore();
-
+        const store = fixture.store();
         await expect(store.initialize()).rejects.toThrow('registration failed');
         expect(store.initialized).toBe(false);
-        rejectRegistration = false;
+        reject = false;
         await store.initialize();
-        await broadcastLanguage();
-
+        await fixture.owner.api.mutate('language', 'en-US');
         expect(store.initialized).toBe(true);
         expect(store.settings.language).toBe('en-US');
-        await store.dispose();
     });
 
-    it('user disposes the Pinia owner and subsequent settings events cannot mutate its store', async () => {
-        const store = useSettingsStore();
+    it('user disposes Pinia and subsequent committed updates cannot mutate the detached projection', async () => {
+        fixture = createSettingsWindowFixture({ values: { language: 'zh-CN' } });
+        const store = fixture.store();
         await store.initialize();
-
         store.$dispose();
-        await flushPromises();
-        await broadcastLanguage();
-
+        await fixture.owner.api.mutate('language', 'en-US');
         expect(store.initialized).toBe(false);
         expect(store.settings.language).toBe('zh-CN');
+        expect(fixture.values.get('language')).toBe('en-US');
     });
 
-    it('user disposes while native unregistration is delayed and queued settings events are ignored', async () => {
-        const store = useSettingsStore();
-        await store.initialize();
-        const unregistration = deferred();
-        interceptTauriInvoke(async (call, next) => {
-            if (call.cmd === 'plugin:event|unlisten') await unregistration.promise;
-            return next();
+    it('user closes with delayed native unregistration and queued events cannot revive the projection', async () => {
+        const removed = deferred();
+        let delay = false;
+        fixture = createSettingsWindowFixture({
+            values: { language: 'zh-CN' },
+            query: {
+                async aroundInvoke(call, next) {
+                    if (delay && unregistration(call)) await removed.promise;
+                    return next();
+                },
+            },
         });
-
+        const store = fixture.store();
+        await store.initialize();
+        delay = true;
         await store.dispose();
-        await broadcastLanguage();
-        unregistration.resolve();
-        await flushPromises();
-
+        fixture.owner.dispose();
+        await emitTo('main', SETTINGS_TRANSPORT_EVENT, {
+            kind: 'notice',
+            hostEpoch: 'late',
+            revision: 1,
+            type: 'change',
+            changedKeys: ['language'],
+        });
         expect(store.initialized).toBe(false);
         expect(store.settings.language).toBe('zh-CN');
+        removed.resolve();
+        await flushPromises();
     });
 
     it('user refreshes concurrently and loading remains visible until both reads finish', async () => {
-        const store = useSettingsStore();
-        await store.initialize();
         const firstRead = deferred();
         const secondRead = deferred();
+        let block = false;
         let reads = 0;
-        interceptTauriInvoke(async (call, next) => {
-            if (call.cmd === 'database_query' || call.cmd === 'database_operation') {
-                reads += 1;
-                await (reads === 1 ? firstRead.promise : secondRead.promise);
-            }
-            return next();
+        fixture = createSettingsWindowFixture({
+            query: {
+                async beforeQuery({ sql }) {
+                    if (block && sql.startsWith('select') && sql.includes('"settings"')) {
+                        reads++;
+                        await (reads === 1 ? firstRead.promise : secondRead.promise);
+                    }
+                },
+            },
         });
-
+        const store = fixture.store();
+        await store.initialize();
+        block = true;
         const first = store.refresh();
         const second = store.refresh();
         firstRead.resolve();
         await first;
-        const loadingWithPendingRead = store.loading;
+        expect(store.loading).toBe(true);
         secondRead.resolve();
         await second;
-
-        expect(loadingWithPendingRead).toBe(true);
         expect(store.loading).toBe(false);
-        await store.dispose();
     });
 });

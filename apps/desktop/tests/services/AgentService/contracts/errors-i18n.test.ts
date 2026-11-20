@@ -1,8 +1,8 @@
+import { createCompatibleProvider } from '@tests/utils/provider';
 import { beforeEach, describe, expect, it } from 'vitest';
 
+import { AiError, AiErrorCode } from '@/app/api/agent/errors';
 import { setLocale } from '@/i18n';
-import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
-import { mapHttpStatusToAiError } from '@/services/AgentService/infrastructure/providers/ai-sdk/base';
 
 describe('user reads request failures in their own language', () => {
     beforeEach(() => {
@@ -87,7 +87,16 @@ describe('user reads request failures in their own language', () => {
     it('user sees a friendly message for an unexplained HTTP failure', () => {
         setLocale('en-US');
 
-        const error = mapHttpStatusToAiError(401, 'HTTP 401');
+        const provider = createCompatibleProvider(globalThis.fetch);
+        const classified = provider.classifyError?.({ statusCode: 401, message: 'HTTP 401' });
+        provider.dispose();
+        const error = classified
+            ? new AiError(
+                  classified.code as AiErrorCode,
+                  undefined,
+                  classified.usesDefaultMessage ? undefined : classified.message
+              )
+            : null;
 
         expect(error?.code).toBe(AiErrorCode.UNAUTHORIZED);
         expect(error?.message).toBe(AiError.getMessage(AiErrorCode.UNAUTHORIZED));

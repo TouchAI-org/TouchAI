@@ -1,19 +1,16 @@
 // 副作用导入：确保所有标签插件在编辑器创建前完成注册
 import '../tags';
 
-import { log } from '@services/ObservabilityService';
 import { Editor } from '@tiptap/vue-3';
 import { computed, type Ref, ref, shallowRef, watch } from 'vue';
 
+import { createInputHistorySnapshot, type InputHistorySnapshot } from '@/app/api/agent/history';
+import { buildAttachmentPromptMetas, type Index } from '@/app/api/attachments/presentation';
+import { log } from '@/app/api/diagnostics';
+import type { SearchActivationContext } from '@/app/api/search/queries';
+import { recordAcceptedFileReference } from '@/app/api/search/references';
+import type { SelectedSkill } from '@/app/api/skills/catalog';
 import { locale, t } from '@/i18n';
-import {
-    buildAttachmentPromptMetas,
-    type Index,
-} from '@/services/AgentService/infrastructure/attachments';
-import type { SelectedSkill } from '@/services/AgentService/skills';
-import type { SearchActivationContext } from '@/services/SearchService';
-import { recordAcceptedFileReference } from '@/services/SearchService/fileReferenceHistory';
-import { createInputHistorySnapshot, type InputHistorySnapshot } from '@/types/session';
 
 import {
     ATTACHMENT_TAG_NODE,

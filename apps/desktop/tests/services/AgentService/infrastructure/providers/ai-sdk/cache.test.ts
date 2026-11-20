@@ -1,13 +1,10 @@
+import { createTestModelsHost } from '@tests/utils/provider';
+import type { AiRequestOptions } from '@touchai/models/contracts';
+import { AnthropicProviderAdapter } from '@touchai/models/providers/anthropic';
+import { OpenAIProviderAdapter } from '@touchai/models/providers/openai';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { AiRequestOptions } from '@/services/AgentService/contracts/protocol';
-import { AnthropicProviderAdapter } from '@/services/AgentService/infrastructure/providers/adapters/anthropic';
-import { OpenAIProviderAdapter } from '@/services/AgentService/infrastructure/providers/adapters/openai';
-
 const { fetchMock } = vi.hoisted(() => ({ fetchMock: vi.fn() }));
-vi.mock('@services/HttpService', () => ({
-    createTauriFetch: () => fetchMock,
-}));
 
 function input(): AiRequestOptions {
     return {
@@ -51,10 +48,13 @@ describe('given provider requests with reusable context', () => {
     });
 
     it('user sends a stable cache key and deterministic tool definitions to OpenAI', async () => {
-        const provider = new OpenAIProviderAdapter({
-            apiEndpoint: 'https://example.test/v1',
-            config: { reasoning: { format: 'openai' } },
-        });
+        const provider = new OpenAIProviderAdapter(
+            {
+                apiEndpoint: 'https://example.test/v1',
+                config: { reasoning: { format: 'openai' } },
+            },
+            createTestModelsHost(fetchMock)
+        );
         const first = input();
         await expect(provider.request(first)).rejects.toThrow('fixture rejection');
         const firstBody = JSON.parse(fetchMock.mock.calls[0]![1].body);
@@ -77,10 +77,13 @@ describe('given provider requests with reusable context', () => {
     });
 
     it('user sends bounded Anthropic cache markers on reusable system tools and conversation', async () => {
-        const provider = new AnthropicProviderAdapter({
-            apiEndpoint: 'https://example.test/v1',
-            apiKey: 'test-key',
-        });
+        const provider = new AnthropicProviderAdapter(
+            {
+                apiEndpoint: 'https://example.test/v1',
+                apiKey: 'test-key',
+            },
+            createTestModelsHost(fetchMock)
+        );
         await expect(provider.request(input())).rejects.toThrow('fixture rejection');
         const body = JSON.parse(fetchMock.mock.calls[0]![1].body);
         expect(body.system.at(-1).cache_control).toEqual({ type: 'ephemeral' });
@@ -90,10 +93,13 @@ describe('given provider requests with reusable context', () => {
     });
 
     it('user keeps tool definitions while disabling their execution for a summary', async () => {
-        const provider = new OpenAIProviderAdapter({
-            apiEndpoint: 'https://example.test/v1',
-            config: { reasoning: { format: 'openai' } },
-        });
+        const provider = new OpenAIProviderAdapter(
+            {
+                apiEndpoint: 'https://example.test/v1',
+                config: { reasoning: { format: 'openai' } },
+            },
+            createTestModelsHost(fetchMock)
+        );
         await expect(provider.request({ ...input(), toolChoice: 'none' })).rejects.toThrow(
             'fixture rejection'
         );
@@ -106,11 +112,14 @@ describe('given provider requests with reusable context', () => {
     it.each([4096, 1000])(
         'user keeps Anthropic thinking inside the total output budget of %s tokens',
         async (budget) => {
-            const provider = new AnthropicProviderAdapter({
-                apiEndpoint: 'https://example.test/v1',
-                apiKey: 'test-key',
-                config: { reasoning: { mode: 'passthrough' } },
-            });
+            const provider = new AnthropicProviderAdapter(
+                {
+                    apiEndpoint: 'https://example.test/v1',
+                    apiKey: 'test-key',
+                    config: { reasoning: { mode: 'passthrough' } },
+                },
+                createTestModelsHost(fetchMock)
+            );
             await expect(
                 provider.request({
                     ...input(),
@@ -130,10 +139,13 @@ describe('given provider requests with reusable context', () => {
     );
 
     it('user keeps OpenAI reasoning settings when a cache routing key is added', async () => {
-        const provider = new OpenAIProviderAdapter({
-            apiEndpoint: 'https://example.test/v1',
-            config: { reasoning: { format: 'openai', mode: 'passthrough' } },
-        });
+        const provider = new OpenAIProviderAdapter(
+            {
+                apiEndpoint: 'https://example.test/v1',
+                config: { reasoning: { format: 'openai', mode: 'passthrough' } },
+            },
+            createTestModelsHost(fetchMock)
+        );
         await expect(provider.request({ ...input(), reasoningLevel: 'high' })).rejects.toThrow(
             'fixture rejection'
         );

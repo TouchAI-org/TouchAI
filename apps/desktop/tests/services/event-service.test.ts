@@ -1,13 +1,13 @@
-import { AppEvent, eventService } from '@services/EventService';
-import type {
-    SearchSurfaceShownEvent,
-    SettingsGeneralUpdatedEvent,
-} from '@services/EventService/types';
 import { emit } from '@tauri-apps/api/event';
 import { getLastTauriInvokeCall, interceptTauriInvoke } from '@tests/utils/tauri';
 import { describe, expect, it, vi } from 'vitest';
 
-import { log } from '@/services/ObservabilityService';
+import type {
+    SearchSurfaceShownEvent,
+    SettingsGeneralUpdatedEvent,
+} from '@/app/workflows/windows/events';
+import { AppEvent, eventService } from '@/app/workflows/windows/events';
+import { log } from '@/platform/diagnostics';
 
 describe('user receives app events across windows', () => {
     it('user sees an app event delivered through the native event channel', async () => {

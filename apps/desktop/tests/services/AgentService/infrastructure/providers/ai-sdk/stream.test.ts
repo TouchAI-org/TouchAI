@@ -1,7 +1,6 @@
+import { createAiSdkStreamProcessor } from '@touchai/models';
 import type { TextStreamPart, ToolSet } from 'ai';
 import { describe, expect, it } from 'vitest';
-
-import { createAiSdkStreamProcessor } from '@/services/AgentService/infrastructure/providers/ai-sdk/stream';
 
 type TestStreamPart = TextStreamPart<ToolSet>;
 

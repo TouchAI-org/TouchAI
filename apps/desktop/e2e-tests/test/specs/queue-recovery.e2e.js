@@ -21,6 +21,7 @@ import {
     useInterfaceLanguage,
     waitForE2eBridge,
 } from '../support/desktop.js';
+import { configureE2eModel } from '../support/model-administration.js';
 
 async function sendPrompt(text) {
     await fillSearchDraft(text);
@@ -165,12 +166,7 @@ describe('user keeps queued work across session changes and interruptions', () =
         await waitForE2eBridge();
         await useInterfaceLanguage();
         await resetSearchSurface();
-        await callE2eBridge(
-            'configureE2eModel',
-            server.endpoint,
-            server.modelId,
-            'TouchAI E2E Model'
-        );
+        await configureE2eModel(server.endpoint, server.modelId, 'TouchAI E2E Model');
     });
 
     beforeEach(async () => {

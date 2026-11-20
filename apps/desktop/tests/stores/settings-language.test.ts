@@ -1,221 +1,154 @@
-import { createSettingsBus } from '@tests/utils/settingsTransport';
-import { createPinia, setActivePinia } from 'pinia';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { closeTestDatabases } from '@tests/database/sqliteHarness';
+import { createSettingsWindowFixture } from '@tests/utils/settingsWindow';
+import { afterEach, describe, expect, it } from 'vitest';
+
+let fixture: ReturnType<typeof createSettingsWindowFixture> | undefined;
+afterEach(() => {
+    fixture?.dispose();
+    fixture = undefined;
+    closeTestDatabases();
+});
+
+import { beforeEach } from 'vitest';
 
 import { getLocale, setLocale } from '@/i18n';
-import { setActiveSettingsService } from '@/services/SettingsService';
-import { SettingsService } from '@/services/SettingsService/service';
 
-const { getSettingValueMock, getSettingValuesMock, setSettingMock } = vi.hoisted(() => ({
-    getSettingValueMock: vi.fn(),
-    getSettingValuesMock: vi.fn(),
-    setSettingMock: vi.fn(),
-}));
-
-vi.mock('@database/queries', () => ({
-    getSettingValue: getSettingValueMock,
-    getSettingValues: getSettingValuesMock,
-    setSetting: setSettingMock,
-}));
-
-vi.mock('@services/NativeService', () => ({
-    native: {
-        autostart: {
-            isAutostartEnabled: vi.fn(async () => false),
-            enableAutostart: vi.fn(async () => undefined),
-            disableAutostart: vi.fn(async () => undefined),
-        },
-        shortcut: {
-            registerGlobalShortcut: vi.fn(async () => undefined),
-        },
-        window: {
-            setSearchWindowDefaults: vi.fn(async () => undefined),
-        },
-    },
-}));
-
-function mockSystemLanguage(language: string, languages: string[] = [language]) {
-    Object.defineProperty(window.navigator, 'language', {
-        configurable: true,
-        value: language,
-    });
-    Object.defineProperty(window.navigator, 'languages', {
-        configurable: true,
-        value: languages,
-    });
+function systemLanguage(language: string, languages = [language]) {
+    Object.defineProperty(navigator, 'language', { configurable: true, value: language });
+    Object.defineProperty(navigator, 'languages', { configurable: true, value: languages });
 }
+beforeEach(() => {
+    setLocale('zh-CN');
+    systemLanguage('zh-CN');
+});
 
-function mockSettings(values: Record<string, string | null>) {
-    getSettingValueMock.mockImplementation(async ({ key }: { key: string }) => values[key] ?? null);
-    getSettingValuesMock.mockImplementation(async ({ keys }: { keys: string[] }) =>
-        Object.fromEntries(keys.map((key) => [key, values[key] ?? null]))
-    );
-    setSettingMock.mockImplementation(async ({ key, value }: { key: string; value: string }) => ({
-        id: 1,
-        key,
-        value,
-        created_at: '2026-05-20 00:00:00',
-        updated_at: '2026-05-20 00:00:00',
-    }));
-}
-
-function flush(): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, 0));
-}
-
-describe('user changes the app language', () => {
-    let bus: ReturnType<typeof createSettingsBus>;
-
-    beforeEach(() => {
-        vi.clearAllMocks();
-        setActivePinia(createPinia());
-        setLocale('zh-CN');
-        mockSystemLanguage('zh-CN');
-        bus = createSettingsBus();
-    });
-
-    afterEach(() => {
-        setActiveSettingsService(null);
-    });
-
-    async function createStore() {
-        setActiveSettingsService(new SettingsService({ transport: bus.transport('main') }));
-        const { useSettingsStore } = await import('@/stores/settings');
-        return useSettingsStore();
-    }
-
-    it('user loads persisted language and applies it to the i18n runtime', async () => {
-        mockSettings({
-            global_shortcut: 'Alt+Space',
-            start_on_boot: 'false',
-            start_minimized: 'true',
-            output_scroll_behavior: 'follow_output',
-            search_window_size_preset: 'normal',
-            language: 'en-US',
+describe('given language preferences use the main writer', () => {
+    it('user opens saved English preferences and the application uses that language without rewriting it', async () => {
+        const languageWrites: string[] = [];
+        fixture = createSettingsWindowFixture({
+            values: { language: 'en-US' },
+            query: {
+                beforeQuery({ sql, params }) {
+                    if (sql.startsWith('insert') && params[0] === 'language')
+                        languageWrites.push(String(params[1]));
+                },
+            },
         });
-
-        const store = await createStore();
-
+        const store = fixture.store();
         await store.initialize();
-
         expect(store.settings.language).toBe('en-US');
         expect(getLocale()).toBe('en-US');
-        expect(setSettingMock).not.toHaveBeenCalledWith(
-            expect.objectContaining({ key: 'language' })
-        );
-    }, 15000);
-
-    it('user persists zh-CN when the language row is missing and the system language is Chinese', async () => {
-        mockSettings({});
-        mockSystemLanguage('zh-TW', ['zh-TW', 'en-US']);
-
-        const store = await createStore();
-
-        await store.initialize();
-
-        expect(store.settings.language).toBe('zh-CN');
-        expect(getLocale()).toBe('zh-CN');
-        expect(setSettingMock).toHaveBeenCalledWith({ key: 'language', value: 'zh-CN' });
+        expect(languageWrites).toEqual([]);
     });
 
-    it('user persists en-US when the language row is missing and the system language is not Chinese', async () => {
-        mockSettings({});
-        mockSystemLanguage('en-GB', ['en-GB', 'fr-FR']);
-
-        const store = await createStore();
-
+    it('user opens preferences on a Chinese system and receives a persisted Chinese default', async () => {
+        systemLanguage('zh-TW', ['zh-TW', 'en-US']);
+        fixture = createSettingsWindowFixture();
+        const store = fixture.store();
         await store.initialize();
+        expect(store.settings.language).toBe('zh-CN');
+        expect(getLocale()).toBe('zh-CN');
+        expect(fixture.values.get('language')).toBe('zh-CN');
+    });
 
+    it('user opens preferences on a non-Chinese system and receives a persisted English default', async () => {
+        systemLanguage('en-GB', ['en-GB', 'fr-FR']);
+        fixture = createSettingsWindowFixture();
+        const store = fixture.store();
+        await store.initialize();
         expect(store.settings.language).toBe('en-US');
         expect(getLocale()).toBe('en-US');
-        expect(setSettingMock).toHaveBeenCalledWith({ key: 'language', value: 'en-US' });
+        expect(fixture.values.get('language')).toBe('en-US');
     });
 
-    it('user falls back to zh-CN for invalid language values without overwriting the row', async () => {
-        mockSettings({
-            language: 'fr-FR',
-        });
-
-        const store = await createStore();
-
+    it('user opens an unsupported saved language and sees Chinese without losing the original saved value', async () => {
+        fixture = createSettingsWindowFixture({ values: { language: 'fr-FR' } });
+        const store = fixture.store();
         await store.initialize();
-
         expect(store.settings.language).toBe('zh-CN');
         expect(getLocale()).toBe('zh-CN');
-        expect(setSettingMock).not.toHaveBeenCalledWith(
-            expect.objectContaining({ key: 'language' })
-        );
+        expect(fixture.values.get('language')).toBe('fr-FR');
     });
 
-    it('user updates language, persists it, applies it, and sees the change', async () => {
-        mockSettings({});
-
-        const store = await createStore();
+    it('user changes language and the application and committed preferences agree', async () => {
+        fixture = createSettingsWindowFixture();
+        const store = fixture.store();
         await store.initialize();
-
         await store.updateLanguage('en-US');
-
         expect(store.settings.language).toBe('en-US');
         expect(getLocale()).toBe('en-US');
-        expect(setSettingMock).toHaveBeenLastCalledWith({ key: 'language', value: 'en-US' });
+        expect(fixture.values.get('language')).toBe('en-US');
     });
 
-    it('user does not apply language when persisting the language update fails', async () => {
-        mockSettings({ language: 'zh-CN' });
-
-        const store = await createStore();
+    it('user changes language while storage is unavailable and keeps the prior language', async () => {
+        let fail = false;
+        fixture = createSettingsWindowFixture({
+            values: { language: 'zh-CN' },
+            query: {
+                beforeQuery({ sql }) {
+                    if (fail && sql.startsWith('insert')) throw new Error('database unavailable');
+                },
+            },
+        });
+        const store = fixture.store();
         await store.initialize();
-
-        setSettingMock.mockRejectedValueOnce(new Error('database unavailable'));
-
+        fail = true;
         await expect(store.updateLanguage('en-US')).rejects.toThrow();
-
         expect(store.settings.language).toBe('zh-CN');
         expect(getLocale()).toBe('zh-CN');
+        expect(fixture.values.get('language')).toBe('zh-CN');
     });
 
-    it('user rolls back non-language setting state when persisting the update fails', async () => {
-        mockSettings({
-            output_scroll_behavior: 'follow_output',
+    it('user changes another preference while storage is unavailable and keeps its committed value', async () => {
+        let fail = false;
+        fixture = createSettingsWindowFixture({
+            query: {
+                beforeQuery({ sql }) {
+                    if (fail && sql.startsWith('insert')) throw new Error('database unavailable');
+                },
+            },
         });
-
-        const store = await createStore();
+        const store = fixture.store();
         await store.initialize();
-
-        setSettingMock.mockRejectedValueOnce(new Error('database unavailable'));
-
+        fail = true;
         await expect(store.updateOutputScrollBehavior('stay_position')).rejects.toThrow();
-
         expect(store.settings.outputScrollBehavior).toBe('follow_output');
+        expect(fixture.values.get('output_scroll_behavior')).toBe('follow_output');
     });
 
-    it('user sees a language change made by another window converge', async () => {
-        mockSettings({ language: 'zh-CN' });
-
-        const owner = new SettingsService({ transport: bus.transport('main') });
-        setActiveSettingsService(owner);
-        await owner.initialize();
-        const otherWindow = new SettingsService({ transport: bus.transport('win-settings') });
-        await otherWindow.initialize();
-
-        await owner.mutate('language', 'en-US');
-        await flush();
-
-        expect(otherWindow.getSnapshot().language).toBe('en-US');
+    it('user changes language in one window and another preferences client converges', async () => {
+        fixture = createSettingsWindowFixture({ values: { language: 'zh-CN' } });
+        await fixture.initialize();
+        const client = fixture.createClient('settings');
+        await client.api.initialize();
+        await fixture.owner.api.mutate('language', 'en-US');
+        await import('@vue/test-utils').then(({ flushPromises }) => flushPromises());
+        expect(client.api.getSnapshot().language).toBe('en-US');
     });
 
-    it('user sees a warning and keeps the saved value when cross-window sync fails', async () => {
-        mockSettings({ language: 'zh-CN' });
-
-        const store = await createStore();
+    it('user saves language while cross-window delivery fails and keeps the committed value with a warning', async () => {
+        let failNotice = false;
+        fixture = createSettingsWindowFixture({
+            values: { language: 'zh-CN' },
+            query: {
+                aroundInvoke(call, next) {
+                    const payload = call.payload as { payload?: { kind?: string; type?: string } };
+                    if (
+                        failNotice &&
+                        call.cmd === 'plugin:event|emit' &&
+                        payload?.payload?.type === 'change'
+                    )
+                        throw new Error('delivery unavailable');
+                    return next();
+                },
+            },
+        });
+        const store = fixture.store();
         await store.initialize();
-
-        bus.failNotices = true;
+        failNotice = true;
         await store.updateLanguage('en-US');
-        bus.failNotices = false;
-
-        // The change is committed; the failed broadcast is surfaced, not swallowed.
         expect(store.settings.language).toBe('en-US');
         expect(store.lastWarning).toBeTruthy();
+        expect(fixture.values.get('language')).toBe('en-US');
     });
 });

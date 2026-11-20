@@ -1,39 +1,38 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ref } from 'vue';
+import { mockTauriCommand } from '@tests/utils/tauri';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createApp, ref } from 'vue';
 
-import type { Index } from '@/services/AgentService/infrastructure/attachments';
-import type { ClipboardPayload } from '@/services/NativeService/types';
+import { clipboardDraftApiKey } from '@/app/api/attachments/drafts';
+import { initializeSearchWindow } from '@/app/bootstrap/search';
+import type { Index } from '@/modules/attachments';
+import type { ClipboardPayload } from '@/platform/native/types';
 
-const { createAttachmentMock, readExplicitPastePayloadMock, resolvePastedPathAttachmentMock } =
-    vi.hoisted(() => ({
-        createAttachmentMock: vi.fn(),
-        readExplicitPastePayloadMock: vi.fn(),
-        resolvePastedPathAttachmentMock: vi.fn(),
-    }));
-
-vi.mock('@/services/AgentService/infrastructure/attachments', async () => {
-    const actual = await vi.importActual<
-        typeof import('@/services/AgentService/infrastructure/attachments')
-    >('@/services/AgentService/infrastructure/attachments');
-    return {
-        ...actual,
-        createAttachment: createAttachmentMock,
-    };
-});
-
-vi.mock('@/services/ClipboardService', () => ({
-    clipboardService: {
-        readExplicitPastePayload: readExplicitPastePayloadMock,
-    },
+const { statMock } = vi.hoisted(() => ({ statMock: vi.fn() }));
+vi.mock('@tauri-apps/plugin-fs', () => ({ stat: statMock }));
+vi.mock('tauri-plugin-fs-pro-api', () => ({
+    fullName: async (path: string) => path.split('/').pop(),
+    icon: async () => '/fixture/icon',
+    size: async () => 3,
 }));
 
-vi.mock('@/services/SearchService/pastedPath', () => ({
-    resolvePastedPathAttachment: resolvePastedPathAttachmentMock,
-}));
 import {
-    useSearchAttachments,
-    useSearchDraftController,
+    useSearchAttachments as createSearchAttachments,
+    useSearchDraftController as createSearchDraftController,
 } from '@/views/SearchView/composables/useSearchInput';
+
+let host: ReturnType<typeof initializeSearchWindow>;
+let app: ReturnType<typeof createApp>;
+beforeEach(() => {
+    host = initializeSearchWindow('main');
+    app = createApp({ render: () => null });
+    app.provide(clipboardDraftApiKey, host.clipboard!);
+    statMock.mockResolvedValue({ isFile: true, isDirectory: false });
+});
+afterEach(() => host.dispose());
+const useSearchAttachments = (...args: Parameters<typeof createSearchAttachments>) =>
+    app.runWithContext(() => createSearchAttachments(...args));
+const useSearchDraftController = (...args: Parameters<typeof createSearchDraftController>) =>
+    app.runWithContext(() => createSearchDraftController(...args));
 
 function createAttachmentIndex(
     id: string,
@@ -61,9 +60,6 @@ function createAttachmentIndex(
 describe('when the user adds files to the draft', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        createAttachmentMock.mockImplementation(async (type: Index['type'], path: string) =>
-            createAttachmentIndex(`created-${type}`, type, { path })
-        );
     });
 
     it('user sees each file marked as unsupported when the model cannot read it', () => {
@@ -209,22 +205,13 @@ describe('when the draft is replaced or cleared', () => {
     });
 
     it('user gets pasted text and files placed in their original order', async () => {
-        let attachmentSequence = 0;
         const queryText = ref('Existing');
         const attachments = ref<Index[]>([]);
         const modelOverride = ref({
             modelId: null,
             providerId: null,
         });
-        const createAttachmentFromClipboardPath = vi.fn(
-            async (type: Index['type'], path: string): Promise<Index> => {
-                attachmentSequence += 1;
-                return createAttachmentIndex(`${type}-${attachmentSequence}`, type, {
-                    path,
-                    name: path.split('/').pop() ?? path,
-                });
-            }
-        );
+        const { createAttachmentFromClipboardPath } = useSearchAttachments({ attachments });
         const payload: ClipboardPayload = {
             snapshotId: 'snapshot-1',
             observedAt: Date.now(),
@@ -238,7 +225,7 @@ describe('when the draft is replaced or cleared', () => {
                 { type: 'file', path: 'D:/clip/readme.pdf' },
             ],
         };
-        readExplicitPastePayloadMock.mockResolvedValue(payload);
+        mockTauriCommand('read_clipboard_payload', payload);
 
         const controller = useSearchDraftController({
             queryText,
@@ -253,27 +240,19 @@ describe('when the draft is replaced or cleared', () => {
         await controller.handlePaste();
 
         expect(queryText.value).toBe('Existing\nHello world');
-        expect(createAttachmentFromClipboardPath).toHaveBeenNthCalledWith(
-            1,
-            'image',
-            'D:/clip/image.png'
-        );
-        expect(createAttachmentFromClipboardPath).toHaveBeenNthCalledWith(
-            2,
-            'file',
-            'D:/clip/readme.pdf'
-        );
-        expect(attachments.value).toEqual([
-            createAttachmentIndex('image-1', 'image', {
+        expect(attachments.value).toMatchObject([
+            {
+                type: 'image',
                 path: 'D:/clip/image.png',
                 name: 'image.png',
                 draftInsertionOffset: 14,
-            }),
-            createAttachmentIndex('file-2', 'file', {
+            },
+            {
+                type: 'file',
                 path: 'D:/clip/readme.pdf',
                 name: 'readme.pdf',
                 draftInsertionOffset: 20,
-            }),
+            },
         ]);
     });
 });
@@ -281,21 +260,15 @@ describe('when the draft is replaced or cleared', () => {
 describe('when the user pastes an existing file path', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        resolvePastedPathAttachmentMock.mockResolvedValue(null);
+        statMock.mockResolvedValue({ isFile: false, isDirectory: false });
     });
 
     it('user gets a file tag instead of the raw path text', async () => {
         const queryText = ref('');
         const attachments = ref<Index[]>([]);
         const modelOverride = ref({ modelId: null, providerId: null });
-        const createAttachmentFromClipboardPath = vi.fn(
-            async (type: Index['type'], path: string): Promise<Index> =>
-                createAttachmentIndex('pasted', type, { path, name: 'report.pdf' })
-        );
-        resolvePastedPathAttachmentMock.mockResolvedValue({
-            type: 'file',
-            path: 'D:/docs/report.pdf',
-        });
+        const { createAttachmentFromClipboardPath } = useSearchAttachments({ attachments });
+        statMock.mockResolvedValue({ isFile: true, isDirectory: false });
         const payload: ClipboardPayload = {
             snapshotId: 'path-1',
             observedAt: Date.now(),
@@ -315,10 +288,6 @@ describe('when the user pastes an existing file path', () => {
 
         await controller.importClipboardPayload(payload, { trimTextBoundary: true });
 
-        expect(createAttachmentFromClipboardPath).toHaveBeenCalledWith(
-            'file',
-            'D:/docs/report.pdf'
-        );
         expect(attachments.value.map((item) => item.path)).toEqual(['D:/docs/report.pdf']);
         expect(queryText.value).toBe('');
     });

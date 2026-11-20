@@ -1,5 +1,7 @@
-import type { AppUpdateState } from '@services/AppUpdateService/types';
+import { createUpdateClientBoundary } from '@tests/utils/updateClient';
+import { createTestWindowPresentation } from '@tests/utils/windowPresentation';
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
+import { beforeEach as beforePresentation } from 'vitest';
 import { vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
@@ -77,7 +79,7 @@ vi.mock('@/stores/settings', () => ({
     useSettingsStore: () => settingsStoreMock,
 }));
 
-vi.mock('@services/NativeService', () => ({
+vi.mock('@/platform/native', () => ({
     native: nativeMock,
 }));
 
@@ -134,68 +136,27 @@ vi.mock('@tauri-apps/plugin-opener', () => ({
     openUrl: vi.fn().mockResolvedValue(undefined),
 }));
 
-const appUpdateServiceMock = vi.hoisted(() => {
-    const listeners = new Set<(state: AppUpdateState) => void>();
-    const createState = (): AppUpdateState => ({
-        status: 'not_available',
-        channel: 'stable',
-        autoCheckEnabled: true,
-        currentVersion: '0.1.0',
-        availableUpdate: null,
-        downloadedUpdate: null,
-        latestUpdate: null,
-        updateRequirement: null,
-        downloadProgress: null,
-        lastCheckedAt: '2026-05-22T10:00:00.000Z',
-        error: null,
-        unsupportedReason: null,
-    });
-
-    return {
-        createState,
-        listeners,
-        state: createState(),
-        publishState: (patch: Partial<AppUpdateState>) => {
-            appUpdateServiceMock.state = { ...appUpdateServiceMock.state, ...patch };
-            listeners.forEach((listener) => listener(appUpdateServiceMock.state));
-        },
-        getState: vi.fn(() => appUpdateServiceMock.state),
-        subscribe: vi.fn((listener) => {
-            listeners.add(listener);
-            listener(appUpdateServiceMock.state);
-            return () => listeners.delete(listener);
-        }),
-        initialize: vi.fn().mockResolvedValue(undefined),
-        checkNow: vi.fn().mockResolvedValue(true),
-        download: vi.fn().mockResolvedValue(true),
-        install: vi.fn().mockResolvedValue(true),
-        setChannel: vi.fn().mockResolvedValue(undefined),
-        setAutoCheckEnabled: vi.fn().mockResolvedValue(undefined),
-    };
-});
-
-vi.mock('@services/AppUpdateService', () => ({
-    appUpdateService: appUpdateServiceMock,
-}));
-
+let updatesBoundary: Awaited<ReturnType<typeof createUpdateClientBoundary>>;
 describe('user changes general settings', () => {
-    beforeEach(() => {
+    beforeEach(async () => {
+        updatesBoundary = await createUpdateClientBoundary();
         vi.clearAllMocks();
         setPlatform('Win32');
         setLocale('zh-CN');
-        appUpdateServiceMock.listeners.clear();
-        appUpdateServiceMock.state = appUpdateServiceMock.createState();
-        appUpdateServiceMock.checkNow.mockReset().mockResolvedValue(true);
+        updatesBoundary.state = updatesBoundary.createState();
+        updatesBoundary.checkNow.mockReset().mockResolvedValue(true);
         nativeMock.autostart.isAutostartEnabled.mockResolvedValue(false);
         settingsStoreMock.settings.value = settingsStoreMock.createGeneralSettingsMock();
     });
 
-    afterEach(() => {
+    afterEach(async () => {
+        await updatesBoundary.dispose();
         setPlatform(originalPlatform);
         document.body.innerHTML = '';
     });
     it('user sees the general settings groups and row controls', async () => {
-        const wrapper = mount(GeneralSection);
+        await updatesBoundary.synchronize();
+        const wrapper = mount(GeneralSection, updatesBoundary.viewOptions);
 
         await flushPromises();
 
@@ -245,7 +206,8 @@ describe('user changes general settings', () => {
             settingsStoreMock.settings.value.startOnBoot = false;
         });
 
-        const wrapper = mount(GeneralSection);
+        await updatesBoundary.synchronize();
+        const wrapper = mount(GeneralSection, updatesBoundary.viewOptions);
         await flushPromises();
 
         expect(settingsStoreMock.refreshStartOnBoot).toHaveBeenCalledTimes(1);
@@ -257,7 +219,8 @@ describe('user changes general settings', () => {
     });
 
     it('user chooses Ctrl+Enter as the send shortcut and both run actions swap', async () => {
-        const wrapper = mount(GeneralSection);
+        await updatesBoundary.synchronize();
+        const wrapper = mount(GeneralSection, updatesBoundary.viewOptions);
 
         await flushPromises();
 
@@ -290,7 +253,8 @@ describe('user changes general settings', () => {
             'search.submit.queue': 'Mod+Enter',
             'search.submit.priority': 'Enter',
         };
-        const wrapper = mount(GeneralSection);
+        await updatesBoundary.synchronize();
+        const wrapper = mount(GeneralSection, updatesBoundary.viewOptions);
 
         await flushPromises();
 
@@ -307,8 +271,8 @@ describe('user changes general settings', () => {
     });
 
     it('user keeps the latest-version state compact after a manual check', async () => {
-        appUpdateServiceMock.state = {
-            ...appUpdateServiceMock.createState(),
+        updatesBoundary.state = {
+            ...updatesBoundary.createState(),
             status: 'not_available',
             currentVersion: '0.1.1-beta.19',
             latestUpdate: {
@@ -321,7 +285,8 @@ describe('user changes general settings', () => {
                 downloads: [],
             },
         };
-        const wrapper = mount(GeneralSection);
+        await updatesBoundary.synchronize();
+        const wrapper = mount(GeneralSection, updatesBoundary.viewOptions);
 
         await flushPromises();
 
@@ -332,7 +297,7 @@ describe('user changes general settings', () => {
         await wrapper.get('[data-testid="settings-update-primary-action"]').trigger('click');
         await flushPromises();
 
-        expect(appUpdateServiceMock.checkNow).toHaveBeenCalledWith('manual');
+        expect(updatesBoundary.checkNow).toHaveBeenCalledWith('manual');
         expect(wrapper.find('[data-testid="settings-update-details-dialog"]').exists()).toBe(false);
         expect(wrapper.find('[data-testid="settings-update-available-badge"]').exists()).toBe(
             false
@@ -340,7 +305,8 @@ describe('user changes general settings', () => {
     });
 
     it('user turns automatic update checks off', async () => {
-        const wrapper = mount(GeneralSection);
+        await updatesBoundary.synchronize();
+        const wrapper = mount(GeneralSection, updatesBoundary.viewOptions);
 
         await flushPromises();
         const toggle = wrapper.get('[data-testid="settings-update-auto-check-toggle"]');
@@ -350,11 +316,12 @@ describe('user changes general settings', () => {
         await flushPromises();
 
         // The update service owns the setting; the call is the contract.
-        expect(appUpdateServiceMock.setAutoCheckEnabled).toHaveBeenCalledWith(false);
+        expect(updatesBoundary.setAutoCheckEnabled).toHaveBeenCalledWith(false);
     });
 
     it('user checks for updates after changing the update channel', async () => {
-        const wrapper = mount(GeneralSection);
+        await updatesBoundary.synchronize();
+        const wrapper = mount(GeneralSection, updatesBoundary.viewOptions);
 
         await flushPromises();
         const channelSelect = wrapper
@@ -363,13 +330,13 @@ describe('user changes general settings', () => {
         channelSelect.vm.$emit('update:modelValue', 'beta');
         await flushPromises();
 
-        expect(appUpdateServiceMock.setChannel).toHaveBeenCalledWith('beta');
-        expect(appUpdateServiceMock.checkNow).toHaveBeenCalledWith('settings-open');
+        expect(updatesBoundary.setChannel).toHaveBeenCalledWith('beta');
+        expect(updatesBoundary.checkNow).toHaveBeenCalledWith('settings-open');
     });
 
     it('user sees update details and delegates update actions', async () => {
-        appUpdateServiceMock.state = {
-            ...appUpdateServiceMock.state,
+        updatesBoundary.state = {
+            ...updatesBoundary.state,
             status: 'available',
             currentVersion: '0.1.0',
             availableUpdate: {
@@ -395,7 +362,8 @@ describe('user changes general settings', () => {
                 targetSatisfiesRequirement: true,
             },
         };
-        const wrapper = mount(GeneralSection);
+        await updatesBoundary.synchronize();
+        const wrapper = mount(GeneralSection, updatesBoundary.viewOptions);
 
         await flushPromises();
         await wrapper.get('[data-testid="settings-update-primary-action"]').trigger('click');
@@ -417,16 +385,17 @@ describe('user changes general settings', () => {
         expect(wrapper.emitted('show-update-settings')).toHaveLength(1);
 
         await wrapper.get('[data-testid="settings-update-dialog-primary"]').trigger('click');
-        expect(appUpdateServiceMock.download).toHaveBeenCalledTimes(1);
+        expect(updatesBoundary.download).toHaveBeenCalledTimes(1);
     });
 
     it('user sees failed update state and retries with a manual check', async () => {
-        appUpdateServiceMock.state = {
-            ...appUpdateServiceMock.createState(),
+        updatesBoundary.state = {
+            ...updatesBoundary.createState(),
             status: 'failed',
             error: 'Network error',
         };
-        const wrapper = mount(GeneralSection);
+        await updatesBoundary.synchronize();
+        const wrapper = mount(GeneralSection, updatesBoundary.viewOptions);
 
         await flushPromises();
 
@@ -439,18 +408,19 @@ describe('user changes general settings', () => {
         await wrapper.get('[data-testid="settings-update-primary-action"]').trigger('click');
         await flushPromises();
 
-        expect(appUpdateServiceMock.checkNow).toHaveBeenCalledWith('manual');
-        expect(appUpdateServiceMock.download).not.toHaveBeenCalled();
-        expect(appUpdateServiceMock.install).not.toHaveBeenCalled();
+        expect(updatesBoundary.checkNow).toHaveBeenCalledWith('manual');
+        expect(updatesBoundary.download).not.toHaveBeenCalled();
+        expect(updatesBoundary.install).not.toHaveBeenCalled();
     });
 
     it('user sees unsupported update state without exposing download or install actions', async () => {
-        appUpdateServiceMock.state = {
-            ...appUpdateServiceMock.createState(),
+        updatesBoundary.state = {
+            ...updatesBoundary.createState(),
             status: 'unsupported',
             unsupportedReason: 'platform_unsupported',
         };
-        const wrapper = mount(GeneralSection);
+        await updatesBoundary.synchronize();
+        const wrapper = mount(GeneralSection, updatesBoundary.viewOptions);
 
         await flushPromises();
 
@@ -462,14 +432,14 @@ describe('user changes general settings', () => {
         await wrapper.get('[data-testid="settings-update-primary-action"]').trigger('click');
         await flushPromises();
 
-        expect(appUpdateServiceMock.checkNow).toHaveBeenCalledWith('manual');
-        expect(appUpdateServiceMock.download).not.toHaveBeenCalled();
-        expect(appUpdateServiceMock.install).not.toHaveBeenCalled();
+        expect(updatesBoundary.checkNow).toHaveBeenCalledWith('manual');
+        expect(updatesBoundary.download).not.toHaveBeenCalled();
+        expect(updatesBoundary.install).not.toHaveBeenCalled();
     });
 
     it('user keeps required available updates on the in-app download path', async () => {
-        appUpdateServiceMock.state = {
-            ...appUpdateServiceMock.createState(),
+        updatesBoundary.state = {
+            ...updatesBoundary.createState(),
             status: 'available',
             currentVersion: '0.1.0',
             availableUpdate: {
@@ -495,7 +465,8 @@ describe('user changes general settings', () => {
                 targetSatisfiesRequirement: true,
             },
         };
-        const wrapper = mount(GeneralSection);
+        await updatesBoundary.synchronize();
+        const wrapper = mount(GeneralSection, updatesBoundary.viewOptions);
 
         await flushPromises();
         await wrapper.get('[data-testid="settings-update-primary-action"]').trigger('click');
@@ -509,13 +480,13 @@ describe('user changes general settings', () => {
 
         await wrapper.get('[data-testid="settings-update-dialog-primary"]').trigger('click');
 
-        expect(appUpdateServiceMock.download).toHaveBeenCalledTimes(1);
-        expect(appUpdateServiceMock.install).not.toHaveBeenCalled();
+        expect(updatesBoundary.download).toHaveBeenCalledTimes(1);
+        expect(updatesBoundary.install).not.toHaveBeenCalled();
     });
 
     it('user sees downloading progress in the details dialog and disables the action', async () => {
-        appUpdateServiceMock.state = {
-            ...appUpdateServiceMock.createState(),
+        updatesBoundary.state = {
+            ...updatesBoundary.createState(),
             status: 'available',
             availableUpdate: {
                 version: '0.2.0',
@@ -533,13 +504,14 @@ describe('user changes general settings', () => {
                 downloads: [],
             },
         };
-        const wrapper = mount(GeneralSection);
+        await updatesBoundary.synchronize();
+        const wrapper = mount(GeneralSection, updatesBoundary.viewOptions);
 
         await flushPromises();
 
         await wrapper.get('[data-testid="settings-update-primary-action"]').trigger('click');
         await flushPromises();
-        appUpdateServiceMock.publishState({ status: 'downloading', downloadProgress: 42 });
+        await updatesBoundary.publishState({ status: 'downloading', downloadProgress: 42 });
         await wrapper.vm.$nextTick();
 
         expect(wrapper.text()).toContain('正在下载更新 42%');
@@ -549,8 +521,8 @@ describe('user changes general settings', () => {
     });
 
     it('user sees installing state in the details dialog and disables the action', async () => {
-        appUpdateServiceMock.state = {
-            ...appUpdateServiceMock.createState(),
+        updatesBoundary.state = {
+            ...updatesBoundary.createState(),
             status: 'downloaded',
             downloadedUpdate: {
                 version: '0.2.0',
@@ -568,13 +540,14 @@ describe('user changes general settings', () => {
                 downloads: [],
             },
         };
-        const wrapper = mount(GeneralSection);
+        await updatesBoundary.synchronize();
+        const wrapper = mount(GeneralSection, updatesBoundary.viewOptions);
 
         await flushPromises();
 
         await wrapper.get('[data-testid="settings-update-primary-action"]').trigger('click');
         await flushPromises();
-        appUpdateServiceMock.publishState({ status: 'installing' });
+        await updatesBoundary.publishState({ status: 'installing' });
         await wrapper.vm.$nextTick();
 
         expect(wrapper.text()).toContain('正在安装并重启...');
@@ -584,8 +557,8 @@ describe('user changes general settings', () => {
     });
 
     it('user falls back to empty release-note text when latest metadata has no notes', async () => {
-        appUpdateServiceMock.state = {
-            ...appUpdateServiceMock.createState(),
+        updatesBoundary.state = {
+            ...updatesBoundary.createState(),
             status: 'available',
             currentVersion: '0.1.0',
             latestUpdate: {
@@ -605,7 +578,8 @@ describe('user changes general settings', () => {
                 targetSatisfiesRequirement: true,
             },
         };
-        const wrapper = mount(GeneralSection);
+        await updatesBoundary.synchronize();
+        const wrapper = mount(GeneralSection, updatesBoundary.viewOptions);
 
         await flushPromises();
         await wrapper.get('[data-testid="settings-update-primary-action"]').trigger('click');
@@ -613,4 +587,8 @@ describe('user changes general settings', () => {
 
         expect(wrapper.text()).toContain('暂无更新日志');
     });
+});
+
+beforePresentation(async () => {
+    (await createTestWindowPresentation('settings')).install();
 });

@@ -1,18 +1,19 @@
+import { mockTauriCommand } from '@tests/utils/tauri';
 import { shallowMount, type VueWrapper } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent, h, nextTick, type Ref, ref, watch } from 'vue';
 
-import type { AskUserQuestion } from '@/services/AgentService/contracts/tooling';
-import type {
-    PendingUserMessage,
-    PendingUserQuestionView,
-} from '@/services/AgentService/task/types';
+import type { PendingUserMessage, PendingUserQuestionView } from '@/app/api/agent/contracts';
 import {
     createInputHistorySnapshot,
     type InputHistorySnapshot,
     type PendingToolApproval,
     type SessionMessage,
-} from '@/types/session';
+} from '@/app/api/agent/history';
+import { clipboardDraftApiKey } from '@/app/api/attachments/drafts';
+import type { AskUserQuestion } from '@/app/api/tools/decisions';
+import { mainToolsStartupApiKey } from '@/app/api/tools/startup';
+import { createClipboardDrafts } from '@/modules/attachments';
 import type { SkillPickerState } from '@/views/SearchView/components/SearchBar/composables/useSkillAutocomplete';
 import SearchView from '@/views/SearchView/index.vue';
 import type { SearchSurfacePreparationControllerOptions } from '@/views/SearchView/searchSurfacePreparation';
@@ -62,6 +63,7 @@ const {
         importClipboardPayload: vi.fn(),
     },
     currentWindowMock: {
+        label: 'main',
         onMoved: vi.fn(),
         outerPosition: vi.fn(),
         outerSize: vi.fn(),
@@ -138,25 +140,14 @@ vi.mock('@composables/useSessionStatus', async () => {
     };
 });
 
-vi.mock('@services/EventService', () => ({
+vi.mock('@/app/api/search/events', () => ({
     AppEvent: {
         SEARCH_SURFACE_SHOWN: 'search-surface-shown',
     },
     eventService: eventServiceMock,
 }));
 
-vi.mock('@services/NativeService', () => ({
-    native: {
-        window: {
-            hideSearchWindow: vi.fn().mockResolvedValue(undefined),
-            markSearchWindowReady: vi.fn().mockResolvedValue(undefined),
-            openSettingsWindow: vi.fn().mockResolvedValue(undefined),
-            setSearchWindowRegions: vi.fn().mockResolvedValue(undefined),
-        },
-    },
-}));
-
-vi.mock('@services/NotificationService', () => ({
+vi.mock('@/app/api/windows/notifications', () => ({
     notify: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -188,18 +179,6 @@ vi.mock('@/i18n', () => ({
     t: (key: string) => key,
 }));
 
-vi.mock('@/services/AgentService/infrastructure/mcp', () => ({
-    mcpManager: {
-        autoConnect: vi.fn().mockResolvedValue(undefined),
-    },
-}));
-
-vi.mock('@/services/ClipboardService', () => ({
-    clipboardService: {
-        consumeShortcutAutoPastePayload: clipboardState.consumeShortcutAutoPastePayload,
-    },
-}));
-
 vi.mock('@/stores/askUser', () => ({
     useAskUserStore: () => askUserState,
 }));
@@ -216,7 +195,7 @@ vi.mock('@/stores/settings', () => ({
     }),
 }));
 
-vi.mock('@/utils/runtimeMode', () => ({
+vi.mock('@/app/api/windows/runtime', () => ({
     isE2eTestMode: runtimeModeState.isE2eTestMode,
 }));
 
@@ -492,10 +471,16 @@ function getSetupState(wrapper: VueWrapper) {
 
 describe('SearchView async overlay and listener lifecycle', () => {
     const wrappers: VueWrapper[] = [];
+    const clipboardHosts: ReturnType<typeof createClipboardDrafts>[] = [];
 
     beforeEach(() => {
         vi.clearAllMocks();
         clipboardState.consumeShortcutAutoPastePayload.mockResolvedValue(null);
+        mockTauriCommand('consume_shortcut_auto_paste_payload', (payload) =>
+            clipboardState.consumeShortcutAutoPastePayload(
+                (payload as { maxAgeMs: number }).maxAgeMs
+            )
+        );
         draftState.clearDraft.mockReset();
         draftState.importClipboardPayload.mockResolvedValue(undefined);
         keyboardState.options = null;
@@ -546,6 +531,7 @@ describe('SearchView async overlay and listener lifecycle', () => {
         for (const wrapper of wrappers.splice(0)) {
             wrapper.unmount();
         }
+        clipboardHosts.splice(0).forEach((host) => host.dispose());
         document.body.innerHTML = '';
         delete (window as Window & { __TOUCHAI_E2E__?: unknown }).__TOUCHAI_E2E__;
         vi.useRealTimers();
@@ -554,6 +540,8 @@ describe('SearchView async overlay and listener lifecycle', () => {
     });
 
     function mountSearchView(skillPicker = ref<SkillPickerState | null>(null)) {
+        const clipboard = createClipboardDrafts();
+        clipboardHosts.push(clipboard);
         controllerMock.isSkillAutocompleteOpen.mockImplementation(() => skillPicker.value !== null);
         controllerMock.closeSkillAutocomplete.mockImplementation(() => {
             skillPicker.value = null;
@@ -574,6 +562,10 @@ describe('SearchView async overlay and listener lifecycle', () => {
         });
         const wrapper = shallowMount(SearchView, {
             global: {
+                provide: {
+                    [clipboardDraftApiKey as symbol]: clipboard.api,
+                    [mainToolsStartupApiKey as symbol]: { autoConnectMcp: async () => undefined },
+                },
                 stubs: {
                     SearchBar: defineComponent({
                         name: 'SearchBar',

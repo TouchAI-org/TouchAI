@@ -6,8 +6,9 @@ import { createPinia } from 'pinia';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent, ref } from 'vue';
 
+import type { InputHistorySnapshot } from '@/app/api/agent/history';
+import { searchApiKey } from '@/app/api/search/queries';
 import { setLocale } from '@/i18n';
-import type { InputHistorySnapshot } from '@/types/session';
 import SearchBar from '@/views/SearchView/components/SearchBar/index.vue';
 import SkillPickerPanel from '@/views/SearchView/components/SearchBar/SkillPickerPanel.vue';
 
@@ -83,7 +84,10 @@ async function open(completeFile?: () => null) {
     wrapper = mount(SearchWithResults, {
         attachTo: document.body,
         props: { completeFile },
-        global: { plugins: [createPinia()] },
+        global: {
+            plugins: [createPinia()],
+            provide: { [searchApiKey as symbol]: createTestSearchHost().api },
+        },
     });
     input = wrapper.findComponent(SearchBar) as unknown as VueWrapper<SearchInput>;
     await flushPromises();
@@ -1233,3 +1237,4 @@ describe('given the main input contains a URL or file path', () => {
         }
     );
 });
+import { createTestSearchHost } from '@tests/utils/searchHost';

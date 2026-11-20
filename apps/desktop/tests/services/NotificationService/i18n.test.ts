@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
-import { log } from '@/services/ObservabilityService';
+import { log } from '@/platform/diagnostics';
 
 const { isPermissionGrantedMock, requestPermissionMock, sendNotificationMock } = vi.hoisted(() => ({
     isPermissionGrantedMock: vi.fn(),
@@ -26,7 +26,7 @@ describe('user gets notifications in their own language', () => {
     it('user is asked for notification permission when the app does not have it', async () => {
         isPermissionGrantedMock.mockResolvedValueOnce(false);
         requestPermissionMock.mockResolvedValueOnce('granted');
-        const { initNotificationPermission } = await import('@services/NotificationService');
+        const { initNotificationPermission } = await import('@/app/api/windows/notifications');
 
         await initNotificationPermission();
 
@@ -36,7 +36,7 @@ describe('user gets notifications in their own language', () => {
 
     it('user is not asked again when notification permission is already granted', async () => {
         isPermissionGrantedMock.mockResolvedValueOnce(true);
-        const { initNotificationPermission } = await import('@services/NotificationService');
+        const { initNotificationPermission } = await import('@/app/api/windows/notifications');
 
         await initNotificationPermission();
 
@@ -47,7 +47,7 @@ describe('user gets notifications in their own language', () => {
     it('user can still use the app when the permission check fails', async () => {
         isPermissionGrantedMock.mockRejectedValueOnce(new Error('permission backend down'));
         const consoleSpy = vi.spyOn(log, 'error').mockImplementation(() => {});
-        const { initNotificationPermission } = await import('@services/NotificationService');
+        const { initNotificationPermission } = await import('@/app/api/windows/notifications');
 
         await expect(initNotificationPermission()).resolves.toBeUndefined();
 
@@ -60,7 +60,7 @@ describe('user gets notifications in their own language', () => {
 
     it('user reads the notification title and body in the active language', async () => {
         setLocale('en-US');
-        const { notify } = await import('@services/NotificationService');
+        const { notify } = await import('@/app/api/windows/notifications');
 
         notify({
             titleSource: 'TouchAI - 快捷键注册失败',
@@ -74,7 +74,7 @@ describe('user gets notifications in their own language', () => {
     });
 
     it('user reads the notification unchanged in the default locale', async () => {
-        const { notify } = await import('@services/NotificationService');
+        const { notify } = await import('@/app/api/windows/notifications');
 
         notify({
             title: 'TouchAI',
@@ -89,7 +89,7 @@ describe('user gets notifications in their own language', () => {
 
     it('user reads notification templates with their values filled in', async () => {
         setLocale('en-US');
-        const { notify } = await import('@services/NotificationService');
+        const { notify } = await import('@/app/api/windows/notifications');
 
         notify({
             titleSource: 'TouchAI - 快捷键注册失败',
@@ -107,7 +107,7 @@ describe('user gets notifications in their own language', () => {
 
     it('user sees runtime text left exactly as written', async () => {
         setLocale('en-US');
-        const { notify } = await import('@services/NotificationService');
+        const { notify } = await import('@/app/api/windows/notifications');
 
         notify({
             title: 'TouchAI - 请求失败',
@@ -125,7 +125,7 @@ describe('user gets notifications in their own language', () => {
         requestPermissionMock.mockResolvedValueOnce('denied');
         const consoleSpy = vi.spyOn(log, 'warn').mockImplementation(() => {});
         const { initNotificationPermission, notify } =
-            await import('@services/NotificationService');
+            await import('@/app/api/windows/notifications');
 
         await initNotificationPermission();
         notify({
@@ -150,7 +150,7 @@ describe('user gets notifications in their own language', () => {
         const consoleSpy = vi.spyOn(log, 'error').mockImplementation(() => {});
         isPermissionGrantedMock.mockResolvedValueOnce(true);
         const { initNotificationPermission, notify } =
-            await import('@services/NotificationService');
+            await import('@/app/api/windows/notifications');
 
         await initNotificationPermission();
         expect(() =>

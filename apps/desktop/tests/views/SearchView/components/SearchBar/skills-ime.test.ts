@@ -57,7 +57,13 @@ describe('given WebKit sends composition end before the confirmation key', () =>
                     </template>
                 </SearchBar>`,
             }),
-            { attachTo: document.body, global: { plugins: [createPinia()] } }
+            {
+                attachTo: document.body,
+                global: {
+                    plugins: [createPinia()],
+                    provide: { [searchApiKey as symbol]: createTestSearchHost().api },
+                },
+            }
         );
         try {
             await flushPromises();
@@ -87,3 +93,6 @@ describe('given WebKit sends composition end before the confirmation key', () =>
         }
     });
 });
+import { createTestSearchHost } from '@tests/utils/searchHost';
+
+import { searchApiKey } from '@/app/api/search/queries';

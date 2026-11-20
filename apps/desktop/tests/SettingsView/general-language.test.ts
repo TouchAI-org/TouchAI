@@ -1,99 +1,23 @@
-import { mount } from '@vue/test-utils';
-import { createPinia, setActivePinia } from 'pinia';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createSettingsPanelFixture, openSettingsSelect } from '@tests/utils/settingsPanel';
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { setLocale, tt } from '@/i18n';
 import GeneralSection from '@/views/SettingsView/components/General/index.vue';
 
-const { getSettingValuesMock } = vi.hoisted(() => ({
-    getSettingValuesMock: vi.fn(async () => ({ language: 'en-US' })),
-}));
-
-vi.mock('@database/queries', () => ({
-    getSettingValues: getSettingValuesMock,
-    setSetting: vi.fn(async () => undefined),
-}));
-
-vi.mock('@services/EventService', () => ({
-    AppEvent: { SETTINGS_GENERAL_UPDATED: 'settings-general-updated' },
-    eventService: {
-        emit: vi.fn(async () => undefined),
-        on: vi.fn(async () => undefined),
-    },
-}));
-
-vi.mock('@tauri-apps/api/window', () => ({
-    getCurrentWindow: () => ({
-        // The main WebView is the settings owner; the general section mirrors its state.
-        label: 'main',
-    }),
-}));
-
-vi.mock('@services/NativeService', () => ({
-    native: {
-        autostart: {
-            disableAutostart: vi.fn(async () => undefined),
-            enableAutostart: vi.fn(async () => undefined),
-            isAutostartEnabled: vi.fn(async () => false),
-        },
-        shortcut: {
-            getShortcutStatus: vi.fn(async () => [false, null]),
-            registerGlobalShortcut: vi.fn(async () => undefined),
-        },
-        window: {
-            setSearchWindowDefaults: vi.fn(async () => undefined),
-        },
-    },
-}));
-
-vi.mock('@services/NotificationService', () => ({
-    notify: vi.fn(),
-}));
-
-vi.mock('@components/AlertMessage.vue', () => ({
-    default: {
-        name: 'AlertMessage',
-        template: '<div data-testid="alert-message" />',
-        methods: {
-            error: vi.fn(),
-            success: vi.fn(),
-            warning: vi.fn(),
-        },
-    },
-}));
-
-vi.mock('@components/AppIcon.vue', () => ({
-    default: {
-        name: 'AppIcon',
-        props: ['name'],
-        template: '<span data-testid="app-icon" />',
-    },
-}));
-
-vi.mock('@components/CustomSelect.vue', () => ({
-    default: {
-        name: 'CustomSelect',
-        props: ['modelValue', 'options'],
-        emits: ['update:modelValue'],
-        template:
-            '<div data-testid="custom-select"><div v-for="option in options" :key="option.value">{{ option.label }} {{ option.description }}</div></div>',
-    },
-}));
-
-async function flushMountedPromises() {
-    for (let index = 0; index < 4; index += 1) {
-        await Promise.resolve();
-    }
-}
+let fixture: Awaited<ReturnType<typeof createSettingsPanelFixture>>;
+const wrappers: VueWrapper[] = [];
+beforeEach(async () => {
+    fixture = await createSettingsPanelFixture({ values: { language: 'en-US' } });
+});
+afterEach(async () => {
+    for (const wrapper of wrappers.splice(0)) wrapper.unmount();
+    await fixture.dispose();
+    document.body.innerHTML = '';
+    setLocale('zh-CN');
+});
 
 describe('user captures a shortcut in general settings', () => {
-    beforeEach(() => {
-        setActivePinia(createPinia());
-        vi.clearAllMocks();
-        getSettingValuesMock.mockResolvedValue({ language: 'en-US' });
-        setLocale('zh-CN');
-    });
-
     it('user sees the shortcut capture prompt from source text', () => {
         setLocale('en-US');
 
@@ -103,13 +27,10 @@ describe('user captures a shortcut in general settings', () => {
     it('user sees general settings copy and option labels in English without DOM localization', async () => {
         setLocale('en-US');
 
-        const wrapper = mount(GeneralSection, {
-            global: {
-                plugins: [createPinia()],
-            },
-        });
+        const wrapper = mount(GeneralSection, fixture.viewOptions);
+        wrappers.push(wrapper);
 
-        await flushMountedPromises();
+        await flushPromises();
 
         expect(wrapper.text()).toContain('General');
         expect(wrapper.text()).toContain('Startup and window');
@@ -122,7 +43,10 @@ describe('user captures a shortcut in general settings', () => {
         expect(wrapper.text()).toContain('Conversation experience');
         expect(wrapper.text()).toContain('Output scroll behavior');
         expect(wrapper.text()).toContain('Follow output');
-        expect(wrapper.text()).toContain(
+        const options = await openSettingsSelect(
+            wrapper.get('[data-settings-search-target="output-scroll"] [role="combobox"]')
+        );
+        expect(options.map((option) => option.text()).join(' ')).toContain(
             'Automatically scroll to the latest content while output streams'
         );
         expect(wrapper.text()).toContain('Language');

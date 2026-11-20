@@ -64,7 +64,7 @@
         webSearchHostname,
         webSearchSiteName,
         type WebSearchSource,
-    } from '@/services/BuiltInToolService/tools/webSearch/sources';
+    } from '@/app/api/tools/results';
     import { truncateText } from '@/utils/text';
 
     import SourceFavicon from './SourceFavicon.vue';

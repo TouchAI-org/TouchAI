@@ -6,9 +6,10 @@
     import LoadingState from '@components/LoadingState.vue';
     import { useScrollbarStabilizer } from '@composables/useScrollbarStabilizer';
     import { useScrollFade } from '@composables/useScrollFade';
-    import { log } from '@services/ObservabilityService';
     import { computed, onMounted, ref, watch } from 'vue';
 
+    import { log } from '@/app/api/diagnostics';
+    import { useToolsAdministrationApi } from '@/app/api/tools/administration';
     import { t } from '@/i18n';
 
     import { useSettingsResizablePanel } from '../../composables/useSettingsResizablePanel';
@@ -21,12 +22,13 @@
         type BuiltInToolEntity,
         type BuiltInToolUpdateData,
         isBuiltInToolVisibleInSettings,
-        loadBuiltInToolQueries,
         usesBuiltInToolEmptyConfig,
     } from './types';
     defineOptions({
         name: 'SettingsBuiltInToolsSection',
     });
+
+    const queries = useToolsAdministrationApi();
 
     const alertMessage = ref<InstanceType<typeof AlertMessage> | null>(null);
     const {
@@ -77,7 +79,6 @@
     async function loadTools() {
         loading.value = true;
         try {
-            const queries = await loadBuiltInToolQueries();
             const nextTools = (await queries.findAllBuiltInTools()).filter((tool) =>
                 isBuiltInToolVisibleInSettings(tool.tool_id)
             );
@@ -132,7 +133,6 @@
         targetTools: BuiltInToolEntity[],
         patch: BuiltInToolUpdateData
     ): Promise<BuiltInToolEntity[]> {
-        const queries = await loadBuiltInToolQueries();
         const targetToolIds = targetTools.map((targetTool) => targetTool.id);
         if (targetTools.length > 1) {
             return await queries.updateBuiltInTools(targetToolIds, patch);
@@ -164,7 +164,7 @@
 
         updateTogglingToolIds(targetToolIds, true);
         try {
-            const patch = {
+            const patch: BuiltInToolUpdateData = {
                 enabled: enabled ? 1 : 0,
             };
             const updatedTools = await updateTargetTools(targetTools, patch);

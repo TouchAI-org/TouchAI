@@ -1,13 +1,11 @@
-import type {
-    SearchSurfaceHiddenEvent,
-    SearchSurfaceShownEvent,
-} from '@services/EventService/types';
+import { useStateMachine } from 'reka-ui';
+import { nextTick } from 'vue';
+
+import type { SearchSurfaceHiddenEvent, SearchSurfaceShownEvent } from '@/app/api/search/events';
 import type {
     SearchSurfacePhysicalViewport,
     SearchSurfacePreparation,
-} from '@services/NativeService/types';
-import { useStateMachine } from 'reka-ui';
-import { nextTick } from 'vue';
+} from '@/app/api/windows/contracts';
 
 type Unlisten = () => void;
 type SearchSurfacePreparationIdentity = Pick<

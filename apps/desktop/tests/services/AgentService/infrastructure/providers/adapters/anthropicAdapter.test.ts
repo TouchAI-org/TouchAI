@@ -1,7 +1,7 @@
+import { AnthropicProviderAdapter } from '@touchai/models/providers/anthropic';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { AiErrorCode } from '@/services/AgentService/contracts/errors';
-import { AnthropicProviderAdapter } from '@/services/AgentService/infrastructure/providers/adapters/anthropic';
+import { AiErrorCode } from '@/app/api/agent/errors';
 
 /**
  * Anthropic's API differs from the OpenAI shape in the places that matter to a user: the base
@@ -14,12 +14,8 @@ import { AnthropicProviderAdapter } from '@/services/AgentService/infrastructure
 
 const { tauriFetchMock } = vi.hoisted(() => ({ tauriFetchMock: vi.fn() }));
 
-vi.mock('@services/HttpService', () => ({
-    createTauriFetch: () => tauriFetchMock,
-}));
-
 function adapter(config: { apiEndpoint: string; apiKey?: string; config?: unknown }) {
-    return new AnthropicProviderAdapter(config as never);
+    return new AnthropicProviderAdapter(config as never, createTestModelsHost(tauriFetchMock));
 }
 
 describe('user connects to an Anthropic-compatible endpoint', () => {
@@ -320,3 +316,4 @@ describe('user sees an Anthropic failure explained', () => {
         expect(error?.code).toBe(AiErrorCode.UNAUTHORIZED);
     });
 });
+import { createTestModelsHost } from '@tests/utils/provider';

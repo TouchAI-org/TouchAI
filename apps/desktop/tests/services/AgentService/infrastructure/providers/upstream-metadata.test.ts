@@ -1,8 +1,7 @@
+import { createCompatibleProvider } from '@tests/utils/provider';
+import { normalizeUpstreamModelCapabilities } from '@touchai/models/catalog';
+import type { ModelInfo } from '@touchai/models/contracts';
 import { describe, expect, it } from 'vitest';
-
-import type { ModelInfo } from '@/services/AgentService/infrastructure/providers';
-import { OpenAICompatibleProviderAdapter } from '@/services/AgentService/infrastructure/providers/adapters/openai-compatible';
-import { normalizeUpstreamModelCapabilities } from '@/services/AgentService/infrastructure/providers/upstreamMetadata';
 
 /** 取自 Magpie 网关 `/v1/models` 的真实形态。 */
 function magpieModel(overrides: Record<string, unknown> = {}) {
@@ -120,16 +119,19 @@ describe('user sees model capabilities read from an AI gateway', () => {
 });
 
 describe('user sees capabilities parsed from an OpenAI-compatible model list', () => {
-    function parse(payload: unknown): ModelInfo[] {
-        const adapter = new OpenAICompatibleProviderAdapter({
-            apiEndpoint: 'http://127.0.0.1:3425/v1',
-        });
-        const probe = adapter as unknown as { parseModelList(payload: unknown): ModelInfo[] };
-        return probe.parseModelList(payload);
+    async function parse(payload: unknown): Promise<ModelInfo[]> {
+        const provider = createCompatibleProvider(
+            async () => new Response(JSON.stringify(payload))
+        );
+        try {
+            return await provider.listModels();
+        } finally {
+            provider.dispose();
+        }
     }
 
-    it('user sees the capability fields the gateway returns kept', () => {
-        const models = parse({
+    it('user sees the capability fields the gateway returns kept', async () => {
+        const models = await parse({
             object: 'list',
             data: [magpieModel(), { id: 'qianai/deepseek-v4.1-flash-0910', object: 'model' }],
         });

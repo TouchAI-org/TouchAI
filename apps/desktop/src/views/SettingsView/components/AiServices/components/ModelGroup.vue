@@ -4,9 +4,9 @@
     import AppIcon from '@components/AppIcon.vue';
     import MotionCollapse from '@components/MotionCollapse.vue';
     import { useConfirm } from '@composables/useConfirm';
-    import type { Model } from '@database/schema';
     import { ref } from 'vue';
 
+    import type { Model, ModelPatch } from '@/app/api/models/administration';
     import { t } from '@/i18n';
 
     import ModelCard from './ModelCard.vue';
@@ -22,7 +22,7 @@
     }
 
     interface Emits {
-        (e: 'update', id: number, data: Partial<Model>): void;
+        (e: 'update', id: number, data: ModelPatch): void;
         (e: 'delete', id: number): void;
         (e: 'delete-group', groupKey: string): void;
         (e: 'set-default', id: number): void;

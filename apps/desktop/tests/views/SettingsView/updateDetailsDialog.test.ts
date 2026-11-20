@@ -1,4 +1,6 @@
+import { createTestWindowPresentation } from '@tests/utils/windowPresentation';
 import { DOMWrapper, enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
+import { beforeEach as beforePresentation } from 'vitest';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { setLocale } from '@/i18n';
@@ -170,3 +172,7 @@ it.each([
         expect(dialog().text()).not.toContain(expected);
     }
 );
+
+beforePresentation(async () => {
+    (await createTestWindowPresentation('settings')).install();
+});

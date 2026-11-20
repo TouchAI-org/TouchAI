@@ -1,13 +1,9 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
+import type { ReasoningEncodingHints, ReasoningResolution } from '@touchai/models';
+import { encodeReasoning } from '@touchai/models';
+import type { ReasoningProtocol } from '@touchai/models/contracts';
 import { describe, expect, it } from 'vitest';
-
-import type { ReasoningProtocol } from '@/services/AgentService/contracts/reasoning';
-import { encodeReasoning } from '@/services/AgentService/infrastructure/providers/reasoning/formats';
-import type {
-    ReasoningEncodingHints,
-    ReasoningResolution,
-} from '@/services/AgentService/infrastructure/providers/reasoning/types';
 
 /**
  * The encoder is the last step between a user's reasoning level and the provider request. If it

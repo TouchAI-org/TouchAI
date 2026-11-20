@@ -1,6 +1,5 @@
+import { normalizeResponsesReasoningStream } from '@touchai/models';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-
-import { normalizeResponsesReasoningStream } from '@/services/AgentService/infrastructure/providers/ai-sdk/responsesStream';
 
 function sseResponse(lines: string[]): Response {
     return new Response(lines.join(''), {

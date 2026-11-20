@@ -1,7 +1,8 @@
-import { native, type QuickShortcutItem } from '@services/NativeService';
-import { log } from '@services/ObservabilityService';
 import { getPathExtension, IMAGE_EXTENSIONS } from '@utils/path';
 import { getCurrentScope, onScopeDispose, type Ref, ref, watch } from 'vue';
+
+import { log } from '@/app/api/diagnostics';
+import { type QuickShortcutItem, useSearchApi } from '@/app/api/search/queries';
 
 import { ITEM_SIZE_PX, LIST_ROW_HEIGHT_PX, type ViewMode } from './useLayout';
 
@@ -43,12 +44,6 @@ export interface UseAssetLoaderDeps {
     getShortcutIcons: (paths: string[], iconSize: number) => Promise<Record<string, string>>;
 }
 
-const DEFAULT_DEPS: UseAssetLoaderDeps = {
-    getImageThumbnails: (paths, thumbSize) =>
-        native.quickSearch.getImageThumbnails(paths, thumbSize),
-    getShortcutIcons: (paths, iconSize) => native.quickSearch.getShortcutIcons(paths, iconSize),
-};
-
 /**
  * 快捷面板资源加载器。
  * 负责图标/缩略图队列构建、批次加载、滚动联动调度与缓存回收。
@@ -57,10 +52,8 @@ const DEFAULT_DEPS: UseAssetLoaderDeps = {
  * @param deps 可注入资源请求依赖，默认使用 native.quickSearch。
  * @returns 图标与缩略图状态、加载调度方法和状态重置方法。
  */
-export function useAssetLoader(
-    options: UseAssetLoaderOptions,
-    deps: UseAssetLoaderDeps = DEFAULT_DEPS
-) {
+export function useAssetLoader(options: UseAssetLoaderOptions, dependencies?: UseAssetLoaderDeps) {
+    const deps = dependencies ?? useSearchApi();
     const {
         isOpen,
         results,

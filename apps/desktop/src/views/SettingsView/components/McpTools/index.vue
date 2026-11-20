@@ -7,16 +7,17 @@
     import { useContextMenu } from '@composables/useContextMenu.ts';
     import { useScrollbarStabilizer } from '@composables/useScrollbarStabilizer';
     import { useScrollFade } from '@composables/useScrollFade';
-    import { deleteMcpServer, updateMcpServer } from '@database/queries';
-    import type { McpServerEntity } from '@database/types';
-    import { log } from '@services/ObservabilityService';
     import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
-    import { mcpManager } from '@/services/AgentService/infrastructure/mcp';
-    import { useMcpStore } from '@/stores/mcp';
+    import { log } from '@/app/api/diagnostics';
+    import { useMcpApi } from '@/app/api/tools/mcp';
+    import type { McpServerEntity } from '@/app/api/tools/mcpAdministration';
+    import { useMcpAdministrationApi } from '@/app/api/tools/mcpAdministration';
+    import { useMcpAdministrationStore as useMcpStore } from '@/stores/mcpAdministration';
 
     import SectionTabs, { type SectionTabItem } from '../SectionTabs.vue';
 
+    const { deleteMcpServer, updateMcpServer } = useMcpAdministrationApi();
     defineOptions({
         name: 'SettingsMcpToolsSection',
     });
@@ -59,6 +60,7 @@
     });
 
     const mcpStore = useMcpStore();
+    const mcp = useMcpApi();
     const { getServerStatus } = mcpStore;
     const showServerPanel = computed(
         () => mcpStore.servers.length > 0 || selectedServer.value?.id === -1
@@ -192,7 +194,7 @@
 
                     // 数据库状态落稳后再发起连接。
                     togglingServers.value.add(newServer.id);
-                    await mcpManager.connectServer(newServer);
+                    await mcp.connectServer(newServer.id);
                 } catch (error) {
                     log.error('Failed to auto-connect new server:', error);
                     alertMessage.value?.error(
@@ -246,7 +248,7 @@
             if (willEnable) {
                 // 启用服务器时只发起连接，数据库状态统一在状态监听里回写。
                 try {
-                    await mcpManager.connectServer(server);
+                    await mcp.connectServer(server.id);
                 } catch (error) {
                     log.error('Failed to connect server:', error);
                     alertMessage.value?.error(
@@ -261,7 +263,7 @@
                 // 禁用服务器时，若仍处于活动态，则先走断开流程。
                 if (currentStatus === 'connected' || currentStatus === 'connecting') {
                     try {
-                        await mcpManager.disconnectServer(serverId);
+                        await mcp.disconnectServer(serverId);
                     } catch (error) {
                         log.error('Failed to disconnect server:', error);
                         alertMessage.value?.error(
@@ -342,7 +344,7 @@
             const currentStatus = getServerStatus(serverId);
             // 删除前先确保服务器已经断开，避免清理记录后底层连接仍然存活。
             if (currentStatus === 'connected' || currentStatus === 'connecting') {
-                await mcpManager.disconnectServer(serverId);
+                await mcp.disconnectServer(serverId);
                 await waitForServerDisconnect(serverId);
             }
 

@@ -150,7 +150,7 @@ vi.mock('@tiptap/vue-3', () => ({
     Editor: MockEditor,
 }));
 
-vi.mock('@/services/AgentService/infrastructure/attachments', () => ({
+vi.mock('@/modules/attachments', () => ({
     buildAttachmentPromptMetas: vi.fn((attachments: Array<{ id: string }>) =>
         attachments.map((attachment, index) => ({ alias: `A${index + 1}-${attachment.id}` }))
     ),

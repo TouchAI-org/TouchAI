@@ -3,35 +3,25 @@
  * 收口请求提交、排队与会话续发逻辑，让输入层与页面层保持解耦。
  */
 import { useAgent } from '@composables/agent';
-import type { SessionEntity } from '@database/types';
-import {
-    beginSearchInteraction,
-    finishSearchInteraction,
-    type SearchInteraction,
-    selectSearchResult,
-    settleSearchInteraction,
-    trackSearchFeatureExposed,
-    trackSurfaceOpened,
-} from '@services/AnalyticsService/productInteractions';
-import { notify } from '@services/NotificationService';
-import { log } from '@services/ObservabilityService';
 import { useStateMachine } from 'reka-ui';
 import { computed, onUnmounted, type Ref, ref } from 'vue';
 
-import { t } from '@/i18n';
-import {
-    type Index,
-    isAttachmentSupported,
-} from '@/services/AgentService/infrastructure/attachments';
-import { dismissSessionTerminalStatus, listSessions } from '@/services/AgentService/session';
-import { eventService } from '@/services/EventService';
-import { AppEvent } from '@/services/EventService/types';
 import {
     createInputHistorySnapshot,
     type InputHistorySnapshot,
     type LoadedSessionInfo,
     type SessionMessage,
-} from '@/types/session';
+} from '@/app/api/agent/history';
+import type { SessionListItem } from '@/app/api/agent/sessions';
+import { dismissSessionTerminalStatus, listSessions } from '@/app/api/agent/sessions';
+import { useProductAnalyticsApi } from '@/app/api/analytics/product';
+import { type SearchInteraction } from '@/app/api/analytics/product';
+import { type Index, isAttachmentSupported } from '@/app/api/attachments/presentation';
+import { log } from '@/app/api/diagnostics';
+import { eventService } from '@/app/api/search/events';
+import { AppEvent } from '@/app/api/search/events';
+import { notify } from '@/app/api/windows/notifications';
+import { t } from '@/i18n';
 
 import type { PendingRequest, SearchModelOverride, SubmitShortcutIntent } from '../types';
 
@@ -78,6 +68,14 @@ function findNearestPrecedingUserMessage(
  */
 export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
     const {
+        beginSearchInteraction,
+        finishSearchInteraction,
+        selectSearchResult,
+        settleSearchInteraction,
+        trackSearchFeatureExposed,
+        trackSurfaceOpened,
+    } = useProductAnalyticsApi();
+    const {
         modelOverride,
         clearDraft,
         getUnsupportedAttachmentMessage,
@@ -86,7 +84,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
     } = options;
 
     const sessionHistoryOverlayOpen = ref(false);
-    const sessionList = ref<SessionEntity[]>([]);
+    const sessionList = ref<SessionListItem[]>([]);
     const sessionListQuery = ref('');
     const isSessionListLoading = ref(false);
     const lastClosedSessionId = ref<number | null>(null);

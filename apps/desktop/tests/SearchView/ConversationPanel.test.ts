@@ -79,8 +79,8 @@ vi.mock('vue-draggable-plus', async () => {
     };
 });
 
+import type { SessionMessage } from '@/app/api/agent/history';
 import MessageScroller from '@/components/ui/message-scroller/MessageScroller.vue';
-import type { SessionMessage } from '@/types/session';
 import ConversationPanel from '@/views/SearchView/components/ConversationPanel/index.vue';
 
 describe('ConversationPanel intrinsic session measurement', () => {

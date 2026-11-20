@@ -5,7 +5,7 @@
  * Gate a pull request on the coverage of the lines it changed.
  *
  * Usage:
- *   node scripts/ci/coverage/patch-coverage.mjs \
+ *   node scripts/ci/coverage/patch-coverage-cli.mjs \
  *     --coverage .coverage/unit/coverage-final.json \
  *     --base origin/main \
  *     --root . \
@@ -16,7 +16,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, existsSync, readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, lstatSync, readFileSync, readlinkSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -28,10 +28,11 @@ import {
 } from './patch-coverage.mjs';
 
 const USAGE =
-    'Usage: node scripts/ci/coverage/patch-coverage.mjs --coverage <coverage-final.json> ' +
+    'Usage: node scripts/ci/coverage/patch-coverage-cli.mjs --coverage <coverage-final.json> ' +
     '--base <git-ref> [--root <dir>] [--floor <percent>] [--summary <path>] [--dry-run]';
 
 const DEFAULT_FLOOR = 85;
+const SOURCE_ROOTS = ['apps/desktop/src', 'packages/agent-core/src', 'packages/models/src'];
 
 /** Source files only: tests and config are not the thing being measured. */
 const IGNORED = [/^apps\/desktop\/tests\//, /^apps\/desktop\/scripts\//, /\.d\.ts$/, /^docs\//];
@@ -68,12 +69,12 @@ const COVERAGE_EXCLUDED = [
  * lines, which failed every release pull request. Measuring only what the report can
  * contain keeps the gate about coverage instead of about file extensions.
  */
-const MEASURED = /^apps\/desktop\/src\/.*\.(?:ts|vue)$/;
+const MEASURED =
+    /^(?:apps\/desktop\/src\/.*\.(?:ts|vue)|packages\/(?:agent-core|models)\/src\/.*\.ts)$/;
 
 const SKIPPED = [...IGNORED, ...COVERAGE_EXCLUDED];
 
-const isMeasured = (path) =>
-    MEASURED.test(path) && !SKIPPED.some((pattern) => pattern.test(path));
+const isMeasured = (path) => MEASURED.test(path) && !SKIPPED.some((pattern) => pattern.test(path));
 
 function readOption(argv, index, name) {
     const value = argv[index + 1];
@@ -168,30 +169,40 @@ export function resolveBase(ref) {
     }
 }
 
-/**
- * `git diff --unified=0 <base> -- <path>` gives just the added lines.
- *
- * A missing ref must not be reported as "the change touched nothing", because that would
- * silently pass the gate.
- */
-export function readDiff(base, path) {
-    const run = (ref) =>
-        execFileSync('git', ['diff', '--unified=0', '--no-color', ref, '--', `:(top)${path}`], {
+function repositoryRoot() {
+    return execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
+}
+
+export function readChangedLines(base, paths) {
+    const root = repositoryRoot();
+    const git = (args) =>
+        execFileSync('git', ['--no-optional-locks', ...args], {
+            cwd: root,
             encoding: 'utf8',
             maxBuffer: 32 * 1024 * 1024,
         });
+    const changed = parseChangedLines(
+        git(['diff', '--unified=0', '--no-color', base, '--', ...paths])
+    );
 
-    try {
-        return run(base);
-    } catch {
-        throw new Error(
-            `Cannot diff against "${base}": the ref is not available in this checkout. ` +
-                'Pass --base with a commit that exists.'
-        );
+    // Git's tracked diff omits new files until they enter the index.
+    const untracked = git(['ls-files', '--others', '--exclude-standard', '-z', '--', ...paths]);
+    for (const path of untracked.split('\0').filter(isMeasured)) {
+        const file = resolve(root, path);
+        const content = lstatSync(file).isSymbolicLink()
+            ? readlinkSync(file)
+            : readFileSync(file, 'utf8');
+        const lines = content.split('\n');
+        if (lines.at(-1) === '') lines.pop();
+        changed.set(path, new Set(lines.map((_, index) => index + 1)));
     }
+    return changed;
 }
 
-export function runPatchCoverage(options, { readDiff: diff = readDiff, resolveBase: resolve = resolveBase } = {}) {
+export function runPatchCoverage(
+    options,
+    { readChangedLines: changes = readChangedLines, resolveBase: resolve = resolveBase } = {}
+) {
     if (!existsSync(options.coveragePath)) {
         throw new Error(
             `Coverage report not found: ${options.coveragePath}. ` +
@@ -199,10 +210,8 @@ export function runPatchCoverage(options, { readDiff: diff = readDiff, resolveBa
         );
     }
 
-    // Only the app source is measured: the tests and the scripts are the instrument. The base
-    // is resolved to the merge base so commits merged into main after this branch started are
-    // not counted as part of this change.
-    const changed = parseChangedLines(diff(resolve(options.base), 'apps/desktop/src'));
+    // Source moves keep contributing to the same patch floor.
+    const changed = changes(resolve(options.base), SOURCE_ROOTS);
     const report = JSON.parse(readFileSync(options.coveragePath, 'utf8'));
 
     const result = measurePatchCoverage(changed, report, {
@@ -220,10 +229,7 @@ export function runPatchCoverage(options, { readDiff: diff = readDiff, resolveBa
 
 function main() {
     const options = parseArgs(process.argv.slice(2));
-    const repoRoot = execFileSync('git', ['rev-parse', '--show-toplevel'], {
-        encoding: 'utf8',
-    }).trim();
-    options.root = resolve(repoRoot, options.root);
+    options.root = resolve(repositoryRoot(), options.root);
     const { result, markdown, failures } = runPatchCoverage(options);
 
     process.stdout.write(`${markdown}\n`);

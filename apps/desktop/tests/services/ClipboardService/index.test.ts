@@ -1,27 +1,37 @@
+import { posix } from 'node:path';
+
+import {
+    closeTestDatabases,
+    openMigratedDatabase,
+    routeQueriesTo,
+} from '@tests/database/sqliteHarness';
+import { mockTauriCommand } from '@tests/utils/tauri';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach } from 'vitest';
 
-import type { ClipboardPayload } from '@/services/NativeService/types';
+import { initializeSearchWindow } from '@/app/bootstrap/search';
+import type { ClipboardPayload } from '@/platform/native/types';
 
-const { readClipboardPayloadMock, createPersistedAttachmentFromDataMock } = vi.hoisted(() => ({
-    readClipboardPayloadMock: vi.fn(),
-    createPersistedAttachmentFromDataMock: vi.fn(),
-}));
-
-vi.mock('@/services/NativeService', () => ({
-    native: {
-        clipboard: {
-            readClipboardPayload: readClipboardPayloadMock,
-            consumeShortcutAutoPastePayload: vi.fn(),
-            writeClipboardText: vi.fn(),
-        },
+const files = vi.hoisted(() => new Map<string, Uint8Array>());
+vi.mock('@tauri-apps/plugin-fs', () => ({
+    exists: async (path: string) => files.has(path),
+    mkdir: async () => {},
+    writeFile: async (path: string, data: Uint8Array) => {
+        files.set(path, data.slice());
     },
 }));
-
-vi.mock('@/services/AgentService/infrastructure/attachments', () => ({
-    createPersistedAttachmentFromData: createPersistedAttachmentFromDataMock,
+vi.mock('@tauri-apps/api/path', () => ({
+    join: (...parts: string[]) => Promise.resolve(posix.join(...parts)),
 }));
+vi.mock('tauri-plugin-fs-pro-api', () => ({ icon: async () => '/fixture/icon' }));
 
-import { clipboardService } from '@/services/ClipboardService';
+let host: ReturnType<typeof initializeSearchWindow>;
+let database: ReturnType<typeof openMigratedDatabase>;
+let clipboardService: NonNullable<typeof host.clipboard>;
+afterEach(() => {
+    host?.dispose();
+    closeTestDatabases();
+});
 
 function createClipboardData(data: Record<string, string>): DataTransfer {
     return {
@@ -59,16 +69,18 @@ function createNativePayload(overrides: Partial<ClipboardPayload>): ClipboardPay
 describe('user pastes into the search box', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        createPersistedAttachmentFromDataMock.mockImplementation(
-            async (input: { type: 'image' | 'file'; name: string }) => ({
-                path: `D:/persisted/${input.name}`,
-                type: input.type,
-            })
-        );
+        files.clear();
+        database = openMigratedDatabase();
+        routeQueriesTo(database);
+        mockTauriCommand('get_app_directory_path', '/fixture/cache');
+        host = initializeSearchWindow('main');
+        clipboardService = host.clipboard!;
     });
 
     it('user still gets the pasted text when the native clipboard read fails', async () => {
-        readClipboardPayloadMock.mockRejectedValue(new Error('clipboard busy'));
+        mockTauriCommand('read_clipboard_payload', () => {
+            throw new Error('clipboard busy');
+        });
 
         const payload = await clipboardService.readExplicitPastePayload(
             createClipboardData({
@@ -81,7 +93,8 @@ describe('user pastes into the search box', () => {
     });
 
     it('user gets pasted table text as plain rows with native attachments kept', async () => {
-        readClipboardPayloadMock.mockResolvedValue(
+        mockTauriCommand(
+            'read_clipboard_payload',
             createNativePayload({
                 imagePaths: ['D:/clip/image.png'],
                 fragments: [{ type: 'image', path: 'D:/clip/image.png' }],
@@ -105,7 +118,9 @@ describe('user pastes into the search box', () => {
     });
 
     it('user gets the exact whitespace they pasted', async () => {
-        readClipboardPayloadMock.mockRejectedValue(new Error('clipboard busy'));
+        mockTauriCommand('read_clipboard_payload', () => {
+            throw new Error('clipboard busy');
+        });
 
         const payload = await clipboardService.readExplicitPastePayload(
             createClipboardData({
@@ -118,7 +133,9 @@ describe('user pastes into the search box', () => {
     });
 
     it('user gets files from the browser paste when the native clipboard read fails', async () => {
-        readClipboardPayloadMock.mockRejectedValue(new Error('clipboard busy'));
+        mockTauriCommand('read_clipboard_payload', () => {
+            throw new Error('clipboard busy');
+        });
         const imageFile = new File([new Uint8Array([1, 2, 3])], 'pasted.png', {
             type: 'image/png',
         });
@@ -134,16 +151,23 @@ describe('user pastes into the search box', () => {
             )
         );
 
-        expect(createPersistedAttachmentFromDataMock).toHaveBeenCalledTimes(1);
-        expect(payload?.imagePaths).toEqual(['D:/persisted/pasted.png']);
+        const path = payload!.imagePaths[0]!;
+        expect(files.get(path)).toEqual(new Uint8Array([1, 2, 3]));
+        expect(
+            database.prepare('SELECT original_name, origin_path, type FROM attachments').all()
+        ).toEqual([
+            { original_name: 'pasted.png', origin_path: 'clipboard:pasted.png', type: 'image' },
+        ]);
         expect(payload?.fragments).toEqual([
             { type: 'text', text: 'caption' },
-            { type: 'image', path: 'D:/persisted/pasted.png' },
+            { type: 'image', path },
         ]);
     });
 
     it('user gets fragments for a paste that only contained files', async () => {
-        readClipboardPayloadMock.mockRejectedValue(new Error('clipboard busy'));
+        mockTauriCommand('read_clipboard_payload', () => {
+            throw new Error('clipboard busy');
+        });
         const file = new File([new Uint8Array([1, 2, 3])], 'report.pdf', {
             type: 'application/pdf',
         });
@@ -153,7 +177,13 @@ describe('user pastes into the search box', () => {
         );
 
         expect(payload?.text).toBeNull();
-        expect(payload?.filePaths).toEqual(['D:/persisted/report.pdf']);
-        expect(payload?.fragments).toEqual([{ type: 'file', path: 'D:/persisted/report.pdf' }]);
+        const path = payload!.filePaths[0]!;
+        expect(files.get(path)).toEqual(new Uint8Array([1, 2, 3]));
+        expect(
+            database.prepare('SELECT original_name, origin_path, type FROM attachments').all()
+        ).toEqual([
+            { original_name: 'report.pdf', origin_path: 'clipboard:report.pdf', type: 'file' },
+        ]);
+        expect(payload?.fragments).toEqual([{ type: 'file', path }]);
     });
 });

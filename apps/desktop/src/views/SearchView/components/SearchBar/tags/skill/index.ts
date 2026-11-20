@@ -6,8 +6,8 @@ import { TextSelection } from '@tiptap/pm/state';
 import { VueNodeViewRenderer } from '@tiptap/vue-3';
 import type { Component } from 'vue';
 
-import type { SelectedSkill } from '@/services/AgentService/skills';
-import { normalizeSkillPath } from '@/services/AgentService/skills/path';
+import type { SelectedSkill } from '@/app/api/skills/catalog';
+import { normalizeSkillPath } from '@/utils/pathIdentity';
 
 import { appendTagSeparator, createSearchTagNode } from '../factory';
 import { registerSearchTag } from '../registry';

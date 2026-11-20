@@ -1,9 +1,9 @@
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
-    import { log } from '@services/ObservabilityService';
-    import { openUrl } from '@tauri-apps/plugin-opener';
     import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
+    import { log } from '@/app/api/diagnostics';
+    import { openExternalLink as openUrl } from '@/app/api/windows/external';
     import { APP_PRODUCT_CONFIG, APP_VERSION } from '@/config/product';
     import { t } from '@/i18n';
 

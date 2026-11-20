@@ -1,3 +1,5 @@
+import { createAgentWindowFixture } from '@tests/utils/agentWindow';
+import { createMainViewClients } from '@tests/utils/mainViewClients';
 import { deferred, installProductAnalytics } from '@tests/utils/productAnalytics';
 import { acknowledgeSearchRegions, installSearchSurfaceBoundary } from '@tests/utils/searchSurface';
 import { mockTauriCommand } from '@tests/utils/tauri';
@@ -25,7 +27,10 @@ const rangeGeometry = {
     getClientRects: Object.getOwnPropertyDescriptor(Range.prototype, 'getClientRects'),
 };
 
-beforeEach(() => {
+let fixture: ReturnType<typeof createAgentWindowFixture>;
+let clients: ReturnType<typeof createMainViewClients>;
+
+beforeEach(async () => {
     setActivePinia(createPinia());
     installSearchSurfaceBoundary();
     Object.defineProperties(Range.prototype, {
@@ -48,9 +53,16 @@ beforeEach(() => {
         return { rows, rowsAffected: 0, lastInsertId: null };
     });
     mockTauriCommand('get_runtime_info', { isE2eTestMode: true });
+    fixture = createAgentWindowFixture();
+    await fixture.window.ready;
+    await fixture.window.capabilities.waitForAgent();
+    await fixture.window.settings.initialize();
+    clients = createMainViewClients(fixture.window);
 });
 
-afterEach(() => {
+afterEach(async () => {
+    clients.dispose();
+    await fixture.window.dispose();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     for (const [name, descriptor] of Object.entries(rangeGeometry)) {
@@ -73,7 +85,7 @@ describe('user opens history from the search page', () => {
             return acknowledgeSearchRegions(payload);
         });
         const wrapper = mount(SearchView, {
-            global: { plugins: [createPinia()] },
+            global: { plugins: [createPinia()], provide: clients.provide },
             attachTo: document.body,
         });
         await flushPromises();

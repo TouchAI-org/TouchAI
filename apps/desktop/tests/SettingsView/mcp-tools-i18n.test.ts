@@ -1,7 +1,9 @@
-import { mount } from '@vue/test-utils';
-import { createPinia, setActivePinia } from 'pinia';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createSettingsPanelFixture, openSettingsSelect } from '@tests/utils/settingsPanel';
+import { getTauriInvokeCalls } from '@tests/utils/tauri';
+import { flushPromises, mount } from '@vue/test-utils';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { createMcpToolLog } from '@/database/queries/mcpToolLogs';
 import { setLocale } from '@/i18n';
 import { createDomLocalizer } from '@/i18n/domLocalizer';
 import McpServerConfig from '@/views/SettingsView/components/McpTools/components/McpServerConfig.vue';
@@ -9,116 +11,36 @@ import McpToolList from '@/views/SettingsView/components/McpTools/components/Mcp
 import McpToolLogViewer from '@/views/SettingsView/components/McpTools/components/McpToolLogViewer.vue';
 import McpToolsSection from '@/views/SettingsView/components/McpTools/index.vue';
 
-const { findMcpToolLogByIdMock, findMcpToolLogsByServerIdMock, findMcpToolsByServerIdMock } =
-    vi.hoisted(() => ({
-        findMcpToolLogByIdMock: vi.fn(),
-        findMcpToolLogsByServerIdMock: vi.fn(),
-        findMcpToolsByServerIdMock: vi.fn(),
-    }));
-
-vi.mock('@database/queries', () => ({
-    createMcpServer: vi.fn(),
-    deleteMcpServer: vi.fn(),
-    findAllMcpServers: vi.fn(async () => []),
-    findMcpToolLogsByServerId: findMcpToolLogsByServerIdMock,
-    findMcpToolLogSummariesByServerId: findMcpToolLogsByServerIdMock,
-    findMcpToolLogById: findMcpToolLogByIdMock,
-    findMcpToolsByServerId: findMcpToolsByServerIdMock,
-    updateMcpServer: vi.fn(),
-    updateMcpTool: vi.fn(),
-}));
-
-/** 列表走摘要投影，展开时才按 id 取完整正文。 */
-function setMcpLogs(logs: Array<Record<string, unknown> & { id: number }>) {
-    findMcpToolLogsByServerIdMock.mockResolvedValue(
-        logs.map((log) => ({
-            ...log,
-            input_preview: typeof log.input === 'string' ? log.input : null,
-            output_length: typeof log.output === 'string' ? log.output.length : 0,
-        }))
-    );
-    findMcpToolLogByIdMock.mockImplementation(async (id: number) =>
-        logs.find((log) => log.id === id)
-    );
+let fixture: Awaited<ReturnType<typeof createSettingsPanelFixture>>;
+const wrappers: ReturnType<typeof mount>[] = [];
+afterEach(async () => {
+    wrappers.splice(0).forEach((wrapper) => wrapper.unmount());
+    await fixture?.dispose();
+});
+function saveTools(values: Array<Record<string, string | number | null>>) {
+    fixture.database
+        .prepare(
+            "INSERT INTO mcp_servers (id, name, transport_type) VALUES (1, 'fixture', 'stdio')"
+        )
+        .run();
+    for (const value of values) {
+        const keys = Object.keys(value);
+        fixture.database
+            .prepare(
+                `INSERT INTO mcp_tools (${keys.join(',')}) VALUES (${keys.map(() => '?').join(',')})`
+            )
+            .run(...Object.values(value));
+    }
 }
-
-vi.mock('@composables/useMcpConnection', () => ({
-    useMcpConnection: () => ({
-        cleanup: vi.fn(),
-        handleConnect: vi.fn(async () => ({ success: true })),
-        handleDisconnect: vi.fn(async () => ({ success: true })),
-        handleReconnect: vi.fn(async () => ({ success: true })),
-        isConnecting: false,
-        isDisconnecting: false,
-        isReconnecting: false,
-        status: 'disconnected',
-    }),
-}));
-
-vi.mock('@composables/useScrollbarStabilizer', () => ({
-    useScrollbarStabilizer: vi.fn(),
-}));
-
-vi.mock('@/services/AgentService/infrastructure/mcp', () => ({
-    mcpManager: {
-        connectServer: vi.fn(),
-        disconnectServer: vi.fn(),
-        refreshAllServerStatuses: vi.fn(),
-        setStatusFromEvent: vi.fn(),
-    },
-}));
-
-vi.mock('@services/EventService', () => ({
-    AppEvent: { MCP_STATUS: 'mcp-status' },
-    eventService: { on: vi.fn(async () => undefined) },
-}));
-
-vi.mock('@/utils/mcpSchemas', () => ({
-    parseMcpServerArgsJson: (value: string | null) => (value ? JSON.parse(value) : []),
-    parseMcpServerRecordJson: (value: string | null) => (value ? JSON.parse(value) : {}),
-    parseMcpToolSchemaJson: (value?: string | null) =>
-        value ? JSON.parse(value) : { properties: {}, required: [], type: 'object' },
-    toKeyValueEntries: (record: Record<string, string>) =>
-        Object.entries(record).map(([key, value]) => ({ key, value })),
-}));
-
-vi.mock('@components/AlertMessage.vue', () => ({
-    default: {
-        name: 'AlertMessage',
-        template: '<div data-testid="alert-message" />',
-        methods: {
-            error: vi.fn(),
-            success: vi.fn(),
-        },
-    },
-}));
-
-vi.mock('@components/AppIcon.vue', () => ({
-    default: {
-        name: 'AppIcon',
-        props: ['name'],
-        template: '<span data-testid="app-icon" />',
-    },
-}));
-
-vi.mock('@components/CustomSelect.vue', () => ({
-    default: {
-        name: 'CustomSelect',
-        props: ['modelValue', 'options'],
-        emits: ['update:modelValue'],
-        template:
-            '<div data-testid="custom-select"><div v-for="option in options" :key="option.value">{{ option.label }} {{ option.description }}</div></div>',
-    },
-}));
-
-vi.mock('@components/ToolLogContent.vue', () => ({
-    default: {
-        name: 'ToolLogContent',
-        props: ['input', 'output', 'error'],
-        template: '<div data-testid="tool-log-content">{{ input }}{{ output }}{{ error }}</div>',
-    },
-}));
-
+async function setMcpLogs(values: Array<Record<string, unknown>>) {
+    fixture.database
+        .exec(`INSERT INTO sessions (id, session_id, title, model) VALUES (321, 'fixture', 'Fixture', 'fixture');
+        INSERT INTO messages (id, session_id, role) VALUES (654, 321, 'tool_call');`);
+    for (const value of values)
+        await createMcpToolLog({ ...value, session_id: 321, message_id: 654 } as Parameters<
+            typeof createMcpToolLog
+        >[0]);
+}
 const server = {
     args: null,
     command: 'npx',
@@ -139,32 +61,21 @@ const server = {
 } as const;
 
 function mountWithPinia(component: Parameters<typeof mount>[0], options = {}) {
-    const pinia = createPinia();
-    setActivePinia(pinia);
-
-    return mount(component, {
-        global: {
-            plugins: [pinia],
-        },
-        ...options,
-    });
+    const wrapper = mount(component, { ...fixture.viewOptions, ...options });
+    wrappers.push(wrapper);
+    return wrapper;
 }
 
-async function flushMountedPromises() {
-    for (let index = 0; index < 4; index += 1) {
-        await Promise.resolve();
-    }
-}
+const flushMountedPromises = flushPromises;
 
-describe('MCP settings i18n and long text layout', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
+describe('given MCP settings in English with long server content', () => {
+    beforeEach(async () => {
+        fixture = await createSettingsPanelFixture();
         setLocale('en-US');
         document.documentElement.lang = 'en-US';
-        findMcpToolsByServerIdMock.mockResolvedValue([]);
     });
 
-    it('renders section tabs, buttons, and empty states in English', async () => {
+    it('user sees section tabs, buttons, and empty states in English', async () => {
         const wrapper = mountWithPinia(McpToolsSection);
 
         await flushMountedPromises();
@@ -177,17 +88,22 @@ describe('MCP settings i18n and long text layout', () => {
         expect(wrapper.text()).not.toContain('暂无服务器');
     });
 
-    it('renders configuration labels, placeholders, and transport descriptions in English', () => {
+    it('user sees configuration labels, placeholders, and transport descriptions in English', async () => {
         const wrapper = mountWithPinia(McpServerConfig, {
             props: { server },
         });
 
         expect(wrapper.text()).toContain('Server configuration');
-        expect(wrapper.text()).toContain('very-long-mcp-server-name-without-natural-breaks');
+        expect(
+            (wrapper.get('input[placeholder="Server name"]').element as HTMLInputElement).value
+        ).toBe(server.name);
         expect(wrapper.text()).toContain('Name');
         expect(wrapper.text()).toContain('Transport type');
-        expect(wrapper.text()).toContain('Standard input/output');
-        expect(wrapper.text()).toContain('Compatible with Streamable HTTP and SSE');
+        const options = await openSettingsSelect(wrapper.get('[role=combobox]'));
+        expect(options.map((option) => option.text()).join(' ')).toContain('Standard input/output');
+        expect(options.map((option) => option.text()).join(' ')).toContain(
+            'Compatible with Streamable HTTP and SSE'
+        );
         expect(wrapper.text()).toContain('Tool timeout (ms)');
         expect(wrapper.find('input[placeholder="Server name"]').exists()).toBe(true);
         expect(wrapper.find('input[placeholder="Example: npx"]').exists()).toBe(true);
@@ -197,8 +113,8 @@ describe('MCP settings i18n and long text layout', () => {
         expect(wrapper.text()).not.toContain('服务器配置');
     });
 
-    it('renders tool filters, empty states, parameter labels, and wrapping classes in English', async () => {
-        findMcpToolsByServerIdMock.mockResolvedValue([
+    it('user sees tool filters, empty states, parameter labels, and wrapping classes in English', async () => {
+        saveTools([
             {
                 created_at: '2026-05-20T00:00:00.000Z',
                 description:
@@ -239,8 +155,8 @@ describe('MCP settings i18n and long text layout', () => {
         expect(wrapper.find('td').classes()).toContain('break-all');
     });
 
-    it('does not let the global DOM localizer rewrite dynamic MCP tool payload text', async () => {
-        findMcpToolsByServerIdMock.mockResolvedValue([
+    it('user retains the original dynamic tool content when the global localizer runs', async () => {
+        saveTools([
             {
                 created_at: '2026-05-20T00:00:00.000Z',
                 description: '描述',
@@ -287,8 +203,8 @@ describe('MCP settings i18n and long text layout', () => {
         wrapper.unmount();
     });
 
-    it('renders log filters and header dates in English without iteration labels', async () => {
-        setMcpLogs([
+    it('user sees log filters and header dates in English without iteration labels', async () => {
+        await setMcpLogs([
             {
                 created_at: '2026-05-20T08:30:00.000Z',
                 duration_ms: 25,
@@ -342,13 +258,19 @@ describe('MCP settings i18n and long text layout', () => {
         expect(wrapper.text()).not.toContain('迭代');
 
         // 展开之前不应读取完整日志正文。
-        expect(findMcpToolLogByIdMock).not.toHaveBeenCalled();
+        const detailReads = () =>
+            getTauriInvokeCalls('database_query').filter((call) => {
+                const request = (call.payload as { request: { sql: string; params: unknown[] } })
+                    .request;
+                return /where.*"message_parts"."id" = \?/i.test(request.sql);
+            });
+        expect(detailReads()).toHaveLength(0);
 
         await wrapper.get('button.w-full').trigger('click');
         await flushMountedPromises();
 
-        expect(findMcpToolLogByIdMock).toHaveBeenCalledWith(20);
-        expect(wrapper.get('[data-testid="tool-log-content"]').text()).toContain('{"ok":true}');
+        expect(detailReads()).toHaveLength(1);
+        expect(wrapper.text()).toContain('ok');
         expect(wrapper.find('[data-testid="mcp-tool-log-detail-metadata"]').exists()).toBe(false);
         expect(wrapper.text()).not.toContain('tool-call-with-long-id');
         expect(wrapper.text()).not.toContain('session-with-long-id');

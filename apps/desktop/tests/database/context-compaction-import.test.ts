@@ -4,7 +4,7 @@ import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { loadSessionTransportMessages } from '@/services/AgentService/session/transport';
+import { loadSessionTransportMessages } from '@/app/workflows/agent/historyTransport';
 
 import { closeTestDatabases, openMigratedDatabase, routeQueriesTo } from './sqliteHarness';
 

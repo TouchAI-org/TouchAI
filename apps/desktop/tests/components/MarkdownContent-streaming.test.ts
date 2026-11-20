@@ -14,8 +14,7 @@ vi.mock('markstream-vue', async (importOriginal) => {
         },
     };
 });
-vi.mock('@services/NotificationService', () => ({ notify: vi.fn() }));
-vi.mock('@/services/ClipboardService', () => ({ clipboardService: { writeText: vi.fn() } }));
+vi.mock('@/app/api/windows/notifications', () => ({ notify: vi.fn() }));
 
 import MarkdownContent from '@components/MarkdownContent.vue';
 

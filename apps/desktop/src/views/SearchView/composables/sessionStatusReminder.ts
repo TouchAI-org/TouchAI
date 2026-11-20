@@ -1,14 +1,13 @@
+import { log } from '@/app/api/diagnostics';
 import type {
     SessionStatusReminderActionEvent,
     SessionTaskStatusChangedEvent,
-} from '@services/EventService/types';
-import { native } from '@services/NativeService';
+} from '@/app/api/search/events';
 import type {
     SessionStatusReminderNotificationKind,
     SessionStatusReminderNotificationPayload,
-} from '@services/NativeService/types';
-import { log } from '@services/ObservabilityService';
-
+} from '@/app/api/windows/contracts';
+import { type SearchWindowApi, useSearchWindowApi } from '@/app/api/windows/presentation';
 import { tt } from '@/i18n';
 
 interface SessionStatusReminderCoordinatorOptions {
@@ -24,24 +23,30 @@ function logFailure(message: string) {
 }
 
 /** 更新或清除系统托盘的状态指示器图标。 */
-function setTrayStatusIndicator(kind: SessionStatusReminderNotificationKind | null) {
+function setTrayStatusIndicator(
+    searchWindow: SearchWindowApi,
+    kind: SessionStatusReminderNotificationKind | null
+) {
     const request = kind
-        ? native.window.setTrayStatusIndicator(kind)
-        : native.window.clearTrayStatusIndicator();
+        ? searchWindow.setTrayStatusIndicator(kind)
+        : searchWindow.clearTrayStatusIndicator();
     const action = kind ? 'update' : 'clear';
     void request.catch(logFailure(`Failed to ${action} tray status indicator`));
 }
 
 /** 清除所有已发送的原生状态提醒通知。 */
-function clearNativeStatusReminderNotifications() {
-    void native.window
+function clearNativeStatusReminderNotifications(searchWindow: SearchWindowApi) {
+    void searchWindow
         .clearSessionStatusReminderNotifications()
         .catch(logFailure('Failed to clear session status reminder notifications'));
 }
 
 /** 发送原生状态提醒通知（如系统通知中心）。 */
-function showNativeStatusReminderNotification(payload: SessionStatusReminderNotificationPayload) {
-    void native.window
+function showNativeStatusReminderNotification(
+    searchWindow: SearchWindowApi,
+    payload: SessionStatusReminderNotificationPayload
+) {
+    void searchWindow
         .showSessionStatusReminderNotification(payload)
         .catch(logFailure('Failed to send session status reminder notification'));
 }
@@ -52,13 +57,14 @@ function showNativeStatusReminderNotification(payload: SessionStatusReminderNoti
 export function createSessionStatusReminderCoordinator(
     options: SessionStatusReminderCoordinatorOptions
 ) {
+    const searchWindow = useSearchWindowApi();
     let hasActiveReminder = false;
 
     /** 无条件清除所有提醒状态（指示器 + 通知）。 */
     function clearReminderStateUnconditionally() {
         hasActiveReminder = false;
-        setTrayStatusIndicator(null);
-        clearNativeStatusReminderNotifications();
+        setTrayStatusIndicator(searchWindow, null);
+        clearNativeStatusReminderNotifications(searchWindow);
     }
 
     /** 仅在存在活跃提醒时清除状态，避免无意义的 native 调用。 */
@@ -92,14 +98,14 @@ export function createSessionStatusReminderCoordinator(
         const hasInlineApprovalActions =
             payload.reminder.kind === 'waiting_approval' && Boolean(payload.reminder.approval);
 
-        showNativeStatusReminderNotification({
+        showNativeStatusReminderNotification(searchWindow, {
             ...payload.reminder,
             sessionId: payload.sessionId,
             taskId: payload.taskId,
             approval: payload.reminder.approval ?? null,
             ...(hasInlineApprovalActions ? {} : { openLabel: tt('打开') }),
         });
-        setTrayStatusIndicator(payload.reminder.kind);
+        setTrayStatusIndicator(searchWindow, payload.reminder.kind);
         hasActiveReminder = true;
     }
 

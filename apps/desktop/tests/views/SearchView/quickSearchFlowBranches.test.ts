@@ -1,8 +1,9 @@
-import type { QuickSearchResult, QuickShortcutItem } from '@services/NativeService';
 import { mountComposable } from '@tests/utils/composables';
+import { withTestSearch } from '@tests/utils/searchHost';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick, ref } from 'vue';
 
+import type { QuickSearchResult, QuickShortcutItem } from '@/platform/native';
 import { useQuickSearchLogic } from '@/views/SearchView/components/QuickSearchPanel/composables/useQuickSearchLogic';
 
 /**
@@ -75,9 +76,6 @@ vi.mock('@tauri-apps/plugin-opener', () => ({
     openPath: openPathMock,
     revealItemInDir: vi.fn().mockResolvedValue(undefined),
 }));
-vi.mock('@services/ClipboardService', () => ({
-    clipboardService: { writeText: vi.fn().mockResolvedValue(undefined) },
-}));
 
 function createShortcut(name: string, path = `D:/${name}.lnk`): QuickShortcutItem {
     return { name, path, source: 'desktop_user' };
@@ -139,7 +137,7 @@ async function mountQuickSearch(deps: ReturnType<typeof createDeps>, enabled = r
                     open.value = value;
                 },
             },
-            deps
+            withTestSearch(deps)
         )
     );
 

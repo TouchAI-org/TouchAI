@@ -1,6 +1,10 @@
 <!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
+    import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+
+    import { log } from '@/app/api/diagnostics';
+    import { AppEvent, eventService } from '@/app/api/usage/events';
     import {
         canUseUsageArchive,
         getModelRanking,
@@ -23,11 +27,7 @@
         type UsageRankMetric,
         type UsageSummary,
         type UsageTrendPoint,
-    } from '@database/queries';
-    import { AppEvent, eventService } from '@services/EventService';
-    import { log } from '@services/ObservabilityService';
-    import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-
+    } from '@/app/api/usage/queries';
     import { t } from '@/i18n';
 
     import UsageChart from './components/UsageChart.vue';

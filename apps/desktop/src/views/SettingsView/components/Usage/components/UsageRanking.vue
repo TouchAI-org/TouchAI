@@ -1,9 +1,9 @@
 <!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
-    import type { UsageRankItem, UsageRankMetric } from '@database/queries/usageStats';
     import { computed } from 'vue';
 
+    import type { UsageRankItem, UsageRankMetric } from '@/app/api/usage/queries';
     import { t } from '@/i18n';
 
     import { formatCost, formatDbTime, formatDuration, formatTokensCompact } from '../utils/format';

@@ -1,8 +1,10 @@
+import { createTestWindowPresentation } from '@tests/utils/windowPresentation';
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
+import { beforeEach as beforePresentation } from 'vitest';
 import { afterEach, describe, expect, it } from 'vitest';
 import { defineComponent, h } from 'vue';
 
-import { AppEvent, eventService } from '@/services/EventService';
+import { AppEvent, eventService } from '@/app/workflows/windows/events';
 import { useSystemKeyCaptureSubscription } from '@/views/SettingsView/composables/useShortcutCapture';
 
 import { getLastTauriInvokeCall, interceptTauriInvoke } from '../../utils/tauri';
@@ -110,4 +112,8 @@ describe('user records shortcuts while native registration is asynchronous', () 
         expect(second.keys).toEqual(['Space']);
         expect(second.errors).toEqual([]);
     });
+});
+
+beforePresentation(async () => {
+    (await createTestWindowPresentation('settings')).install();
 });

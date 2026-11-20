@@ -1,13 +1,14 @@
-﻿import { AppUpdateController } from '@services/AppUpdateService';
+import { interceptTauriInvoke } from '@tests/utils/tauri';
+import { createTestUpdateController } from '@tests/utils/updates';
+import { describe, expect, it, vi } from 'vitest';
+
+import { APP_PRODUCT_CONFIG } from '@/config/product';
+import { AppUpdateController } from '@/modules/updates';
 import type {
     AppUpdateChannel,
     AppUpdateCheckResult,
     AppUpdateInfo,
-} from '@services/AppUpdateService/types';
-import { interceptTauriInvoke } from '@tests/utils/tauri';
-import { describe, expect, it, vi } from 'vitest';
-
-import { APP_PRODUCT_CONFIG } from '@/config/product';
+} from '@/modules/updates/types';
 
 const availableUpdate: AppUpdateInfo = {
     version: '0.2.0',
@@ -81,7 +82,7 @@ function createController(
         lastCheckedAt = value;
     });
 
-    const controller = new AppUpdateController({
+    const controller = createTestUpdateController({
         native: {
             checkForUpdates,
             downloadUpdate,

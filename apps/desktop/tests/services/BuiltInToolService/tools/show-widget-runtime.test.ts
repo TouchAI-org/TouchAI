@@ -1,13 +1,15 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
+import { createWidgetToolsFixture } from '@tests/utils/widgetTools';
 import { describe, expect, it } from 'vitest';
 
 import {
-    buildShowWidgetDraftFromArgumentsBuffer,
-    createShowWidgetBaseStyles,
     isShowWidgetResourceUrlAllowed,
     SHOW_WIDGET_ALLOWED_RESOURCE_HOSTS,
-} from '@/services/BuiltInToolService/tools/widgetTool/showWidget/runtime';
+} from '@/app/api/tools/widgets';
+import { createShowWidgetBaseStyles } from '@/components/widgets';
+
+const buildShowWidgetDraftFromArgumentsBuffer = createWidgetToolsFixture().drafts.build;
 
 /**
  * Removes every @keyframes block by matching braces. A regex that stops at the first closing

@@ -14,11 +14,8 @@
 <script setup lang="ts">
     import { onMounted, onUnmounted, ref, watch } from 'vue';
 
-    import {
-        createWidgetRenderer,
-        type WidgetRenderer,
-    } from '@/services/BuiltInToolService/tools/widgetTool';
-    import type { WidgetInfo } from '@/types/session';
+    import type { WidgetInfo } from '@/app/api/agent/history';
+    import { createWidgetRenderer, type WidgetRenderer } from '@/components/widgets';
 
     interface Props {
         widget: WidgetInfo;

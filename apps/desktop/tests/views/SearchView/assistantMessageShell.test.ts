@@ -1,8 +1,9 @@
+import { mockTauriCommand } from '@tests/utils/tauri';
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { SessionMessage, ToolCallInfo, WidgetInfo } from '@/app/api/agent/history';
 import { setLocale } from '@/i18n';
-import type { SessionMessage, ToolCallInfo, WidgetInfo } from '@/types/session';
 import AssistantMessage from '@/views/SearchView/components/ConversationPanel/components/AssistantMessage.vue';
 
 /*
@@ -19,10 +20,7 @@ const askUserStoreMock = vi.hoisted(() => ({ current: null as unknown }));
 vi.mock('@/stores/askUser', () => ({
     useAskUserStore: () => askUserStoreMock,
 }));
-vi.mock('@/services/NotificationService', () => ({ notify: notifyMock }));
-vi.mock('@/services/ClipboardService', () => ({
-    clipboardService: { writeText: clipboardWriteTextMock },
-}));
+vi.mock('@/app/api/windows/notifications', () => ({ notify: notifyMock }));
 vi.mock('@/components/MarkdownContent.vue', () => ({
     default: {
         props: ['content', 'final', 'variant'],
@@ -86,6 +84,9 @@ function actionButton(wrapper: ReturnType<typeof render>, icon: string) {
 }
 
 beforeEach(() => {
+    mockTauriCommand('write_clipboard_text', (payload) =>
+        clipboardWriteTextMock((payload as { text: string }).text)
+    );
     vi.clearAllMocks();
     setLocale('zh-CN');
     askUserStoreMock.current = null;

@@ -1,7 +1,7 @@
-import type { AppUpdateDownload } from '@services/AppUpdateService/types';
 import { describe, expect, it } from 'vitest';
 
-import { preferredAppUpdateDownload } from '@/services/AppUpdateService/downloads';
+import { preferredAppUpdateDownload } from '@/app/api/updates/downloads';
+import type { AppUpdateDownload } from '@/modules/updates/types';
 
 const downloads: AppUpdateDownload[] = [
     {

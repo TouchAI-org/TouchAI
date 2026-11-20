@@ -10,7 +10,7 @@ import {
     SearchProviderRegistry,
     type SearchProviderRequest,
     type SearchResult,
-} from '@/services/SearchService';
+} from '@/modules/search';
 
 function result(id: string, group: SearchGroup = 'file'): SearchResult {
     return { id, kind: group, label: id, group, primaryAction: { kind: 'test.open' } };

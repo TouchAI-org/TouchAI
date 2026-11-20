@@ -1,98 +1,71 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createSettingsPanelFixture } from '@tests/utils/settingsPanel';
+import { getTauriInvokeCalls, mockTauriCommand } from '@tests/utils/tauri';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { isDatabaseBackupCancelledError } from '@/app/api/settings/dataManagement';
 import { setLocale } from '@/i18n';
 
-const { exportBackupMock, importBackupMock, openMock, saveMock } = vi.hoisted(() => ({
-    exportBackupMock: vi.fn(),
-    importBackupMock: vi.fn(),
-    openMock: vi.fn(),
-    saveMock: vi.fn(),
-}));
+let fixture: Awaited<ReturnType<typeof createSettingsPanelFixture>>;
+beforeEach(async () => {
+    fixture = await createSettingsPanelFixture();
+    setLocale('en-US');
+    mockTauriCommand('plugin:dialog|save', 'D:/backup.db');
+    mockTauriCommand('plugin:dialog|open', 'D:/backup.db');
+});
+afterEach(async () => {
+    await fixture?.dispose();
+    setLocale('zh-CN');
+});
 
-vi.mock('@tauri-apps/plugin-dialog', () => ({
-    open: openMock,
-    save: saveMock,
-}));
-
-vi.mock('@services/NativeService', () => ({
-    native: {
-        database: {
-            exportBackup: exportBackupMock,
-            importBackup: importBackupMock,
-        },
-    },
-}));
-
-describe('when the user exports or imports a data backup', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
-        setLocale('zh-CN');
-        saveMock.mockResolvedValue('D:/backup.db');
-        openMock.mockResolvedValue('D:/backup.db');
-        exportBackupMock.mockResolvedValue(undefined);
-        importBackupMock.mockResolvedValue(undefined);
-    });
-
-    it('user sees the save dialog in English when the app is in English', async () => {
-        setLocale('en-US');
-        const { databaseBackup } = await import('@/database/backup');
-        const onProgress = vi.fn();
-
-        await databaseBackup.exportDatabase(onProgress);
-
-        expect(saveMock).toHaveBeenCalledWith(
-            expect.objectContaining({
+describe('given the settings backup client and an English app', () => {
+    it('user when exporting then sees the localized picker and completed progress', async () => {
+        const progress: unknown[] = [];
+        await fixture.client.dataManagement!.exportDatabase((text, value) =>
+            progress.push([text, value])
+        );
+        expect(getTauriInvokeCalls('plugin:dialog|save').at(-1)?.payload).toEqual({
+            options: expect.objectContaining({
                 title: 'Export data backup',
                 filters: [{ name: 'Database backup file', extensions: ['db'] }],
-            })
-        );
-        expect(onProgress).toHaveBeenNthCalledWith(1, 'Exporting database...', 30);
-        expect(onProgress).toHaveBeenNthCalledWith(2, 'Export complete', 100);
+            }),
+        });
+        expect(progress).toEqual([
+            ['Exporting database...', 30],
+            ['Export complete', 100],
+        ]);
     });
-
-    it('user sees the open dialog in English when the app is in English', async () => {
-        setLocale('en-US');
-        const { databaseBackup } = await import('@/database/backup');
-        const onProgress = vi.fn();
-
-        await databaseBackup.importDatabase('full', onProgress);
-
-        expect(openMock).toHaveBeenCalledWith(
-            expect.objectContaining({
+    it('user when importing then sees the localized picker and completed progress', async () => {
+        const progress: unknown[] = [];
+        await fixture.client.dataManagement!.importDatabase('full', (text, value) =>
+            progress.push([text, value])
+        );
+        expect(getTauriInvokeCalls('plugin:dialog|open').at(-1)?.payload).toEqual({
+            options: expect.objectContaining({
                 title: 'Import data backup',
                 filters: [{ name: 'Database backup file', extensions: ['db'] }],
                 multiple: false,
                 directory: false,
-            })
-        );
-        expect(onProgress).toHaveBeenNthCalledWith(1, 'Importing database...', 30);
-        expect(onProgress).toHaveBeenNthCalledWith(2, 'Import complete', 100);
-    });
-
-    it('user gets a recognisable cancellation error when dismissing the save dialog', async () => {
-        setLocale('en-US');
-        saveMock.mockResolvedValueOnce(null);
-        const { databaseBackup, isDatabaseBackupCancelledError } =
-            await import('@/database/backup');
-
-        let caughtError: unknown;
-        await databaseBackup.exportDatabase().catch((error: unknown) => {
-            caughtError = error;
+            }),
         });
-
-        expect(caughtError).toBeInstanceOf(Error);
-        expect((caughtError as Error).message).toBe('Export cancelled');
-        expect(isDatabaseBackupCancelledError(caughtError)).toBe(true);
+        expect(progress).toEqual([
+            ['Importing database...', 30],
+            ['Import complete', 100],
+        ]);
+    });
+    it('user when dismissing the save picker then receives recognizable cancellation without an export', async () => {
+        mockTauriCommand('plugin:dialog|save', null);
+        const error = await fixture.client
+            .dataManagement!.exportDatabase()
+            .catch((value: unknown) => value);
+        expect(error).toBeInstanceOf(Error);
+        expect(isDatabaseBackupCancelledError(error)).toBe(true);
         expect(isDatabaseBackupCancelledError({ code: 'DATABASE_BACKUP_CANCELLED' })).toBe(true);
         expect(isDatabaseBackupCancelledError(new Error('other'))).toBe(false);
+        expect(getTauriInvokeCalls('database_export_backup')).toEqual([]);
     });
-
-    it('user gets nothing imported when dismissing the open dialog', async () => {
-        openMock.mockResolvedValueOnce(null);
-        const { databaseBackup } = await import('@/database/backup');
-
-        await expect(databaseBackup.importDatabase('chat_only')).resolves.toBe(false);
-
-        expect(importBackupMock).not.toHaveBeenCalled();
+    it('user when dismissing the open picker then imports nothing', async () => {
+        mockTauriCommand('plugin:dialog|open', null);
+        expect(await fixture.client.dataManagement!.importDatabase('chat_only')).toBe(false);
+        expect(getTauriInvokeCalls('database_import_backup')).toEqual([]);
     });
 });

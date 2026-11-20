@@ -1,76 +1,26 @@
-// Copyright (c) 2026. Qian Cheng. Licensed under GPL v3.
-
-import type { McpServerEntity } from '@database/types';
+import { chooseSettingsOption, createSettingsPanelFixture } from '@tests/utils/settingsPanel';
+import { createTestWindowPresentation } from '@tests/utils/windowPresentation';
 import { flushPromises, mount } from '@vue/test-utils';
-import { createPinia, setActivePinia } from 'pinia';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach as beforePresentation } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { setLocale } from '@/i18n';
+// Copyright (c) 2026. Qian Cheng. Licensed under GPL v3.
+import type { McpServerEntity } from '@/app/api/tools/mcpAdministration';
+import { setLocale, t } from '@/i18n';
 import McpServerConfig from '@/views/SettingsView/components/McpTools/components/McpServerConfig.vue';
 
-const queriesMock = vi.hoisted(() => ({
-    createMcpServer: vi.fn(),
-    findAllMcpServers: vi.fn(async () => []),
-    updateMcpServer: vi.fn(),
-}));
-
-vi.mock('@database/queries', () => ({
-    createMcpServer: queriesMock.createMcpServer,
-    deleteMcpServer: vi.fn(),
-    findAllMcpServers: queriesMock.findAllMcpServers,
-    findMcpToolsByServerId: vi.fn(async () => []),
-    updateMcpServer: queriesMock.updateMcpServer,
-    updateMcpTool: vi.fn(),
-}));
-
-vi.mock('@composables/useMcpConnection', () => ({
-    useMcpConnection: () => ({
-        cleanup: vi.fn(),
-        handleConnect: vi.fn(async () => ({ success: true })),
-        handleDisconnect: vi.fn(async () => ({ success: true })),
-        handleReconnect: vi.fn(async () => ({ success: true })),
-        isConnecting: false,
-        isDisconnecting: false,
-        isReconnecting: false,
-        status: 'disconnected',
-    }),
-}));
-
-vi.mock('@/services/AgentService/infrastructure/mcp', () => ({
-    mcpManager: {
-        connectServer: vi.fn(),
-        disconnectServer: vi.fn(),
-        refreshAllServerStatuses: vi.fn(),
-        setStatusFromEvent: vi.fn(),
-    },
-}));
-
-vi.mock('@services/EventService', () => ({
-    AppEvent: { MCP_STATUS: 'mcp-status' },
-    eventService: { on: vi.fn(async () => undefined) },
-}));
-
-vi.mock('@components/AppIcon.vue', () => ({
-    default: { name: 'AppIcon', props: ['name'], template: '<span />' },
-}));
-
-vi.mock('@components/CustomSelect.vue', () => ({
-    default: {
-        name: 'CustomSelect',
-        props: ['modelValue', 'options'],
-        emits: ['update:modelValue'],
-        template: `
-            <select
-                :value="modelValue"
-                @change="$emit('update:modelValue', $event.target.value)"
-            >
-                <option v-for="option in options" :key="option.value" :value="option.value">
-                    {{ option.label }}
-                </option>
-            </select>
-        `,
-    },
-}));
+let fixture: Awaited<ReturnType<typeof createSettingsPanelFixture>>;
+const wrappers: ReturnType<typeof mount>[] = [];
+afterEach(async () => {
+    wrappers.splice(0).forEach((wrapper) => wrapper.unmount());
+    await fixture?.dispose();
+    vi.useRealTimers();
+});
+function savedServer() {
+    return fixture.database
+        .prepare('SELECT * FROM mcp_servers ORDER BY id DESC LIMIT 1')
+        .get() as Record<string, unknown>;
+}
 
 function server(overrides: Partial<McpServerEntity> = {}): McpServerEntity {
     return {
@@ -108,12 +58,17 @@ function newServer(overrides: Partial<McpServerEntity> = {}): McpServerEntity {
 }
 
 function mountConfig(value: McpServerEntity) {
-    const pinia = createPinia();
-    setActivePinia(pinia);
-    return mount(McpServerConfig, {
-        props: { server: value },
-        global: { plugins: [pinia] },
-    });
+    if (value.id !== -1) {
+        const keys = Object.keys(value);
+        fixture.database
+            .prepare(
+                `INSERT INTO mcp_servers (${keys.join(',')}) VALUES (${keys.map(() => '?').join(',')})`
+            )
+            .run(...Object.values(value));
+    }
+    const wrapper = mount(McpServerConfig, { props: { server: value }, ...fixture.viewOptions });
+    wrappers.push(wrapper);
+    return wrapper;
 }
 
 function nameField(wrapper: ReturnType<typeof mountConfig>) {
@@ -124,21 +79,26 @@ function nameField(wrapper: ReturnType<typeof mountConfig>) {
 function commandField(wrapper: ReturnType<typeof mountConfig>): string {
     const field = wrapper
         .findAll('input[type="text"]')
-        .find((input) => input.attributes('placeholder') === '例如: npx');
+        .find(
+            (input) =>
+                input.attributes('placeholder') === t('settings.mcp.config.commandPlaceholder')
+        );
     return (field?.element as HTMLInputElement | undefined)?.value ?? '';
 }
 
 function commandInput(wrapper: ReturnType<typeof mountConfig>) {
     return wrapper
         .findAll('input[type="text"]')
-        .find((input) => input.attributes('placeholder') === '例如: npx')!;
+        .find(
+            (input) =>
+                input.attributes('placeholder') === t('settings.mcp.config.commandPlaceholder')
+        )!;
 }
 
-beforeEach(() => {
+beforeEach(async () => {
     vi.clearAllMocks();
+    fixture = await createSettingsPanelFixture();
     setLocale('zh-CN');
-    queriesMock.createMcpServer.mockResolvedValue(1);
-    queriesMock.updateMcpServer.mockResolvedValue(undefined);
 });
 
 describe('user configures an MCP server', () => {
@@ -159,8 +119,7 @@ describe('user configures an MCP server', () => {
         await nameField(wrapper).trigger('blur');
         await flushPromises();
 
-        expect(queriesMock.updateMcpServer).toHaveBeenCalledTimes(1);
-        expect(queriesMock.updateMcpServer.mock.calls[0]![1]).toMatchObject({
+        expect(savedServer()).toMatchObject({
             name: 'my filesystem',
             transport_type: 'stdio',
             command: 'npx',
@@ -174,7 +133,7 @@ describe('user configures an MCP server', () => {
         await nameField(wrapper).trigger('blur');
         await flushPromises();
 
-        const [, payload] = queriesMock.updateMcpServer.mock.calls[0]!;
+        const payload = savedServer();
         expect(JSON.parse(payload.args as string)).toEqual([
             '-y',
             '@modelcontextprotocol/server-filesystem',
@@ -190,7 +149,7 @@ describe('user configures an MCP server', () => {
 
         expect(wrapper.emitted('showAlert')).toBeTruthy();
         expect(wrapper.emitted('showAlert')![0]![1]).toBe('error');
-        expect(queriesMock.updateMcpServer).not.toHaveBeenCalled();
+        expect(wrapper.emitted('updated')).toBeUndefined();
     });
 
     it('user sees an error when a command-based server has no command', async () => {
@@ -199,14 +158,14 @@ describe('user configures an MCP server', () => {
         await nameField(wrapper).trigger('blur');
         await flushPromises();
 
-        expect(queriesMock.updateMcpServer).not.toHaveBeenCalled();
+        expect(wrapper.emitted('updated')).toBeUndefined();
         expect(wrapper.emitted('showAlert')![0]![1]).toBe('error');
     });
 
     it('user switches to an HTTP server and is asked for a URL instead of a command', async () => {
         const wrapper = mountConfig(server());
 
-        await wrapper.get('select').setValue('http');
+        await chooseSettingsOption(wrapper.get('[role=combobox]'), 'HTTP');
         await flushPromises();
 
         expect(wrapper.find('input[placeholder="30000"]').exists()).toBe(true);
@@ -220,7 +179,7 @@ describe('user configures an MCP server', () => {
         await nameField(wrapper).trigger('blur');
         await flushPromises();
 
-        expect(queriesMock.updateMcpServer).not.toHaveBeenCalled();
+        expect(wrapper.emitted('updated')).toBeUndefined();
         expect(wrapper.emitted('showAlert')![0]![1]).toBe('error');
     });
 
@@ -237,7 +196,7 @@ describe('user configures an MCP server', () => {
         await nameField(wrapper).trigger('blur');
         await flushPromises();
 
-        const [, payload] = queriesMock.updateMcpServer.mock.calls[0]!;
+        const payload = savedServer();
         expect(payload.url).toBe('https://mcp.example.com/sse');
         expect(JSON.parse(payload.headers as string)).toEqual({ Authorization: 'Bearer token' });
         expect(payload.command).toBeNull();
@@ -245,8 +204,10 @@ describe('user configures an MCP server', () => {
 
     it('user is told when the server could not be saved', async () => {
         const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
-        queriesMock.updateMcpServer.mockRejectedValue(new Error('database is locked'));
         const wrapper = mountConfig(server());
+        fixture.database.exec(
+            "CREATE TEMP TRIGGER reject_mcp_write BEFORE UPDATE ON mcp_servers BEGIN SELECT RAISE(ABORT, 'locked'); END;"
+        );
 
         await nameField(wrapper).trigger('blur');
         await flushPromises();
@@ -266,8 +227,10 @@ describe('user configures an MCP server', () => {
             await vi.advanceTimersByTimeAsync(900);
             await flushPromises();
 
-            expect(queriesMock.createMcpServer).toHaveBeenCalledTimes(1);
-            expect(queriesMock.createMcpServer.mock.calls[0]![0]).toMatchObject({
+            expect(
+                fixture.database.prepare('SELECT count(*) AS count FROM mcp_servers').get()?.count
+            ).toBe(1);
+            expect(savedServer()).toMatchObject({
                 name: 'playwright',
                 transport_type: 'stdio',
                 command: 'npx',
@@ -291,7 +254,9 @@ describe('user configures an MCP server', () => {
             await vi.advanceTimersByTimeAsync(900);
             await flushPromises();
 
-            expect(queriesMock.createMcpServer).toHaveBeenCalledTimes(1);
+            expect(
+                fixture.database.prepare('SELECT count(*) AS count FROM mcp_servers').get()?.count
+            ).toBe(1);
             wrapper.unmount();
         } finally {
             vi.useRealTimers();
@@ -306,4 +271,8 @@ describe('user configures an MCP server', () => {
         expect(wrapper.text()).toContain('Server configuration');
         expect(wrapper.text()).toContain('Transport type');
     });
+});
+
+beforePresentation(async () => {
+    (await createTestWindowPresentation('settings')).install();
 });

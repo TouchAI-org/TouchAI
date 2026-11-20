@@ -1,4 +1,6 @@
+import { createTestWindowPresentation } from '@tests/utils/windowPresentation';
 import { mount } from '@vue/test-utils';
+import { beforeEach as beforePresentation } from 'vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
@@ -12,7 +14,7 @@ vi.mock('@components/AppIcon.vue', () => ({
     },
 }));
 
-vi.mock('@services/NativeService', () => ({
+vi.mock('@/platform/native', () => ({
     native: {
         window: {
             closeTrayMenu: vi.fn(),
@@ -50,4 +52,8 @@ describe('user opens the tray menu', () => {
         expect(wrapper.text()).not.toContain('Show window');
         expect(wrapper.text()).not.toContain('????');
     });
+});
+
+beforePresentation(async () => {
+    (await createTestWindowPresentation('tray-menu')).install();
 });

@@ -1,27 +1,23 @@
-import { native } from '@services/NativeService';
-import { log } from '@services/ObservabilityService';
 import { flushPromises, mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('@services/NativeService', () => ({
-    native: {
-        analytics: {
-            getState: vi.fn(),
-            setEnabled: vi.fn(),
-        },
-    },
-}));
-
-vi.mock('@services/ObservabilityService', () => ({
-    log: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
-}));
-
+import { analyticsPreferencesApiKey } from '@/app/api/analytics/preferences';
 import { setLocale } from '@/i18n';
+import type { AnalyticsState } from '@/modules/analytics/public';
 import AnalyticsSection from '@/views/SettingsView/components/DataManagement/components/AnalyticsSection.vue';
 
-const nativeAnalytics = vi.mocked(native.analytics);
+import { createTestAnalyticsWindow } from '../utils/analyticsWindow';
+import { mockTauriCommand } from '../utils/tauri';
 
-function state(partial: Partial<Awaited<ReturnType<typeof native.analytics.getState>>> = {}) {
+const nativeAnalytics = { getState: vi.fn(), setEnabled: vi.fn() };
+function renderSection() {
+    const owner = createTestAnalyticsWindow('settings');
+    return mount(AnalyticsSection, {
+        global: { provide: { [analyticsPreferencesApiKey as symbol]: owner.preferences } },
+    });
+}
+
+function state(partial: Partial<AnalyticsState> = {}) {
     return {
         status: 'enabled' as const,
         consentEpoch: 1,
@@ -36,6 +32,8 @@ function state(partial: Partial<Awaited<ReturnType<typeof native.analytics.getSt
 describe('user configures product analytics', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        mockTauriCommand('analytics_get_state', nativeAnalytics.getState);
+        mockTauriCommand('analytics_set_enabled', nativeAnalytics.setEnabled);
         setLocale('en-US');
     });
 
@@ -43,7 +41,7 @@ describe('user configures product analytics', () => {
         nativeAnalytics.getState.mockResolvedValue(state({ status: 'disabled', consentEpoch: 2 }));
         nativeAnalytics.setEnabled.mockResolvedValue(state({ status: 'enabled', consentEpoch: 3 }));
 
-        const wrapper = mount(AnalyticsSection);
+        const wrapper = renderSection();
         await flushPromises();
 
         expect(wrapper.text()).toContain('Privacy and product analytics');
@@ -55,7 +53,10 @@ describe('user configures product analytics', () => {
         await toggle.trigger('click');
         await flushPromises();
 
-        expect(nativeAnalytics.setEnabled).toHaveBeenCalledWith(true, 2);
+        expect(nativeAnalytics.setEnabled).toHaveBeenCalledWith({
+            enabled: true,
+            expectedConsentEpoch: 2,
+        });
     });
 
     it('user can turn sharing off in a development build with a stored enabled choice', async () => {
@@ -64,7 +65,7 @@ describe('user configures product analytics', () => {
             state({ status: 'disabled', consentEpoch: 2, buildEligible: false })
         );
 
-        const wrapper = mount(AnalyticsSection);
+        const wrapper = renderSection();
         await flushPromises();
 
         const toggle = wrapper.get('[data-testid="settings-analytics-toggle"]');
@@ -72,7 +73,10 @@ describe('user configures product analytics', () => {
         await toggle.trigger('click');
         await flushPromises();
 
-        expect(nativeAnalytics.setEnabled).toHaveBeenCalledWith(false, 1);
+        expect(nativeAnalytics.setEnabled).toHaveBeenCalledWith({
+            enabled: false,
+            expectedConsentEpoch: 1,
+        });
     });
 
     it('user cannot turn sharing on in a development build', async () => {
@@ -80,7 +84,7 @@ describe('user configures product analytics', () => {
             state({ status: 'disabled', consentEpoch: 2, buildEligible: false })
         );
 
-        const wrapper = mount(AnalyticsSection);
+        const wrapper = renderSection();
         await flushPromises();
 
         const toggle = wrapper.get('[data-testid="settings-analytics-toggle"]');
@@ -95,7 +99,7 @@ describe('user configures product analytics', () => {
             state({ status: 'disabled', consentEpoch: 2, transportReady: false })
         );
 
-        const wrapper = mount(AnalyticsSection);
+        const wrapper = renderSection();
         await flushPromises();
 
         const toggle = wrapper.get('[data-testid="settings-analytics-toggle"]');
@@ -103,7 +107,10 @@ describe('user configures product analytics', () => {
         await toggle.trigger('click');
         await flushPromises();
 
-        expect(nativeAnalytics.setEnabled).toHaveBeenCalledWith(false, 1);
+        expect(nativeAnalytics.setEnabled).toHaveBeenCalledWith({
+            enabled: false,
+            expectedConsentEpoch: 1,
+        });
     });
 
     it('user gets the standard privacy disclosure when transport is unprovisioned', async () => {
@@ -111,7 +118,7 @@ describe('user configures product analytics', () => {
             state({ status: 'uninitialized', consentEpoch: 0, transportReady: false })
         );
 
-        const wrapper = mount(AnalyticsSection);
+        const wrapper = renderSection();
         await flushPromises();
 
         expect(wrapper.get('[data-testid="settings-analytics-share"]').text()).toContain(
@@ -125,13 +132,10 @@ describe('user configures product analytics', () => {
     it('user does not see internal queue controls when pending data exists', async () => {
         nativeAnalytics.getState.mockResolvedValue(state({ queueDepth: 3, pendingBytes: 500 }));
 
-        const wrapper = mount(AnalyticsSection);
+        const wrapper = renderSection();
         await flushPromises();
 
         expect(wrapper.find('[data-testid="settings-analytics-clear"]').exists()).toBe(false);
-        expect(log.debug).toHaveBeenCalledWith(
-            '[Analytics] State',
-            expect.objectContaining({ queueDepth: 3, pendingBytes: 500 })
-        );
+        expect(wrapper.text()).not.toContain('500');
     });
 });

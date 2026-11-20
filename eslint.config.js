@@ -270,7 +270,7 @@ export default defineConfig([
         },
     },
     {
-        files: ['apps/desktop/src/services/ObservabilityService/**/*.ts'],
+        files: ['apps/desktop/src/platform/diagnostics/**/*.ts'],
         rules: {
             'no-console': 'off',
         },

@@ -2,13 +2,13 @@
     import AlertMessage from '@components/AlertMessage.vue';
     import AppIcon from '@components/AppIcon.vue';
     import CustomSelect from '@components/CustomSelect.vue';
-    import { type ShortcutCaptureSystemKeyEvent } from '@services/EventService';
-    import { native } from '@services/NativeService';
-    import { notify } from '@services/NotificationService';
-    import { log } from '@services/ObservabilityService';
     import { storeToRefs } from 'pinia';
     import { computed, onMounted, ref, watch } from 'vue';
 
+    import { log } from '@/app/api/diagnostics';
+    import { type ShortcutCaptureSystemKeyEvent } from '@/app/api/settings/events';
+    import { notify } from '@/app/api/windows/notifications';
+    import { useSettingsWindowApi } from '@/app/api/windows/presentation';
     import {
         getSearchKeybindingDefinition,
         SEARCH_KEYBINDING_DEFINITIONS,
@@ -37,6 +37,7 @@
         name: 'SettingsGeneralShortcutSettings',
     });
 
+    const settingsWindow = useSettingsWindowApi();
     const settingsStore = useSettingsStore();
     const { settings } = storeToRefs(settingsStore);
 
@@ -238,7 +239,7 @@
 
     const refreshShortcutRegistrationStatus = async () => {
         try {
-            const [failed, error] = await native.shortcut.getShortcutStatus();
+            const [failed, error] = await settingsWindow.getShortcutStatus();
             shortcutRegistrationFailed.value = failed;
             if (failed) {
                 log.warn('[GeneralView] Shortcut registration failed:', error);

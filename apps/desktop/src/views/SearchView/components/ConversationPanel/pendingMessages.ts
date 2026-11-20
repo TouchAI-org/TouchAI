@@ -1,5 +1,5 @@
-import type { PendingUserMessage } from '@/services/AgentService/task/types';
-import type { SessionMessage } from '@/types/session';
+import type { PendingUserMessage } from '@/app/api/agent/contracts';
+import type { SessionMessage } from '@/app/api/agent/history';
 
 /**
  * 待发消息是运行中的临时状态，只在会话尾部显示。

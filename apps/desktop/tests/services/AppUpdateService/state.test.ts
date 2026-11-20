@@ -1,11 +1,8 @@
-﻿import {
-    createInitialAppUpdateState,
-    reduceAppUpdateState,
-} from '@services/AppUpdateService/state';
-import type { AppUpdateCheckResult, AppUpdateState } from '@services/AppUpdateService/types';
 import { describe, expect, it } from 'vitest';
 
 import { APP_PRODUCT_CONFIG } from '@/config/product';
+import { createInitialAppUpdateState, reduceAppUpdateState } from '@/modules/updates/state';
+import type { AppUpdateCheckResult, AppUpdateState } from '@/modules/updates/types';
 
 const neutralRequirement = {
     required: false,

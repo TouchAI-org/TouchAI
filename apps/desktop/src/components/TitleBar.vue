@@ -3,8 +3,9 @@
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
     import { Tooltip, TooltipTrigger } from '@components/ui/tooltip';
-    import { getCurrentWindow } from '@tauri-apps/api/window';
+    import { inject } from 'vue';
 
+    import { windowChromeApiKey } from '@/app/api/windows/presentation';
     import { t } from '@/i18n';
 
     interface Props {
@@ -23,13 +24,7 @@
         showClose: true,
     });
 
-    const currentWindow = (() => {
-        try {
-            return getCurrentWindow();
-        } catch {
-            return null;
-        }
-    })();
+    const currentWindow = inject(windowChromeApiKey, null);
 
     const handleMinimize = async () => {
         await currentWindow?.minimize();

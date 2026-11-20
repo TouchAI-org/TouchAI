@@ -2,8 +2,9 @@
 
 <script setup lang="ts">
     import { appIconFallback, appIconMap, type AppIconName } from '@components/appIconMap';
-    import { log } from '@services/ObservabilityService';
     import { type Component, computed } from 'vue';
+
+    import { log } from '@/app/api/diagnostics';
 
     defineOptions({
         inheritAttrs: false,

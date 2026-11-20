@@ -1,10 +1,8 @@
-import type {
-    BuiltInBashExecutionRequest,
-    BuiltInBashExecutionResponse,
-} from '@services/NativeService';
-import { builtInTools } from '@services/NativeService';
 import { closeTauriChannel, emitTauriChannelMessage, mockTauriCommand } from '@tests/utils/tauri';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import type { BuiltInBashExecutionRequest, BuiltInBashExecutionResponse } from '@/platform/native';
+import { builtInTools } from '@/platform/native';
 
 interface BuiltInBashOutputEvent {
     executionId: string;

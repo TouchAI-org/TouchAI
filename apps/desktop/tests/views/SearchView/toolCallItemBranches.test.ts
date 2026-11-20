@@ -1,7 +1,7 @@
 import { mount } from '@vue/test-utils';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { ToolCallInfo } from '@/types/session';
+import type { ToolCallInfo } from '@/app/api/agent/history';
 import ToolCallItem from '@/views/SearchView/components/ConversationPanel/components/ToolCallItem.vue';
 
 /**
@@ -22,11 +22,6 @@ vi.mock('@components/MotionCollapse.vue', () => ({
 vi.mock('@/i18n', () => ({
     t: (key: string) => key,
     tt: (key: string) => key,
-}));
-
-vi.mock('@/services/BuiltInToolService/presentation', () => ({
-    buildBuiltInToolConversationPresentation: () => ({ verb: 'Ran', content: 'command' }),
-    resolveBuiltInToolConversationSemantic: () => ({ action: 'run', target: 'command' }),
 }));
 
 function makeToolCall(overrides: Partial<ToolCallInfo> = {}): ToolCallInfo {

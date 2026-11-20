@@ -1,4 +1,5 @@
 import { installSkillCommands, skillFile, widgetSkillFile } from '@tests/utils/skills';
+import { createSkillToolsFixture } from '@tests/utils/skillTools';
 import { getTauriInvokeCalls } from '@tests/utils/tauri';
 import { beforeEach, describe, expect, it } from 'vitest';
 
@@ -10,8 +11,8 @@ import {
     openUserSkillDirectory,
     readSkillContent,
     setUserSkillDisabled,
-} from '@/services/AgentService/skills';
-import { activateSkillTool } from '@/services/BuiltInToolService/tools/activateSkill';
+} from '@/modules/skills';
+const activateSkillTool = createSkillToolsFixture();
 
 const widgetPath = '/app/skills/.system/widget/SKILL.md';
 const widget = {

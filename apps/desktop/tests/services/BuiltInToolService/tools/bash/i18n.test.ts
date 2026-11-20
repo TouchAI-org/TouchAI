@@ -1,10 +1,13 @@
+import { createBashToolsFixture } from '@tests/utils/bashTools';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { setLocale } from '@/i18n';
-import { createBashApprovalRequest } from '@/services/BuiltInToolService/tools/bash';
-import { DEFAULT_BASH_TOOL_CONFIG } from '@/services/BuiltInToolService/tools/bash/constants';
-import { formatBashToolResult } from '@/services/BuiltInToolService/tools/bash/helper';
-import type { BuiltInBashExecutionResponse } from '@/services/NativeService';
+const {
+    approval: createBashApprovalRequest,
+    operations: { formatBashToolResult },
+} = createBashToolsFixture();
+import { DEFAULT_BASH_TOOL_CONFIG } from '@/modules/tools/builtin/bash/constants';
+import type { BuiltInBashExecutionResponse } from '@/platform/native';
 
 describe('user approves a shell command in their own language', () => {
     beforeEach(() => {
