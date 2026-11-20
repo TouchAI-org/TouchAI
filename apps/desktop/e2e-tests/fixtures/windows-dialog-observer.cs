@@ -150,7 +150,7 @@ public static class TouchAIStartupDialogObserver
         PrintVisibleWindows();
         Console.Error.WriteLine(
             "Startup dialog did not appear for expected pid "
-                + (expectedProcessId?.ToString() ?? "<missing>")
+                + (expectedProcessId.HasValue ? expectedProcessId.Value.ToString() : "<missing>")
                 + " within "
                 + timeoutMilliseconds
                 + "ms."
