@@ -796,6 +796,7 @@ describe('given root Tauri exports beside the designated invoke adapter', () => 
         "export { core as native } from '@tauri-apps/api/index';",
         "import * as tauri from '@tauri-apps/api'; export const run = tauri.core.invoke;",
         "export const load = () => import('@tauri-apps/api');",
+        "const tauri = await import('@tauri-apps/api'); tauri.core.invoke('fixture');",
     ])('user cannot bypass the invoke adapter using %s', (source) => {
         const result = run(fixture({ 'apps/desktop/src/platform/windows/unsafe.ts': source }));
         expect(result.status).toBe(1);
@@ -891,16 +892,34 @@ describe('given native commands checked by the repository architecture command',
         expect(result.status).toBe(0);
     });
 
-    it('user cannot hide a native dependency in a Vue template expression', () => {
-        const result = run(
-            fixture({
-                'apps/desktop/src/components/Caller.vue':
-                    '<script setup lang="ts"></script><template><button @click="import(\'@/platform/native/invoke\').then((bridge) => bridge.invoke(\'missing_cmd\'))"></button></template>',
-            })
-        );
-        expect(result.status).toBe(1);
-        expect(result.stdout).toContain('ui-boundary');
-    });
+    it.each([
+        [
+            'event',
+            '<script setup lang="ts"></script><template><button @click="import(\'@/platform/native/invoke\').then((bridge) => bridge.invoke(\'missing_cmd\'))"></button></template>',
+            'ui-boundary',
+        ],
+        [
+            'loop',
+            '<script setup lang="ts"></script><template><div v-for="item in import(\'@/platform/native/invoke\')"></div></template>',
+            'ui-boundary',
+        ],
+        [
+            'dynamic directive',
+            '<script setup lang="ts">const target = "@/platform/native/invoke";</script><template><div v-bind:[import(target)]="true"></div></template>',
+            'unresolved-dynamic',
+        ],
+    ])(
+        'user cannot hide a native dependency in a Vue template %s expression',
+        (_, source, code) => {
+            const result = run(
+                fixture({
+                    'apps/desktop/src/components/Caller.vue': source,
+                })
+            );
+            expect(result.status).toBe(1);
+            expect(result.stdout).toContain(code);
+        }
+    );
 
     it.each([
         "const target = './invoke'; const { invoke } = await import(target); invoke('missing_cmd');",
