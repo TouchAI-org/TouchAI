@@ -111,6 +111,7 @@ function sourceRole(id) {
     if (id.startsWith('apps/site/src/')) return { kind: 'site', path: id };
     if (!id.startsWith(DESKTOP)) return { kind: 'tooling', path: id };
     const relative = id.slice(DESKTOP.length);
+    if (relative.endsWith('.vue')) return { kind: 'ui', path: relative };
     const module = /^modules\/([^/]+)\/(.*)$/.exec(relative);
     if (module)
         return {
@@ -123,7 +124,7 @@ function sourceRole(id) {
     if (relative === 'main.ts') return { kind: 'bootstrap', path: relative };
     if (area === 'i18n' || relative === 'vite-env.d.ts')
         return { kind: 'presentation-support', path: relative };
-    if (PRESENTATION.has(area) || relative === 'App.vue') return { kind: 'ui', path: relative };
+    if (PRESENTATION.has(area)) return { kind: 'ui', path: relative };
     if (relative.startsWith('app/api/')) return { kind: 'api', path: relative };
     if (relative.startsWith('app/composition/')) return { kind: 'composition', path: relative };
     if (relative.startsWith('app/workflows/')) return { kind: 'workflow', path: relative };
@@ -727,7 +728,11 @@ function checkDatabase(projectRoot, report) {
             recursive: true,
         });
         const nodeModules = path.join(projectRoot, 'apps/desktop/node_modules');
-        fs.symlinkSync(nodeModules, path.join(work, 'node_modules'), 'dir');
+        fs.symlinkSync(
+            nodeModules,
+            path.join(work, 'node_modules'),
+            process.platform === 'win32' ? 'junction' : 'dir'
+        );
         fs.writeFileSync(
             path.join(work, 'drizzle.config.ts'),
             "import { defineConfig } from 'drizzle-kit';\nexport default defineConfig({ schema: './schema.ts', out: './out', dialect: 'sqlite' });\n"

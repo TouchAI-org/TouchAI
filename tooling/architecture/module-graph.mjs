@@ -157,6 +157,19 @@ function walk(node, visitorKeys, visit) {
     }
 }
 
+function vueTemplateExpressions(node, expressions = []) {
+    if (node === null || typeof node !== 'object') return expressions;
+    if (node.type === 'VExpressionContainer' && node.expression) {
+        if (Array.isArray(node.expression.body)) expressions.push(...node.expression.body);
+        else expressions.push(node.expression);
+    }
+    for (const child of node.children ?? []) vueTemplateExpressions(child, expressions);
+    for (const attribute of node.startTag?.attributes ?? []) {
+        vueTemplateExpressions(attribute.value, expressions);
+    }
+    return expressions;
+}
+
 export function collectImportGraph(code, filename) {
     const isVue = filename.endsWith('.vue');
     const parsed = isVue
@@ -175,7 +188,7 @@ export function collectImportGraph(code, filename) {
     const edges = [];
     const globs = [];
     const unresolved = [];
-    walk(parsed.ast, parsed.visitorKeys ?? {}, (node) => {
+    const collectNode = (node) => {
         switch (node.type) {
             case 'ImportDeclaration':
                 if (typeof node.source?.value === 'string') {
@@ -265,7 +278,13 @@ export function collectImportGraph(code, filename) {
             default:
                 break;
         }
-    });
+    };
+    walk(parsed.ast, parsed.visitorKeys ?? {}, collectNode);
+    if (isVue) {
+        for (const expression of vueTemplateExpressions(parsed.ast.templateBody)) {
+            walk(expression, parsed.visitorKeys ?? {}, collectNode);
+        }
+    }
 
     return { edges, globs, unresolved };
 }

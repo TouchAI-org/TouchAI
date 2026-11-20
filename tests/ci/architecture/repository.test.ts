@@ -12,7 +12,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -98,16 +98,22 @@ function fixture(files: Record<string, string>): string {
     symlinkSync(
         join(repositoryRoot, 'apps/desktop/node_modules'),
         join(root, 'apps/desktop/node_modules'),
-        'dir'
+        process.platform === 'win32' ? 'junction' : 'dir'
     );
     write(root, artifactBaseline, JSON.stringify(artifacts(root)));
     return root;
 }
 
-function run(root: string, json = true) {
+function run(root: string, json = true, preload?: string) {
     const result = spawnSync(
         process.execPath,
-        [cli, '--project-root', resolve(root), ...(json ? ['--json'] : [])],
+        [
+            ...(preload ? ['--import', pathToFileURL(preload).href] : []),
+            cli,
+            '--project-root',
+            resolve(root),
+            ...(json ? ['--json'] : []),
+        ],
         {
             encoding: 'utf8',
             maxBuffer: 2 * 1024 * 1024,
@@ -858,6 +864,53 @@ describe('given the former architecture review bypasses', () => {
 });
 
 describe('given native commands checked by the repository architecture command', () => {
+    it.each(['platform/native', 'app/bootstrap', 'modules/search', 'utils'])(
+        'user cannot bypass the application API by moving a Vue template caller into %s',
+        (directory) => {
+            const file = `apps/desktop/src/${directory}/Caller.vue`;
+            const result = run(
+                fixture({
+                    [file]: '<script setup lang="ts">import { invoke } from "@/platform/native/invoke";</script><template><button @click="invoke(\'missing_cmd\')"></button></template>',
+                })
+            );
+            expect(result.status).toBe(1);
+            expect(JSON.parse(result.stdout).violations).toContainEqual(
+                expect.objectContaining({ code: 'ui-boundary', from: file })
+            );
+        }
+    );
+
+    it('user can call the application API and a local template handler named invoke', () => {
+        const result = run(
+            fixture({
+                'apps/desktop/src/components/Caller.vue':
+                    '<script setup lang="ts">import { query as invoke } from "@/app/api/agent"; const handlers = [() => 1];</script><template><button @click="invoke()"></button><button v-for="invoke in handlers" @click="invoke()"></button></template>',
+            })
+        );
+        expect(result.stderr).toBe('');
+        expect(result.status).toBe(0);
+    });
+
+    it('user cannot hide a native dependency in a Vue template expression', () => {
+        const result = run(
+            fixture({
+                'apps/desktop/src/components/Caller.vue':
+                    '<script setup lang="ts"></script><template><button @click="import(\'@/platform/native/invoke\').then((bridge) => bridge.invoke(\'missing_cmd\'))"></button></template>',
+            })
+        );
+        expect(result.status).toBe(1);
+        expect(result.stdout).toContain('ui-boundary');
+    });
+
+    it.each([
+        "const target = './invoke'; const { invoke } = await import(target); invoke('missing_cmd');",
+        "const target = './invoke'; const { invoke } = require(target); invoke('missing_cmd');",
+    ])('user sees a computed bridge import rejected by the unified gate using %s', (source) => {
+        const result = run(fixture({ [`${nativeRoot}/caller.ts`]: source }));
+        expect(result.status).toBe(1);
+        expect(result.stdout).toContain('unresolved-dynamic');
+    });
+
     it('user sees the caller and unknown command in the normal command output', () => {
         const result = run(
             fixture({
@@ -1012,6 +1065,29 @@ describe('given native commands checked by the repository architecture command',
 });
 
 describe('given database contracts checked by the repository architecture command', () => {
+    it('user can check database generation when Windows denies privileged directory symlinks', () => {
+        const root = fixture({});
+        const preload = join(root, 'windows-links.mjs');
+        writeFileSync(
+            preload,
+            `
+            import fs from 'node:fs';
+            process.env.TEMP = ${JSON.stringify(tmpdir())};
+            Object.defineProperty(process, 'platform', { value: 'win32' });
+            const symlink = fs.symlinkSync;
+            fs.symlinkSync = (target, link, type) => {
+                if (type !== 'junction') throw Object.assign(new Error('Symlink privilege required'), { code: 'EPERM' });
+                return symlink(target, link, type);
+            };
+        `
+        );
+        const before = artifacts(root);
+        const result = run(root, true, preload);
+        expect(result.stderr).toBe('');
+        expect(result.status).toBe(0);
+        expect(artifacts(root)).toEqual(before);
+    });
+
     it.each(['changed', 'added', 'removed'])(
         'user sees %s database artifacts rejected',
         (change) => {

@@ -18,6 +18,10 @@ function codeownerEntries(codeowners: string) {
         .filter((line) => line.length > 0 && !line.startsWith('#'))
         .map((line) => {
             const [pattern = '', ...owners] = line.split(/\s+/);
+            // This repository uses rooted literal paths; reject syntax we cannot evaluate.
+            if (!/^\/[\w./-]+$/.test(pattern)) {
+                throw new Error(`Unsupported CODEOWNERS pattern: ${pattern}`);
+            }
 
             return { pattern, owners };
         });
@@ -51,6 +55,16 @@ function ownedByMaintainer(codeowners: string, path: string) {
 }
 
 describe('release CODEOWNERS policy', () => {
+    it.each(['/tooling/architecture/*.json', '/tooling/**', '*.json'])(
+        'user gets an explicit policy failure instead of stale ownership when a later rule uses %s',
+        (pattern) => {
+            const policy = `/tooling/architecture/ @hiqiancheng\n${pattern} @other\n`;
+            expect(() =>
+                ownersForPath(policy, 'tooling/architecture/db-artifacts-baseline.json')
+            ).toThrow('Unsupported CODEOWNERS pattern');
+        }
+    );
+
     it('user gets maintainer review when changing an architecture owner or its enforcement policy', async () => {
         const codeowners = await readCodeowners();
         const paths = [
