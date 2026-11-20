@@ -176,11 +176,17 @@ function runStartupFailure(binary, root, args = [], options = {}) {
             {
                 ...process.env,
                 TOUCHAI_APP_ROOT: root,
+                TOUCHAI_E2E_DISABLE_SINGLE_INSTANCE: '1',
                 WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: '--remote-debugging-port=0',
             },
             { userDataFolder: path.join(root, 'webview2') }
         );
         if (options.interactive) delete env.TOUCHAI_E2E;
+        if (options.pidFile) {
+            env.TOUCHAI_STARTUP_JOB_PID_FILE = options.pidFile;
+        } else {
+            delete env.TOUCHAI_STARTUP_JOB_PID_FILE;
+        }
 
         const child = spawn(launcher, launcherArgs, {
             env,
@@ -245,8 +251,8 @@ function runStartupFailure(binary, root, args = [], options = {}) {
     });
 }
 
-function runDialogObserver(executable, timeoutMilliseconds) {
-    const child = spawn(executable, [String(timeoutMilliseconds)], {
+function runDialogObserver(executable, pidFile, timeoutMilliseconds) {
+    const child = spawn(executable, [pidFile, String(timeoutMilliseconds)], {
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true,
     });
@@ -354,8 +360,9 @@ test(
         const root = mkdtempSync(path.join(os.tmpdir(), 'touchai-startup-dialog-'));
         const database = path.join(root, 'data', 'touchai.db');
         mkdirSync(database, { recursive: true });
-        const observer = runDialogObserver(resolveDialogObserver(), 12000);
-        const result = await runStartupFailure(binary, root, [], { interactive: true });
+        const pidFile = path.join(root, 'startup-app.pid');
+        const observer = runDialogObserver(resolveDialogObserver(), pidFile, 12000);
+        const result = await runStartupFailure(binary, root, [], { interactive: true, pidFile });
         const observed = await observer.done;
 
         t.after(async () => {
@@ -365,6 +372,8 @@ test(
         });
         const diagnostics = `${result.stdout}\n${result.stderr}`;
         const observerDiagnostics = `${observed.stdout}\n${observed.stderr}`;
+        const appPid = Number(readFileSync(pidFile, 'utf8'));
+        assert.ok(Number.isInteger(appPid) && appPid > 0);
 
         assert.equal(result.error, undefined, diagnostics);
         assert.equal(result.timedOut, false, diagnostics);
@@ -380,6 +389,7 @@ test(
         assert.equal(observed.signal, null, observerDiagnostics);
         assert.equal(observed.status, 0, observerDiagnostics);
         assert.match(observed.stdout, /found=true/);
+        assert.match(observed.stdout, new RegExp(`pid=${appPid}(?:\\s|$)`));
         assert.match(observed.stdout, /class=#32770/);
         assert.match(observed.stdout, /title=TouchAI/);
         assert.match(observed.stdout, /closed=true/);

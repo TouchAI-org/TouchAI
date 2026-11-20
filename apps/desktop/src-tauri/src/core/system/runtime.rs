@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 const TOUCHAI_APP_ROOT_ENV: &str = "TOUCHAI_APP_ROOT";
 const TOUCHAI_E2E_ENV: &str = "TOUCHAI_E2E";
+const TOUCHAI_E2E_DISABLE_SINGLE_INSTANCE_ENV: &str = "TOUCHAI_E2E_DISABLE_SINGLE_INSTANCE";
 const TOUCHAI_UI_PREVIEW_ENV: &str = "TOUCHAI_UI_PREVIEW";
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -108,6 +109,13 @@ const DEFAULT_E2E_WEBVIEW_ADDITIONAL_BROWSER_ARGS: &str = concat!(
 
 pub fn should_enable_single_instance() -> bool {
     !is_e2e_test_mode()
+        && !matches!(
+            std::env::var(TOUCHAI_E2E_DISABLE_SINGLE_INSTANCE_ENV)
+                .ok()
+                .map(|value| value.trim().to_ascii_lowercase())
+                .as_deref(),
+            Some("1" | "true" | "yes" | "on")
+        )
 }
 
 pub fn resolve_app_root_override() -> Option<PathBuf> {
@@ -122,7 +130,8 @@ pub fn resolve_app_root_override() -> Option<PathBuf> {
 mod tests {
     use super::{
         can_show_startup_failure_dialog, e2e_webview_additional_browser_args, has_linux_display,
-        is_e2e_test_mode, is_ui_preview_mode, DEFAULT_E2E_WEBVIEW_ADDITIONAL_BROWSER_ARGS,
+        is_e2e_test_mode, is_ui_preview_mode, should_enable_single_instance,
+        DEFAULT_E2E_WEBVIEW_ADDITIONAL_BROWSER_ARGS, TOUCHAI_E2E_DISABLE_SINGLE_INSTANCE_ENV,
         TOUCHAI_E2E_ENV, TOUCHAI_UI_PREVIEW_ENV,
     };
     use std::sync::Mutex;
@@ -205,6 +214,29 @@ mod tests {
 
         std::env::remove_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS");
         std::env::remove_var(TOUCHAI_E2E_ENV);
+    }
+
+    #[test]
+    fn user_can_disable_single_instance_without_enabling_e2e_mode() {
+        let _guard = ENV_LOCK.lock().expect("env lock");
+        std::env::remove_var(TOUCHAI_E2E_ENV);
+        std::env::remove_var(TOUCHAI_E2E_DISABLE_SINGLE_INSTANCE_ENV);
+
+        assert!(should_enable_single_instance());
+
+        for value in ["1", "true", "YES", " on "] {
+            std::env::set_var(TOUCHAI_E2E_DISABLE_SINGLE_INSTANCE_ENV, value);
+            assert!(!should_enable_single_instance(), "disable value: {value}");
+        }
+
+        std::env::set_var(TOUCHAI_E2E_DISABLE_SINGLE_INSTANCE_ENV, "0");
+        assert!(should_enable_single_instance());
+
+        std::env::set_var(TOUCHAI_E2E_ENV, "1");
+        assert!(!should_enable_single_instance());
+
+        std::env::remove_var(TOUCHAI_E2E_ENV);
+        std::env::remove_var(TOUCHAI_E2E_DISABLE_SINGLE_INSTANCE_ENV);
     }
 
     #[test]

@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -9,6 +10,7 @@ public static class TouchAIStartupJobLauncher
     private const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000;
     private const int JobObjectExtendedLimitInformation = 9;
     private const uint INFINITE = 0xFFFFFFFF;
+    private const string PID_FILE_ENV = "TOUCHAI_STARTUP_JOB_PID_FILE";
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct STARTUPINFO
@@ -179,6 +181,13 @@ public static class TouchAIStartupJobLauncher
         throw new Win32Exception(Marshal.GetLastWin32Error(), operation + " failed");
     }
 
+    private static void WriteLaunchedProcessId(uint processId)
+    {
+        var pidFile = Environment.GetEnvironmentVariable(PID_FILE_ENV);
+        if (String.IsNullOrWhiteSpace(pidFile)) return;
+        File.WriteAllText(pidFile, processId.ToString());
+    }
+
     private static int Run(string[] arguments)
     {
         if (arguments.Length == 0) throw new ArgumentException("An application path is required.");
@@ -242,6 +251,7 @@ public static class TouchAIStartupJobLauncher
                     {
                         throw new Win32Exception(Marshal.GetLastWin32Error(), "ResumeThread failed");
                     }
+                    WriteLaunchedProcessId(processInformation.dwProcessId);
                     resumed = true;
                 }
                 catch

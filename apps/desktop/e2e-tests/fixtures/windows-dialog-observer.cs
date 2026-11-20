@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -41,13 +42,38 @@ public static class TouchAIStartupDialogObserver
         return className.ToString();
     }
 
-    private static IntPtr FindStartupDialog()
+    private static uint? ReadExpectedProcessId(string pidFile)
+    {
+        try
+        {
+            if (!File.Exists(pidFile)) return null;
+            uint processId;
+            if (!uint.TryParse(File.ReadAllText(pidFile).Trim(), out processId) || processId == 0)
+            {
+                return null;
+            }
+            return processId;
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    private static IntPtr FindStartupDialog(uint expectedProcessId)
     {
         var match = IntPtr.Zero;
         EnumWindows(
             (window, _) =>
             {
                 if (!IsWindowVisible(window)) return true;
+                uint processId;
+                GetWindowThreadProcessId(window, out processId);
+                if (processId != expectedProcessId) return true;
                 if (WindowClass(window) != "#32770" || WindowText(window) != "TouchAI") return true;
                 match = window;
                 return false;
@@ -80,16 +106,31 @@ public static class TouchAIStartupDialogObserver
     public static int Main(string[] arguments)
     {
         var timeoutMilliseconds = 12000;
-        if (arguments.Length > 0 && !int.TryParse(arguments[0], out timeoutMilliseconds))
+        if (arguments.Length == 0)
+        {
+            Console.Error.WriteLine("A launched-process PID file is required.");
+            return 2;
+        }
+        var pidFile = arguments[0];
+        if (arguments.Length > 1 && !int.TryParse(arguments[1], out timeoutMilliseconds))
         {
             Console.Error.WriteLine("Dialog timeout must be an integer.");
             return 2;
         }
 
         var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMilliseconds);
+        uint? expectedProcessId = null;
         while (DateTime.UtcNow < deadline)
         {
-            var dialog = FindStartupDialog();
+            var currentProcessId = ReadExpectedProcessId(pidFile);
+            if (currentProcessId == null)
+            {
+                Thread.Sleep(100);
+                continue;
+            }
+            expectedProcessId = currentProcessId;
+
+            var dialog = FindStartupDialog(currentProcessId.Value);
             if (dialog != IntPtr.Zero)
             {
                 uint processId;
@@ -107,7 +148,13 @@ public static class TouchAIStartupDialogObserver
         }
 
         PrintVisibleWindows();
-        Console.Error.WriteLine("Startup dialog did not appear within " + timeoutMilliseconds + "ms.");
+        Console.Error.WriteLine(
+            "Startup dialog did not appear for expected pid "
+                + (expectedProcessId?.ToString() ?? "<missing>")
+                + " within "
+                + timeoutMilliseconds
+                + "ms."
+        );
         return 3;
     }
 }
