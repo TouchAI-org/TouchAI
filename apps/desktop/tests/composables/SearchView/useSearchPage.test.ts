@@ -347,6 +347,67 @@ describe('useSearchPageLifecycle', () => {
         expect(visible).toBe(false);
     });
 
+    it('user keeps the pinned view visible when app blur follows the pin immediately', async () => {
+        let hideOnAppBlur = true;
+        let visible = true;
+        let policyStarted = false;
+        let releasePolicy!: () => void;
+        let policyAtPinWrite: boolean | undefined;
+        nativeMock.window.setSearchSurfaceHideOnAppBlur.mockImplementation(async (shouldHide) => {
+            hideOnAppBlur = shouldHide;
+        });
+        nativeMock.window.hideSearchWindow.mockImplementation(async () => {
+            visible = false;
+        });
+        nativeMock.window.reconcileSearchWindowBlur.mockImplementation(async () => {
+            if (hideOnAppBlur) visible = false;
+        });
+        currentWindowMock.setAlwaysOnTop.mockImplementation(async () => {
+            policyAtPinWrite = hideOnAppBlur;
+        });
+
+        const mounted = await mountComposable(() => {
+            const pin = useSearchWindowPin();
+            const lifecycle = useSearchPageLifecycle({
+                controller: createController() as never,
+                viewReady: ref(true),
+                isDragging: ref(false),
+                isPinned: pin.isPinned,
+                interactionContext: createSearchInteractionContext(),
+                syncWindowPinState: pin.syncWindowPinState,
+                clearSession: vi.fn(),
+            });
+            return { ...pin, ...lifecycle };
+        });
+        onTestFinished(mounted.unmount);
+        await flushLifecycle();
+
+        nativeMock.window.setSearchSurfaceHideOnAppBlur.mockImplementationOnce(
+            async (shouldHide) => {
+                policyStarted = true;
+                await new Promise<void>((resolve) => {
+                    releasePolicy = resolve;
+                });
+                hideOnAppBlur = shouldHide;
+            }
+        );
+        const pinning = mounted.result.toggleWindowPin();
+        for (let index = 0; index < 5; index += 1) await Promise.resolve();
+
+        expect(policyStarted).toBe(true);
+        expect(currentWindowMock.setAlwaysOnTop).not.toHaveBeenCalled();
+
+        releasePolicy();
+        await expect(pinning).resolves.toBe(true);
+        expect(policyAtPinWrite).toBe(false);
+
+        // Native focus loss and the renderer fallback both leave the view visible while pinned.
+        await nativeMock.window.reconcileSearchWindowBlur();
+        window.dispatchEvent(new Event('blur'));
+        await vi.advanceTimersByTimeAsync(50);
+        expect(visible).toBe(true);
+    });
+
     it('user closes the view during listener registration without leaving active subscriptions', async () => {
         let finishRegistration!: () => void;
         const registration = new Promise<void>((resolve) => {

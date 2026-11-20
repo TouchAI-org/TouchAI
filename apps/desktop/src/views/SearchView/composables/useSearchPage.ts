@@ -24,7 +24,7 @@ import {
 } from '@/app/api/search/events';
 import { useStartupNoticesApi } from '@/app/api/search/startup';
 import { initNotificationPermission, notify } from '@/app/api/windows/notifications';
-import { useSearchWindowApi } from '@/app/api/windows/presentation';
+import { type SearchWindowApi, useSearchWindowApi } from '@/app/api/windows/presentation';
 import { isE2eTestMode } from '@/app/api/windows/runtime';
 import {
     isRendererOnlySearchKeybindingAction,
@@ -82,11 +82,21 @@ function buildSearchSurfaceShortcutEntries(
     });
 }
 
-export function useSearchWindowPin() {
+async function syncSearchSurfaceHideOnAppBlur(searchWindow: SearchWindowApi, shouldHide: boolean) {
+    const isE2e = await isE2eTestMode();
+    await searchWindow.setSearchSurfaceHideOnAppBlur(shouldHide && !isE2e);
+}
+
+interface SearchWindowPinOptions {
+    shouldHideOnAppBlur?: (pinned: boolean) => boolean;
+}
+
+export function useSearchWindowPin(options: SearchWindowPinOptions = {}) {
     const currentWindow = useSearchWindowApi();
     const isPinned = ref(false);
     let hasPinIntent = false;
     let lastOperation: Promise<void> = Promise.resolve();
+    const shouldHideOnAppBlur = options.shouldHideOnAppBlur ?? ((pinned: boolean) => !pinned);
 
     function queuePinOperation<T>(operation: () => Promise<T>): Promise<T> {
         const run = lastOperation.catch(() => undefined).then(operation);
@@ -108,7 +118,21 @@ export function useSearchWindowPin() {
     }
 
     async function applyWindowPinned(value: boolean): Promise<boolean> {
-        await currentWindow.setAlwaysOnTop(value);
+        await syncSearchSurfaceHideOnAppBlur(currentWindow, shouldHideOnAppBlur(value));
+        try {
+            await currentWindow.setAlwaysOnTop(value);
+        } catch (error) {
+            await syncSearchSurfaceHideOnAppBlur(
+                currentWindow,
+                shouldHideOnAppBlur(isPinned.value)
+            ).catch((rollbackError) => {
+                log.error(
+                    '[SearchView] Failed to restore the search surface app-blur policy:',
+                    rollbackError
+                );
+            });
+            throw error;
+        }
         hasPinIntent = true;
         isPinned.value = value;
         return value;
@@ -506,11 +530,6 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         await searchWindow.hideSearchWindow();
     }
 
-    async function syncSearchSurfaceHideOnAppBlur(shouldHide: boolean) {
-        const isE2e = await isE2eTestMode();
-        await searchWindow.setSearchSurfaceHideOnAppBlur(shouldHide && !isE2e);
-    }
-
     function syncFocusStateOnFocus() {
         if (!interactionContext.state.windowVisible) {
             if (interactionContext.state.activationSource === 'unknown') {
@@ -863,7 +882,10 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
                 previousDragging = dragging;
                 interactionContext.state.isPinned = nextPinned;
                 const shouldHideOnAppBlur = !nextPinned && !dragging && !maximized;
-                const policyOperation = syncSearchSurfaceHideOnAppBlur(shouldHideOnAppBlur);
+                const policyOperation = syncSearchSurfaceHideOnAppBlur(
+                    searchWindow,
+                    shouldHideOnAppBlur
+                );
 
                 const interactionEndedWhileUnfocused =
                     wasDragging &&

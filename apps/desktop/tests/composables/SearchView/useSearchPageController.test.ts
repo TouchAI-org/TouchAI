@@ -18,8 +18,12 @@ vi.mock('@tauri-apps/api/window', () => ({
 
 vi.mock('@/platform/native', () => ({
     native: {
+        runtime: {
+            getRuntimeInfo: vi.fn().mockResolvedValue({ isE2eTestMode: false }),
+        },
         window: {
             hideSearchWindow: vi.fn().mockResolvedValue(undefined),
+            setSearchSurfaceHideOnAppBlur: vi.fn().mockResolvedValue(undefined),
         },
     },
 }));
