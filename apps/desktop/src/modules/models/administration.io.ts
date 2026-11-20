@@ -1,3 +1,5 @@
+import { db } from '@database';
+
 import {
     createModel,
     deleteModel,
@@ -20,6 +22,7 @@ import {
     modelDraftSchema,
     modelPatchSchema,
     providerDraftSchema,
+    providerImportEntriesSchema,
     providerPatchSchema,
 } from './administration';
 import { persistRefreshedModels } from './metadata/refresh.io';
@@ -66,11 +69,35 @@ export function createModelAdministration() {
         if (model?.provider_id === id)
             throw new ModelAdministrationError('PROVIDER_HAS_DEFAULT_MODEL');
     }
+    async function importProviders(entries: Parameters<ModelAdministration['importProviders']>[0]) {
+        const parsedEntries = providerImportEntriesSchema.parse(entries.entries);
+        return db.transaction(async (tx) => {
+            const imported: Awaited<ReturnType<ModelAdministration['importProviders']>> = [];
+            for (const entry of parsedEntries) {
+                const provider = await createProvider(
+                    providerDraftSchema.parse(entry.provider),
+                    tx
+                );
+                const model = entry.model
+                    ? await createModel(
+                          modelDraftSchema.parse({
+                              ...entry.model,
+                              provider_id: provider.id,
+                          }),
+                          tx
+                      )
+                    : null;
+                imported.push({ provider, model });
+            }
+            return imported;
+        });
+    }
     const api: ModelAdministration = {
         findAllProvidersSorted: () => read(findAllProvidersSorted),
         findProviderById: (input) => read(() => findProviderById(input)),
         findDefaultModel: () => read(findDefaultModel),
         findModelsWithProvider: (input) => read(() => findModelsWithProvider(input)),
+        importProviders: (input) => write(() => importProviders(input)),
         createProvider: (data) => write(() => createProvider(providerDraftSchema.parse(data))),
         updateProvider: (input) =>
             write(async () => {

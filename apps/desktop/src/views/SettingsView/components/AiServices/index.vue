@@ -40,6 +40,12 @@
     import { getProviderDriverDefinition } from '@/app/api/models/catalog';
     import { useModelDiscoveryApi } from '@/app/api/models/discovery';
     import { useModelMetadataApi } from '@/app/api/models/metadata';
+    import type {
+        ProviderImportCandidate,
+        ProviderImportSourceId,
+        ProviderSettingsImportScan,
+    } from '@/app/api/models/providerSettingsImport';
+    import { useProviderSettingsImportApi } from '@/app/api/models/providerSettingsImport';
     import { AppEvent, eventService } from '@/app/api/settings/events';
     import { locale, t } from '@/i18n';
 
@@ -51,6 +57,7 @@
     import ModelList from './components/ModelList.vue';
     import ProviderConfig from './components/ProviderConfig.vue';
     import ProviderList from './components/ProviderList.vue';
+    import { importProviderSettings } from './importProviderSettings';
     const {
         beginProviderConfigurationAttempt,
         runProviderConfiguration,
@@ -61,9 +68,13 @@
     const ProviderFormDialog = defineAsyncComponent(
         () => import('./components/ProviderFormDialog.vue')
     );
+    const ProviderSettingsImportDialog = defineAsyncComponent(
+        () => import('./components/ProviderSettingsImportDialog.vue')
+    );
 
     const alert = useAlert();
     const discovery = useModelDiscoveryApi();
+    const providerSettingsImport = useProviderSettingsImportApi();
     const metadata = useModelMetadataApi();
     const {
         createModel,
@@ -74,6 +85,7 @@
         findDefaultModel,
         findModelsWithProvider,
         findProviderById,
+        importProviders,
         setDefaultModel,
         updateModel,
         updateProvider,
@@ -128,6 +140,13 @@
     const refreshingProviderId = ref<number | null>(null);
     const instanceId = crypto.randomUUID();
     let unlistenAiModelsUpdated: (() => void) | null = null;
+    let loadProvidersGeneration = 0;
+    const showImportDialog = ref(false);
+    const importSources = ref<ProviderSettingsImportScan | null>(null);
+    const importScanning = ref(false);
+    const importSaving = ref(false);
+    const importError = ref<string | null>(null);
+    let importScanGeneration = 0;
 
     interface RefreshModelsNotificationOptions {
         success?: boolean;
@@ -152,6 +171,66 @@
             sourceId: instanceId,
             updatedAt: Date.now(),
         });
+    }
+
+    function closeImportDialog(open: boolean) {
+        if (open || importSaving.value) return;
+        ++importScanGeneration;
+        showImportDialog.value = false;
+        importSources.value = null;
+        importScanning.value = false;
+        importError.value = null;
+    }
+
+    async function openImportDialog() {
+        if (importScanning.value || importSaving.value) return;
+        const generation = ++importScanGeneration;
+        showImportDialog.value = true;
+        importSources.value = null;
+        importError.value = null;
+        importScanning.value = true;
+        try {
+            const sources = await providerSettingsImport.scan();
+            if (generation === importScanGeneration) importSources.value = sources;
+        } catch {
+            if (generation === importScanGeneration)
+                importError.value = t('settings.ai.import.scanFailed');
+        } finally {
+            if (generation === importScanGeneration) importScanning.value = false;
+        }
+    }
+
+    async function handleImportProviders(sourceIds: ProviderImportSourceId[]) {
+        if (importSaving.value || importScanning.value || !showImportDialog.value) return;
+        const candidates = [...new Set(sourceIds)]
+            .map((id) => importSources.value?.[id]?.candidate)
+            .filter((candidate): candidate is ProviderImportCandidate => !!candidate);
+        if (candidates.length === 0) return;
+        importSaving.value = true;
+        importError.value = null;
+        try {
+            const imported = await importProviderSettings(candidates, importProviders);
+            loadProvidersGeneration++;
+            loading.value = false;
+            error.value = null;
+            for (const { provider, model } of imported) {
+                providers.value.push(provider);
+                setCachedModels(provider.id, model ? [toModelWithProvider(model, provider)] : []);
+            }
+            selectedProviderId.value = imported[0]!.provider.id;
+        } catch {
+            importError.value = t('settings.ai.import.saveFailed');
+            return;
+        } finally {
+            importSaving.value = false;
+        }
+        closeImportDialog(false);
+        void loadProviders();
+        try {
+            await broadcastModelsUpdated();
+        } catch {
+            alert.error(t('settings.ai.import.refreshFailed'));
+        }
     }
 
     function setCachedModels(providerId: number, models: ModelWithProvider[]) {
@@ -271,6 +350,7 @@
 
     // 加载服务商列表
     const loadProviders = async () => {
+        const generation = ++loadProvidersGeneration;
         try {
             loading.value = true;
             error.value = null;
@@ -279,17 +359,18 @@
                 findAllProvidersSorted(),
                 findDefaultModel(),
             ]);
-            if (lifetime.signal.aborted) return;
+            if (lifetime.signal.aborted || generation !== loadProvidersGeneration) return;
             providers.value = nextProviders;
             defaultModelId.value = defaultModel?.id || null;
             defaultModelProviderId.value = defaultModel?.provider_id || null;
 
             await ensureProviderSelected();
         } catch (err) {
+            if (generation !== loadProvidersGeneration) return;
             error.value = err instanceof Error ? err.message : t('settings.ai.loadFailed');
             log.error('Failed to load providers:', err);
         } finally {
-            loading.value = false;
+            if (generation === loadProvidersGeneration) loading.value = false;
         }
     };
 
@@ -832,6 +913,7 @@
 
     onUnmounted(() => {
         lifetime.abort();
+        importScanGeneration++;
         refreshingProviderId.value = null;
         const editAttempt = pendingEditConfiguration.value;
         const addAttempt = pendingAddConfiguration.value;
@@ -853,6 +935,7 @@
             @select="selectProvider"
             @toggle-enabled="toggleProviderEnabled"
             @add-custom="handleAddCustomProvider"
+            @import="openImportDialog"
             @validation-error="handleValidationError"
             @context-menu="handleProviderContextMenu"
         />
@@ -968,6 +1051,17 @@
             @update="handleUpdateProviderInfo"
             @cancel="showEditDialog = false"
             @closed="handleEditDialogClosed"
+        />
+
+        <ProviderSettingsImportDialog
+            :open="showImportDialog"
+            :sources="importSources"
+            :scanning="importScanning"
+            :saving="importSaving"
+            :error="importError"
+            @update:open="closeImportDialog"
+            @import="handleImportProviders"
+            @retry="openImportDialog"
         />
     </div>
 </template>

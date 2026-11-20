@@ -2,12 +2,18 @@ import { emit } from '@tauri-apps/api/event';
 import { network } from '@tests/utils/agentWindow';
 import { deferred, installProductAnalytics } from '@tests/utils/productAnalytics';
 import { createSettingsPanelFixture } from '@tests/utils/settingsPanel';
+import { mockTauriCommand } from '@tests/utils/tauri';
 import { createTestWindowPresentation } from '@tests/utils/windowPresentation';
 import { DOMWrapper, flushPromises, mount } from '@vue/test-utils';
 import { beforeEach as beforePresentation } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { toast } from 'vue-sonner';
 
+import {
+    type Model,
+    modelAdministrationApiKey,
+    type Provider,
+} from '@/app/api/models/administration';
 import { getProviderDriverDefinition } from '@/app/api/models/catalog';
 import { AppEvent } from '@/app/api/settings/events';
 import { setLocale, t } from '@/i18n';
@@ -100,6 +106,48 @@ function providerEnabled() {
 function defaultBadge(wrapper: ReturnType<typeof mount>) {
     return wrapper.get('[data-testid="default-model-badge"]').element.parentElement?.parentElement
         ?.textContent;
+}
+
+function importedProvider(): Provider {
+    return {
+        id: 99,
+        name: 'Imported gateway',
+        driver: 'openai-compatible',
+        api_endpoint: 'https://imported.invalid/v1',
+        api_key: 'test-only-key',
+        config_json: null,
+        logo: 'openai.png',
+        enabled: 1,
+        is_builtin: 0,
+        created_at: '2026-11-21T00:00:00.000Z',
+        updated_at: '2026-11-21T00:00:00.000Z',
+    };
+}
+
+function importedModel(providerId: number): Model {
+    return {
+        id: 99,
+        provider_id: providerId,
+        name: 'gpt-imported',
+        model_id: 'gpt-imported',
+        is_default: 0,
+        last_used_at: null,
+        attachment: 0,
+        modalities: null,
+        open_weights: 0,
+        reasoning: 0,
+        reasoning_options: null,
+        release_date: null,
+        temperature: 1,
+        tool_call: 0,
+        knowledge: null,
+        context_limit: null,
+        output_limit: null,
+        is_custom_metadata: 0,
+        upstream_metadata: null,
+        created_at: '2026-11-21T00:00:00.000Z',
+        updated_at: '2026-11-21T00:00:00.000Z',
+    };
 }
 async function createProvider(wrapper: ReturnType<typeof mount>) {
     await wrapper.get('[data-testid="settings-add-custom-provider-button"]').trigger('click');
@@ -260,6 +308,76 @@ describe('given the real AI settings panel connected to production main', () => 
         });
         await flushPromises();
         expect(defaultBadge(wrapper)).toContain('Other model');
+    });
+
+    it('user given an older provider reload when importing then keeps the imported provider', async () => {
+        const base = fixture.client.modelAdministration!;
+        const stale = deferred<Provider[]>();
+        const staleStarted = deferred<void>();
+        const incoming = importedProvider();
+        const incomingModel = importedModel(incoming.id);
+        let providerLoads = 0;
+        const administration = {
+            ...base,
+            findAllProvidersSorted: vi.fn(async () => {
+                providerLoads++;
+                if (providerLoads === 1) return base.findAllProvidersSorted();
+                if (providerLoads === 2) {
+                    staleStarted.resolve();
+                    return stale.promise;
+                }
+                return [incoming];
+            }),
+            findDefaultModel: vi.fn(async () => undefined),
+            findModelsWithProvider: vi.fn(async () => []),
+            importProviders: vi.fn(async () => [{ provider: incoming, model: incomingModel }]),
+        };
+        mockTauriCommand('scan_provider_settings_import', {
+            claudeCode: {
+                status: 'available',
+                candidate: {
+                    providerName: incoming.name,
+                    driver: incoming.driver,
+                    apiEndpoint: incoming.api_endpoint,
+                    modelId: incomingModel.model_id,
+                    apiKey: incoming.api_key,
+                },
+            },
+            codex: { status: 'missing', candidate: null },
+        });
+        const viewOptions = {
+            ...fixture.viewOptions,
+            global: {
+                ...fixture.viewOptions.global,
+                provide: {
+                    ...fixture.viewOptions.global.provide,
+                    [modelAdministrationApiKey]: administration,
+                },
+            },
+        };
+        const wrapper = mount(AiServicesSection, viewOptions);
+        wrappers.push(wrapper);
+        await flushPromises();
+
+        void emit(AppEvent.AI_MODELS_UPDATED, {
+            sourceId: 'another-settings-instance',
+            updatedAt: Date.now(),
+        });
+        await staleStarted.promise;
+
+        await wrapper
+            .get('[data-testid="settings-import-provider-settings-button"]')
+            .trigger('click');
+        await vi.dynamicImportSettled();
+        await flushPromises();
+        const dialog = new DOMWrapper(document.querySelector('[role="dialog"]')!);
+        await dialog.get('[data-testid="provider-import-confirm"]').trigger('click');
+        await flushPromises();
+
+        expect(wrapper.text()).toContain('Imported gateway');
+        stale.resolve([]);
+        await flushPromises();
+        expect(wrapper.text()).toContain('Imported gateway');
     });
 
     it('user given a failed provider activation when choosing a default then retains the old default and disabled state', async () => {

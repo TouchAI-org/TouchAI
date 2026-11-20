@@ -12,6 +12,7 @@ import { clipboardDraftApiKey } from '@/app/api/attachments/drafts';
 import { modelAdministrationApiKey } from '@/app/api/models/administration';
 import { modelDiscoveryApiKey } from '@/app/api/models/discovery';
 import { type ModelMetadataApi, modelMetadataApiKey } from '@/app/api/models/metadata';
+import { providerSettingsImportApiKey } from '@/app/api/models/providerSettingsImport';
 import { searchApiKey } from '@/app/api/search/queries';
 import { startupNoticesApiKey } from '@/app/api/search/startup';
 import { dataManagementApiKey } from '@/app/api/settings/dataManagement';
@@ -33,6 +34,7 @@ import {
 } from '@/app/api/windows/presentation';
 import { isE2eTestMode } from '@/app/api/windows/runtime';
 import { initializeAgentWindow } from '@/app/bootstrap/agent';
+import { providerSettingsImportApi } from '@/app/bootstrap/providerSettingsImport';
 import { initializeSearchWindow } from '@/app/bootstrap/search';
 import { installI18n } from '@/i18n';
 import { log } from '@/platform/diagnostics';
@@ -247,6 +249,7 @@ export async function initializeApp() {
     app.provide(settingsApiKey, agentWindow.settings);
     if (getCurrentWindowLabel() === 'settings' && agentWindow.toolSettings) {
         app.provide(modelAdministrationApiKey, agentWindow.modelAdministration!);
+        app.provide(providerSettingsImportApiKey, providerSettingsImportApi);
         app.provide(dataManagementApiKey, agentWindow.dataManagement!);
         app.provide(toolSettingsApiKey, agentWindow.toolSettings);
         app.provide(toolsAdministrationApiKey, agentWindow.tools);

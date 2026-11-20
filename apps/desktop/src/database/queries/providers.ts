@@ -2,7 +2,7 @@
 
 import { eq } from 'drizzle-orm';
 
-import { db } from '../index';
+import { type DatabaseExecutor, db } from '../index';
 import { models, providers } from '../schema';
 import type { ProviderCreateData, ProviderEntity, ProviderUpdateData } from '../types';
 
@@ -89,9 +89,14 @@ export const findProviderById = async ({
  * 创建服务商
  */
 export const createProvider = async (
-    providerDraft: ProviderCreateData
+    providerDraft: ProviderCreateData,
+    database: DatabaseExecutor = db
 ): Promise<ProviderEntity> => {
-    const createdProvider = await db.insert(providers).values(providerDraft).returning().get();
+    const createdProvider = await database
+        .insert(providers)
+        .values(providerDraft)
+        .returning()
+        .get();
 
     if (!createdProvider || createdProvider.id === undefined) {
         throw new Error('Failed to create provider');

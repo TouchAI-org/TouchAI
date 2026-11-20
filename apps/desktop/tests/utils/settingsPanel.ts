@@ -8,6 +8,7 @@ import { productAnalyticsApiKey } from '@/app/api/analytics/product';
 import { modelAdministrationApiKey } from '@/app/api/models/administration';
 import { modelDiscoveryApiKey } from '@/app/api/models/discovery';
 import { modelMetadataApiKey } from '@/app/api/models/metadata';
+import { providerSettingsImportApiKey } from '@/app/api/models/providerSettingsImport';
 import { dataManagementApiKey } from '@/app/api/settings/dataManagement';
 import { settingsApiKey } from '@/app/api/settings/preferences';
 import { toolSettingsApiKey } from '@/app/api/settings/tools';
@@ -17,6 +18,7 @@ import { mcpApiKey } from '@/app/api/tools/mcp';
 import { mcpAdministrationApiKey } from '@/app/api/tools/mcpAdministration';
 import { updatePreferencesApiKey, updatesApiKey } from '@/app/api/updates';
 import { initializeAgentWindow } from '@/app/bootstrap/agent';
+import { providerSettingsImportApi } from '@/app/bootstrap/providerSettingsImport';
 import { useSettingsStore } from '@/stores/settings';
 import { useToolSettingsStore } from '@/stores/toolSettings';
 
@@ -51,6 +53,7 @@ export async function createSettingsPanelFixture(
     app.provide(analyticsPreferencesApiKey, client.analyticsPreferences!);
     app.provide(dataManagementApiKey, client.dataManagement!);
     app.provide(modelAdministrationApiKey, client.modelAdministration!);
+    app.provide(providerSettingsImportApiKey, providerSettingsImportApi);
     app.provide(modelMetadataApiKey, client.metadata);
     app.provide(modelDiscoveryApiKey, client.models);
     app.provide(toolSettingsApiKey, client.toolSettings!);
@@ -81,6 +84,7 @@ export async function createSettingsPanelFixture(
                     [analyticsPreferencesApiKey as symbol]: client.analyticsPreferences!,
                     [dataManagementApiKey as symbol]: client.dataManagement!,
                     [modelAdministrationApiKey as symbol]: client.modelAdministration!,
+                    [providerSettingsImportApiKey as symbol]: providerSettingsImportApi,
                     [modelMetadataApiKey as symbol]: client.metadata,
                     [modelDiscoveryApiKey as symbol]: client.models,
                     [toolSettingsApiKey as symbol]: client.toolSettings!,
