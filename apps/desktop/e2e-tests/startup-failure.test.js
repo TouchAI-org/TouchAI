@@ -20,19 +20,32 @@ const descendantFixture = path.join(
     'startup-failure-with-descendant.cjs'
 );
 const jobLauncherSource = path.join(testDirectory, 'fixtures', 'windows-job-launcher.cs');
+const dialogObserverSource = path.join(testDirectory, 'fixtures', 'windows-dialog-observer.cs');
 let jobLauncherPath;
-let jobLauncherRoot;
+let dialogObserverPath;
+let compiledFixtureRoot;
 
 after(async () => {
-    if (jobLauncherRoot) await removeRoot(jobLauncherRoot);
+    if (compiledFixtureRoot) await removeRoot(compiledFixtureRoot);
 });
+
+function resolveCompiledFixtureRoot() {
+    compiledFixtureRoot ??= mkdtempSync(path.join(os.tmpdir(), 'touchai-startup-job-'));
+    return compiledFixtureRoot;
+}
 
 function resolveJobLauncher() {
     if (jobLauncherPath) return jobLauncherPath;
-    jobLauncherRoot = mkdtempSync(path.join(os.tmpdir(), 'touchai-startup-job-'));
-    const outputPath = path.join(jobLauncherRoot, 'touchai-startup-job-launcher.exe');
+    const outputPath = path.join(resolveCompiledFixtureRoot(), 'touchai-startup-job-launcher.exe');
     jobLauncherPath = compileWindowsExecutable(jobLauncherSource, outputPath);
     return jobLauncherPath;
+}
+
+function resolveDialogObserver() {
+    if (dialogObserverPath) return dialogObserverPath;
+    const outputPath = path.join(resolveCompiledFixtureRoot(), 'touchai-dialog-observer.exe');
+    dialogObserverPath = compileWindowsExecutable(dialogObserverSource, outputPath);
+    return dialogObserverPath;
 }
 
 function delay(milliseconds) {
@@ -155,19 +168,22 @@ function waitForOutputToClose(child) {
     });
 }
 
-function runStartupFailure(binary, root, args = []) {
+function runStartupFailure(binary, root, args = [], options = {}) {
     return new Promise((resolve) => {
         const launcher = process.platform === 'win32' ? resolveJobLauncher() : binary;
         const launcherArgs = process.platform === 'win32' ? [binary, ...args] : args;
+        const env = withE2eWebView2Env(
+            {
+                ...process.env,
+                TOUCHAI_APP_ROOT: root,
+                WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: '--remote-debugging-port=0',
+            },
+            { userDataFolder: path.join(root, 'webview2') }
+        );
+        if (options.interactive) delete env.TOUCHAI_E2E;
+
         const child = spawn(launcher, launcherArgs, {
-            env: withE2eWebView2Env(
-                {
-                    ...process.env,
-                    TOUCHAI_APP_ROOT: root,
-                    WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: '--remote-debugging-port=0',
-                },
-                { userDataFolder: path.join(root, 'webview2') }
-            ),
+            env,
             stdio: ['ignore', 'pipe', 'pipe'],
             detached: process.platform !== 'win32',
             windowsHide: true,
@@ -229,6 +245,51 @@ function runStartupFailure(binary, root, args = []) {
     });
 }
 
+function runDialogObserver(executable, timeoutMilliseconds) {
+    const child = spawn(executable, [String(timeoutMilliseconds)], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
+    });
+    let stdout = '';
+    let stderr = '';
+    let error;
+    let timedOut = false;
+    let settled = false;
+    let timeout;
+
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => {
+        stdout += chunk;
+    });
+    child.stderr.on('data', (chunk) => {
+        stderr += chunk;
+    });
+
+    const done = new Promise((resolve) => {
+        const finish = (status, signal) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timeout);
+            resolve({ child, status, signal, error, timedOut, stdout, stderr });
+        };
+
+        timeout = setTimeout(() => {
+            timedOut = true;
+            child.kill('SIGKILL');
+            finish(null, null);
+        }, timeoutMilliseconds + 5000);
+
+        child.once('error', (spawnError) => {
+            error = spawnError;
+            if (!child.pid) finish(null, null);
+        });
+        child.once('exit', finish);
+    });
+
+    return { child, done };
+}
+
 test('user gets control back and cleanup succeeds when a failed parent leaves a descendant holding its pipes', async (t) => {
     const root = mkdtempSync(path.join(os.tmpdir(), 'touchai-startup-descendant-'));
     const result = await runStartupFailure(process.execPath, root, [descendantFixture]);
@@ -279,3 +340,48 @@ test('user gets the owning error and a nonzero exit when the database cannot ope
     assert.match(diagnostics, /Failed to connect sqlite pool/);
     assert.ok(statSync(database).isDirectory(), 'the failing database path must be preserved');
 });
+
+test(
+    'user sees an interactive startup failure dialog and can close it without leaving the app hung',
+    {
+        skip: process.platform !== 'win32',
+        timeout: 30000,
+    },
+    async (t) => {
+        const binary = process.env.TOUCHAI_STARTUP_TEST_BINARY;
+        assert.ok(binary, 'TOUCHAI_STARTUP_TEST_BINARY must point to the built app');
+
+        const root = mkdtempSync(path.join(os.tmpdir(), 'touchai-startup-dialog-'));
+        const database = path.join(root, 'data', 'touchai.db');
+        mkdirSync(database, { recursive: true });
+        const observer = runDialogObserver(resolveDialogObserver(), 12000);
+        const result = await runStartupFailure(binary, root, [], { interactive: true });
+        const observed = await observer.done;
+
+        t.after(async () => {
+            await killProcessTree(observer.child);
+            await killProcessTree(result.child);
+            await removeRoot(root);
+        });
+        const diagnostics = `${result.stdout}\n${result.stderr}`;
+        const observerDiagnostics = `${observed.stdout}\n${observed.stderr}`;
+
+        assert.equal(result.error, undefined, diagnostics);
+        assert.equal(result.timedOut, false, diagnostics);
+        assert.equal(result.signal, null, diagnostics);
+        assert.notEqual(result.status, null, diagnostics);
+        assert.notEqual(result.status, 0, diagnostics);
+        assert.match(diagnostics, /Failed to initialize database runtime/);
+        assert.match(diagnostics, /Failed to connect sqlite pool/);
+        assert.ok(statSync(database).isDirectory(), 'the failing database path must be preserved');
+
+        assert.equal(observed.error, undefined, observerDiagnostics);
+        assert.equal(observed.timedOut, false, observerDiagnostics);
+        assert.equal(observed.signal, null, observerDiagnostics);
+        assert.equal(observed.status, 0, observerDiagnostics);
+        assert.match(observed.stdout, /found=true/);
+        assert.match(observed.stdout, /class=#32770/);
+        assert.match(observed.stdout, /title=TouchAI/);
+        assert.match(observed.stdout, /closed=true/);
+    }
+);
