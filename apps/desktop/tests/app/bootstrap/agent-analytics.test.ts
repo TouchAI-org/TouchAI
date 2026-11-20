@@ -306,7 +306,9 @@ describe('given typed analytics observes the real production main task', () => {
         channel.delta({ role: 'assistant', content: 'discarded partial answer' });
         await vi.advanceTimersByTimeAsync(0);
         channel.fail(new Error('network connection lost'));
-        await vi.advanceTimersByTimeAsync(2000);
+        await vi.waitFor(() =>
+            expect(fixture.window.api.getTaskSnapshot(started.taskId)?.status).toBe('completed')
+        );
         expect((await started.completion).response).toBe('recovered answer');
         expect((await terminal()).attributes).toMatchObject({
             result: 'success',
@@ -330,11 +332,15 @@ describe('given typed analytics observes the real production main task', () => {
             WHERE tool_id = 'upgrade_model';`);
         vi.useFakeTimers();
         vi.spyOn(Math, 'random').mockReturnValue(0);
-        network.replies.push(
-            toolResponse([{ id: 'upgrade-call', name: 'builtin__upgrade_model', arguments: '{}' }]),
-            Response.json({ error: { message: 'HTTP 503' } }, { status: 503 }),
-            response('answer after the upgraded request retries')
-        );
+        const upgradedResponse = Promise.withResolvers<Response>();
+        network.respondToGeneration = async () => {
+            if (network.requests.length === 1)
+                return toolResponse([
+                    { id: 'upgrade-call', name: 'builtin__upgrade_model', arguments: '{}' },
+                ]);
+            if (network.requests.length === 2) return upgradedResponse.promise;
+            return response('answer after the upgraded request retries');
+        };
         const started = await fixture.window.api.startTask({ prompt: 'upgrade and continue' });
         await vi.waitFor(() =>
             expect(
@@ -349,7 +355,14 @@ describe('given typed analytics observes the real production main task', () => {
                 decision.decisionId
             )
         ).toBe(true);
+        // A late HTTP failure schedules backoff after this clock advance has finished.
         await vi.advanceTimersByTimeAsync(2000);
+        upgradedResponse.resolve(
+            Response.json({ error: { message: 'HTTP 503' } }, { status: 503 })
+        );
+        await vi.waitFor(() =>
+            expect(fixture.window.api.getTaskSnapshot(started.taskId)?.status).toBe('completed')
+        );
         expect(await started.completion).toMatchObject({
             response: 'answer after the upgraded request retries',
             model: { modelId: 'upgraded-fixture' },
