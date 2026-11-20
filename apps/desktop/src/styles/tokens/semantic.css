@@ -157,8 +157,8 @@
     --color-badge-surface: var(--color-white);
     --color-badge-border: var(--color-neutral-300);
     --color-badge-foreground: var(--color-neutral-600);
-    --color-scrollbar-thumb: rgba(156, 163, 175, 0.4);
-    --color-scrollbar-thumb-hover: rgba(156, 163, 175, 0.6);
+    --color-scrollbar-thumb: var(--color-chrome-scrollbar);
+    --color-scrollbar-thumb-hover: var(--color-chrome-scrollbar-hover);
     --color-overlay-fade: rgba(255, 255, 255, 0.95);
 
     --radius-window: var(--radius-sm);

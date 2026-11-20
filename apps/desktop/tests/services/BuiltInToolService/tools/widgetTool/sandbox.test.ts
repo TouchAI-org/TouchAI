@@ -45,6 +45,31 @@ function render(
 afterEach(() => frames.splice(0).forEach((frame) => frame.window.close()));
 
 describe('given a generated widget is updated in its isolated execution frame', () => {
+    it('user keeps scrolling an updated widget and its scrollbar remains visible', () => {
+        const frame = createFrame();
+        render(frame, 'first', []);
+        const content = frame.window.document.getElementById('answer')!;
+        content.dispatchEvent(new frame.window.Event('scroll'));
+        expect(content.hasAttribute('data-scrollbar-scrolling')).toBe(true);
+        render(frame, 'second', []);
+        expect(frame.window.document.getElementById('answer')).toBe(content);
+        content.dispatchEvent(new frame.window.Event('scroll'));
+        expect(content.hasAttribute('data-scrollbar-scrolling')).toBe(true);
+    });
+
+    it('user scrolling an isolated widget gets the same idle scrollbar behavior as the application', () => {
+        const frame = createFrame();
+        render(frame, 'scrollable', []);
+        const content = frame.window.document.getElementById('answer')!;
+        expect(content.hasAttribute('data-scrollbar-scrolling')).toBe(false);
+        content.dispatchEvent(new frame.window.Event('scroll'));
+        expect(content.hasAttribute('data-scrollbar-scrolling')).toBe(true);
+        frame.window.dispatchEvent(new frame.window.Event('pagehide'));
+        expect(content.hasAttribute('data-scrollbar-scrolling')).toBe(false);
+        content.dispatchEvent(new frame.window.Event('scroll'));
+        expect(content.hasAttribute('data-scrollbar-scrolling')).toBe(false);
+    });
+
     it('user gets newly initialized behavior when updated scripts reuse lexical names', () => {
         const frame = createFrame();
         render(frame, 'one', [

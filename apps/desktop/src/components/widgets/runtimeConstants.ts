@@ -79,8 +79,8 @@ export const SHOW_WIDGET_THEME_FALLBACKS: Record<ShowWidgetThemeVarName, string>
     '--color-border-danger': 'rgba(121, 31, 31, 0.35)',
     '--color-border-success': 'rgba(39, 80, 10, 0.35)',
     '--color-border-warning': 'rgba(99, 56, 6, 0.35)',
-    '--color-scrollbar-thumb': 'rgba(156, 163, 175, 0.4)',
-    '--color-scrollbar-thumb-hover': 'rgba(156, 163, 175, 0.6)',
+    '--color-scrollbar-thumb': 'rgba(156, 163, 175, 0.25)',
+    '--color-scrollbar-thumb-hover': 'rgba(156, 163, 175, 0.4)',
     '--font-sans':
         "'Segoe UI Variable Text', 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Microsoft YaHei UI', 'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', sans-serif",
     '--font-serif':

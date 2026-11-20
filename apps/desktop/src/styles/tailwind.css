@@ -10,6 +10,7 @@
 @import './tokens/semantic.css';
 @import './markdown.css';
 @import './motion.css';
+@import './scrollbars.css';
 
 :root {
     --search-surface-background: rgb(251 251 246);
@@ -320,11 +321,6 @@
         );
     }
 
-    .settings-scrollbar {
-        -ms-overflow-style: none;
-        scrollbar-width: none;
-    }
-
     /* 隐藏滚动条但保留滚动能力：用于不需要看见轨道的内容区 */
     .no-scrollbar {
         -ms-overflow-style: none;
@@ -332,12 +328,6 @@
     }
 
     .no-scrollbar::-webkit-scrollbar {
-        display: none !important;
-        width: 0 !important;
-        height: 0 !important;
-    }
-
-    .settings-scrollbar::-webkit-scrollbar {
         display: none !important;
         width: 0 !important;
         height: 0 !important;

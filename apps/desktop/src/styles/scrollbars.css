@@ -1,0 +1,76 @@
+/* Copyright (c) 2026. 千诚. Licensed under GPL v3. */
+
+/* Scroll visibility belongs to each scrollport, never its descendants. */
+@property --scrollbar-thumb-color {
+    syntax: '<color>';
+    inherits: true;
+    initial-value: transparent;
+}
+
+@property --scrollbar-thumb-hover-color {
+    syntax: '<color>';
+    inherits: true;
+    initial-value: transparent;
+}
+
+/* Unlayered: third-party Markdown styles are also unlayered. Keep native sizing
+ * stable while hiding only the paint, so content and virtualizers never jump. */
+* {
+    --scrollbar-thumb-color: transparent;
+    --scrollbar-thumb-hover-color: transparent;
+    scrollbar-color: auto !important;
+}
+
+[data-scrollbar-scrolling] {
+    --scrollbar-thumb-color: var(--color-scrollbar-thumb);
+    --scrollbar-thumb-hover-color: var(--color-scrollbar-thumb-hover);
+}
+
+*::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+.custom-scrollbar-thin::-webkit-scrollbar,
+.settings-scrollbar::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+}
+
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-corner {
+    background: transparent !important;
+}
+
+*::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb-color) !important;
+    border-radius: var(--radius-control);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-thumb-hover-color) !important;
+}
+
+*::-webkit-scrollbar-thumb:active {
+    background: var(--color-scrollbar-thumb-hover) !important;
+}
+
+/* A non-auto standard width bypasses the WebKit thumb skin in Chromium. */
+@supports selector(::-webkit-scrollbar) {
+    .custom-scrollbar-thin {
+        scrollbar-width: auto !important;
+    }
+}
+
+*::-webkit-scrollbar-button {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+}
+
+@supports not selector(::-webkit-scrollbar) {
+    * {
+        scrollbar-width: thin;
+        scrollbar-color: var(--scrollbar-thumb-color) transparent !important;
+    }
+}

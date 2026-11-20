@@ -1,12 +1,16 @@
 import morphdomSource from 'morphdom/dist/morphdom-umd.js?raw';
 
 import { SHOW_WIDGET_ALLOWED_RESOURCE_HOSTS } from '@/app/api/tools/widgets';
+import scrollbarStyles from '@/styles/scrollbars.css?inline';
+import { installAutoHideScrollbars } from '@/utils/autoHideScrollbars';
 
 /** Runs in an opaque-origin frame. No application object is passed into this realm. */
 export function createWidgetSandboxDocument(scopeId: string, styles: string): string {
     const hosts = SHOW_WIDGET_ALLOWED_RESOURCE_HOSTS.map((host) => `https://${host}`).join(' ');
     const bootstrap = `
 (() => {
+    const stopAutoHideScrollbars = (${installAutoHideScrollbars.toString()})(document);
+    window.addEventListener('pagehide', stopAutoHideScrollbars, { once: true });
     const scopeId = ${JSON.stringify(scopeId)};
     const root = document.querySelector('[data-touchai-widget-root]');
     const post = (data) => parent.postMessage({ source: 'touchai-show-widget', scopeId, ...data }, '*');
@@ -77,5 +81,5 @@ export function createWidgetSandboxDocument(scopeId: string, styles: string): st
     window.addEventListener('load', measure);
 })();`;
     const safeScript = (value: string) => value.replace(/<\/script/gi, '<\\/script');
-    return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' ${hosts}; style-src 'unsafe-inline'; img-src data: ${hosts}; font-src data: ${hosts}; media-src ${hosts}; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"><style data-touchai-widget-base-style>html,body{margin:0;padding:0;background:transparent;overflow-x:hidden}${styles.replace(/<\/style/gi, '')}</style></head><body><div data-touchai-widget-host="${scopeId}"><div data-touchai-widget-root="true" data-no-i18n="true" translate="no"></div></div><script>${safeScript(morphdomSource)}</script><script>${safeScript(bootstrap)}</script></body></html>`;
+    return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' ${hosts}; style-src 'unsafe-inline'; img-src data: ${hosts}; font-src data: ${hosts}; media-src ${hosts}; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"><style data-touchai-widget-base-style>html,body{margin:0;padding:0;background:transparent;overflow-x:hidden}${styles.replace(/<\/style/gi, '')}${scrollbarStyles}</style></head><body><div data-touchai-widget-host="${scopeId}"><div data-touchai-widget-root="true" data-no-i18n="true" translate="no"></div></div><script>${safeScript(morphdomSource)}</script><script>${safeScript(bootstrap)}</script></body></html>`;
 }
