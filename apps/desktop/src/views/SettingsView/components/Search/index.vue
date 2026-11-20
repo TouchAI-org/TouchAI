@@ -5,6 +5,7 @@
     import { Button } from '@components/ui/button';
     import { Input } from '@components/ui/input';
     import { Switch } from '@components/ui/switch';
+    import { useMotion } from '@composables/useMotion';
     import { storeToRefs } from 'pinia';
     import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
     import { VueDraggable } from 'vue-draggable-plus';
@@ -57,6 +58,7 @@
     defineOptions({ name: 'SettingsSearchSection' });
 
     const settingsStore = useToolSettingsStore();
+    const { duration } = useMotion();
     const tools = useToolsAdministrationApi();
     const { searchSettings } = storeToRefs(settingsStore);
     const draft = ref<SearchSettingsConfig>(cloneConfig(searchSettings.value));
@@ -471,12 +473,11 @@
 
     function saveProviderCredentials(
         providerId: SearchProviderId,
-        value: { apiKey: string; endpoint: string }
+        value: { apiKey?: string; endpoint?: string }
     ) {
         draft.value.providers[providerId] = {
             ...draft.value.providers[providerId],
-            apiKey: value.apiKey,
-            endpoint: value.endpoint,
+            ...value,
         };
         if (
             pendingEnableProvider.value === providerId &&
@@ -736,7 +737,7 @@
                         data-testid="search-provider-priority"
                         class="custom-scrollbar max-h-96 overflow-x-hidden overflow-y-auto rounded-card border border-border-subtle bg-surface-floating"
                         handle="[data-search-priority-handle]"
-                        :animation="160"
+                        :animation="duration(160)"
                         :force-fallback="true"
                         :disabled="!toolEnabled"
                         ghost-class="opacity-40"

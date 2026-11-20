@@ -11,7 +11,7 @@ import {
     searchSource,
 } from './common';
 import { createSearchProviderAdapter } from './define';
-import type { WebSearchFetchText } from './types';
+import { SearchProviderCapabilityError, type WebSearchFetchText } from './types';
 
 const EXA_API_ROOT = 'https://api.exa.ai';
 /** Exa 的公开 MCP 端点，支持匿名调用（无 key）。 */
@@ -155,7 +155,7 @@ export const exaAdapter = createSearchProviderAdapter({
                 request.recencyDays !== undefined ||
                 request.includeContent
             ) {
-                throw new Error(
+                throw new SearchProviderCapabilityError(
                     'Exa date filters, full content and REST-only options require an API key. Configure it in Search settings or use another provider.'
                 );
             }
@@ -183,7 +183,13 @@ export const exaAdapter = createSearchProviderAdapter({
         } else if (searchSource(request) === 'news') {
             body.category = 'news';
         }
-        Object.assign(body, nativeSearchOptions(request, 'exa'), { stream: false });
+        Object.assign(body, nativeSearchOptions(request, 'exa'));
+        // Exa 的 lite 检索不接受 stream（即使传 false 也会 400），按最终 type 决定。
+        if (body.type === 'lite') {
+            delete body.stream;
+        } else {
+            body.stream = false;
+        }
 
         const payload = await fetchJson(
             providerEndpointUrl(settings.providers.exa.endpoint, EXA_API_ROOT, '/search'),

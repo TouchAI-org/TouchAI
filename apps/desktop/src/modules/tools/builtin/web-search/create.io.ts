@@ -31,6 +31,7 @@ import {
 } from './helper';
 import { createSearchProviders } from './providers/adapters';
 import {
+    SearchProviderCapabilityError,
     type WebSearchFetchJson,
     type WebSearchFetchText,
     WebSearchHttpError,
@@ -176,6 +177,19 @@ export function createWebSearchTools(input: {
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
     };
 
+    function throwTransportError(error: unknown, signal: AbortSignal): never {
+        signal.throwIfAborted();
+        if (
+            error instanceof DOMException &&
+            (error.name === 'AbortError' || error.name === 'TimeoutError')
+        )
+            throw error;
+        // Native HTTP serializes transport failures, including body-stream failures.
+        throw new TypeError(error instanceof Error ? error.message : String(error), {
+            cause: error,
+        });
+    }
+
     /** 发请求并把非 2xx 统一转成可判定重试的 `WebSearchHttpError`。 */
     async function requestSearchResponse(
         url: URL,
@@ -196,18 +210,7 @@ export function createWebSearchTools(input: {
             },
             body: init.body,
             signal,
-        }).catch((error: unknown) => {
-            signal.throwIfAborted();
-            if (
-                error instanceof DOMException &&
-                (error.name === 'AbortError' || error.name === 'TimeoutError')
-            )
-                throw error;
-            // Native HTTP rejects with serialized errors, unlike browser fetch.
-            throw new TypeError(error instanceof Error ? error.message : String(error), {
-                cause: error,
-            });
-        });
+        }).catch((error: unknown) => throwTransportError(error, signal));
 
         if (!response.ok) {
             await cancelResponseBody(response, 'WebSearch response discarded');
@@ -223,12 +226,15 @@ export function createWebSearchTools(input: {
         const response = await requestSearchResponse(url, signal, init, {
             Accept: 'application/json',
         });
-        return await response.json();
+        const text = await response
+            .text()
+            .catch((error: unknown) => throwTransportError(error, signal));
+        return JSON.parse(text) as unknown;
     };
 
     const fetchText: WebSearchFetchText = async (url, signal, init = {}) => {
         const response = await requestSearchResponse(url, signal, init);
-        return await response.text();
+        return await response.text().catch((error: unknown) => throwTransportError(error, signal));
     };
 
     async function loadSearchSettings(): Promise<SearchSettingsConfig> {
@@ -236,7 +242,11 @@ export function createWebSearchTools(input: {
         return parseSearchSettingsConfig(typeof value === 'string' ? value : null);
     }
 
+    class SearchProviderUnavailableError extends Error {}
+
     function isRetryableProviderError(error: unknown): boolean {
+        if (error instanceof SearchProviderUnavailableError) return true;
+        if (error instanceof SearchProviderCapabilityError) return true;
         if (error instanceof DOMException && error.name === 'TimeoutError') return true;
         if (error instanceof WebSearchHttpError) {
             return error.status === 408 || error.status === 429 || error.status >= 500;
@@ -362,7 +372,7 @@ export function createWebSearchTools(input: {
             const current = await loadSearchSettings();
             attempt.signal.throwIfAborted();
             if (!isConfiguredSearchProvider(provider, current))
-                throw new Error('Search provider is no longer enabled.');
+                throw new SearchProviderUnavailableError('Search provider is no longer enabled.');
             const results = await adapter.search({
                 request,
                 settings,
@@ -414,6 +424,15 @@ export function createWebSearchTools(input: {
                 parseWebSearchRequest(args),
                 searchSettings
             );
+            // 按 enabled/凭据判定：给未启用的引擎传 providerOptions 只会被静默丢弃。
+            const unavailableOptionKeys = Object.keys(request.providerOptions ?? {}).filter(
+                (key) => !isConfiguredSearchProvider(key as SearchProviderId, searchSettings)
+            );
+            if (unavailableOptionKeys.length > 0) {
+                throw new Error(
+                    `providerOptions key(s) refer to disabled engines: ${unavailableOptionKeys.join(', ')}. Enable the engine or remove the options.`
+                );
+            }
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             return {

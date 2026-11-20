@@ -144,6 +144,44 @@ describe('user searches with Zhihu', () => {
         expect(url.searchParams.get('Filter')).toBeNull();
     });
 
+    it('user keeps host filters when a community search targets another site', () => {
+        const { url, siteOnly } = buildZhihuSearchUrl(
+            baseRequest({ source: 'community', domains: ['example.com'] }),
+            undefined
+        );
+
+        expect(siteOnly).toBe(false);
+        expect(url.pathname).toBe('/api/v1/content/global_search');
+        expect(url.searchParams.get('Filter')).toBe('host=="example.com"');
+    });
+
+    it('user keeps a recency window on the Zhihu site route through SortBy', () => {
+        const { url, siteOnly } = buildZhihuSearchUrl(
+            baseRequest({ domains: ['zhihu.com'], recencyDays: 7 }),
+            undefined
+        );
+
+        expect(siteOnly).toBe(true);
+        expect(url.searchParams.get('Filter')).toBeNull();
+        expect(url.searchParams.get('SortBy')).toMatch(/^EditTime:none:\(\d+,\)$/);
+    });
+
+    it('user is told when the Zhihu site route cannot exclude domains', () => {
+        expect(() =>
+            buildZhihuSearchUrl(
+                baseRequest({ domains: ['zhihu.com'], excludeDomains: ['ads.zhihu.com'] }),
+                undefined
+            )
+        ).toThrow(/cannot exclude domains/);
+    });
+
+    it('user gets plain text even from nested or reassembled markup', () => {
+        expect(stripZhihuHighlight('<scr<script>ipt>alert(1)</script>text')).toBe(
+            'iptalert(1)text'
+        );
+        expect(stripZhihuHighlight('<em>one</em> &lt;two&gt;')).toBe('one &lt;two&gt;');
+    });
+
     it('user gets host filters joined with OR and no filter without conditions', () => {
         expect(buildZhihuFilter(baseRequest({ domains: ['a.com', 'b.com'] }))).toBe(
             'host=="a.com" OR host=="b.com"'

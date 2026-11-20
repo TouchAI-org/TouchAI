@@ -1,8 +1,9 @@
-import { normalizeOptionalString } from '@/utils/text';
+import { normalizeOptionalString, truncateText } from '@/utils/text';
 
 import type { WebSearchResult } from '../helper';
 import { nativeSearchOptions, resultLimit, setSearchParams } from './common';
 import { createSearchProviderAdapter } from './define';
+import { SearchProviderCapabilityError } from './types';
 
 export const githubAdapter = createSearchProviderAdapter({
     id: 'github',
@@ -16,10 +17,11 @@ export const githubAdapter = createSearchProviderAdapter({
             throw new Error('Unsupported GitHub searchType.');
         const apiKey = settings.providers.github.apiKey.trim();
         if (searchType === 'code' && !apiKey)
-            throw new Error(
+            throw new SearchProviderCapabilityError(
                 'GitHub code search requires a token. Configure one in Search settings.'
             );
-        const url = new URL(`https://api.github.com/search/${String(searchType)}`);
+        const searchTypeValue = String(searchType);
+        const url = new URL(`https://api.github.com/search/${searchTypeValue}`);
         url.searchParams.set('q', request.query);
         url.searchParams.set('per_page', String(resultLimit(request, 100)));
         setSearchParams(url, options);
@@ -48,7 +50,11 @@ export const githubAdapter = createSearchProviderAdapter({
                     normalizeOptionalString(record.name) ??
                     normalizeOptionalString(record.login) ??
                     normalizeOptionalString(record.sha);
-                const url = normalizeOptionalString(record.html_url);
+                const url =
+                    normalizeOptionalString(record.html_url) ??
+                    (searchTypeValue === 'topics' && title
+                        ? `https://github.com/topics/${encodeURIComponent(title)}`
+                        : undefined);
                 if (!title || !url) {
                     return null;
                 }
@@ -69,7 +75,7 @@ export const githubAdapter = createSearchProviderAdapter({
                 return {
                     title,
                     url,
-                    snippet: `${stars}${description}`.trim(),
+                    snippet: `${stars}${truncateText(description, 600)}`.trim(),
                     source: 'GitHub',
                     ...(request.includeContent && description ? { content: description } : {}),
                 };

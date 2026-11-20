@@ -147,13 +147,14 @@ function appendResultLines(
     if (result.snippet) {
         lines.push(`   Snippet: ${result.snippet}`);
     }
+    // details 与正文共享单条结果预算，避免同一条结果拿到两份 8000 字符。
+    const itemBudget = { remaining: WEB_SEARCH_EMBEDDED_CONTENT_MAX_CHARS };
     if (result.details && Object.keys(result.details).length > 0) {
         const details = JSON.stringify(result.details);
-        const truncated = truncateEmbeddedContent(
-            details,
-            Math.min(WEB_SEARCH_EMBEDDED_CONTENT_MAX_CHARS, contentBudget.remaining)
-        );
-        if (contentBudget.remaining > 0) {
+        const allowance = Math.min(itemBudget.remaining, contentBudget.remaining);
+        if (allowance > 0) {
+            const truncated = truncateEmbeddedContent(details, allowance);
+            itemBudget.remaining -= truncated.content.length;
             contentBudget.remaining -= truncated.content.length;
             lines.push(
                 `   Details${truncated.truncated ? ' (truncated)' : ''}: ${truncated.content}`
@@ -162,16 +163,17 @@ function appendResultLines(
             lines.push('   Details omitted: response content budget reached.');
         }
     }
-    if (result.content && contentBudget.remaining > 0) {
+    if (result.content && itemBudget.remaining > 0 && contentBudget.remaining > 0) {
         const truncated = truncateEmbeddedContent(
             result.content,
-            Math.min(WEB_SEARCH_EMBEDDED_CONTENT_MAX_CHARS, contentBudget.remaining)
+            Math.min(itemBudget.remaining, contentBudget.remaining)
         );
+        itemBudget.remaining -= truncated.content.length;
         contentBudget.remaining -= truncated.content.length;
         lines.push(`   Content${truncated.truncated ? ' (truncated)' : ''}: ${truncated.content}`);
     } else if (result.content) {
         lines.push(
-            '   Content omitted: response content budget reached; use web_fetch for this URL.'
+            '   Content omitted: content budget reached for this result; use web_fetch for this URL.'
         );
     }
 }

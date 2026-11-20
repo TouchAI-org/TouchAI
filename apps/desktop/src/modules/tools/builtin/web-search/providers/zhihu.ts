@@ -8,8 +8,10 @@ import {
     resultLimit,
     searchSource,
     setSearchParams,
+    stripHtmlText,
 } from './common';
 import { createSearchProviderAdapter } from './define';
+import { SearchProviderCapabilityError } from './types';
 
 const ZHIHU_API_ROOT = 'https://developer.zhihu.com';
 export const ZHIHU_SITE_SEARCH_PATH = '/api/v1/content/zhihu_search';
@@ -29,11 +31,23 @@ export function buildZhihuSearchUrl(
     const { searchType, ...options } = nativeSearchOptions(request, 'zhihu');
     if (searchType !== undefined && !['global', 'zhihu'].includes(String(searchType)))
         throw new Error('Zhihu searchType must be global or zhihu.');
+    // 站内接口只接受知乎域名，且没有 Filter；只要包含其它站点就必须走 global_search。
+    const zhihuOnlyDomains =
+        domains.length > 0 && domains.every((domain) => /(^|\.)zhihu\.com$/.test(domain));
     const siteOnly =
         searchType === 'zhihu' ||
         (searchType !== 'global' &&
-            (searchSource(request) === 'community' ||
-                (domains.length === 1 && /(^|\.)zhihu\.com$/.test(domains[0] ?? ''))));
+            (zhihuOnlyDomains || (searchSource(request) === 'community' && domains.length === 0)));
+    if (siteOnly && request.excludeDomains.length > 0) {
+        throw new SearchProviderCapabilityError(
+            'Zhihu site search cannot exclude domains. Remove excludeDomains or use another source.'
+        );
+    }
+    if (siteOnly && domains.length > 0 && !zhihuOnlyDomains) {
+        throw new SearchProviderCapabilityError(
+            'Zhihu site search only covers zhihu.com. Remove the domain filter or use another source.'
+        );
+    }
     const url = new URL(`${root}${siteOnly ? ZHIHU_SITE_SEARCH_PATH : ZHIHU_GLOBAL_SEARCH_PATH}`);
     url.searchParams.set('Query', request.query);
     url.searchParams.set(
@@ -50,6 +64,15 @@ export function buildZhihuSearchUrl(
         const filter = buildZhihuFilter(request);
         if (filter) {
             url.searchParams.set('Filter', filter);
+        }
+    } else {
+        // 站内接口通过 SortBy 的 EditTime 区间保留时间窗口；其它过滤条件无法下发。
+        const after = recencyStartDate(request.recencyDays);
+        if (after) {
+            url.searchParams.set(
+                'SortBy',
+                `EditTime:none:(${Math.floor(Date.parse(after) / 1000)},)`
+            );
         }
     }
     setSearchParams(url, options);
@@ -80,11 +103,7 @@ export function buildZhihuFilter(request: WebSearchRequest): string | undefined 
 
 /** ContentText 用 `<em>` 高亮命中词，卡片和模型都不需要这层标记。 */
 export function stripZhihuHighlight(value: string): string {
-    return value
-        .replace(/<\/?[a-zA-Z][^>]*>/g, '')
-        .replace(/&nbsp;/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
+    return stripHtmlText(value);
 }
 
 export function toZhihuResult(item: unknown): WebSearchResult | null {

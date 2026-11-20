@@ -41,12 +41,12 @@
     );
 
     const model = defineModel<string>({ required: true });
-    const { reducedMotion } = useMotion();
-    const indicatorTransition = computed(() =>
-        reducedMotion.value
-            ? { duration: 0 }
-            : { type: 'tween' as const, duration: 0.4, ease: [0.4, 0, 0.2, 1] }
-    );
+    const { duration } = useMotion();
+    const indicatorTransition = computed(() => ({
+        type: 'tween' as const,
+        duration: duration(400) / 1000,
+        ease: [0.4, 0, 0.2, 1],
+    }));
     const rootRef = ref<HTMLDivElement | null>(null);
     const indicator = ref({ x: 0, width: 0 });
     const ready = ref(false);
@@ -64,7 +64,11 @@
     }
 
     watch(
-        () => [model.value, props.options.map((option) => option.value).join('|')],
+        () => [
+            model.value,
+            // 标签原地互换时 value 与根宽不变，只有标签串能提示需要重新测量。
+            props.options.map((option) => `${option.value}\u0000${option.label}`).join('|'),
+        ],
         () => {
             void nextTick(syncIndicator);
         },

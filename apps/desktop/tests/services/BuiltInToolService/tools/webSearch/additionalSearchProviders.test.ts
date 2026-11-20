@@ -284,7 +284,11 @@ describe('user searches with the additional engines', () => {
         expect(url.searchParams.get('include_domains')).toBe('example.com,arxiv.org');
         expect(url.searchParams.get('domain_type')).toBe('research_paper');
         expect(url.searchParams.get('page')).toBe('2');
-        expect(url.searchParams.get('recency_minutes')).toBe('1440');
+        // research_paper 不支持 recency_minutes，改用发布年份下限表达时间窗口。
+        expect(url.searchParams.get('recency_minutes')).toBeNull();
+        expect(url.searchParams.get('pub_year_min')).toBe(
+            new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 4)
+        );
         expect(fetchMock.mock.calls[0]?.[1]?.headers['X-API-Key']).toBe('fixture-key');
         expect(result.result).toContain('cited_by_count');
     });

@@ -9,6 +9,8 @@ import {
     type SearchProviderConfig,
     type SearchSettingsConfig,
 } from '../web-search/configuration';
+import { tinyfishEndpoint } from '../web-search/providers/tinyfish-endpoint';
+import type { createWebFetchOperations } from './operations';
 
 /** 这些引擎的官方 API 都能直接返回一份可读正文，而不只是搜索结果摘要。 */
 export const FETCH_CAPABLE_PROVIDERS = SEARCH_FETCH_PROVIDERS;
@@ -22,15 +24,36 @@ export interface ProviderFetchPayload {
     publishedAt?: string;
 }
 
-export function createProviderFetches() {
+export function createProviderFetches({
+    readResponseText,
+}: Pick<ReturnType<typeof createWebFetchOperations>, 'readResponseText'>) {
     const tauriFetch = createTauriFetch();
     function rootOf(endpoint: string, fallback: string): string {
         const trimmed = endpoint.trim().replace(/\/+$/, '');
         return trimmed || fallback;
     }
 
-    async function readJson(response: Response): Promise<Record<string, unknown>> {
-        const payload = (await response.json()) as unknown;
+    /**
+     * 搜索配置里的 Serper 地址常填 `google.serper.dev` 或完整的 `/search` URL，
+     * 抓取必须改走 scrape 路由，否则会把 `{ url, includeMarkdown }` 发给搜索接口。
+     */
+    function serperScrapeEndpoint(endpoint: string): string {
+        const trimmed = endpoint.trim().replace(/\/+$/, '');
+        if (!trimmed) return 'https://scrape.serper.dev';
+        const url = new URL(trimmed);
+        if (url.hostname === 'google.serper.dev') return 'https://scrape.serper.dev';
+        url.pathname = url.pathname.replace(/\/(?:search|scrape)$/i, '');
+        return url.toString().replace(/\/+$/, '');
+    }
+
+    async function readJson(
+        response: Response,
+        maxResponseBytes: number
+    ): Promise<Record<string, unknown>> {
+        const source = await readResponseText(response, Infinity, maxResponseBytes);
+        if (source.sourceTruncated)
+            throw new Error('Engine fetch response exceeded the byte limit.');
+        const payload = JSON.parse(source.text) as unknown;
         return payload && typeof payload === 'object' && !Array.isArray(payload)
             ? (payload as Record<string, unknown>)
             : {};
@@ -54,7 +77,8 @@ export function createProviderFetches() {
     async function fetchAnySearch(
         url: string,
         config: SearchProviderConfig,
-        signal: AbortSignal
+        signal: AbortSignal,
+        maxResponseBytes: number
     ): Promise<ProviderFetchPayload> {
         const root = rootOf(config.endpoint, 'https://api.anysearch.com');
         const apiKey = config.apiKey.trim();
@@ -68,7 +92,7 @@ export function createProviderFetches() {
             signal,
         });
         await requireOk(response, 'AnySearch');
-        const payload = await readJson(response);
+        const payload = await readJson(response, maxResponseBytes);
         const data = recordOf(payload.data);
         return {
             provider: 'anysearch',
@@ -85,7 +109,8 @@ export function createProviderFetches() {
     async function fetchDeepSeek(
         url: string,
         config: SearchProviderConfig,
-        signal: AbortSignal
+        signal: AbortSignal,
+        maxResponseBytes: number
     ): Promise<ProviderFetchPayload> {
         const root = rootOf(config.endpoint, 'https://api.deepseek.com').replace(/\/v1$/i, '');
         const response = await tauriFetch(`${root}/v1/tools/fetch`, {
@@ -98,7 +123,7 @@ export function createProviderFetches() {
             signal,
         });
         await requireOk(response, 'DeepSeek');
-        const payload = await readJson(response);
+        const payload = await readJson(response, maxResponseBytes);
         return {
             provider: 'deepseek',
             title: normalizeOptionalString(payload.title),
@@ -109,7 +134,8 @@ export function createProviderFetches() {
     async function fetchExa(
         url: string,
         config: SearchProviderConfig,
-        signal: AbortSignal
+        signal: AbortSignal,
+        maxResponseBytes: number
     ): Promise<ProviderFetchPayload> {
         if (!config.apiKey.trim()) {
             throw new Error(
@@ -128,7 +154,7 @@ export function createProviderFetches() {
             signal,
         });
         await requireOk(response, 'Exa');
-        const payload = await readJson(response);
+        const payload = await readJson(response, maxResponseBytes);
         const first = recordOf(Array.isArray(payload.results) ? payload.results[0] : undefined);
         return {
             provider: 'exa',
@@ -142,7 +168,8 @@ export function createProviderFetches() {
     async function fetchTavily(
         url: string,
         config: SearchProviderConfig,
-        signal: AbortSignal
+        signal: AbortSignal,
+        maxResponseBytes: number
     ): Promise<ProviderFetchPayload> {
         const apiKey = config.apiKey.trim();
         const root = rootOf(config.endpoint, 'https://api.tavily.com').replace(/\/search$/, '');
@@ -158,7 +185,7 @@ export function createProviderFetches() {
             signal,
         });
         await requireOk(response, 'Tavily');
-        const payload = await readJson(response);
+        const payload = await readJson(response, maxResponseBytes);
         const first = recordOf(Array.isArray(payload.results) ? payload.results[0] : undefined);
         return {
             provider: 'tavily',
@@ -171,7 +198,8 @@ export function createProviderFetches() {
     async function fetchFirecrawl(
         url: string,
         config: SearchProviderConfig,
-        signal: AbortSignal
+        signal: AbortSignal,
+        maxResponseBytes: number
     ): Promise<ProviderFetchPayload> {
         const apiKey = config.apiKey.trim();
         const root = rootOf(config.endpoint, 'https://api.firecrawl.dev').replace(
@@ -188,7 +216,7 @@ export function createProviderFetches() {
             signal,
         });
         await requireOk(response, 'Firecrawl');
-        const payload = await readJson(response);
+        const payload = await readJson(response, maxResponseBytes);
         const data = recordOf(payload.data);
         const metadata = recordOf(data.metadata);
         return {
@@ -203,7 +231,8 @@ export function createProviderFetches() {
     async function fetchKeenable(
         url: string,
         config: SearchProviderConfig,
-        signal: AbortSignal
+        signal: AbortSignal,
+        maxResponseBytes: number
     ): Promise<ProviderFetchPayload> {
         const apiKey = config.apiKey.trim();
         const root = rootOf(config.endpoint, 'https://api.keenable.ai');
@@ -215,7 +244,7 @@ export function createProviderFetches() {
             signal,
         });
         await requireOk(response, 'Keenable');
-        const payload = await readJson(response);
+        const payload = await readJson(response, maxResponseBytes);
         return {
             provider: 'keenable',
             title: normalizeOptionalString(payload.title),
@@ -230,7 +259,8 @@ export function createProviderFetches() {
     async function fetchDoubao(
         url: string,
         config: SearchProviderConfig,
-        signal: AbortSignal
+        signal: AbortSignal,
+        maxResponseBytes: number
     ): Promise<ProviderFetchPayload> {
         const root = rootOf(config.endpoint, 'https://open.feedcoopapi.com').replace(
             /\/search_api(?:\/.*)?$/,
@@ -246,7 +276,7 @@ export function createProviderFetches() {
             signal,
         });
         await requireOk(response, 'Doubao');
-        const payload = await readJson(response);
+        const payload = await readJson(response, maxResponseBytes);
         const data = recordOf(recordOf(payload.Result).Data);
         return {
             provider: 'doubao',
@@ -260,20 +290,17 @@ export function createProviderFetches() {
     async function fetchTinyFish(
         url: string,
         config: SearchProviderConfig,
-        signal: AbortSignal
+        signal: AbortSignal,
+        maxResponseBytes: number
     ): Promise<ProviderFetchPayload> {
-        const root = rootOf(config.endpoint, 'https://api.search.tinyfish.ai').replace(
-            /\/v1(?:\/search)?$/,
-            ''
-        );
-        const response = await tauriFetch(`${root}/v1/fetch`, {
+        const response = await tauriFetch(tinyfishEndpoint(config.endpoint, 'fetch').toString(), {
             method: 'POST',
             headers: { 'X-API-Key': config.apiKey.trim(), 'Content-Type': 'application/json' },
             body: JSON.stringify({ urls: [url], format: 'markdown' }),
             signal,
         });
         await requireOk(response, 'TinyFish');
-        const payload = await readJson(response);
+        const payload = await readJson(response, maxResponseBytes);
         const first = recordOf(Array.isArray(payload.results) ? payload.results[0] : undefined);
         return {
             provider: 'tinyfish',
@@ -287,9 +314,10 @@ export function createProviderFetches() {
     async function fetchSerper(
         url: string,
         config: SearchProviderConfig,
-        signal: AbortSignal
+        signal: AbortSignal,
+        maxResponseBytes: number
     ): Promise<ProviderFetchPayload> {
-        const root = rootOf(config.endpoint, 'https://scrape.serper.dev');
+        const root = serperScrapeEndpoint(config.endpoint);
         const response = await tauriFetch(root, {
             method: 'POST',
             headers: { 'X-API-KEY': config.apiKey.trim(), 'Content-Type': 'application/json' },
@@ -297,7 +325,7 @@ export function createProviderFetches() {
             signal,
         });
         await requireOk(response, 'Serper');
-        const payload = await readJson(response);
+        const payload = await readJson(response, maxResponseBytes);
         const metadata = recordOf(payload.metadata);
         return {
             provider: 'serper',
@@ -316,7 +344,8 @@ export function createProviderFetches() {
         (
             url: string,
             config: SearchProviderConfig,
-            signal: AbortSignal
+            signal: AbortSignal,
+            maxResponseBytes: number
         ) => Promise<ProviderFetchPayload>
     > = {
         anysearch: fetchAnySearch,
@@ -338,6 +367,7 @@ export function createProviderFetches() {
         url: string,
         settings: SearchSettingsConfig,
         signal: AbortSignal,
+        maxResponseBytes: number,
         requested?: FetchCapableProvider
     ): Promise<ProviderFetchPayload | null> {
         const candidates = requested
@@ -357,7 +387,8 @@ export function createProviderFetches() {
             )
                 continue;
             try {
-                const payload = await FETCHERS[provider](url, config, signal);
+                const payload = await FETCHERS[provider](url, config, signal, maxResponseBytes);
+                signal.throwIfAborted();
                 if (payload.content.trim()) {
                     return payload;
                 }

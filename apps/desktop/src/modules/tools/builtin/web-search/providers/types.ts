@@ -25,6 +25,18 @@ export class WebSearchHttpError extends Error {
     }
 }
 
+/**
+ * provider 自身能力上限（查询长度、过滤组合等）导致的拒绝。
+ *
+ * 自动路由可以把它当作「换一个引擎再试」的信号；显式选择的引擎仍按失败返回。
+ */
+export class SearchProviderCapabilityError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'SearchProviderCapabilityError';
+    }
+}
+
 export type WebSearchFetchJson = (
     url: URL,
     signal: AbortSignal,

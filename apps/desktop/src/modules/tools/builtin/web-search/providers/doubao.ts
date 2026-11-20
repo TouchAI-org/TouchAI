@@ -3,6 +3,7 @@ import { normalizeOptionalString } from '@/utils/text';
 import type { WebSearchResult } from '../helper';
 import { nativeSearchOptions, recencyStartDate, resultDetails, resultLimit } from './common';
 import { createSearchProviderAdapter } from './define';
+import { SearchProviderCapabilityError } from './types';
 
 function record(value: unknown): Record<string, unknown> {
     return value && typeof value === 'object' && !Array.isArray(value)
@@ -67,7 +68,7 @@ function toDoubaoResult(item: unknown, includeContent: boolean): WebSearchResult
 export const doubaoAdapter = createSearchProviderAdapter({
     id: 'doubao',
     async search({ request, settings, signal, fetchJson }) {
-        const { edition = 'custom', ...options } = nativeSearchOptions(request, 'doubao');
+        const { edition = 'custom', Filter, ...options } = nativeSearchOptions(request, 'doubao');
         if (edition !== 'custom' && edition !== 'global')
             throw new Error('Doubao edition must be custom or global.');
         const global = edition === 'global';
@@ -81,12 +82,12 @@ export const doubaoAdapter = createSearchProviderAdapter({
             (global || searchType !== 'web') &&
             (request.domains.length || request.excludeDomains.length || request.recencyDays)
         ) {
-            throw new Error(
+            throw new SearchProviderCapabilityError(
                 'Doubao site/date filters require Custom web search; select edition=custom and SearchType=web.'
             );
         }
         if (request.domains.length > 20 || request.excludeDomains.length > 5) {
-            throw new Error(
+            throw new SearchProviderCapabilityError(
                 'Doubao Custom accepts at most 20 included sites and 5 excluded hosts.'
             );
         }
@@ -103,7 +104,7 @@ export const doubaoAdapter = createSearchProviderAdapter({
                           ...(request.excludeDomains.length
                               ? { BlockHosts: request.excludeDomains.join('|') }
                               : {}),
-                          ...record(options.Filter),
+                          ...record(Filter),
                       },
                       ...(request.includeContent ? { ContentFormats: 'markdown' } : {}),
                       ...(request.recencyDays
@@ -112,11 +113,13 @@ export const doubaoAdapter = createSearchProviderAdapter({
                             }
                           : {}),
                   }
-                : {}),
+                : Filter !== undefined
+                  ? { Filter }
+                  : {}),
             ...options,
         };
         if (typeof body.Query !== 'string' || [...body.Query].length > 100) {
-            throw new Error(
+            throw new SearchProviderCapabilityError(
                 'Doubao Query accepts at most 100 characters; shorten it or split the search.'
             );
         }

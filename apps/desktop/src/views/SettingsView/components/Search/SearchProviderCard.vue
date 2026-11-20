@@ -37,40 +37,46 @@
     }
 
     const props = defineProps<Props>();
-    const { transitions, reducedMotion } = useMotion();
-    const headerTransition = computed(() =>
-        reducedMotion.value
-            ? { duration: 0 }
-            : { type: 'tween' as const, duration: 0.8, ease: [0.4, 0, 0.2, 1] }
-    );
-    const backTransition = computed(() =>
-        reducedMotion.value ? { duration: 0 } : { ...transitions.value.quick, delay: 0.66 }
-    );
+    const { transitions, duration } = useMotion();
     const ease = [0.4, 0, 0.2, 1] as const;
-    const contentEnterTransition = computed(() =>
-        reducedMotion.value
-            ? { duration: 0 }
-            : { type: 'tween' as const, duration: 0.28, delay: 0.16, ease }
-    );
-    const contentExitTransition = computed(() =>
-        reducedMotion.value ? { duration: 0 } : { type: 'tween' as const, duration: 0.16, ease }
-    );
-    const tabsEnterTransition = computed(() =>
-        reducedMotion.value
-            ? { duration: 0 }
-            : { type: 'tween' as const, duration: 0.22, delay: 0.2, ease }
-    );
-    const fieldsEnterTransition = computed(() =>
-        reducedMotion.value
-            ? { duration: 0 }
-            : { type: 'tween' as const, duration: 0.3, delay: 0.28, ease }
-    );
+    const headerTransition = computed(() => ({
+        type: 'tween' as const,
+        duration: duration(800) / 1000,
+        ease,
+    }));
+    const backTransition = computed(() => ({
+        ...transitions.value.quick,
+        delay: duration(660) / 1000,
+    }));
+    const contentEnterTransition = computed(() => ({
+        type: 'tween' as const,
+        duration: duration(280) / 1000,
+        delay: duration(160) / 1000,
+        ease,
+    }));
+    const contentExitTransition = computed(() => ({
+        type: 'tween' as const,
+        duration: duration(160) / 1000,
+        ease,
+    }));
+    const tabsEnterTransition = computed(() => ({
+        type: 'tween' as const,
+        duration: duration(220) / 1000,
+        delay: duration(200) / 1000,
+        ease,
+    }));
+    const fieldsEnterTransition = computed(() => ({
+        type: 'tween' as const,
+        duration: duration(300) / 1000,
+        delay: duration(280) / 1000,
+        ease,
+    }));
 
     const emit = defineEmits<{
         enabled: [value: boolean];
         edit: [];
         cancel: [];
-        save: [value: { apiKey: string; endpoint: string }];
+        save: [value: { apiKey?: string; endpoint?: string }];
         'fetch-enabled': [value: boolean];
     }>();
 
@@ -88,17 +94,34 @@
     });
     const keyDraft = ref('');
     const endpointDraft = ref('');
+    let keyBaseline = '';
+    let endpointBaseline = '';
     const field = ref<'key' | 'endpoint' | 'fetch'>('key');
 
     watch(
         () => props.editing,
         (editing) => {
             if (!editing) return;
-            keyDraft.value = props.credential;
-            endpointDraft.value = props.endpointValue;
+            keyDraft.value = keyBaseline = props.credential;
+            endpointDraft.value = endpointBaseline = props.endpointValue;
             field.value = props.endpointRequired ? 'endpoint' : 'key';
         },
         { immediate: true }
+    );
+
+    watch(
+        () => props.credential,
+        (value) => {
+            if (keyDraft.value === keyBaseline) keyDraft.value = value;
+            keyBaseline = value;
+        }
+    );
+    watch(
+        () => props.endpointValue,
+        (value) => {
+            if (endpointDraft.value === endpointBaseline) endpointDraft.value = value;
+            endpointBaseline = value;
+        }
     );
 
     const canSave = computed(() => {
@@ -110,8 +133,12 @@
     function save() {
         if (!canSave.value) return;
         emit('save', {
-            apiKey: props.endpointRequired ? '' : keyDraft.value.trim(),
-            endpoint: props.supportsEndpoint ? endpointDraft.value.trim() : '',
+            ...(!props.endpointRequired && keyDraft.value.trim() !== keyBaseline.trim()
+                ? { apiKey: keyDraft.value.trim() }
+                : {}),
+            ...(props.supportsEndpoint && endpointDraft.value.trim() !== endpointBaseline.trim()
+                ? { endpoint: endpointDraft.value.trim() }
+                : {}),
         });
     }
 </script>
@@ -129,7 +156,7 @@
                     key="back"
                     :initial="{ opacity: 0, x: -24 }"
                     :animate="{ opacity: 1, x: 0 }"
-                    :exit="{ opacity: 0, x: -24, transition: { duration: 0.15 } }"
+                    :exit="{ opacity: 0, x: -24, transition: contentExitTransition }"
                     :transition="backTransition"
                     class="absolute top-3.5 left-3.5 z-30"
                 >

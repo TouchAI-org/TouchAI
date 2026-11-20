@@ -2,23 +2,20 @@ import type { WebSearchResult } from '../helper';
 import {
     nativeSearchOptions,
     readResultItems,
+    recencyStartDate,
     resultDetails,
     resultFromGenericItem,
     searchSource,
     setSearchParams,
 } from './common';
 import { createSearchProviderAdapter } from './define';
+import { tinyfishEndpoint } from './tinyfish-endpoint';
 
 export const tinyfishAdapter = createSearchProviderAdapter({
     id: 'tinyfish',
     async search({ request, settings, signal, fetchJson }) {
         const config = settings.providers.tinyfish;
-        const root = config.endpoint.trim().replace(/\/+$/, '');
-        const url = new URL(
-            root
-                ? `${root.replace(/\/v1(?:\/search)?$/, '')}/v1/search`
-                : 'https://api.search.tinyfish.ai/'
-        );
+        const url = tinyfishEndpoint(config.endpoint, 'search');
         const options = nativeSearchOptions(request, 'tinyfish');
         const source = searchSource(request);
         const params: Record<string, unknown> = {
@@ -40,6 +37,15 @@ export const tinyfishAdapter = createSearchProviderAdapter({
                 : {}),
             ...options,
         };
+        // 官方文档：domain_type=research_paper 不支持 recency_minutes / after_date / before_date，
+        // 时间窗口改用 pub_year_min 表达；原生 pub_year_min 仍然优先。
+        if (params.domain_type === 'research_paper') {
+            delete params.recency_minutes;
+            const cutoffYear = recencyStartDate(request.recencyDays)?.slice(0, 4);
+            if (params.pub_year_min === undefined && cutoffYear) {
+                params.pub_year_min = cutoffYear;
+            }
+        }
         if (
             params.recency_minutes !== undefined &&
             (params.after_date !== undefined || params.before_date !== undefined)

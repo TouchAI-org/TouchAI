@@ -182,7 +182,7 @@ describe('given search configuration belongs to the main tools owner', () => {
     });
 
     it.each(['anysearch', 'deepseek', 'exa'] as const)(
-        'user excludes %s from page reading through its existing card',
+        'user excludes and re-enables %s for page reading through its existing card',
         async (provider) => {
             const panel = await openPanel();
             await panel.get(`[data-testid="search-provider-edit-${provider}"]`).trigger('click');
@@ -194,6 +194,45 @@ describe('given search configuration belongs to the main tools owner', () => {
                 .trigger('click');
             await settleSave();
             expect(saved().providers[provider].fetchEnabled).toBe(false);
+            await panel
+                .get(`[data-testid="search-provider-fetch-toggle-${provider}"]`)
+                .trigger('click');
+            await settleSave();
+            expect(saved().providers[provider].fetchEnabled).not.toBe(false);
+        }
+    );
+
+    it.each(['apiKey', 'endpoint'] as const)(
+        'user edits %s while retaining another window changes to the other credential field',
+        async (field) => {
+            const panel = await openPanel();
+            await panel.get('[data-testid="search-provider-edit-qianfan"]').trigger('click');
+            const other = field === 'apiKey' ? 'endpoint' : 'apiKey';
+            const incoming = fixture.window.toolSettings!.getSearchSettings();
+            await fixture.window.toolSettings!.updateSearchSettings({
+                ...incoming,
+                providers: {
+                    ...incoming.providers,
+                    qianfan: { ...incoming.providers.qianfan, [other]: 'https://incoming.test' },
+                },
+            });
+            await flushPromises();
+            if (field === 'endpoint') {
+                await panel
+                    .get('[data-testid="search-provider-credential-tabs"]')
+                    .findAll('button')[1]!
+                    .trigger('click');
+            }
+            const selector = field === 'apiKey' ? 'api-key' : 'base-url';
+            await panel
+                .get(`[data-testid="search-qianfan-${selector}-input"]`)
+                .setValue('https://local.test');
+            await panel.get('[data-testid="search-provider-editor-save"]').trigger('click');
+            await settleSave();
+            expect(saved().providers.qianfan).toMatchObject({
+                [field]: 'https://local.test',
+                [other]: 'https://incoming.test',
+            });
         }
     );
 

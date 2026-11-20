@@ -3,7 +3,7 @@ import { normalizeOptionalString } from '@/utils/text';
 import type { WebSearchRequest, WebSearchResult } from '../helper';
 import { nativeSearchOptions, queryWithDomains, recencyStartDate, resultLimit } from './common';
 import { createSearchProviderAdapter } from './define';
-import { WebSearchHttpError } from './types';
+import { SearchProviderCapabilityError, WebSearchHttpError } from './types';
 
 /** 官方同时接受 `/` 与 `/v1` 结尾，先剥版本段再统一拼接，避免 `/v1/v1/...`。 */
 const DEEPSEEK_API_ROOT = 'https://api.deepseek.com';
@@ -138,7 +138,8 @@ export function buildDeepSeekQuery(request: WebSearchRequest): string {
         .filter(Boolean)
         .join(' ');
     if ([...query].length > DEEPSEEK_QUERY_MAX_CHARS) {
-        throw new Error(
+        // 能力上限而非鉴权/网络错误：自动路由可以换一个能接受长查询的引擎。
+        throw new SearchProviderCapabilityError(
             'DeepSeek search accepts at most 128 query characters including filters. Shorten the query or split the site filters across calls.'
         );
     }

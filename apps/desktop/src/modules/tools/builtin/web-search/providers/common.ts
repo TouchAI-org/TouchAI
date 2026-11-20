@@ -163,6 +163,25 @@ export function resultFromGenericItem(item: unknown, source: string): WebSearchR
     };
 }
 
+/**
+ * 搜索结果摘要里带的 HTML（`<em>` 高亮等）要还原成纯文本。
+ *
+ * 反复剥离标签直到结果稳定，避免 `<scr<script>ipt>` 这类嵌套输入在单次替换后
+ * 重新拼出标签；最后丢弃残留的尖括号，纯文本结果里不会再出现可执行标记。
+ */
+export function stripHtmlText(value: string): string {
+    let text = value;
+    for (let previous = '\u0000'; previous !== text; ) {
+        previous = text;
+        text = text.replace(/<\/?[a-zA-Z][^>]*>/g, '');
+    }
+    return text
+        .replace(/[<>]/g, '')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
 export function recencyStartDate(recencyDays: number | undefined): string | undefined {
     if (recencyDays === undefined || !Number.isFinite(recencyDays) || recencyDays < 1) {
         return undefined;

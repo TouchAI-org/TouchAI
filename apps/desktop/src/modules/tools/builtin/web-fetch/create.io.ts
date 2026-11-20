@@ -43,26 +43,24 @@ export function createWebFetchTools(input: {
         validateWebFetchUrl,
     } = createWebFetchOperations(input.messages);
     const tauriFetch = createTauriFetch();
-    const { tryProviderFetches } = createProviderFetches();
+    const { tryProviderFetches } = createProviderFetches({ readResponseText });
 
     function formatProviderFetchResult(
         request: WebFetchRequest,
         payload: ProviderFetchPayload
     ): string {
-        const content =
-            payload.content.length > request.maxChars
-                ? payload.content.slice(0, request.maxChars)
-                : payload.content;
+        const normalized = normalizeStructuredText(payload.content, 'text/markdown', request.mode);
+        const content = normalized.slice(0, request.maxChars);
         return [
             tt('网页抓取'),
             `${tt('请求 URL')}: ${request.url.toString()}`,
             `${tt('最终 URL')}: ${payload.finalUrl ?? request.url.toString()}`,
-            `${tt('内容类型')}: text/markdown`,
+            `${tt('内容类型')}: ${request.mode === 'page_text' ? 'text/plain' : 'text/markdown'}`,
             `${tt('请求模式')}: ${request.mode}`,
             `${tt('实际输出')}: ${payload.provider} fetch`,
             payload.title ? `${tt('标题')}: ${payload.title}` : '',
             payload.publishedAt ? `${tt('发布时间')}: ${payload.publishedAt}` : '',
-            payload.content.length > request.maxChars
+            normalized.length > request.maxChars
                 ? tt('正文输出: 已限制为 {maxChars} 字符', { maxChars: request.maxChars })
                 : '',
             '',
@@ -75,6 +73,7 @@ export function createWebFetchTools(input: {
         signal: AbortSignal,
         mode: 'preferred' | 'fallback' | 'explicit'
     ): Promise<BuiltInToolExecutionResult | null> {
+        if (request.provider && mode !== 'explicit') return null;
         try {
             const value = await input.configuration.read();
             const settings = parseSearchSettingsConfig(typeof value === 'string' ? value : null);
@@ -84,6 +83,7 @@ export function createWebFetchTools(input: {
                     request.url.toString(),
                     settings,
                     signal,
+                    request.maxResponseBytes,
                     request.provider
                 );
                 return payload
@@ -100,7 +100,12 @@ export function createWebFetchTools(input: {
             if ((mode === 'preferred') !== (settings.fetchStrategy === 'prefer')) {
                 return null;
             }
-            const payload = await tryProviderFetches(request.url.toString(), settings, signal);
+            const payload = await tryProviderFetches(
+                request.url.toString(),
+                settings,
+                signal,
+                request.maxResponseBytes
+            );
             return payload
                 ? {
                       result: formatProviderFetchResult(request, payload),
@@ -321,7 +326,8 @@ export function createWebFetchTools(input: {
             const normalizedResponseText = sourcePayload.text.trim();
             const normalizedStructuredText = normalizeStructuredText(
                 normalizedResponseText,
-                contentType
+                contentType,
+                request.mode
             );
             const truncatedStructuredText = truncateContent(
                 normalizedStructuredText,
@@ -423,7 +429,11 @@ export function createWebFetchTools(input: {
                 undefined,
                 request.maxResponseBytes
             );
-            const normalized = normalizeStructuredText(sourcePayload.text.trim(), contentType);
+            const normalized = normalizeStructuredText(
+                sourcePayload.text.trim(),
+                contentType,
+                request.mode
+            );
             const truncated = truncateContent(normalized, request.maxChars);
             return {
                 result: [

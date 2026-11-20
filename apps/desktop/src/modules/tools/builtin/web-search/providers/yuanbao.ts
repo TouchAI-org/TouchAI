@@ -1,8 +1,15 @@
 import { normalizeOptionalString } from '@/utils/text';
 
 import type { WebSearchResult } from '../helper';
-import { nativeSearchOptions, queryWithDomains, resultDetails, searchSource } from './common';
+import {
+    nativeSearchOptions,
+    queryWithDomains,
+    resultDetails,
+    searchSource,
+    stripHtmlText,
+} from './common';
 import { createSearchProviderAdapter } from './define';
+import { SearchProviderCapabilityError, WebSearchHttpError } from './types';
 
 const YUANBAO_API_ROOT = 'https://api.wsa.cloud.tencent.com';
 export const YUANBAO_SEARCH_PATH = '/SearchPro';
@@ -75,15 +82,6 @@ function parseYuanbaoPage(raw: unknown): YuanbaoPage | null {
     }
 }
 
-/** HTML 标签（`<strong>` 高亮）对卡片和模型都是噪音。 */
-function stripTags(value: string): string {
-    return value
-        .replace(/<\/?[a-zA-Z][^>]*>/g, '')
-        .replace(/&nbsp;/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-}
-
 export function toYuanbaoResult(page: YuanbaoPage): WebSearchResult | null {
     const title = normalizeOptionalString(page.title);
     const url = normalizeOptionalString(page.url);
@@ -92,10 +90,10 @@ export function toYuanbaoResult(page: YuanbaoPage): WebSearchResult | null {
     }
 
     const snippet = normalizeOptionalString(
-        typeof page.content === 'string' ? stripTags(page.content) : undefined
+        typeof page.content === 'string' ? stripHtmlText(page.content) : undefined
     );
     const passage = normalizeOptionalString(
-        typeof page.passage === 'string' ? stripTags(page.passage) : undefined
+        typeof page.passage === 'string' ? stripHtmlText(page.passage) : undefined
     );
     const authority = Number(page.authority_level);
 
@@ -132,9 +130,11 @@ export function readYuanbaoPages(payload: unknown): WebSearchResult[] {
         return [];
     }
     if (response.Error) {
-        throw new Error(
-            `Yuanbao search failed: ${String(response.Error.Message ?? 'unknown error')} (code ${String(response.Error.Code)})`
-        );
+        const code = normalizeOptionalString(response.Error.Code);
+        const message = `Yuanbao search failed: ${String(response.Error.Message ?? 'unknown error')} (code ${String(response.Error.Code)})`;
+        // 官方把 RequestLimitExceeded 定义为频次/并发限制，按 429 交给自动回退换引擎。
+        if (code === 'RequestLimitExceeded') throw new WebSearchHttpError(429, message);
+        throw new Error(message);
     }
     const pages = Array.isArray(response.Pages) ? response.Pages : [];
     return pages
@@ -158,12 +158,12 @@ export const yuanbaoAdapter = createSearchProviderAdapter({
         const url = buildYuanbaoSearchUrl(settings.providers.yuanbao.endpoint);
         const singleDomain = request.domains.length === 1 ? request.domains[0]?.trim() : '';
         if (request.excludeDomains.length > 5) {
-            throw new Error(
+            throw new SearchProviderCapabilityError(
                 'Yuanbao Site accepts at most 5 excluded domains. Split the search into several calls or use a provider with a larger domain filter.'
             );
         }
         if (singleDomain && request.excludeDomains.length > 0) {
-            throw new Error(
+            throw new SearchProviderCapabilityError(
                 'Yuanbao Site cannot combine an allowed site with excluded sites. Use one filter mode or separate searches.'
             );
         }

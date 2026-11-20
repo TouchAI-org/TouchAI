@@ -1,3 +1,5 @@
+import { normalizeOptionalString } from '@/utils/text';
+
 import type { WebSearchResult } from '../helper';
 import {
     nativeSearchOptions,
@@ -8,6 +10,26 @@ import {
     searchSource,
 } from './common';
 import { createSearchProviderAdapter } from './define';
+
+/** Serper Places 用 `website` 表示链接；没有网站时退回 Google Maps 查询地址。 */
+function withPlaceUrl(row: Record<string, unknown>): Record<string, unknown> {
+    const website = normalizeOptionalString(row.website);
+    if (website) return { ...row, url: website };
+    const latitude = typeof row.latitude === 'number' ? row.latitude : undefined;
+    const longitude = typeof row.longitude === 'number' ? row.longitude : undefined;
+    const query =
+        latitude !== undefined && longitude !== undefined
+            ? `${latitude},${longitude}`
+            : [normalizeOptionalString(row.title), normalizeOptionalString(row.address)]
+                  .filter(Boolean)
+                  .join(' ');
+    return query
+        ? {
+              ...row,
+              url: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`,
+          }
+        : row;
+}
 
 export const serperAdapter = createSearchProviderAdapter({
     id: 'serper',
@@ -55,12 +77,19 @@ export const serperAdapter = createSearchProviderAdapter({
                 `Serper search failed: ${String(payload.error ?? payload.message ?? payload.statusCode)}`
             );
         }
-        const key = searchType === 'search' ? 'organic' : String(searchType);
+        // search / scholar / patents 的结果数组都放在 organic 下。
+        const key = ['search', 'scholar', 'patents'].includes(String(searchType))
+            ? 'organic'
+            : String(searchType);
         const rows = payload?.[key];
         const results = (Array.isArray(rows) ? rows : []).flatMap((item): WebSearchResult[] => {
-            const result = resultFromGenericItem(item, 'Serper');
-            if (!result) return [];
+            if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
             const row = item as Record<string, unknown>;
+            const result = resultFromGenericItem(
+                searchType === 'places' ? withPlaceUrl(row) : row,
+                'Serper'
+            );
+            if (!result) return [];
             return [
                 {
                     ...result,

@@ -7,6 +7,7 @@ function isJsonObject(value: unknown): value is JsonObject {
 }
 
 function cloneJsonValue<T>(value: T): T {
+    if (value === undefined) return value;
     return JSON.parse(JSON.stringify(value)) as T;
 }
 
@@ -38,7 +39,8 @@ function applyPatch(target: unknown, patch: unknown): unknown {
 
     const next = cloneJsonValue(target);
     for (const [key, value] of Object.entries(patch)) {
-        next[key] = isJsonObject(value) ? applyPatch(next[key], value) : cloneJsonValue(value);
+        if (value === undefined) delete next[key];
+        else next[key] = isJsonObject(value) ? applyPatch(next[key], value) : cloneJsonValue(value);
     }
     return next;
 }
