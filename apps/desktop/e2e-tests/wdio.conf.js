@@ -72,8 +72,11 @@ function assertFailedStartupExits() {
             TMP: resolveTempDirectory(),
         },
     });
-    if (result.status !== 0) {
-        throw new Error('The startup-failure regression test failed. Check the output above.');
+    if (result.error || result.status !== 0) {
+        // WDIO can swallow onPrepare errors and still exit successfully. Terminate
+        // the runner directly so this preflight failure always blocks the E2E gate.
+        console.error('The startup-failure regression test failed. Check the output above.');
+        process.exit(typeof result.status === 'number' ? result.status || 1 : 1);
     }
 }
 
