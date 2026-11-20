@@ -110,7 +110,7 @@ function desktopProcessIds(application) {
                 '-Command',
                 `@(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -eq '${executable}' } | ForEach-Object { $_.ProcessId }) | ConvertTo-Json -Compress`,
             ],
-            { encoding: 'utf8', timeout: 15000 }
+            { encoding: 'utf8', timeout: 60000 }
         ).trim();
         const ids = output ? JSON.parse(output) : [];
         return Array.isArray(ids) ? ids : [ids];
