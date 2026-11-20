@@ -86,8 +86,8 @@ public static class TouchAIStartupDialogObserver
             return 2;
         }
 
-        var deadline = Environment.TickCount64 + timeoutMilliseconds;
-        while (Environment.TickCount64 < deadline)
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMilliseconds);
+        while (DateTime.UtcNow < deadline)
         {
             var dialog = FindStartupDialog();
             if (dialog != IntPtr.Zero)
