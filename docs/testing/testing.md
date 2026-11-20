@@ -154,6 +154,7 @@ apps/desktop/src-tauri/tests/ # Rust integration / command tests
 
 - Frontend tests: `apps/desktop/tests/**/*.test.ts`, mirroring the `src/` structure (`src/views/SearchView/windowSizing.ts` → `tests/SearchView/windowSizing.test.ts`)
 - Package source and tests are included in the workspace typechecks, Desktop Vitest run and coverage gates.
+- Provider contract tests live in `packages/models/tests/emulate/` and run with the package tests.
 - Repository CI tests: `tests/ci/**/*.test.ts`. Workflow and CODEOWNERS contracts live in `tests/ci/workflows/`; lockfile policy in `tests/ci/repository/`; ESLint design-system guards in `tests/ci/design-system/`. A test that imports `apps/desktop/scripts/**` stays in `apps/desktop/tests/ci/`, because it covers desktop build or release tooling.
 - UI preview tests: `tests/ci/ui-preview/**/*.test.js`, colocated with the repository automation they cover.
 - Desktop E2E: `apps/desktop/e2e-tests/**/*.e2e.js`
@@ -214,6 +215,10 @@ Rust follows the same rule in snake_case: `#[test] fn user_sees_prompt_sent_when
 ## Mocking
 
 Mock at system boundaries only: `@tauri-apps/api/mocks` for Tauri IPC, `tauri::test` for Rust commands, Vitest fake timers for timers. Do not mock your own pure functions or strategy objects, and never mock an internal helper just to assert it was called. If a module needs heavy mocking to test, it needs refactoring first.
+
+### Third-party HTTP services
+
+Model providers run on [emulate](https://github.com/vercel-labs/emulate), a dev dependency. `startLocalModelService()` serves OpenAI and Anthropic formats on loopback from rules, so tests keep the real SDK and HTTP path without a key or network. Both E2E model fixtures use it: `model-provider.js` with rules and `agent-stream.js` as a custom service for frame-level control.
 
 ## Assertion Priority
 

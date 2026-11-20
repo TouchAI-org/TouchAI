@@ -37,7 +37,7 @@ async function backupDigest(backupPath) {
 
 describe('user manages independently saved history in Settings with main running', () => {
     // Mocha hooks fail the run; WebdriverIO afterSession errors only log.
-    after(() => getAgentFixture().assertHealthy());
+    after(async () => getAgentFixture().assertHealthy());
 
     let database;
     let scenario;

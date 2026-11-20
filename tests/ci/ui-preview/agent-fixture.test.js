@@ -9,7 +9,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { createAgentFixture } from '../../../apps/desktop/e2e-tests/test/support/agent-fixture.js';
 import { createMcpFixture } from '../../../apps/desktop/e2e-tests/test/support/mcp-fixture.js';
-import { createModelProvider } from '../../../apps/desktop/e2e-tests/test/support/model-provider.js';
+import {
+    createModelProvider,
+    toolResultsAfterLatestPrompt,
+} from '../../../apps/desktop/e2e-tests/test/support/model-provider.js';
 
 const desktopRequire = createRequire(
     new URL('../../../apps/desktop/package.json', import.meta.url)
@@ -24,12 +27,42 @@ async function provider() {
     cleanups.push(() => fixture.close());
     return fixture;
 }
-function request(fixture, messages) {
+function request(fixture, messages, extra = {}) {
     return fetch(`${fixture.baseUrl}/alpha/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer e2e-alpha-key' },
-        body: JSON.stringify({ model: 'e2e-alpha', stream: true, messages }),
+        body: JSON.stringify({ model: 'e2e-alpha', stream: true, messages, ...extra }),
     });
+}
+
+const settingTool = {
+    type: 'function',
+    function: {
+        name: 'builtin__setting',
+        description: 'Read or write one setting.',
+        parameters: { type: 'object', properties: { action: { type: 'string' } } },
+    },
+};
+
+function streamedFrames(body) {
+    return body
+        .split('\n')
+        .filter((line) => line.startsWith('data: ') && line !== 'data: [DONE]')
+        .map((line) => JSON.parse(line.slice(6)).choices?.[0]?.delta ?? {});
+}
+
+function streamedText(body) {
+    return streamedFrames(body)
+        .map((delta) => delta.content ?? '')
+        .join('');
+}
+
+function streamedFinishReasons(body) {
+    return body
+        .split('\n')
+        .filter((line) => line.startsWith('data: ') && line !== 'data: [DONE]')
+        .map((line) => JSON.parse(line.slice(6)).choices?.[0]?.finish_reason)
+        .filter(Boolean);
 }
 
 describe('user runs isolated native agent regressions', () => {
@@ -60,22 +93,23 @@ describe('user runs isolated native agent regressions', () => {
         const fixture = await createAgentFixture(directory);
         cleanups.push(async () => {
             await expect(fixture.close()).rejects.toThrow(
-                'Model fixture received unexpected requests'
+                'The model service answered an unscripted request'
             );
         });
-        fixture.provider.respond('expected', { answer: 'saved answer' });
-        expect(
-            await (await request(fixture.provider, [{ role: 'user', content: 'expected' }])).text()
-        ).toContain('saved answer');
+        await fixture.provider.respond('expected', { answer: 'saved answer' });
+        const answered = await request(fixture.provider, [{ role: 'user', content: 'expected' }]);
+        expect(streamedText(await answered.text())).toBe('saved answer');
         const unexpected = await request(fixture.provider, [
-            { role: 'user', content: 'unexpected' },
+            { role: 'user', content: 'never scripted' },
         ]);
-        expect(unexpected.status).toBe(500);
-        expect(() => fixture.assertHealthy()).toThrow('Model fixture received unexpected requests');
+        expect(unexpected.status).toBe(400);
+        await expect(fixture.assertHealthy()).rejects.toThrow(
+            'The model service answered an unscripted request'
+        );
     });
     it('user receives a tool call followed by an answer when a real tool result returns', async () => {
         const fixture = await provider();
-        fixture.respond('read setting', {
+        await fixture.respond('read setting', {
             tool: {
                 name: 'builtin__setting',
                 args: { action: 'get', keys: ['language'] },
@@ -84,36 +118,84 @@ describe('user runs isolated native agent regressions', () => {
             answer: 'saved result',
         });
         const messages = [{ role: 'user', content: 'read setting' }];
-        expect(await (await request(fixture, messages)).text()).toContain('builtin__setting');
+        const toolDeltas = streamedFrames(
+            await (await request(fixture, messages, { tools: [settingTool] })).text()
+        );
         expect(
-            await (
-                await request(fixture, [
-                    ...messages,
-                    { role: 'tool', tool_call_id: 'setting-1', content: 'en-US' },
-                ])
-            ).text()
-        ).toContain('saved result');
-        expect(fixture.requests[1].authorization).toBe('Bearer e2e-alpha-key');
-        expect(fixture.errors).toEqual([]);
+            toolDeltas.flatMap((delta) => delta.tool_calls ?? []).map((call) => call.function?.name)
+        ).toContain('builtin__setting');
+
+        const answerResponse = await request(
+            fixture,
+            [
+                ...messages,
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [
+                        {
+                            id: 'setting-1',
+                            type: 'function',
+                            function: {
+                                name: 'builtin__setting',
+                                arguments: JSON.stringify({ action: 'get', keys: ['language'] }),
+                            },
+                        },
+                    ],
+                },
+                { role: 'tool', tool_call_id: 'setting-1', content: 'en-US' },
+            ],
+            { tools: [settingTool] }
+        );
+        expect(streamedText(await answerResponse.text())).toBe('saved result');
+
+        const calls = await fixture.calls();
+        expect(calls).toHaveLength(2);
+        expect(calls[1].path).toBe('/v1/alpha/chat/completions');
+        expect(toolResultsAfterLatestPrompt(calls[1])).toEqual([
+            { type: 'tool_result', id: 'setting-1', output: 'en-US' },
+        ]);
     });
     it('user gets a fresh tool call when an earlier turn already contains a tool result', async () => {
         const fixture = await provider();
-        fixture.respond('new request', {
+        await fixture.respond('new request', {
             tool: { name: 'builtin__setting', args: {} },
             answer: 'done',
         });
-        const response = await request(fixture, [
-            { role: 'user', content: 'old request' },
-            { role: 'tool', content: 'old result' },
-            { role: 'user', content: 'new request' },
-        ]);
-        expect(await response.text()).toContain('tool_calls');
+        const response = await request(
+            fixture,
+            [
+                { role: 'user', content: 'old request' },
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [
+                        {
+                            id: 'old-call',
+                            type: 'function',
+                            function: { name: 'builtin__setting', arguments: '{}' },
+                        },
+                    ],
+                },
+                { role: 'tool', tool_call_id: 'old-call', content: 'old result' },
+                { role: 'user', content: 'new request' },
+            ],
+            { tools: [settingTool] }
+        );
+        const body = await response.text();
+        const deltas = streamedFrames(body);
+        expect(
+            deltas.flatMap((delta) => delta.tool_calls ?? []).map((call) => call.function?.name)
+        ).toContain('builtin__setting');
+        expect(streamedFinishReasons(body)).toContain('tool_calls');
     });
     it('user sees an explicit fixture failure when an unexpected model request arrives', async () => {
         const fixture = await provider();
         const response = await request(fixture, [{ role: 'user', content: 'unregistered' }]);
-        expect(response.status).toBe(500);
-        expect(fixture.errors).toHaveLength(1);
+        expect(response.status).toBe(400);
+        await expect(fixture.assertHealthy()).rejects.toThrow(
+            'The model service answered an unscripted request'
+        );
     });
 });
 

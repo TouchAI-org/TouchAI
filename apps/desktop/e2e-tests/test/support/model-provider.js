@@ -1,119 +1,180 @@
-import { createServer } from 'node:http';
+/**
+ * The model service the production agent talks to during E2E.
+ *
+ * `emulate` serves OpenAI-compatible Chat Completions from a local process, so
+ * the desktop app keeps its real HTTP, SSE and tool-call path while the reply is
+ * scripted. A rule that stops matching makes the service answer 400 instead of
+ * echoing, so a fixture that drifted from the prompts fails the test.
+ *
+ * Two providers in the seeded database point at the same service under different
+ * path prefixes, which keeps connection isolation observable in each call.
+ */
+import { createEmulator } from 'emulate';
 
-/** A real HTTP boundary; only the remote model is scripted. */
+export function messageText(message) {
+    return (message?.parts ?? [])
+        .filter((part) => part.type === 'text')
+        .map((part) => part.text)
+        .join('');
+}
+
+/** The latest prompt in a recorded call, independent of earlier history. */
+export function latestUserText(call) {
+    return messageText(call.messages.findLast((message) => message.role === 'user'));
+}
+
+/** Tool results the app sent back after the latest prompt. */
+export function toolResultsAfterLatestPrompt(call) {
+    const promptIndex = call.messages.findLastIndex((message) => message.role === 'user');
+    return call.messages
+        .slice(promptIndex + 1)
+        .filter((message) => message.role === 'tool')
+        .flatMap((message) => message.parts.filter((part) => part.type === 'tool_result'));
+}
+
 export async function createModelProvider() {
-    const handlers = new Map();
-    const requests = [];
-    const pending = new Set();
+    const emulator = await createEmulator({
+        service: 'ai',
+        port: 0,
+        seed: { ai: { strict: true } },
+    });
+    const origin = `http://127.0.0.1:${new URL(emulator.url).port}`;
+    const rules = [];
     const errors = [];
-    const server = createServer(async (request, response) => {
-        try {
-            if (request.method !== 'POST' || !request.url?.endsWith('/chat/completions')) {
-                response.writeHead(404).end();
-                return;
-            }
-            let input = '';
-            for await (const chunk of request) {
-                input += chunk;
-                if (input.length > 2_000_000) throw new Error('Model fixture request too large');
-            }
-            const body = JSON.parse(input);
-            const prompt = [...(body.messages ?? [])]
-                .reverse()
-                .find((message) => message.role === 'user')?.content;
-            const entry = { body, authorization: request.headers.authorization, path: request.url };
-            requests.push(entry);
-            if (requests.length > 100) throw new Error('Unexpected model request loop');
-            const handler = handlers.get(prompt);
-            if (!handler) {
-                throw new Error(
-                    `No model response registered for prompt ${JSON.stringify(prompt)}`
-                );
-            }
-            let begun = false;
-            const delta = (value, reason = null) => {
-                if (!begun) {
-                    response.writeHead(200, { 'Content-Type': 'text/event-stream' });
-                    begun = true;
-                }
-                response.write(
-                    `data: ${JSON.stringify({
-                        id: 'touchai-e2e-response',
-                        object: 'chat.completion.chunk',
-                        created: 1,
-                        model: body.model,
-                        choices: [{ index: 0, delta: value, finish_reason: reason }],
-                    })}\n\n`
-                );
-            };
-            const end = (reason = 'stop') => {
-                delta({}, reason);
-                response.end('data: [DONE]\n\n');
-                pending.delete(response);
-            };
-            pending.add(response);
-            response.on('close', () => pending.delete(response));
-            await handler({
-                ...entry,
-                respond: {
-                    delta,
-                    end,
-                    text(text) {
-                        delta({ role: 'assistant', content: text });
-                        end();
-                    },
-                    tool({ name, args, id = 'e2e-tool-call' }) {
-                        delta({
-                            role: 'assistant',
-                            tool_calls: [
-                                {
-                                    index: 0,
-                                    id,
-                                    type: 'function',
-                                    function: { name, arguments: JSON.stringify(args) },
-                                },
-                            ],
-                        });
-                        end('tool_calls');
-                    },
-                    fail(status, message) {
-                        response.writeHead(status, { 'Content-Type': 'application/json' });
-                        response.end(JSON.stringify({ error: { message, type: 'fixture_error' } }));
-                        pending.delete(response);
-                    },
-                },
-            });
-        } catch (error) {
-            errors.push(error);
-            if (!response.headersSent) response.writeHead(500);
-            response.end('Unexpected fixture request');
+    let ruleSequence = 0;
+
+    async function control(path, method, body) {
+        const response = await fetch(`${origin}${path}`, {
+            method,
+            ...(body === undefined
+                ? {}
+                : {
+                      headers: { 'content-type': 'application/json' },
+                      body: JSON.stringify(body),
+                  }),
+        });
+
+        if (!response.ok) {
+            throw new Error(
+                `${method} ${path} failed: ${response.status} ${await response.text()}`
+            );
         }
-    });
-    await new Promise((resolve, reject) => {
-        server.once('error', reject);
-        server.listen(0, '127.0.0.1', resolve);
-    });
-    return {
-        baseUrl: `http://127.0.0.1:${server.address().port}/v1`,
-        requests,
-        errors,
-        when(prompt, handler) {
-            handlers.set(prompt, handler);
+
+        return response;
+    }
+
+    async function applyRules() {
+        await control('/_ai/rules', 'PUT', { rules, strict: true });
+    }
+
+    async function calls() {
+        const response = await control('/_ai/calls', 'GET');
+        return response.json();
+    }
+
+    function nextRuleId(label) {
+        ruleSequence += 1;
+        return `${label}-${ruleSequence}`;
+    }
+
+    const provider = {
+        /** Root address; the seeded providers append `/alpha` or `/beta`. */
+        baseUrl: `${origin}/v1`,
+
+        /**
+         * Script one prompt. A tool request is followed by the same answer once a
+         * tool result arrives, which is the shape the agent loop produces. Prompts
+         * must be unique and must not be substrings of one another: matching is
+         * `textContains` and the first matching rule wins.
+         */
+        async respond(prompt, { tool, answer, timing } = {}) {
+            try {
+                if (tool) {
+                    rules.push({
+                        id: nextRuleId('tool'),
+                        match: {
+                            textContains: prompt,
+                            tool: tool.name,
+                        },
+                        // A prompt's tool request happens once; the next request for
+                        // the same prompt is the continuation that carries its result.
+                        // `hasToolResult` cannot separate them: it counts results since
+                        // the last assistant message, which includes an earlier turn's
+                        // pending result after a failed save.
+                        times: 1,
+                        reply: [
+                            {
+                                type: 'tool_call',
+                                name: tool.name,
+                                arguments: tool.args,
+                                ...(tool.id ? { id: tool.id } : {}),
+                            },
+                        ],
+                    });
+                }
+                rules.push({
+                    id: nextRuleId('answer'),
+                    match: { textContains: prompt },
+                    reply: [{ type: 'text', text: answer }],
+                    ...(timing ? { timing } : {}),
+                });
+                await applyRules();
+            } catch (error) {
+                errors.push(error);
+                throw error;
+            }
         },
-        respond(prompt, { tool, answer }) {
-            handlers.set(prompt, ({ body, respond }) => {
-                const lastUser = body.messages.findLastIndex((message) => message.role === 'user');
-                const hasResult = body.messages
-                    .slice(lastUser + 1)
-                    .some((message) => message.role === 'tool');
-                if (tool && !hasResult) respond.tool(tool);
-                else respond.text(answer);
-            });
+
+        /** Append rules the convenience method cannot express, such as a one-time failure. */
+        async script(entries) {
+            try {
+                for (const entry of entries) {
+                    rules.push({ ...entry, id: nextRuleId(entry.id ?? 'rule') });
+                }
+                await applyRules();
+            } catch (error) {
+                errors.push(error);
+                throw error;
+            }
         },
+
+        calls,
+
+        async callsFor(prompt) {
+            const recorded = await calls();
+            return recorded.filter((call) => latestUserText(call) === prompt);
+        },
+
+        /** Every scripted request must have matched a rule. */
+        async assertHealthy() {
+            if (errors.length) {
+                throw new AggregateError(errors, 'The model service received an invalid rule set');
+            }
+
+            const recorded = await calls();
+            const unexpected = recorded.filter(
+                (call) => call.matched === null || call.matched === undefined
+            );
+
+            if (unexpected.length) {
+                throw new AggregateError(
+                    unexpected.map(
+                        (call) =>
+                            new Error(
+                                `Model request ${call.seq} on ${call.path} answered ${call.status} for ${JSON.stringify(
+                                    latestUserText(call)
+                                )}`
+                            )
+                    ),
+                    'The model service answered an unscripted request'
+                );
+            }
+        },
+
         async close() {
-            for (const response of pending) response.destroy();
-            server.closeAllConnections();
-            await new Promise((resolve) => server.close(resolve));
+            await emulator.close();
         },
     };
+
+    return provider;
 }
