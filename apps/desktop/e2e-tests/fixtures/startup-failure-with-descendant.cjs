@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 const { spawn } = require('node:child_process');
 const path = require('node:path');
 
@@ -7,9 +8,9 @@ if (!root) {
     process.exit(2);
 }
 
-const descendant = spawn(
+const intermediate = spawn(
     process.execPath,
-    [path.join(__dirname, 'startup-failure-descendant.cjs')],
+    [path.join(__dirname, 'startup-failure-intermediate.cjs')],
     {
         env: {
             ...process.env,
@@ -20,12 +21,20 @@ const descendant = spawn(
     }
 );
 
-descendant.once('error', (error) => {
-    console.error(`Could not start descendant: ${error}`);
+let ready = false;
+intermediate.once('error', (error) => {
+    console.error(`Could not start intermediate: ${error}`);
     process.exit(3);
 });
 
-descendant.once('message', (message) => {
-    if (message !== 'ready') return;
+intermediate.once('message', (message) => {
+    if (message === 'ready') ready = true;
+});
+
+intermediate.once('exit', (code) => {
+    if (code !== 23 || !ready) {
+        console.error(`Intermediate exited unexpectedly: code=${code} ready=${ready}`);
+        process.exit(3);
+    }
     process.stdout.write('parent shutting down with a live descendant\n', () => process.exit(17));
 });

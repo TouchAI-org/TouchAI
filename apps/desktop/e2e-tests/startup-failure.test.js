@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
-import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { withE2eWebView2Env } from './webview2-env.js';
+import { compileWindowsExecutable, withE2eWebView2Env } from './webview2-env.js';
 
 const STARTUP_TIMEOUT_MS = 15000;
 const OUTPUT_CLOSE_TIMEOUT_MS = 2000;
@@ -18,6 +18,21 @@ const descendantFixture = path.join(
     'fixtures',
     'startup-failure-with-descendant.cjs'
 );
+const jobLauncherSource = path.join(testDirectory, 'fixtures', 'windows-job-launcher.cs');
+let jobLauncherPath;
+let jobLauncherRoot;
+
+after(async () => {
+    if (jobLauncherRoot) await removeRoot(jobLauncherRoot);
+});
+
+function resolveJobLauncher() {
+    if (jobLauncherPath) return jobLauncherPath;
+    jobLauncherRoot = mkdtempSync(path.join(os.tmpdir(), 'touchai-startup-job-'));
+    const outputPath = path.join(jobLauncherRoot, 'touchai-startup-job-launcher.exe');
+    jobLauncherPath = compileWindowsExecutable(jobLauncherSource, outputPath);
+    return jobLauncherPath;
+}
 
 function delay(milliseconds) {
     return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -31,11 +46,14 @@ async function removeRoot(root) {
         } catch (error) {
             const retryable = error?.code === 'EBUSY' || error?.code === 'EPERM';
             if (!retryable) {
-                throw new Error(`Could not remove startup test root ${root}: ${error}`);
+                throw new Error(`Could not remove startup test root ${root}: ${error}`, {
+                    cause: error,
+                });
             }
             if (attempt === CLEANUP_RETRY_COUNT) {
                 throw new Error(
-                    `Could not remove startup test root ${root} after ${CLEANUP_RETRY_COUNT} attempts: ${error}`
+                    `Could not remove startup test root ${root} after ${CLEANUP_RETRY_COUNT} attempts: ${error}`,
+                    { cause: error }
                 );
             }
             await delay(CLEANUP_RETRY_DELAY_MS);
@@ -43,66 +61,15 @@ async function removeRoot(root) {
     }
 }
 
-function listWindowsDescendantPids(rootPid) {
-    const result = spawnSync(
-        'powershell.exe',
-        [
-            '-NoProfile',
-            '-NonInteractive',
-            '-Command',
-            'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId),$($_.ParentProcessId)" }',
-        ],
-        {
-            encoding: 'utf8',
-            timeout: 5000,
-            windowsHide: true,
-        }
-    );
-    if (result.status !== 0 || !result.stdout) return [];
-
-    const childrenByParent = new Map();
-    for (const line of result.stdout.split(/\r?\n/)) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        const [processId, parentProcessId] = trimmed.split(',').map((value) => Number(value));
-        if (!Number.isInteger(processId) || !Number.isInteger(parentProcessId)) continue;
-        const children = childrenByParent.get(parentProcessId) ?? [];
-        children.push(processId);
-        childrenByParent.set(parentProcessId, children);
-    }
-
-    const descendants = [];
-    const pending = [...(childrenByParent.get(rootPid) ?? [])];
-    while (pending.length > 0) {
-        const processId = pending.shift();
-        descendants.push(processId);
-        pending.push(...(childrenByParent.get(processId) ?? []));
-    }
-    return descendants;
-}
-
-function killWindowsPid(processId) {
-    spawnSync('taskkill', ['/pid', String(processId), '/T', '/F'], {
-        stdio: 'ignore',
-        timeout: 5000,
-        windowsHide: true,
-    });
-}
-
 async function killProcessTree(child) {
     const rootPid = child.pid;
     if (!rootPid) return;
 
     if (process.platform === 'win32') {
-        for (let attempt = 0; attempt < 2; attempt += 1) {
-            if (child.exitCode === null && child.signalCode === null) {
-                killWindowsPid(rootPid);
-            }
-            for (const processId of listWindowsDescendantPids(rootPid)) {
-                killWindowsPid(processId);
-            }
-            if (attempt === 0) await delay(100);
+        if (child.exitCode === null && child.signalCode === null) {
+            child.kill('SIGKILL');
         }
+        await delay(100);
         return;
     }
 
@@ -126,7 +93,7 @@ function waitForOutputToClose(child) {
         return Promise.resolve();
     }
 
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
         let remaining = streams.length;
         let settled = false;
         const finish = () => {
@@ -135,11 +102,19 @@ function waitForOutputToClose(child) {
             clearTimeout(timeout);
             resolve();
         };
+        const timeout = setTimeout(() => {
+            if (settled) return;
+            settled = true;
+            reject(
+                new Error(
+                    `Child output streams remained open for ${OUTPUT_CLOSE_TIMEOUT_MS}ms after cleanup`
+                )
+            );
+        }, OUTPUT_CLOSE_TIMEOUT_MS);
         const finishOne = () => {
             remaining -= 1;
             if (remaining === 0) finish();
         };
-        const timeout = setTimeout(finish, OUTPUT_CLOSE_TIMEOUT_MS);
 
         for (const stream of streams) {
             if (stream.closed || stream.destroyed) {
@@ -153,7 +128,9 @@ function waitForOutputToClose(child) {
 
 function runStartupFailure(binary, root, args = []) {
     return new Promise((resolve) => {
-        const child = spawn(binary, args, {
+        const launcher = process.platform === 'win32' ? resolveJobLauncher() : binary;
+        const launcherArgs = process.platform === 'win32' ? [binary, ...args] : args;
+        const child = spawn(launcher, launcherArgs, {
             env: withE2eWebView2Env(
                 {
                     ...process.env,
@@ -196,8 +173,12 @@ function runStartupFailure(binary, root, args = []) {
             if (settling || settled) return;
             settling = true;
             clearTimeout(timeout);
-            await killProcessTree(child);
-            await waitForOutputToClose(child);
+            try {
+                await killProcessTree(child);
+                await waitForOutputToClose(child);
+            } catch (error) {
+                spawnError ??= error;
+            }
             finish(status, signal);
         }
 
@@ -232,9 +213,19 @@ test('user gets control back and cleanup succeeds when a failed parent leaves a 
     assert.equal(result.timedOut, false, diagnostics);
     assert.equal(result.signal, null, diagnostics);
     assert.equal(result.status, 17, diagnostics);
+    assert.match(diagnostics, /intermediate exiting before its descendant/);
     assert.match(diagnostics, /parent shutting down with a live descendant/);
     assert.match(diagnostics, /descendant is holding stdout and stderr/);
-    assert.match(diagnostics, /descendant is holding a locked profile file/);
+    assert.match(diagnostics, /descendant is holding a profile file/);
+
+    const descendantPid = Number(readFileSync(path.join(root, 'descendant.pid'), 'utf8'));
+    assert.ok(Number.isInteger(descendantPid) && descendantPid > 0);
+    await delay(100);
+    assert.throws(
+        () => process.kill(descendantPid, 0),
+        (error) => error?.code === 'ESRCH',
+        'the descendant process must be gone before the harness reports success'
+    );
 
     await removeRoot(root);
     assert.equal(existsSync(root), false, 'the test root must be removable after cleanup');
