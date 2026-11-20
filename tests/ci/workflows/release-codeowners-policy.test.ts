@@ -18,6 +18,10 @@ function codeownerEntries(codeowners: string) {
         .filter((line) => line.length > 0 && !line.startsWith('#'))
         .map((line) => {
             const [pattern = '', ...owners] = line.split(/\s+/);
+            // This repository uses rooted literal paths; reject syntax we cannot evaluate.
+            if (!/^\/[\w./-]+$/.test(pattern)) {
+                throw new Error(`Unsupported CODEOWNERS pattern: ${pattern}`);
+            }
 
             return { pattern, owners };
         });
@@ -51,6 +55,35 @@ function ownedByMaintainer(codeowners: string, path: string) {
 }
 
 describe('release CODEOWNERS policy', () => {
+    it.each(['/tooling/architecture/*.json', '/tooling/**', '*.json'])(
+        'user gets an explicit policy failure instead of stale ownership when a later rule uses %s',
+        (pattern) => {
+            const policy = `/tooling/architecture/ @hiqiancheng\n${pattern} @other\n`;
+            expect(() =>
+                ownersForPath(policy, 'tooling/architecture/db-artifacts-baseline.json')
+            ).toThrow('Unsupported CODEOWNERS pattern');
+        }
+    );
+
+    it('user gets maintainer review when changing an architecture owner or its enforcement policy', async () => {
+        const codeowners = await readCodeowners();
+        const paths = [
+            'packages/agent-core/src/execution/step.ts',
+            'packages/models/src/providers/openai.ts',
+            'apps/desktop/src/app/composition/main.ts',
+            'apps/desktop/src/modules/settings/owner.ts',
+            'apps/desktop/src/platform/native/invoke.ts',
+            'apps/desktop/src/database/schema.ts',
+            'apps/desktop/src-tauri/src/commands/mod.rs',
+            'apps/desktop/src-tauri/src/core/database/mod.rs',
+            'tooling/architecture/db-artifacts-baseline.json',
+            'tooling/architecture/check.mjs',
+            'eslint.config.js',
+            'docs/agents/architecture.md',
+        ];
+        expect(paths.filter((path) => !ownedByMaintainer(codeowners, path))).toEqual([]);
+    });
+
     it('leaves Release Please generated version files outside the code owner gate', async () => {
         const codeowners = await readCodeowners();
 

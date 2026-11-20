@@ -1,10 +1,22 @@
+import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import { isBuiltin } from 'node:module';
+import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
-import { buildModuleGraph } from './module-graph.mjs';
+import * as tseslint from 'typescript-eslint';
+import * as vueParser from 'vue-eslint-parser';
+
+import {
+    buildModuleGraph,
+    importMetaGlobForm,
+    listSourceFiles,
+    literalGlobPatterns,
+} from './module-graph.mjs';
+import { createModuleResolver } from './module-resolver.mjs';
 
 const PROJECT_ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const PACKAGES = new Set(['agent-core', 'models']);
@@ -99,6 +111,7 @@ function sourceRole(id) {
     if (id.startsWith('apps/site/src/')) return { kind: 'site', path: id };
     if (!id.startsWith(DESKTOP)) return { kind: 'tooling', path: id };
     const relative = id.slice(DESKTOP.length);
+    if (relative.endsWith('.vue')) return { kind: 'ui', path: relative };
     const module = /^modules\/([^/]+)\/(.*)$/.exec(relative);
     if (module)
         return {
@@ -111,7 +124,7 @@ function sourceRole(id) {
     if (relative === 'main.ts') return { kind: 'bootstrap', path: relative };
     if (area === 'i18n' || relative === 'vite-env.d.ts')
         return { kind: 'presentation-support', path: relative };
-    if (PRESENTATION.has(area) || relative === 'App.vue') return { kind: 'ui', path: relative };
+    if (PRESENTATION.has(area)) return { kind: 'ui', path: relative };
     if (relative.startsWith('app/api/')) return { kind: 'api', path: relative };
     if (relative.startsWith('app/composition/')) return { kind: 'composition', path: relative };
     if (relative.startsWith('app/workflows/')) return { kind: 'workflow', path: relative };
@@ -333,6 +346,437 @@ function inspectDependency(origin, target, node, neutralDependencyRoles) {
     return null;
 }
 
+// The log plugin registers its handler outside our generate_handler! list.
+const PLUGIN_COMMANDS = {
+    'plugin:log|log': `${DESKTOP}platform/native/log.ts`,
+};
+const NATIVE_ADAPTER_DIR = `${DESKTOP}platform/native`;
+const RUST_HANDLER_FILE = 'apps/desktop/src-tauri/src/commands/mod.rs';
+const CARGO_TOML_FILE = 'apps/desktop/src-tauri/Cargo.toml';
+const TAURI_API_PREFIX = '@tauri-apps/api';
+
+function walk(node, visitorKeys, visit) {
+    if (node === null || typeof node !== 'object' || typeof node.type !== 'string') return;
+    visit(node);
+    for (const key of visitorKeys[node.type] ?? []) {
+        const child = node[key];
+        if (Array.isArray(child)) {
+            for (const item of child) walk(item, visitorKeys, visit);
+        } else if (child !== null && typeof child === 'object') {
+            walk(child, visitorKeys, visit);
+        }
+    }
+}
+
+function rustRawStringEnd(source, start) {
+    let cursor = start;
+    if (source[cursor] === 'b' || source[cursor] === 'c') cursor += 1;
+    if (source[cursor] !== 'r') return null;
+    cursor += 1;
+    let hashes = 0;
+    while (source[cursor] === '#') {
+        hashes += 1;
+        cursor += 1;
+    }
+    if (source[cursor] !== '"') return null;
+    const closing = `"${'#'.repeat(hashes)}`;
+    const end = source.indexOf(closing, cursor + 1);
+    return end === -1 ? source.length : end + closing.length;
+}
+
+function rustQuotedEnd(source, start) {
+    let cursor = start + 1;
+    while (cursor < source.length) {
+        if (source[cursor] === '\\') {
+            cursor += 2;
+            continue;
+        }
+        if (source[cursor] === '"') return cursor + 1;
+        cursor += 1;
+    }
+    return source.length;
+}
+
+function rustCharEnd(source, start) {
+    let cursor = start + 1;
+    if (cursor >= source.length) return null;
+    if (source[cursor] === '\\') {
+        cursor += 2;
+    } else {
+        cursor += 1;
+    }
+    return source[cursor] === "'" ? cursor + 1 : null;
+}
+
+function rustCode(source) {
+    let output = '';
+    let index = 0;
+    while (index < source.length) {
+        if (source.startsWith('//', index)) {
+            while (index < source.length && source[index] !== '\n') index += 1;
+            continue;
+        }
+        if (source.startsWith('/*', index)) {
+            let depth = 1;
+            index += 2;
+            while (index < source.length && depth > 0) {
+                if (source.startsWith('/*', index)) {
+                    depth += 1;
+                    index += 2;
+                } else if (source.startsWith('*/', index)) {
+                    depth -= 1;
+                    index += 2;
+                } else index += 1;
+            }
+            output += ' ';
+            continue;
+        }
+        const literalEnd =
+            rustRawStringEnd(source, index) ??
+            (source[index] === '"'
+                ? rustQuotedEnd(source, index)
+                : source[index] === "'"
+                  ? rustCharEnd(source, index)
+                  : null);
+        if (literalEnd !== null) {
+            // Keep a token so a literal inside the handler list is rejected, not erased.
+            output += '?';
+            index = literalEnd;
+        } else output += source[index++];
+    }
+    return output;
+}
+
+function readRustCommands(projectRoot) {
+    const source = rustCode(fs.readFileSync(path.join(projectRoot, RUST_HANDLER_FILE), 'utf8'));
+    const body = /\bgenerate_handler\s*!\s*\[([^\]]*)\]/u.exec(source)?.[1];
+    if (body === undefined)
+        throw new Error(`Cannot read generate_handler! in ${RUST_HANDLER_FILE}`);
+    const commands = new Set();
+    for (const entry of body
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean)) {
+        if (
+            !/^(?:r#)?[A-Za-z_][A-Za-z0-9_]*(?:\s*::\s*(?:r#)?[A-Za-z_][A-Za-z0-9_]*)*$/u.test(
+                entry
+            )
+        )
+            throw new Error(`Unsupported generate_handler entry: '${entry}'`);
+        commands.add(entry.split('::').at(-1).trim().replace(/^r#/u, ''));
+    }
+    return commands;
+}
+
+function collectNativeInvokes(projectRoot) {
+    const dir = path.join(projectRoot, NATIVE_ADAPTER_DIR);
+    if (!fs.existsSync(dir) || listSourceFiles(dir).length === 0)
+        throw new Error(`Native adapter root is missing or empty: ${dir}`);
+    const bridgeFile = path.join(dir, 'invoke.ts');
+    if (!fs.existsSync(bridgeFile)) throw new Error(`Native bridge is missing: ${bridgeFile}`);
+    const srcRoot = path.join(projectRoot, 'apps/desktop/src');
+    const resolver = createModuleResolver(projectRoot, { srcRoot });
+    const invokes = [];
+    const dynamic = [];
+
+    for (const file of listSourceFiles(srcRoot)) {
+        const relativeFile = path.relative(projectRoot, file).split(path.sep).join('/');
+        const source = fs.readFileSync(file, 'utf8');
+        const options = { filePath: file, ecmaVersion: 2022, sourceType: 'module' };
+        const parsed = file.endsWith('.vue')
+            ? vueParser.parseForESLint(source, { ...options, parser: tseslint.parser })
+            : tseslint.parser.parseForESLint(source, options);
+        const isBridge = (specifier) => resolver.resolve(specifier, file).absolute === bridgeFile;
+        const imports = new Map();
+        const parents = new Map();
+        const unresolved = new Set();
+        walk(parsed.ast, parsed.visitorKeys ?? {}, (node) => {
+            for (const key of parsed.visitorKeys?.[node.type] ?? []) {
+                for (const child of Array.isArray(node[key]) ? node[key] : [node[key]]) {
+                    if (child && typeof child === 'object') parents.set(child, node);
+                }
+            }
+            if (node.type !== 'ImportDeclaration' || node.importKind === 'type') return;
+            const specifier = node.source.value;
+            if (specifier !== `${TAURI_API_PREFIX}/core` && !isBridge(specifier)) return;
+            for (const binding of node.specifiers) {
+                if (binding.importKind === 'type') continue;
+                if (binding.type === 'ImportNamespaceSpecifier') imports.set(binding, 'namespace');
+                else if ((binding.imported?.name ?? binding.imported?.value) === 'invoke')
+                    imports.set(binding, 'invoke');
+            }
+        });
+        // ESLint's scope graph distinguishes imported capabilities from shadowed parameters.
+        for (const scope of parsed.scopeManager.scopes) {
+            for (const variable of scope.variables) {
+                const kind = imports.get(variable.defs[0]?.node);
+                if (!kind) continue;
+                for (const reference of variable.references) {
+                    if (!reference.isValueReference) continue;
+                    const identifier = reference.identifier;
+                    let usage = parents.get(identifier);
+                    while (usage?.type === 'TSQualifiedName') usage = parents.get(usage);
+                    // A type query resolves a value symbol but never executes it.
+                    if (usage?.type === 'TSTypeQuery') continue;
+                    let callee = identifier;
+                    if (kind === 'namespace') {
+                        callee = parents.get(identifier);
+                        if (
+                            callee?.type !== 'MemberExpression' ||
+                            (callee.computed ? callee.property?.value : callee.property?.name) !==
+                                'invoke'
+                        ) {
+                            unresolved.add(identifier);
+                            continue;
+                        }
+                    }
+                    const call = parents.get(callee);
+                    if (call?.type !== 'CallExpression' || call.callee !== callee) {
+                        unresolved.add(identifier);
+                        continue;
+                    }
+                    const argument = call.arguments[0];
+                    const command =
+                        argument?.type === 'Literal' && typeof argument.value === 'string'
+                            ? argument.value
+                            : argument?.type === 'TemplateLiteral' &&
+                                argument.expressions.length === 0
+                              ? argument.quasis[0]?.value.cooked
+                              : null;
+                    if (typeof command === 'string')
+                        invokes.push({
+                            command,
+                            file: relativeFile,
+                            line: argument.loc.start.line,
+                        });
+                    else if (file !== bridgeFile) unresolved.add(call);
+                }
+            }
+        }
+        walk(parsed.ast, parsed.visitorKeys ?? {}, (node) => {
+            // Reexports and dynamic imports must not conceal an uninspected bridge caller.
+            if (importMetaGlobForm(node) !== null) {
+                const patterns = literalGlobPatterns(node.arguments?.[0]);
+                if (
+                    patterns === null ||
+                    patterns.some((pattern) =>
+                        resolver.expandGlob(pattern, file).includes(bridgeFile)
+                    )
+                )
+                    unresolved.add(node);
+                return;
+            }
+            const forwardsInvoke =
+                node.type === 'ExportNamedDeclaration' &&
+                node.exportKind !== 'type' &&
+                node.specifiers.some(
+                    (binding) =>
+                        binding.exportKind !== 'type' &&
+                        (binding.local?.name ?? binding.local?.value) === 'invoke'
+                );
+            const indirectImport =
+                node.type === 'CallExpression' &&
+                node.callee?.type === 'Identifier' &&
+                node.callee.name === 'require'
+                    ? node.arguments?.[0]
+                    : node.type === 'TSImportEqualsDeclaration' &&
+                        node.importKind !== 'type' &&
+                        node.moduleReference?.type === 'TSExternalModuleReference'
+                      ? node.moduleReference.expression
+                      : null;
+            if (
+                forwardsInvoke ||
+                node.type === 'ImportExpression' ||
+                indirectImport ||
+                (node.type === 'ExportAllDeclaration' && node.exportKind !== 'type')
+            ) {
+                const specifiers = literalGlobPatterns(indirectImport ?? node.source);
+                if (
+                    specifiers?.some(
+                        (specifier) =>
+                            specifier === `${TAURI_API_PREFIX}/core` || isBridge(specifier)
+                    )
+                )
+                    unresolved.add(node);
+            }
+        });
+        for (const node of unresolved)
+            dynamic.push({ file: relativeFile, line: node.loc?.start?.line ?? 0 });
+    }
+    invokes.sort(
+        (a, b) =>
+            a.command.localeCompare(b.command) || a.file.localeCompare(b.file) || a.line - b.line
+    );
+    return {
+        invokes,
+        dynamic: dynamic.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line),
+    };
+}
+
+function checkNativeCommands(projectRoot, report) {
+    const commands = readRustCommands(projectRoot);
+    const cargo = fs.readFileSync(path.join(projectRoot, CARGO_TOML_FILE), 'utf8');
+    const plugins = new Set(
+        [...cargo.matchAll(/^\s*tauri-plugin-([a-z0-9-]+)\s*=/gm)].map((match) => match[1])
+    );
+    const { invokes, dynamic } = collectNativeInvokes(projectRoot);
+    if (invokes.length + dynamic.length === 0) throw new Error('No native calls found to inspect');
+    for (const invoke of invokes) {
+        const plugin = /^plugin:([^|]+)\|/u.exec(invoke.command)?.[1];
+        const allowed = plugin
+            ? plugins.has(plugin) && PLUGIN_COMMANDS[invoke.command] === invoke.file
+            : commands.has(invoke.command);
+        if (!allowed)
+            report(
+                'ipc-command',
+                invoke.file,
+                invoke.command,
+                invoke,
+                [],
+                plugin
+                    ? 'plugin command is not granted to this caller and Cargo dependency'
+                    : 'no registered Rust handler'
+            );
+    }
+    for (const invoke of dynamic)
+        report(
+            'ipc-command',
+            invoke.file,
+            '<dynamic>',
+            invoke,
+            [],
+            'invoke command or indirect bridge use cannot be resolved statically'
+        );
+    for (const [command, file] of Object.entries(PLUGIN_COMMANDS)) {
+        if (!invokes.some((invoke) => invoke.command === command && invoke.file === file))
+            report(
+                'ipc-plugin',
+                file,
+                command,
+                null,
+                [],
+                'reviewed adapter does not call this plugin command'
+            );
+    }
+}
+
+function hashDirectory(directory) {
+    return Object.fromEntries(
+        fs
+            .readdirSync(directory, { recursive: true, withFileTypes: true })
+            .filter((entry) => entry.isFile())
+            .map((entry) => {
+                const file = path.join(entry.parentPath, entry.name);
+                return [
+                    path.relative(directory, file).split(path.sep).join('/'),
+                    createHash('sha256').update(fs.readFileSync(file)).digest('hex'),
+                ];
+            })
+    );
+}
+
+function artifactChanges(current, baseline) {
+    return [...new Set([...Object.keys(current), ...Object.keys(baseline)])]
+        .sort()
+        .filter((file) => current[file] !== baseline[file])
+        .map((file) => ({
+            file,
+            change: !(file in baseline) ? 'added' : !(file in current) ? 'removed' : 'changed',
+        }));
+}
+
+function checkDatabase(projectRoot, report) {
+    const baseline = JSON.parse(
+        fs.readFileSync(
+            path.join(projectRoot, 'tooling/architecture/db-artifacts-baseline.json'),
+            'utf8'
+        )
+    );
+    if (
+        !baseline ||
+        Array.isArray(baseline) ||
+        typeof baseline !== 'object' ||
+        Object.keys(baseline).length === 0 ||
+        Object.values(baseline).some(
+            (hash) => typeof hash !== 'string' || !/^[a-f0-9]{64}$/.test(hash)
+        )
+    )
+        throw new Error('Database artifact baseline must contain SHA-256 hashes');
+    const current = {};
+    for (const directory of ['drizzle', 'artifacts']) {
+        const relative = `${DESKTOP}database/${directory}`;
+        const absolute = path.join(projectRoot, relative);
+        if (!fs.existsSync(absolute))
+            throw new Error(`Artifact root is missing or empty: ${relative}`);
+        const hashes = hashDirectory(absolute);
+        if (Object.keys(hashes).length === 0)
+            throw new Error(`Artifact root is missing or empty: ${relative}`);
+        for (const [file, hash] of Object.entries(hashes)) current[`${relative}/${file}`] = hash;
+    }
+    const changes = artifactChanges(current, baseline);
+    for (const { file, change } of changes)
+        report('database-artifact', file, null, null, [], `${change} from the approved baseline`);
+    if (changes.length > 0) return;
+
+    // Generation must never write into the checkout or refresh the approved baseline.
+    const work = fs.mkdtempSync(path.join(os.tmpdir(), 'touchai-db-generate-'));
+    const schema = `${DESKTOP}database/schema.ts`;
+    try {
+        fs.copyFileSync(path.join(projectRoot, schema), path.join(work, 'schema.ts'));
+        const output = path.join(work, 'out');
+        fs.cpSync(path.join(projectRoot, `${DESKTOP}database/drizzle`), output, {
+            recursive: true,
+        });
+        const nodeModules = path.join(projectRoot, 'apps/desktop/node_modules');
+        fs.symlinkSync(
+            nodeModules,
+            path.join(work, 'node_modules'),
+            process.platform === 'win32' ? 'junction' : 'dir'
+        );
+        fs.writeFileSync(
+            path.join(work, 'drizzle.config.ts'),
+            "import { defineConfig } from 'drizzle-kit';\nexport default defineConfig({ schema: './schema.ts', out: './out', dialect: 'sqlite' });\n"
+        );
+        const before = hashDirectory(output);
+        const result = spawnSync(
+            process.execPath,
+            [
+                path.join(nodeModules, 'drizzle-kit/bin.cjs'),
+                'generate',
+                '--config',
+                path.join(work, 'drizzle.config.ts'),
+            ],
+            { cwd: work, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }
+        );
+        // Drizzle also exits 0 after rejected prompts or unsupported snapshots.
+        const completed =
+            result.stdout?.includes('No schema changes, nothing to migrate') ||
+            result.stdout?.includes('Your SQL migration file');
+        if (result.error || result.status !== 0 || !completed) {
+            report(
+                'database-generation',
+                schema,
+                null,
+                null,
+                [],
+                `drizzle-kit did not complete (exit ${result.status}, signal ${result.signal}).\n${[result.error?.message, result.stdout, result.stderr].filter(Boolean).join('\n')}`
+            );
+            return;
+        }
+        for (const { file, change } of artifactChanges(hashDirectory(output), before))
+            report(
+                'database-generation',
+                schema,
+                file,
+                null,
+                [],
+                `generation ${change} a migration artifact`
+            );
+    } finally {
+        fs.rmSync(work, { recursive: true, force: true });
+    }
+}
+
 function runtimeCycles(graph) {
     let serial = 0;
     const indexes = new Map();
@@ -420,11 +864,11 @@ export function analyzeRepository({ projectRoot = PROJECT_ROOT } = {}) {
         }
         neutralDependencyRoles.set(pkg, neutralDependencies);
     }
-    const report = (code, from, to, edge, chain) => {
+    const report = (code, from, to, edge, chain, message) => {
         const key = `${code}|${from}|${to}|${edge?.line ?? 0}`;
         if (seen.has(key)) return;
         seen.add(key);
-        violations.push({ code, from, to, line: edge?.line ?? 0, chain });
+        violations.push({ code, from, to, line: edge?.line ?? 0, chain, message });
     };
 
     const packageDirectory = path.join(projectRoot, 'packages');
@@ -554,13 +998,23 @@ export function analyzeRepository({ projectRoot = PROJECT_ROOT } = {}) {
         roleCounts[role] = (roleCounts[role] ?? 0) + 1;
     }
 
+    const cycles = runtimeCycles(graph);
+    if (
+        !violations.length &&
+        !cycles.length &&
+        !graph.parseErrors.length &&
+        !graph.sourceErrors.length
+    ) {
+        checkNativeCommands(projectRoot, report);
+        if (!violations.length) checkDatabase(projectRoot, report);
+    }
     return {
         fileCount: graph.files.length,
         roleCounts,
         violations,
         parseErrors: graph.parseErrors,
         sourceErrors: graph.sourceErrors,
-        runtimeCycles: runtimeCycles(graph),
+        runtimeCycles: cycles,
     };
 }
 
@@ -588,7 +1042,7 @@ export function runCli(argv) {
         );
         for (const item of result.violations)
             process.stdout.write(
-                `[${item.code}] ${item.from}:${item.line}${item.to ? ` -> ${item.to}` : ''}\n`
+                `[${item.code}] ${item.from}:${item.line}${item.to ? ` -> ${item.to}` : ''}${item.message ? `: ${item.message}` : ''}\n`
             );
         for (const cycle of result.runtimeCycles)
             process.stdout.write(`[runtime-cycle] ${cycle.join(' -> ')}\n`);

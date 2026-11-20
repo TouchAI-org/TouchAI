@@ -14,6 +14,19 @@
 /apps/desktop/product.json @hiqiancheng
 /apps/desktop/scripts/ci/ @hiqiancheng
 
+# Business owners, native contracts, and the rules that enforce their boundaries.
+/packages/agent-core/ @hiqiancheng
+/packages/models/ @hiqiancheng
+/apps/desktop/src/app/ @hiqiancheng
+/apps/desktop/src/modules/ @hiqiancheng
+/apps/desktop/src/platform/ @hiqiancheng
+/apps/desktop/src/database/ @hiqiancheng
+/apps/desktop/src-tauri/src/commands/ @hiqiancheng
+/apps/desktop/src-tauri/src/core/ @hiqiancheng
+/tooling/architecture/ @hiqiancheng
+/eslint.config.js @hiqiancheng
+/docs/agents/architecture.md @hiqiancheng
+
 # Design system surfaces require maintainer review.
 # Token changes move every screen at once, and primitive changes move every call site.
 /apps/desktop/src/styles/ @hiqiancheng

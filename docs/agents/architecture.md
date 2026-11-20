@@ -25,7 +25,7 @@ views / components
 - UI, composables and stores use injected `app/api` capabilities; they cannot import modules, SQL, platform or composition directly.
 - `app/composition` assembles owners; `app/workflows` coordinates them. Modules never import sibling modules, including types. Pure domain code performs no I/O.
 - Main owns the sole Agent Core and settings host. Secondary windows are clients. Core uses Models contracts; neither package imports Desktop.
-- Native calls go through `platform/native/invoke.ts`. Run `pnpm check:architecture` to check dependency boundaries, public entries and runtime cycles.
+- Native calls go through `platform/native/invoke.ts`. Run `pnpm check:architecture` to check dependency boundaries, public entries, runtime cycles, registered IPC commands and database drift. Database generation runs in a temporary copy; updating its artifact baseline requires explicit approval for the database change.
 - The Rust runtime owns the SQLite pool, migrations, transactions, backup/import, and query execution. The frontend owns business orchestration through Drizzle. Do not add a second schema definition on the Rust side.
 
 Code lives in `apps/desktop/src/{views,components,composables,stores}/` for UI, `app/` for composition and workflows, `modules/` for business owners, `platform/` for native I/O, `database/` for data, and `apps/desktop/src-tauri/src/{commands,core}/` for native.
