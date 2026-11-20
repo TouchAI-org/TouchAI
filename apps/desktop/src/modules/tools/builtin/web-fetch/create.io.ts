@@ -49,7 +49,12 @@ export function createWebFetchTools(input: {
         request: WebFetchRequest,
         payload: ProviderFetchPayload
     ): string {
-        const normalized = normalizeStructuredText(payload.content, 'text/markdown', request.mode);
+        // Provider fields carry their own format; unannotated content is plain text.
+        const normalized = normalizeStructuredText(
+            payload.content,
+            payload.contentFormat ?? 'text/plain',
+            request.mode
+        );
         const content = normalized.slice(0, request.maxChars);
         return [
             tt('网页抓取'),

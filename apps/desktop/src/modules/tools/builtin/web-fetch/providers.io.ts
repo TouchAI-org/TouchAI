@@ -16,10 +16,17 @@ import type { createWebFetchOperations } from './operations';
 export const FETCH_CAPABLE_PROVIDERS = SEARCH_FETCH_PROVIDERS;
 export type FetchCapableProvider = SearchFetchProvider;
 
+export type ProviderFetchContentFormat = 'text/markdown' | 'text/plain';
+
 export interface ProviderFetchPayload {
     provider: FetchCapableProvider;
     title?: string;
     content: string;
+    /**
+     * Actual format of `content`. Unannotated fields stay plain text so Markdown
+     * parsing cannot discard characters such as the `*` in `2*3*4`.
+     */
+    contentFormat?: ProviderFetchContentFormat;
     finalUrl?: string;
     publishedAt?: string;
 }
@@ -103,6 +110,7 @@ export function createProviderFetches({
                 normalizeOptionalString(data.markdown) ??
                 normalizeOptionalString(payload.content) ??
                 '',
+            contentFormat: 'text/markdown',
         };
     }
 
@@ -128,6 +136,8 @@ export function createProviderFetches({
             provider: 'deepseek',
             title: normalizeOptionalString(payload.title),
             content: normalizeOptionalString(payload.content) ?? '',
+            // DeepSeek's fetch tool returns Markdown for model consumption.
+            contentFormat: 'text/markdown',
         };
     }
 
@@ -162,6 +172,8 @@ export function createProviderFetches({
             finalUrl: normalizeOptionalString(first.url),
             publishedAt: normalizeOptionalString(first.publishedDate),
             content: normalizeOptionalString(first.text) ?? '',
+            // Exa's `text` contents are extracted plain text, not Markdown.
+            contentFormat: 'text/plain',
         };
     }
 
@@ -192,6 +204,8 @@ export function createProviderFetches({
             title: normalizeOptionalString(first.title),
             finalUrl: normalizeOptionalString(first.url),
             content: normalizeOptionalString(first.raw_content) ?? '',
+            // Tavily extract returns raw_content in Markdown by default.
+            contentFormat: 'text/markdown',
         };
     }
 
@@ -225,6 +239,7 @@ export function createProviderFetches({
             finalUrl: normalizeOptionalString(metadata.sourceURL),
             publishedAt: normalizeOptionalString(metadata.publishedTime),
             content: normalizeOptionalString(data.markdown) ?? '',
+            contentFormat: 'text/markdown',
         };
     }
 
@@ -245,14 +260,14 @@ export function createProviderFetches({
         });
         await requireOk(response, 'Keenable');
         const payload = await readJson(response, maxResponseBytes);
+        const markdown = normalizeOptionalString(payload.markdown);
+        const content = normalizeOptionalString(payload.content) ?? markdown ?? '';
         return {
             provider: 'keenable',
             title: normalizeOptionalString(payload.title),
             publishedAt: normalizeOptionalString(payload.published_at),
-            content:
-                normalizeOptionalString(payload.content) ??
-                normalizeOptionalString(payload.markdown) ??
-                '',
+            content,
+            contentFormat: markdown && content === markdown ? 'text/markdown' : 'text/plain',
         };
     }
 
@@ -284,6 +299,8 @@ export function createProviderFetches({
             finalUrl: normalizeOptionalString(data.Url),
             publishedAt: normalizeOptionalString(data.PublishTime),
             content: normalizeOptionalString(data.ContentText) ?? '',
+            // ContentText has no declared Markdown contract.
+            contentFormat: 'text/plain',
         };
     }
 
@@ -308,6 +325,8 @@ export function createProviderFetches({
             finalUrl: normalizeOptionalString(first.final_url),
             publishedAt: normalizeOptionalString(first.published_date),
             content: normalizeOptionalString(first.text) ?? '',
+            // The request asks for `format: 'markdown'`.
+            contentFormat: 'text/markdown',
         };
     }
 
@@ -327,15 +346,14 @@ export function createProviderFetches({
         await requireOk(response, 'Serper');
         const payload = await readJson(response, maxResponseBytes);
         const metadata = recordOf(payload.metadata);
+        const markdown = normalizeOptionalString(payload.markdown);
         return {
             provider: 'serper',
             title: normalizeOptionalString(metadata.title),
             finalUrl: normalizeOptionalString(metadata.sourceURL),
             publishedAt: normalizeOptionalString(metadata.date),
-            content:
-                normalizeOptionalString(payload.markdown) ??
-                normalizeOptionalString(payload.text) ??
-                '',
+            content: markdown ?? normalizeOptionalString(payload.text) ?? '',
+            contentFormat: markdown ? 'text/markdown' : 'text/plain',
         };
     }
 

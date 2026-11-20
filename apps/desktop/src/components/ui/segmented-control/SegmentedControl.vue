@@ -45,7 +45,7 @@
     const indicatorTransition = computed(() => ({
         type: 'tween' as const,
         duration: duration(400) / 1000,
-        ease: [0.4, 0, 0.2, 1],
+        ease: [0.4, 0, 0.2, 1] as const,
     }));
     const rootRef = ref<HTMLDivElement | null>(null);
     const indicator = ref({ x: 0, width: 0 });

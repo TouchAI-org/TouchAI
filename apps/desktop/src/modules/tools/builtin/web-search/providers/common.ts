@@ -166,14 +166,24 @@ export function resultFromGenericItem(item: unknown, source: string): WebSearchR
 /**
  * 搜索结果摘要里带的 HTML（`<em>` 高亮等）要还原成纯文本。
  *
- * 反复剥离标签直到结果稳定，避免 `<scr<script>ipt>` 这类嵌套输入在单次替换后
- * 重新拼出标签；最后丢弃残留的尖括号，纯文本结果里不会再出现可执行标记。
+ * 线性扫描而不是反复执行多字符正则：遇到 `<` 后只向后找一次 `>`，因此
+ * `"<a".repeat(100_000)` 这类没有闭合括号的输入不会退化成二次复杂度。
+ * 未闭合的标签直接丢弃尾部（含 `<` 的片段都不再进入纯文本），残留尖括号
+ * 也一并移除，避免 `<scr<script>ipt>` 重新拼出可执行标记。
  */
 export function stripHtmlText(value: string): string {
-    let text = value;
-    for (let previous = '\u0000'; previous !== text; ) {
-        previous = text;
-        text = text.replace(/<\/?[a-zA-Z][^>]*>/g, '');
+    let text = '';
+    for (let index = 0; index < value.length; index += 1) {
+        if (value[index] !== '<') {
+            text += value[index];
+            continue;
+        }
+        let cursor = index + 1;
+        if (value[cursor] === '/') cursor += 1;
+        if (!/[a-zA-Z]/.test(value[cursor] ?? '')) continue;
+        while (cursor < value.length && value[cursor] !== '>') cursor += 1;
+        if (cursor >= value.length) break;
+        index = cursor;
     }
     return text
         .replace(/[<>]/g, '')

@@ -156,14 +156,22 @@ describe('user searches with Zhihu', () => {
     });
 
     it('user keeps a recency window on the Zhihu site route through SortBy', () => {
-        const { url, siteOnly } = buildZhihuSearchUrl(
-            baseRequest({ domains: ['zhihu.com'], recencyDays: 7 }),
-            undefined
-        );
+        vi.useFakeTimers();
+        try {
+            vi.setSystemTime(new Date('2026-06-15T12:00:00.000Z'));
+            const { url, siteOnly } = buildZhihuSearchUrl(
+                baseRequest({ domains: ['zhihu.com'], recencyDays: 7 }),
+                undefined
+            );
 
-        expect(siteOnly).toBe(true);
-        expect(url.searchParams.get('Filter')).toBeNull();
-        expect(url.searchParams.get('SortBy')).toMatch(/^EditTime:none:\(\d+,\)$/);
+            expect(siteOnly).toBe(true);
+            expect(url.searchParams.get('Filter')).toBeNull();
+            expect(url.searchParams.get('SortBy')).toBe(
+                `EditTime:none:(${Math.floor(Date.parse('2026-06-08T12:00:00.000Z') / 1000)},)`
+            );
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('user is told when the Zhihu site route cannot exclude domains', () => {
@@ -180,6 +188,12 @@ describe('user searches with Zhihu', () => {
             'iptalert(1)text'
         );
         expect(stripZhihuHighlight('<em>one</em> &lt;two&gt;')).toBe('one &lt;two&gt;');
+    });
+
+    it('user gets linear-time sanitization for markup without a closing bracket', () => {
+        const started = Date.now();
+        expect(stripZhihuHighlight('<a'.repeat(100_000))).toBe('');
+        expect(Date.now() - started).toBeLessThan(1_000);
     });
 
     it('user gets host filters joined with OR and no filter without conditions', () => {

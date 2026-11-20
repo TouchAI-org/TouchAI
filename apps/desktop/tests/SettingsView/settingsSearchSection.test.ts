@@ -236,6 +236,31 @@ describe('given search configuration belongs to the main tools owner', () => {
         }
     );
 
+    it('user keeps a local draft when another window updates both credential fields afterwards', async () => {
+        const panel = await openPanel();
+        await panel.get('[data-testid="search-provider-edit-qianfan"]').trigger('click');
+        await panel.get('[data-testid="search-qianfan-api-key-input"]').setValue('local-key');
+        const incoming = fixture.window.toolSettings!.getSearchSettings();
+        await fixture.window.toolSettings!.updateSearchSettings({
+            ...incoming,
+            providers: {
+                ...incoming.providers,
+                qianfan: {
+                    ...incoming.providers.qianfan,
+                    apiKey: 'incoming-key',
+                    endpoint: 'https://incoming.test',
+                },
+            },
+        });
+        await flushPromises();
+        await panel.get('[data-testid="search-provider-editor-save"]').trigger('click');
+        await settleSave();
+        expect(saved().providers.qianfan).toMatchObject({
+            apiKey: 'local-key',
+            endpoint: 'https://incoming.test',
+        });
+    });
+
     it('user edits credentials in place, cancels drafts, and saves both key and gateway', async () => {
         const panel = await openPanel();
         const order = () =>

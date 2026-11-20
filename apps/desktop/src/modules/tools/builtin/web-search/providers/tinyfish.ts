@@ -38,13 +38,22 @@ export const tinyfishAdapter = createSearchProviderAdapter({
             ...options,
         };
         // 官方文档：domain_type=research_paper 不支持 recency_minutes / after_date / before_date，
-        // 时间窗口改用 pub_year_min 表达；原生 pub_year_min 仍然优先。
+        // 时间窗口改用发布年份表达；原生 pub_year_* 仍然优先。
         if (params.domain_type === 'research_paper') {
             delete params.recency_minutes;
-            const cutoffYear = recencyStartDate(request.recencyDays)?.slice(0, 4);
-            if (params.pub_year_min === undefined && cutoffYear) {
-                params.pub_year_min = cutoffYear;
+            const afterDate = typeof params.after_date === 'string' ? params.after_date : '';
+            const beforeDate = typeof params.before_date === 'string' ? params.before_date : '';
+            if (params.pub_year_min === undefined) {
+                const cutoffYear = /^\d{4}/.test(afterDate)
+                    ? afterDate.slice(0, 4)
+                    : recencyStartDate(request.recencyDays)?.slice(0, 4);
+                if (cutoffYear) params.pub_year_min = cutoffYear;
             }
+            if (params.pub_year_max === undefined && /^\d{4}/.test(beforeDate)) {
+                params.pub_year_max = beforeDate.slice(0, 4);
+            }
+            delete params.after_date;
+            delete params.before_date;
         }
         if (
             params.recency_minutes !== undefined &&

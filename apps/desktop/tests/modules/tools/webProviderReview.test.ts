@@ -536,3 +536,51 @@ describe('given an engine fetch endpoint is configured for search', () => {
         expect(http.mock.calls[0]![0]).toBe('https://scrape.serper.dev');
     });
 });
+
+describe('given provider content arrives in different formats', () => {
+    it('user keeps plain-text characters from Exa in page_text mode', async () => {
+        http.mockResolvedValueOnce(json({ results: [{ text: '2*3*4 = 24' }] }));
+        const result = await fetchPage(
+            {
+                fetchStrategy: 'prefer',
+                providerPriority: ['exa'],
+                providers: { exa: { enabled: true, apiKey: 'exa-key' } },
+            },
+            { maxResponseBytes: 100000 }
+        );
+        expect(result.isError).toBe(false);
+        expect(result.result).toContain('2*3*4 = 24');
+    });
+
+    it('user still converts DeepSeek Markdown content to plain text', async () => {
+        http.mockResolvedValueOnce(json({ content: '# Heading\n\n`literal_code`' }));
+        const result = await fetchPage({
+            fetchStrategy: 'prefer',
+            providerPriority: ['deepseek'],
+            providers: { deepseek: { enabled: true, apiKey: 'deepseek-key' } },
+        });
+        expect(result.isError).toBe(false);
+        expect(result.result).toContain('Heading');
+        expect(result.result).not.toContain('# Heading');
+    });
+
+    it('user converts TinyFish calendar bounds to publication years for research papers', async () => {
+        http.mockResolvedValueOnce(json({ results: [source] }));
+        const result = await search(
+            { providers: { tinyfish: { enabled: true, apiKey: 'tiny-key' } } },
+            {
+                provider: 'tinyfish',
+                source: 'academic',
+                providerOptions: {
+                    tinyfish: { after_date: '2026-01-01', before_date: '2026-12-31' },
+                },
+            }
+        );
+        expect(result.isError).toBe(false);
+        const url = new URL(String(http.mock.calls[0]![0]));
+        expect(url.searchParams.get('pub_year_min')).toBe('2026');
+        expect(url.searchParams.get('pub_year_max')).toBe('2026');
+        expect(url.searchParams.get('after_date')).toBeNull();
+        expect(url.searchParams.get('before_date')).toBeNull();
+    });
+});
