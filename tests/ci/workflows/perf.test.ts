@@ -29,7 +29,7 @@ function runGate(stats: unknown | null) {
     }
 }
 
-describe('user runs RFC 710 performance on GitHub Actions', () => {
+describe('user runs desktop performance on GitHub Actions', () => {
     it('user sees the canonical workflow use a GitHub-hosted display stack', async () => {
         const workflow = await readFile(workflowPath, 'utf8');
 
@@ -66,9 +66,9 @@ describe('user runs RFC 710 performance on GitHub Actions', () => {
         const workflow = await readFile(workflowPath, 'utf8');
 
         expect(workflow).toContain(
-            "contains(github.event.pull_request.labels.*.name, 'perf:rfc710')"
+            "contains(github.event.pull_request.labels.*.name, 'performance')"
         );
-        expect(workflow).toContain('Enforce RFC 710 performance gate');
+        expect(workflow).toContain('Enforce desktop performance gate');
         expect(workflow).toContain('node apps/desktop/scripts/perf/run.mjs gate');
         expect(workflow).toContain('steady-state-memory) flows=progress,long-session');
         expect(workflow).toContain('cat "$TOUCHAI_PERF_EVIDENCE/summary.md"');
@@ -85,7 +85,6 @@ describe('user runs RFC 710 performance on GitHub Actions', () => {
         expect(workflow).toContain('node apps/desktop/scripts/perf/run.mjs all');
         expect(workflow).toContain('--baseline "$PERF_BASELINE"');
         expect(workflow).toContain('--candidate "$PERF_CANDIDATE"');
-        expect(workflow).not.toContain('pnpm perf:710');
         expect(workflow).toContain("inputs['latency-blocks'] || '60'");
         expect(workflow).toContain("PROGRESS_BLOCKS: '3'");
     });

@@ -1,7 +1,7 @@
 name: Performance Nightly
 
 # The 5% gate needs more independent cold launches than a PR job can afford.
-# GitHub Actions is the canonical RFC 710 performance environment. The workflow
+# GitHub Actions is the canonical desktop performance environment. The workflow
 # is not a required branch-protection check yet, but it still fails the job when
 # the harness produces invalid samples or an enabled performance gate fails.
 on:
@@ -30,7 +30,7 @@ on:
                 required: false
                 default: '12000'
             performance-scope:
-                description: Which RFC 710 performance flows to measure
+                description: Which desktop performance flows to measure
                 required: true
                 default: cold-latency
                 type: choice
@@ -48,8 +48,8 @@ concurrency:
 
 jobs:
     performance:
-        name: RFC 710 performance (GitHub-hosted)
-        if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'perf:rfc710')
+        name: Desktop performance (GitHub-hosted)
+        if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'performance')
         runs-on: ubuntu-24.04
         timeout-minutes: 360
         env:
@@ -168,7 +168,7 @@ jobs:
                     exit 1
                   fi
 
-            - name: Run RFC 710 performance protocol
+            - name: Run desktop performance protocol
               run: |
                   case "$PERF_SCOPE" in
                     cold-latency) flows=latency ;;
@@ -190,7 +190,7 @@ jobs:
               run: |
                   stats="$TOUCHAI_PERF_EVIDENCE/stats.json"
                   {
-                    echo "## RFC 710 performance"
+                    echo "## Desktop performance"
                     echo ""
                     echo "Scope: **$PERF_SCOPE**"
                     echo "Baseline: $PERF_BASELINE; candidate: $PERF_CANDIDATE"
@@ -208,11 +208,11 @@ jobs:
               if: always()
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
-                  name: rfc710-performance-${{ github.run_id }}
+                  name: desktop-performance-${{ github.run_id }}
                   path: ${{ env.TOUCHAI_PERF_EVIDENCE }}
                   if-no-files-found: warn
                   retention-days: 30
 
-            - name: Enforce RFC 710 performance gate
+            - name: Enforce desktop performance gate
               if: always()
               run: node apps/desktop/scripts/perf/run.mjs gate

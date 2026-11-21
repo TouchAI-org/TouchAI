@@ -95,7 +95,7 @@ BEGIN IMMEDIATE;
 DELETE FROM models;
 UPDATE providers SET enabled = 0;
 INSERT INTO providers (name, driver, api_endpoint, api_key, logo, enabled, is_builtin)
-VALUES ('RFC 710 fixture', 'openai-compatible', 'http://127.0.0.1:${DEFAULT_PORT}/v1', 'perf-only', 'test', 1, 0);
+VALUES ('Performance fixture', 'openai-compatible', 'http://127.0.0.1:${DEFAULT_PORT}/v1', 'perf-only', 'test', 1, 0);
 UPDATE built_in_tools SET enabled = CASE WHEN tool_id = 'setting' THEN 1 ELSE 0 END;
 INSERT INTO models (
     provider_id, name, model_id, is_default, last_used_at,
@@ -109,7 +109,7 @@ SELECT
     NULL, 1, 1, NULL, 131072, 16384,
     1, NULL, datetime('now'), datetime('now')
 FROM providers
-WHERE name = 'RFC 710 fixture' AND driver = 'openai-compatible';
+WHERE name = 'Performance fixture' AND driver = 'openai-compatible';
 COMMIT;
 PRAGMA wal_checkpoint(TRUNCATE);
 VACUUM;
@@ -137,7 +137,7 @@ SELECT
     'perf long-session fixture', datetime('now', '+1 minute'),
     ${level}, datetime('now'), datetime('now', '+1 minute')
 FROM providers
-WHERE name = 'RFC 710 fixture' AND driver = 'openai-compatible';
+WHERE name = 'Performance fixture' AND driver = 'openai-compatible';
 
 WITH RECURSIVE seq(n) AS (
     SELECT 1
