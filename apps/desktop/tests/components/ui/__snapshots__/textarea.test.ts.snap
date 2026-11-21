@@ -1,0 +1,27 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`user edits plain text in a textarea > user sees the default textarea keep its design-system classes 1`] = `
+[
+  "[box-shadow:none]",
+  "bg-surface-floating",
+  "border",
+  "border-border",
+  "disabled:bg-surface-sunken",
+  "disabled:cursor-not-allowed",
+  "disabled:text-text-tertiary",
+  "focus:[box-shadow:none]",
+  "focus:border-primary-400",
+  "focus:outline-none",
+  "focus:shadow-none",
+  "min-h-24",
+  "px-3",
+  "py-2",
+  "resize-y",
+  "rounded-control",
+  "shadow-none",
+  "t-control",
+  "text-compact",
+  "text-text-primary",
+  "w-full",
+]
+`;

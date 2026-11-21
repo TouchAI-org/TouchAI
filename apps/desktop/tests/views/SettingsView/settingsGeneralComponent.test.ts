@@ -24,6 +24,12 @@ const settingsStoreMock = await vi.hoisted(async () => {
     const createGeneralSettingsMock = () => ({
         globalShortcut: 'Alt+Space',
         searchKeybindings: createDefaultSearchKeybindings(),
+        promptSnippetInsertionMode: 'paste_only',
+        promptSnippets: {
+            schemaVersion: 1,
+            items: [],
+            storageIssue: null,
+        },
         startOnBoot: false,
         startMinimized: true,
         language: 'zh-CN',

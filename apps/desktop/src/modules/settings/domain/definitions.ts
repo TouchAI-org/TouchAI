@@ -14,16 +14,37 @@ import {
     GENERAL_SETTINGS_DEFAULTS,
     type GeneralScalarSettingKey,
 } from './general';
+import {
+    createEmptyPromptSnippetSettings,
+    parsePersistedPromptSnippets,
+    PROMPT_SNIPPET_SETTING_KEY,
+    type PromptSnippetInsertionMode,
+    type PromptSnippetSettings,
+    type PromptSnippetStorage,
+    toPromptSnippetStorage,
+} from './promptSnippets';
 
 export type OutputScrollBehavior = 'follow_output' | 'stay_position' | 'jump_to_top';
-export type GeneralSettingKey = GeneralScalarSettingKey | 'search_keybindings';
-export type GeneralSettingValue = string | number | boolean | SearchKeybindings | null;
+export type GeneralSettingKey =
+    | GeneralScalarSettingKey
+    | 'search_keybindings'
+    | typeof PROMPT_SNIPPET_SETTING_KEY;
+export type GeneralSettingValue =
+    | string
+    | number
+    | boolean
+    | SearchKeybindings
+    | PromptSnippetStorage
+    | PromptSnippetSettings
+    | null;
 
 export interface GeneralSettingsData {
     animationSpeed: AnimationSpeed;
     automaticallyReduceMotion: boolean;
     globalShortcut: string;
     searchKeybindings: SearchKeybindings;
+    promptSnippetInsertionMode: PromptSnippetInsertionMode;
+    promptSnippets: PromptSnippetSettings;
     startOnBoot: boolean;
     startMinimized: boolean;
     outputScrollBehavior: OutputScrollBehavior;
@@ -43,15 +64,21 @@ type GeneralSettingUpdateRunner = (
     value: GeneralSettingValue
 ) => Promise<void>;
 
-type GeneralSettingFieldValue = string | number | boolean | null | SearchKeybindings;
+type GeneralSettingFieldValue =
+    | string
+    | number
+    | boolean
+    | null
+    | SearchKeybindings
+    | PromptSnippetSettings;
 
 type GeneralScalarSettingStateKey = Exclude<
     keyof GeneralSettingsData,
-    'searchKeybindings' | 'searchWindowDefaultSize'
+    'promptSnippets' | 'searchKeybindings' | 'searchWindowDefaultSize'
 >;
 type GeneralPersistedSettingStateKey = Exclude<
     keyof GeneralSettingsData,
-    'searchWindowDefaultSize'
+    'promptSnippets' | 'searchWindowDefaultSize'
 >;
 
 type GeneralSettingUpdaterMap = Record<
@@ -76,6 +103,8 @@ export interface GeneralSettingUpdaters {
     updateAutomaticallyReduceMotion(enabled: boolean): Promise<void>;
     updateGlobalShortcut(shortcut: string): Promise<void>;
     updateSearchKeybindings(searchKeybindings: SearchKeybindings): Promise<void>;
+    updatePromptSnippetInsertionMode(mode: PromptSnippetInsertionMode): Promise<void>;
+    updatePromptSnippets(storage: PromptSnippetStorage): Promise<void>;
     updateStartOnBoot(enabled: boolean): Promise<void>;
     updateStartMinimized(enabled: boolean): Promise<void>;
     updateOutputScrollBehavior(mode: OutputScrollBehavior): Promise<void>;
@@ -119,6 +148,7 @@ export interface GeneralSettingUpdaterBinding {
 const DEFAULT_GENERAL_SETTINGS: GeneralSettingsData = {
     ...GENERAL_SETTINGS_DEFAULTS,
     searchKeybindings: createDefaultSearchKeybindings(),
+    promptSnippets: createEmptyPromptSnippetSettings(),
 } as GeneralSettingsData;
 
 function assignGeneralSettingField(
@@ -238,14 +268,40 @@ const SEARCH_KEYBINDINGS_SETTING_DEFINITION: GeneralSettingDefinition = {
     shouldRewritePersisted: shouldRewritePersistedSearchKeybindings,
 };
 
+function clonePromptSnippetSettings(value: PromptSnippetSettings): PromptSnippetSettings {
+    const storage = toPromptSnippetStorage(value);
+    return {
+        ...storage,
+        storageIssue: value.storageIssue,
+    };
+}
+
+const PROMPT_SNIPPETS_SETTING_DEFINITION: GeneralSettingDefinition = {
+    key: PROMPT_SNIPPET_SETTING_KEY,
+    parsePersisted: parsePersistedPromptSnippets,
+    parseUpdate: (value) => ({
+        ...toPromptSnippetStorage(value as PromptSnippetStorage),
+        storageIssue: null,
+    }),
+    apply: (target, value) => {
+        target.promptSnippets = clonePromptSnippetSettings(value as PromptSnippetSettings);
+    },
+    read: (source) => source.promptSnippets,
+    serializeValue: (value) =>
+        JSON.stringify(toPromptSnippetStorage(value as PromptSnippetSettings)),
+    eventValue: (value) => clonePromptSnippetSettings(value as PromptSnippetSettings),
+};
+
 export const GENERAL_SETTING_DEFINITIONS: readonly GeneralSettingDefinition[] = [
     ...GENERAL_SCALAR_SETTING_SPECS.map(scalarSettingDefinition),
     SEARCH_KEYBINDINGS_SETTING_DEFINITION,
+    PROMPT_SNIPPETS_SETTING_DEFINITION,
 ];
 
 export const GENERAL_SETTING_COMPUTED_BINDINGS: readonly GeneralSettingComputedBinding[] = [
     ...scalarComputedBindings(GENERAL_SCALAR_SETTING_SPECS),
     { exposedName: 'searchKeybindings', stateKey: 'searchKeybindings' },
+    { exposedName: 'promptSnippets', stateKey: 'promptSnippets' },
     ...GENERAL_DERIVED_COMPUTED_BINDINGS,
 ];
 
@@ -255,6 +311,11 @@ export const GENERAL_SETTING_UPDATER_BINDINGS: readonly GeneralSettingUpdaterBin
         exposedName: 'updateSearchKeybindings',
         key: 'search_keybindings',
         normalize: (value) => normalizeSearchKeybindings(value),
+    },
+    {
+        exposedName: 'updatePromptSnippets',
+        key: PROMPT_SNIPPET_SETTING_KEY,
+        normalize: (value) => toPromptSnippetStorage(value as PromptSnippetStorage),
     },
 ];
 
@@ -284,6 +345,7 @@ export function createDefaultGeneralSettings(): GeneralSettingsData {
         ...DEFAULT_GENERAL_SETTINGS,
         searchKeybindings: { ...DEFAULT_GENERAL_SETTINGS.searchKeybindings },
         searchWindowDefaultSize: { ...DEFAULT_GENERAL_SETTINGS.searchWindowDefaultSize },
+        promptSnippets: clonePromptSnippetSettings(DEFAULT_GENERAL_SETTINGS.promptSnippets),
     };
     return defaults;
 }
@@ -303,8 +365,10 @@ export function cloneGeneralSettingsSnapshot(source: GeneralSettingsData): Gener
         appUpdateAutoCheck: source.appUpdateAutoCheck,
         appUpdateLastCheckedAt: source.appUpdateLastCheckedAt,
         usageDetailRetentionDays: source.usageDetailRetentionDays,
+        promptSnippetInsertionMode: source.promptSnippetInsertionMode,
         searchKeybindings: { ...source.searchKeybindings },
         searchWindowDefaultSize: { ...source.searchWindowDefaultSize },
+        promptSnippets: clonePromptSnippetSettings(source.promptSnippets),
     };
     return snapshot;
 }

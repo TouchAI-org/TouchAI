@@ -13,6 +13,7 @@
     import { formatShortcutForDisplay, normalizeLocalShortcutString } from '@/utils/shortcuts';
 
     import MotionSettingsSection from './MotionSettingsSection.vue';
+    import PromptSnippetSettings from './PromptSnippetSettings.vue';
     import UpdateAvailableBadge from './UpdateAvailableBadge.vue';
     import UpdateSettingsSection from './UpdateSettingsSection.vue';
 
@@ -355,6 +356,8 @@
                     </SettingsRow>
                 </div>
             </section>
+
+            <PromptSnippetSettings />
 
             <MotionSettingsSection />
 

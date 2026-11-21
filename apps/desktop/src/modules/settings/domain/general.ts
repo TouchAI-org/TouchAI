@@ -16,6 +16,10 @@ import type {
     OutputScrollBehavior,
     ScalarSettingDefinitionOptions,
 } from './definitions';
+import {
+    normalizePromptSnippetInsertionMode,
+    type PromptSnippetInsertionMode,
+} from './promptSnippets';
 
 const outputScrollBehaviorSchema = z.enum(['follow_output', 'stay_position', 'jump_to_top']);
 const searchWindowSizePresetSchema = z.enum(
@@ -25,6 +29,7 @@ const searchWindowSizePresetSchema = z.enum(
 const DEFAULT_GLOBAL_SHORTCUT = 'Alt+Space';
 const DEFAULT_OUTPUT_SCROLL_BEHAVIOR: OutputScrollBehavior = 'follow_output';
 const DEFAULT_LANGUAGE: AppLocale = 'zh-CN';
+const DEFAULT_PROMPT_SNIPPET_INSERTION_MODE: PromptSnippetInsertionMode = 'paste_only';
 const DEFAULT_SEARCH_WINDOW_DEFAULT_SIZE = resolveSearchWindowDefaultSize(
     DEFAULT_SEARCH_WINDOW_SIZE_PRESET
 );
@@ -247,6 +252,18 @@ export const GENERAL_SCALAR_SETTING_SPECS = [
             computedName: 'usageDetailRetentionDays',
             updaterName: 'updateUsageDetailRetentionDays',
             normalizeUpdate: Number,
+        },
+    },
+    {
+        key: 'prompt_snippet_insertion_mode',
+        stateKey: 'promptSnippetInsertionMode',
+        defaultValue: DEFAULT_PROMPT_SNIPPET_INSERTION_MODE,
+        parsePersisted: normalizePromptSnippetInsertionMode,
+        parseUpdate: normalizePromptSnippetInsertionMode,
+        store: {
+            computedName: 'promptSnippetInsertionMode',
+            updaterName: 'updatePromptSnippetInsertionMode',
+            normalizeUpdate: normalizePromptSnippetInsertionMode,
         },
     },
 ] as const satisfies readonly ScalarSettingDefinitionOptions[];
