@@ -1,14 +1,29 @@
+import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { buildBoth } from './lib/build.mjs';
 import { parseArgs } from './lib/cli.mjs';
 import { evidenceRoot, logsRoot } from './lib/config.mjs';
 import { prepareFixtures } from './lib/fixtures.mjs';
-import { appendLog, ensureDirectory, nowIso } from './lib/io.mjs';
+import { appendLog, ensureDirectory, nowIso, readJsonFile } from './lib/io.mjs';
 import { runMeasurements } from './lib/orchestrator.mjs';
 import { readOptions } from './lib/protocol.mjs';
 import { prepareSnapshots } from './lib/snapshots.mjs';
 import { generateStats } from './stats/generate.mjs';
+
+export function performanceGateError(stats) {
+    if (!stats) return 'RFC 710 performance evidence is missing stats.json.';
+    if (!Number.isInteger(stats.rawCounts?.invalidRuns)) {
+        return 'RFC 710 performance evidence is missing a valid rawCounts.invalidRuns.';
+    }
+    if (stats.rawCounts.invalidRuns !== 0) {
+        return `RFC 710 performance protocol recorded ${stats.rawCounts.invalidRuns} invalid run(s).`;
+    }
+    if (stats.overallStatus !== 'PASS') {
+        return `RFC 710 performance gate is ${stats.overallStatus ?? 'missing'}.`;
+    }
+    return null;
+}
 
 async function main() {
     const [command = 'all', ...rest] = process.argv.slice(2);
@@ -55,6 +70,13 @@ async function main() {
         await generateStats();
         return;
     }
+    if (command === 'gate') {
+        const stats = readJsonFile(path.join(evidenceRoot, 'stats.json'));
+        const error = performanceGateError(stats);
+        if (error) throw new Error(error);
+        console.log('RFC 710 performance gate passed.');
+        return;
+    }
     if (command === 'all') {
         prepareSnapshots(args);
         await buildBoth();
@@ -69,7 +91,7 @@ async function main() {
     }
 
     throw new Error(
-        'Usage: run.mjs <prepare|build|fixture|run|stats|all> [--flows ...] [--dry-run] [--resume]'
+        'Usage: run.mjs <prepare|build|fixture|run|stats|gate|all> [--flows ...] [--dry-run] [--resume]'
     );
 }
 

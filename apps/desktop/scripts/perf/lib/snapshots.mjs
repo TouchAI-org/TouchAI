@@ -121,6 +121,9 @@ export function prepareSnapshots(args) {
     const comparison = resolveComparison(repoRoot, args.baseline, args.candidate ?? 'HEAD');
     ensureDirectory(logsRoot);
     ensureDirectory(manifestsRoot);
+    // Preparation is atomic from the caller's perspective: never let a failed
+    // rebuild leave the previous comparison readable.
+    fs.rmSync(path.join(evidenceRoot, 'source-manifest.json'), { force: true });
     prepareSnapshot(baselineSnapshot, comparison.baselineCommit);
     prepareSnapshot(currentSnapshot, comparison.candidateCommit);
     for (const file of [

@@ -1,5 +1,5 @@
 import { MANIFEST_VERSION } from '../lib/config.mjs';
-import { isUsableMemory, nearestMemory } from './statistics.mjs';
+import { isUsableMemory, nearestMemory, nearestMemoryWithin } from './statistics.mjs';
 
 export function fixtureValidationError(run, fixtureManifest) {
     if (!fixtureManifest) return 'fixture manifest is missing';
@@ -20,6 +20,14 @@ export function fixtureValidationError(run, fixtureManifest) {
     const fixture = arm.fixtures?.[run.fixture];
     if (!fixture) {
         return `fixture manifest is missing ${run.arm}/${run.fixture ?? 'unknown'}`;
+    }
+    if (
+        typeof run.fixtureSha256 !== 'string' ||
+        run.fixtureSha256.length === 0 ||
+        typeof fixture.sha256 !== 'string' ||
+        fixture.sha256.length === 0
+    ) {
+        return `fixture hash is missing for ${run.arm}/${run.fixture}`;
     }
     if (run.fixtureSha256 !== fixture.sha256) {
         return `fixture hash mismatch for ${run.arm}/${run.fixture}`;
@@ -104,7 +112,9 @@ export function sampleValidationError(run, events, memory, protocol) {
         }
     } else if (
         !positive(markers[2][0].domNodes) ||
-        [times[0], times[2], times[5]].some((at) => !nearestMemory(usable, at))
+        !nearestMemory(usable, times[0]) ||
+        !nearestMemoryWithin(usable, times[2], times[1], times[3]) ||
+        !nearestMemory(usable, times[5])
     ) {
         return 'long-session retained observations are missing or invalid';
     }

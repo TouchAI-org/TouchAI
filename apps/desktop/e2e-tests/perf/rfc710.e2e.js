@@ -6,6 +6,7 @@ import {
     isSeededSessionReady,
     seededSessionMessageId,
 } from '../../scripts/perf/history-session.mjs';
+import { startupSettleMs } from '../../scripts/perf/lib/config.mjs';
 import { focusMain } from '../test/support/agent-ui.js';
 import { fillSearchDraft, pressEditorKey } from '../test/support/conversation-queue.js';
 import { callE2eBridge, waitForE2eBridge } from '../test/support/desktop.js';
@@ -23,8 +24,6 @@ const warmSampleCount =
         : Math.max(0, Number(process.env.TOUCHAI_PERF_WARM_SAMPLES) || 0);
 const progressWarmupTasks = Number(process.env.TOUCHAI_PERF_PROGRESS_WARMUPS) || 4;
 const progressMeasuredTasks = Number(process.env.TOUCHAI_PERF_PROGRESS_TASKS) || 16;
-const startupSettleMs = Number(process.env.TOUCHAI_PERF_STARTUP_SETTLE_MS) || 8000;
-
 function appendEvent(value) {
     if (!eventsFile) return;
     fs.mkdirSync(path.dirname(eventsFile), { recursive: true });

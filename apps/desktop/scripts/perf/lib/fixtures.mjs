@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -113,7 +114,16 @@ COMMIT;
 PRAGMA wal_checkpoint(TRUNCATE);
 VACUUM;
 `;
-    runSqlite(database, sql, path.join(logsRoot, `fixture-configure-${arm}.log`));
+    const log = path.join(logsRoot, `fixture-configure-${arm}.log`);
+    const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite');
+    const connection = new DatabaseSync(database);
+    try {
+        connection.exec(sql);
+    } finally {
+        connection.close();
+    }
+    ensureDirectory(path.dirname(log));
+    fs.writeFileSync(log, `configured base fixture for ${arm}\n`);
 }
 
 function createLongFixture(baseDatabase, level, destination) {

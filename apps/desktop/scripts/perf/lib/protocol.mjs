@@ -1,7 +1,7 @@
 import path from 'node:path';
 
 import { nonNegativeNumberArg, numberArg } from './cli.mjs';
-import { armOrder, DEFAULT_PORT, evidenceRoot } from './config.mjs';
+import { armOrder, DEFAULT_PORT, evidenceRoot, fixtureLevels, startupSettleMs } from './config.mjs';
 import { readJsonFile } from './io.mjs';
 
 export function buildRunPlan(options) {
@@ -66,7 +66,7 @@ export function protocolForOptions(options) {
         progressWarmups: options.progressWarmups,
         progressTasks: options.progressTasks,
         memoryIntervalMs: options.memoryIntervalMs,
-        startupSettleMs: Number(process.env.TOUCHAI_PERF_STARTUP_SETTLE_MS ?? 8000),
+        startupSettleMs,
         armOrder,
         display: 'xvfb-openbox-dunst-dbus',
         windowManager: 'openbox',
@@ -88,10 +88,7 @@ export function readOptions(args) {
         longBlocks: numberArg(args, 'long-blocks', 6),
         // Keep the default formal levels reproducible; 1500 remains available
         // as an explicit diagnostic because it is not stable on the 3.6 GiB VM.
-        historyLevels: (args['history-levels'] ?? '100,500,1000')
-            .split(',')
-            .map(Number)
-            .filter((value) => Number.isFinite(value) && value > 0),
+        historyLevels: parseHistoryLevels(args['history-levels'] ?? '100,500,1000'),
         warmSamples: nonNegativeNumberArg(args, 'warm-samples', 8),
         progressWarmups: numberArg(args, 'progress-warmups', 4),
         // Two 16-task pilot attempts hit the same JSC crash at the 16th task.
@@ -101,4 +98,27 @@ export function readOptions(args) {
         dryRun: args['dry-run'] === 'true',
         resume: args.resume === 'true',
     };
+}
+
+export function parseHistoryLevels(value) {
+    const levels = String(value)
+        .split(',')
+        .map((part) => part.trim())
+        .map((part) => {
+            if (!/^\d+$/.test(part)) {
+                throw new Error(`Invalid --history-levels value: ${part || '(empty)'}`);
+            }
+            const level = Number(part);
+            if (!fixtureLevels.includes(level)) {
+                throw new Error(
+                    `Unsupported --history-levels value ${level}; choose from ${fixtureLevels.join(', ')}.`
+                );
+            }
+            return level;
+        });
+    if (levels.length === 0) throw new Error('--history-levels must not be empty.');
+    if (new Set(levels).size !== levels.length) {
+        throw new Error('--history-levels must not contain duplicate values.');
+    }
+    return levels;
 }

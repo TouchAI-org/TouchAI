@@ -73,6 +73,7 @@ jobs:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
                   fetch-depth: 0
+                  persist-credentials: false
                   ref: ${{ github.event.pull_request.head.sha || inputs.candidate || github.sha }}
 
             # This measures the selected change, not the old pre-refactor RFC acceptance.
@@ -129,6 +130,16 @@ jobs:
 
             - name: Validate inputs
               run: |
+                  case "$TOUCHAI_PERF_STARTUP_SETTLE_MS" in
+                    ''|*[!0-9]*)
+                      echo "startup-settle-ms must be a positive integer" >&2
+                      exit 1
+                      ;;
+                  esac
+                  if [ "$TOUCHAI_PERF_STARTUP_SETTLE_MS" -lt 1 ]; then
+                    echo "startup-settle-ms must be a positive integer" >&2
+                    exit 1
+                  fi
                   case "$LATENCY_BLOCKS" in
                     ''|*[!0-9]*)
                       echo "latency-blocks must be a positive integer" >&2
@@ -204,20 +215,4 @@ jobs:
 
             - name: Enforce RFC 710 performance gate
               if: always()
-              run: |
-                  stats="$TOUCHAI_PERF_EVIDENCE/stats.json"
-                  if [ ! -f "$stats" ]; then
-                    echo "::error::RFC 710 performance evidence is missing stats.json."
-                    exit 1
-                  fi
-                  invalid_runs="$(jq -r '.rawCounts.invalidRuns' "$stats")"
-                  if [ "$invalid_runs" -ne 0 ]; then
-                    echo "::error::RFC 710 performance protocol recorded $invalid_runs invalid run(s)."
-                    exit 1
-                  fi
-                  status="$(jq -r '.overallStatus' "$stats")"
-                  if [ "$status" != "PASS" ]; then
-                    echo "::error::RFC 710 performance gate is $status."
-                    exit 1
-                  fi
-                  echo "RFC 710 performance gate passed."
+              run: node apps/desktop/scripts/perf/run.mjs gate

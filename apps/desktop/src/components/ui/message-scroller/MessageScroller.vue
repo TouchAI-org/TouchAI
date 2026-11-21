@@ -169,6 +169,8 @@
         return indices.sort((left, right) => left - right).map(createRailItem);
     });
 
+    const railItemIds = computed(() => railItems.value.map((item) => item.id).join('\0'));
+
     const displayedItemId = computed(
         () => hoveredItemId.value ?? pinnedItemId.value ?? focusedItemId.value
     );
@@ -693,7 +695,9 @@
         if (id) addPinnedDismissListeners();
     });
 
-    watch(() => props.items, handleResize, { flush: 'post' });
+    // Sampling depends on item order and focus/pin protection, not just the
+    // props array identity. Re-measure whenever the rendered ticks change.
+    watch(railItemIds, handleResize, { flush: 'post' });
 
     watch(
         () => props.followOutput,
