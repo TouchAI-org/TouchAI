@@ -105,6 +105,69 @@ describe('given widget processing and the DOM inspection boundary have separate 
         }
     });
 
+    it('user receives the whole widget snapshot beside the model-visible summary when a widget renders', async () => {
+        const { tools, task } = await fixture();
+        const html = `<section><img src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"><p>${'x'.repeat(9000)}</p></section>`;
+        try {
+            const outcome = await (
+                await tools.snapshot()
+            ).execute(
+                {
+                    id: 'widget',
+                    name: 'builtin__show_widget',
+                    arguments: JSON.stringify({
+                        is_read_widget_skill: true,
+                        widget_code: html,
+                        title: 'Fixture',
+                    }),
+                },
+                { iteration: 0, task }
+            );
+
+            expect(outcome.structuredPayload).toMatchObject({
+                kind: 'show_widget_snapshot',
+                widgetId: 'widget',
+                title: 'Fixture',
+                html,
+                mode: 'render',
+            });
+            expect(outcome.result).not.toContain('x'.repeat(100));
+        } finally {
+            tools.dispose();
+        }
+    });
+
+    it('user receives a removal snapshot without markup when a widget is removed', async () => {
+        const { tools, task } = await fixture();
+        try {
+            const outcome = await (
+                await tools.snapshot()
+            ).execute(
+                {
+                    id: 'widget',
+                    name: 'builtin__show_widget',
+                    arguments: JSON.stringify({
+                        is_read_widget_skill: true,
+                        mode: 'remove',
+                        widgetId: 'w1',
+                        title: 'Fixture',
+                    }),
+                },
+                { iteration: 0, task }
+            );
+
+            expect(outcome.structuredPayload).toMatchObject({
+                kind: 'show_widget_snapshot',
+                widgetId: 'w1',
+                title: 'Fixture',
+                html: '',
+                mode: 'remove',
+            });
+        } finally {
+            tools.dispose();
+        }
+    });
+
     it.each([
         { is_read_widget_skill: false, widget_code: '<section>Hidden</section>' },
         {
@@ -136,6 +199,7 @@ describe('given widget processing and the DOM inspection boundary have separate 
                         return (error as ToolExecutionError).outcome;
                     });
                 expect(outcome.isError).toBe(true);
+                expect(outcome.structuredPayload).toBeUndefined();
                 expect(events.filter((event) => event.type === 'widget_upsert')).toEqual([]);
             } finally {
                 tools.dispose();

@@ -1,5 +1,6 @@
 import { parseDbDateTimestamp } from '@/utils/date';
 import { normalizeString } from '@/utils/text';
+import { z } from '@/utils/zod';
 
 import { readContextSummary } from '../contracts/context';
 import { readStoredText as getMessageText } from '../contracts/contextRead';
@@ -34,6 +35,28 @@ import {
     type WidgetTarget,
     type WidgetTargetLookups,
 } from './widgets';
+
+/**
+ * A persisted widget snapshot carries the user-visible artifact, so its markup cannot
+ * borrow the audit limits. It only needs to reject data the widget tool could never
+ * produce; keep this aligned with the ShowWidget contract cap.
+ */
+const MAX_PERSISTED_WIDGET_HTML_CHARS = 120000;
+
+/**
+ * 持久化的 widget 快照。
+ *
+ * 历史导入 / 外部备份里的 `data` 可能是脏数据，逐字段校验后再使用；
+ * 校验失败的快照被忽略，调用方回退到被截断的 `input`。
+ */
+const persistedShowWidgetSnapshotSchema = z.object({
+    kind: z.literal('show_widget_snapshot'),
+    widgetId: z.string().trim().min(1),
+    title: z.string(),
+    description: z.string(),
+    html: z.string().max(MAX_PERSISTED_WIDGET_HTML_CHARS),
+    mode: z.enum(['render', 'remove']),
+});
 
 /** Reconstruct committed history without importing another business module or an I/O owner. */
 export function createSessionHistory(host: SessionHistoryHost) {
@@ -123,7 +146,16 @@ export function createSessionHistory(host: SessionHistoryHost) {
 
         try {
             const parsed = JSON.parse(raw) as ToolEventStructuredPayload;
-            if (!parsed || parsed.kind !== 'web_search_sources' || !Array.isArray(parsed.sources)) {
+            if (!parsed || typeof parsed !== 'object') {
+                return undefined;
+            }
+
+            if (parsed.kind === 'show_widget_snapshot') {
+                const snapshot = persistedShowWidgetSnapshotSchema.safeParse(parsed);
+                return snapshot.success ? snapshot.data : undefined;
+            }
+
+            if (parsed.kind !== 'web_search_sources' || !Array.isArray(parsed.sources)) {
                 return undefined;
             }
 
@@ -238,18 +270,32 @@ export function createSessionHistory(host: SessionHistoryHost) {
             return null;
         }
 
-        const mode = toolCall.arguments.mode === 'remove' ? 'remove' : 'render';
+        // Records written before snapshots existed fell back to the audit `input`, which is
+        // truncated and redacted. Prefer the snapshot and keep that fallback for old rows.
+        const snapshot =
+            toolCall.structuredPayload?.kind === 'show_widget_snapshot'
+                ? toolCall.structuredPayload
+                : undefined;
+        const mode = snapshot?.mode ?? (toolCall.arguments.mode === 'remove' ? 'remove' : 'render');
         const widgetId =
-            normalizeString(toolCall.arguments.widgetId) || (mode === 'render' ? toolCall.id : '');
+            snapshot?.widgetId ||
+            normalizeString(toolCall.arguments.widgetId) ||
+            (mode === 'render' ? toolCall.id : '');
         if (!widgetId) {
             return null;
         }
 
-        const title = normalizeString(toolCall.arguments.title) || widgetId || 'ShowWidget';
+        const title =
+            snapshot?.title ||
+            normalizeString(toolCall.arguments.title) ||
+            widgetId ||
+            'ShowWidget';
         const description =
+            snapshot?.description ||
             normalizeString(toolCall.arguments.description) ||
             'Inline generative artifact rendered in the answer.';
         const html =
+            snapshot?.html ||
             normalizeString(toolCall.arguments.widget_code) ||
             normalizeString(toolCall.arguments.html);
 

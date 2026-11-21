@@ -170,6 +170,20 @@ export type AgentStructuredPayload =
           pid?: number;
           route?: string;
           windowId?: number;
+      }
+    /**
+     * A ShowWidget artifact as the tool produced it.
+     *
+     * The tool-call `input` stays a truncated, redacted audit copy; this snapshot is the
+     * user-visible artifact persisted at full size so reopening a conversation renders it.
+     */
+    | {
+          kind: 'show_widget_snapshot';
+          widgetId: string;
+          title: string;
+          description: string;
+          html: string;
+          mode: ShowWidgetMode;
       };
 
 /**

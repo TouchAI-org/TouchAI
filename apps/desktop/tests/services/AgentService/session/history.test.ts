@@ -13,6 +13,7 @@ import { afterEach, beforeEach } from 'vitest';
 
 import { selectToolCalls } from '@/app/api/agent/history';
 import { readMcpServerNames } from '@/modules/tools';
+import { MAX_WIDGET_HTML_CHARS } from '@/modules/tools/builtin/show-widget/constants';
 import { parseDbDateTimestamp } from '@/utils/date';
 let database: ReturnType<typeof openMigratedDatabase>;
 beforeEach(() => {
@@ -944,6 +945,175 @@ describe('user reopens a conversation whose widget updates are replayed', () => 
         expect(history[1]?.widgets ?? []).toHaveLength(0);
         expect(history[1]?.parts.filter((part) => part.type === 'widget')).toHaveLength(0);
     });
+});
+
+describe('user reopens a conversation whose widget outgrew the stored audit input', () => {
+    const CDN_SCRIPT = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js';
+
+    function largeWidgetHtml(): string {
+        return `<section><script src="${CDN_SCRIPT}"></script><p>${'x'.repeat(9000)}</p></section>`;
+    }
+
+    function widgetSnapshot(html: string, overrides: Record<string, unknown> = {}) {
+        return {
+            kind: 'show_widget_snapshot',
+            widgetId: 'w1',
+            title: 'Sales',
+            description: 'by region',
+            html,
+            mode: 'render',
+            ...overrides,
+        };
+    }
+
+    function widgetRowWithSnapshot(
+        id: number,
+        callId: string,
+        args: Record<string, unknown>,
+        snapshot?: Record<string, unknown>
+    ): MessageRow {
+        return toolCallRow(id, [
+            builtinToolPart({
+                id: id * 10,
+                sortOrder: 0,
+                toolId: 'show_widget',
+                callId,
+                input: args,
+                output: null,
+                structuredPayload: snapshot,
+            }),
+        ]);
+    }
+
+    function widgetRowWithRawSnapshot(
+        id: number,
+        callId: string,
+        args: Record<string, unknown>,
+        rawSnapshot: string
+    ): MessageRow {
+        return toolCallRow(id, [
+            rawBuiltinToolPart(id * 10, 0, {
+                toolCallId: callId,
+                toolKind: 'builtin',
+                tool_id: 'show_widget',
+                input: JSON.stringify(args),
+                output: null,
+                status: 'success',
+                duration_ms: null,
+                error_message: null,
+                approval_state: 'none',
+                approval_summary: null,
+                conversation_semantic_json: null,
+                structured_payload_json: rawSnapshot,
+            }),
+        ]);
+    }
+
+    it('user sees the whole widget and its CDN script when a large widget is reopened', async () => {
+        const html = largeWidgetHtml();
+        const history = await build([
+            userRow(1, 'draw a big chart'),
+            widgetRowWithSnapshot(
+                2,
+                'call-1',
+                {
+                    widgetId: 'w1',
+                    title: 'Sales',
+                    widget_code: `${html.slice(0, 8192)}…`,
+                },
+                widgetSnapshot(html)
+            ),
+        ]);
+
+        expect(history[1]?.widgets?.[0]).toMatchObject({
+            widgetId: 'w1',
+            title: 'Sales',
+            description: 'by region',
+            html,
+        });
+        expect(history[1]?.widgets?.[0]?.html).toContain(CDN_SCRIPT);
+    });
+
+    it('user sees a widget at the largest size the tool accepts kept in full when reopened', async () => {
+        const wrapper = '<section><p></p></section>';
+        const html = `<section><p>${'x'.repeat(MAX_WIDGET_HTML_CHARS - wrapper.length)}</p></section>`;
+        expect(html).toHaveLength(MAX_WIDGET_HTML_CHARS);
+
+        const history = await build([
+            userRow(1, 'draw a chart'),
+            widgetRowWithSnapshot(
+                2,
+                'call-1',
+                { widgetId: 'w1', title: 'Sales', widget_code: '<div>c…' },
+                widgetSnapshot(html)
+            ),
+        ]);
+
+        expect(history[1]?.widgets?.[0]?.html).toHaveLength(MAX_WIDGET_HTML_CHARS);
+    });
+
+    it('user still sees the widget when an older record saved only its arguments', async () => {
+        const history = await build([
+            userRow(1, 'draw a chart'),
+            widgetRowWithSnapshot(2, 'call-1', {
+                widgetId: 'w1',
+                title: 'Sales',
+                widget_code: '<div>c…',
+            }),
+        ]);
+
+        expect(history[1]?.widgets?.[0]).toMatchObject({ widgetId: 'w1', html: '<div>c…' });
+    });
+
+    it.each([
+        { saved: 'is unreadable', raw: '{oops' },
+        { saved: 'is not an object', raw: '42' },
+        {
+            saved: 'belongs to another kind',
+            raw: JSON.stringify({
+                kind: 'web_search_sources',
+                query: 'q',
+                provider: 'p',
+                status: 'done',
+                sources: [],
+            }),
+        },
+        {
+            saved: 'has no widget id',
+            raw: JSON.stringify(widgetSnapshot('<div>saved</div>', { widgetId: ' ' })),
+        },
+        {
+            saved: 'has no readable title',
+            raw: JSON.stringify(widgetSnapshot('<div>saved</div>', { title: 7 })),
+        },
+        {
+            saved: 'names an unknown mode',
+            raw: JSON.stringify(widgetSnapshot('<div>saved</div>', { mode: 'paint' })),
+        },
+        {
+            saved: 'carries more markup than the tool can produce',
+            raw: JSON.stringify(widgetSnapshot('x'.repeat(MAX_WIDGET_HTML_CHARS + 1))),
+        },
+    ])(
+        'user sees the widget rebuilt from its stored arguments when the saved snapshot $saved',
+        async ({ raw }) => {
+            const history = await build([
+                userRow(1, 'draw a chart'),
+                widgetRowWithRawSnapshot(
+                    2,
+                    'call-1',
+                    { widgetId: 'w1', title: 'Sales', widget_code: '<div>logged</div>' },
+                    raw
+                ),
+            ]);
+
+            expect(history[1]?.widgets?.[0]).toMatchObject({
+                widgetId: 'w1',
+                title: 'Sales',
+                html: '<div>logged</div>',
+            });
+        }
+    );
 });
 
 describe('user reopens a conversation that stopped before replying', () => {
