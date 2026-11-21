@@ -5,11 +5,11 @@ import path from 'node:path';
 import { startupSettleMs } from '../../scripts/perf/lib/config.mjs';
 import { focusMain } from '../test/support/agent-ui.js';
 import { fillSearchDraft, pressEditorKey } from '../test/support/conversation-queue.js';
+import { callE2eBridge, waitForE2eBridge } from '../test/support/desktop.js';
 import {
-    callE2eBridge,
-    callE2eBridgeWithResult,
-    waitForE2eBridge,
-} from '../test/support/desktop.js';
+    installRendererMeasurement,
+    RENDERER_MEASUREMENT_ELEMENT_ID,
+} from './renderer-measurement.js';
 import {
     isSeededSessionReady,
     seededSessionMessageId,
@@ -62,7 +62,33 @@ async function waitForMainWindow() {
 }
 
 async function armRendererMeasurement(doneToken) {
-    await callE2eBridge('armPerformanceMeasurement', doneToken);
+    const source = `(${installRendererMeasurement.toString()})(${JSON.stringify(doneToken)});`;
+    const installed = await browser.execute(
+        (installSource, elementId) => {
+            const script = document.createElement('script');
+            script.textContent = installSource;
+            (document.head ?? document.documentElement).append(script);
+            script.remove();
+            return Boolean(document.getElementById(elementId));
+        },
+        source,
+        RENDERER_MEASUREMENT_ELEMENT_ID
+    );
+    if (!installed) {
+        throw new Error('The renderer measurement bridge did not install.');
+    }
+}
+
+async function readRendererMeasurement() {
+    return await browser.execute((elementId) => {
+        const raw = document.getElementById(elementId)?.textContent;
+        if (!raw) return null;
+        try {
+            return JSON.parse(raw);
+        } catch (error) {
+            return { lastError: `Invalid renderer measurement state: ${String(error)}` };
+        }
+    }, RENDERER_MEASUREMENT_ELEMENT_ID);
 }
 
 async function withTimeout(operation, milliseconds, message) {
@@ -83,7 +109,7 @@ async function captureSentinelTimeout(doneToken, error) {
     let diagnostic;
     try {
         const state = await withTimeout(
-            callE2eBridgeWithResult('getPerformanceMeasurement'),
+            readRendererMeasurement(),
             30000,
             'Timed out while collecting renderer measurement state.'
         );
@@ -142,7 +168,7 @@ async function waitRendererMeasurement(doneToken, timeoutMs = 180000) {
         await withTimeout(
             browser.waitUntil(
                 async () => {
-                    const state = await callE2eBridgeWithResult('getPerformanceMeasurement');
+                    const state = await readRendererMeasurement();
                     return Boolean(state?.result);
                 },
                 {
@@ -160,12 +186,7 @@ async function waitRendererMeasurement(doneToken, timeoutMs = 180000) {
             { cause: error }
         );
     }
-    let result;
-    try {
-        result = (await callE2eBridgeWithResult('getPerformanceMeasurement'))?.result ?? null;
-    } finally {
-        await callE2eBridge('clearPerformanceMeasurement').catch(() => undefined);
-    }
+    const result = (await readRendererMeasurement())?.result ?? null;
     if (
         !result ||
         result.keydownAt === null ||
