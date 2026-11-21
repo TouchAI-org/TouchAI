@@ -53,6 +53,32 @@ export { createReadTools } from './builtin/read/create.io';
 export { createFileSearchTools } from './builtin/read/file-search/create.io';
 export { createFileSearchOperations } from './builtin/read/file-search/operations';
 export { createReadOperations } from './builtin/read/operations.io';
+export {
+    DEFAULT_SEARCH_CONVERSATION_TOOL_CONFIG,
+    parseSearchConversationToolConfig,
+    type SearchConversationToolConfig,
+    serializeSearchConversationToolConfig,
+} from './builtin/search-conversation/configuration';
+export {
+    CONVERSATION_SEARCH_CANDIDATE_LIMIT,
+    CONVERSATION_SEARCH_DEFAULT_LIMIT,
+    CONVERSATION_SEARCH_MAX_BATCH_BYTES,
+    CONVERSATION_SEARCH_MAX_LIMIT,
+    CONVERSATION_SEARCH_MAX_RANKING_OUTPUT_TOKENS,
+    CONVERSATION_SEARCH_MAX_SNIPPETS,
+    CONVERSATION_SEARCH_MAX_TRANSCRIPT_CODE_POINTS,
+    CONVERSATION_SEARCH_MESSAGES_PER_EDGE,
+    CONVERSATION_SEARCH_RANKING_DEADLINE_MS,
+    CONVERSATION_SEARCH_SNIPPET_CONTEXT_CODE_POINTS,
+    SEARCH_CONVERSATION_TOOL_DESCRIPTION,
+    SEARCH_CONVERSATION_TOOL_INPUT_SCHEMA,
+    SEARCH_CONVERSATION_TOOL_NAME,
+} from './builtin/search-conversation/constants';
+export {
+    createSearchConversationTools,
+    type SearchConversationCandidate,
+    type SearchConversationHistory,
+} from './builtin/search-conversation/create';
 export { createSettingTools } from './builtin/settings/create';
 export type { ToolSettingsCapabilities } from './builtin/settings/host';
 export {

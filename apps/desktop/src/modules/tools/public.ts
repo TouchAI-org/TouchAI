@@ -50,6 +50,12 @@ export type {
     ComputerUseUpdate,
 } from './builtin/computer-control/types';
 export {
+    DEFAULT_SEARCH_CONVERSATION_TOOL_CONFIG,
+    parseSearchConversationToolConfig,
+    type SearchConversationToolConfig,
+    serializeSearchConversationToolConfig,
+} from './builtin/search-conversation/configuration';
+export {
     isShowWidgetResourceUrlAllowed,
     SHOW_WIDGET_ALLOWED_RESOURCE_HOSTS,
     SHOW_WIDGET_DRAFT_MIN_INTERVAL_MS,

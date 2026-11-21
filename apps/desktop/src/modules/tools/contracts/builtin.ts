@@ -18,6 +18,7 @@ export type BuiltInToolId =
     | 'activate_skill'
     | 'bash'
     | 'file_search'
+    | 'search_conversation'
     | 'read'
     | 'setting'
     | 'web_search'
