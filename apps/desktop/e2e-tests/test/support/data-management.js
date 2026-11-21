@@ -138,8 +138,8 @@ export async function createDataManagementFixture(database) {
     assert.equal(identity?.value, 'touchai', 'The app must initialize the production database.');
 
     const token = randomUUID();
-    const providerName = `RFC710 data ${token}`;
-    const modelKey = `rfc710-data-${token}`;
+    const providerName = `Data management ${token}`;
+    const modelKey = `data-management-${token}`;
     const sessionKeys = [`${token}-conversation`, `${token}-unrelated`];
     const taskKey = `${token}-completed-turn`;
     const settingKey = `e2e_data_management_${token}`;

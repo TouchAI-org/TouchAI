@@ -1,6 +1,6 @@
 import { enableAutoUnmount, flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { nextTick } from 'vue';
+import { nextTick, reactive } from 'vue';
 
 import {
     MessageScroller,
@@ -292,6 +292,56 @@ describe('user navigates a long conversation', () => {
         );
     });
 
+    it('user gets a bounded rail that can still reach both ends of a very long conversation', async () => {
+        const manyItems = Array.from({ length: 1_000 }, (_, index) => ({
+            id: `very-long-${index + 1}`,
+            label: `Message ${index + 1}`,
+        }));
+        const wrapper = mountScroller({ scrollerItems: manyItems });
+        const viewport = viewportOf(wrapper);
+        setScrollMetrics(viewport, { scrollHeight: 200_000, clientHeight: 400 });
+        const scrollTo = stubScrollTo(viewport);
+        stubRect(viewport, { top: 0, height: 400 });
+        stubRect(
+            wrapper.get('[data-message-scroller-item="very-long-1000"]').element as HTMLElement,
+            {
+                top: 199_000,
+                height: 100,
+            }
+        );
+        triggerResize();
+        await settleLayout();
+
+        const ticks = wrapper.findAll('[data-slot="message-scroller-rail-item"]');
+        expect(ticks.length).toBeGreaterThan(1);
+        expect(ticks.length).toBeLessThanOrEqual(96);
+        expect(ticks[0]!.attributes('aria-label')).toBe('Message 1');
+        expect(ticks[ticks.length - 1]!.attributes('aria-label')).toBe('Message 1000');
+
+        await ticks[ticks.length - 1]!.trigger('click');
+        await nextTick();
+
+        expect(scrollTo).toHaveBeenCalledWith({ top: 198_850, behavior: 'auto' });
+        expect(wrapper.emitted('itemSelect')?.at(-1)).toEqual([manyItems[999]]);
+
+        viewport.scrollTop = 0;
+        stubRect(wrapper.get('[data-message-scroller-item="very-long-1"]').element as HTMLElement, {
+            top: 0,
+            height: 100,
+        });
+        await ticks[0]!.trigger('click');
+        expect(viewport.scrollTop).toBe(0);
+
+        stubRect(wrapper.get('[data-message-scroller-item="very-long-2"]').element as HTMLElement, {
+            top: 200,
+            height: 100,
+        });
+        expect((wrapper.vm as unknown as MessageScrollerHandle).scrollToItem('very-long-2')).toBe(
+            true
+        );
+        expect(viewport.scrollTop).toBe(50);
+    });
+
     it('user sees complete previews at either end of the rail', async () => {
         const previewItems: MessageScrollerItem[] = [
             items[0]!,
@@ -341,6 +391,174 @@ describe('user navigates a long conversation', () => {
         await flushPromises();
 
         expect(Number.parseFloat((positioner.element as HTMLElement).style.top)).toBe(244);
+    });
+
+    it.each(['keyboard', 'touch'])(
+        'user keeps the selected rail preview when a queued message arrives during %s navigation',
+        async (input) => {
+            const manyItems = Array.from({ length: 96 }, (_, index) => ({
+                id: `append-${index}`,
+                label: `Message ${index + 1}`,
+            }));
+            const wrapper = mountScroller({ scrollerItems: manyItems });
+            setScrollMetrics(viewportOf(wrapper), { scrollHeight: 20000, clientHeight: 400 });
+            triggerResize();
+            await settleLayout();
+            const target = wrapper.get('button[aria-label="Message 49"]')
+                .element as HTMLButtonElement;
+            if (input === 'keyboard') {
+                target.focus();
+                expect(document.activeElement).toBe(target);
+            } else pointerEvent('pointerdown', 'touch', target);
+            await nextTick();
+            await wrapper.setProps({
+                items: [...manyItems, { id: 'append-96', label: 'Message 97' }],
+            });
+            await settleLayout();
+            expect(wrapper.findAll('[data-slot="message-scroller-rail-item"]')).toHaveLength(96);
+            expect(wrapper.find('button[aria-label="Message 49"]').exists()).toBe(true);
+            if (input === 'keyboard') expect(document.activeElement).toBe(target);
+            else
+                expect(wrapper.get('[data-slot="message-scroller-preview"]').text()).toContain(
+                    'Message 49'
+                );
+            await wrapper.get('button[aria-label="Message 49"]').trigger('click');
+            expect(wrapper.emitted('itemSelect')?.at(-1)).toEqual([manyItems[48]]);
+            expect(wrapper.find('button[aria-label="Message 1"]').exists()).toBe(true);
+            expect(wrapper.find('button[aria-label="Message 97"]').exists()).toBe(true);
+        }
+    );
+
+    it('user keeps a rendered current tick after an append releases focus protection', async () => {
+        const manyItems = Array.from({ length: 96 }, (_, index) => ({
+            id: `sampled-${index}`,
+            label: `Message ${index + 1}`,
+        }));
+        const wrapper = mountScroller({ scrollerItems: manyItems });
+        const viewport = viewportOf(wrapper);
+        setScrollMetrics(viewport, {
+            scrollTop: 48_500,
+            scrollHeight: 100_000,
+            clientHeight: 400,
+        });
+        await wrapper.setProps({
+            itemRanges: (id: string) => {
+                const index = Number(id.split('-')[1]);
+                return { top: index * 1_000, bottom: (index + 1) * 1_000 };
+            },
+        });
+        triggerResize();
+        await settleLayout();
+
+        const target = wrapper.get('button[aria-label="Message 49"]').element as HTMLButtonElement;
+        target.focus();
+        await nextTick();
+        await wrapper.setProps({
+            items: [...manyItems, { id: 'sampled-96', label: 'Message 97' }],
+        });
+        await settleLayout();
+        expect(document.activeElement).toBe(target);
+
+        target.blur();
+        await settleLayout();
+
+        const current = wrapper.get('button[aria-current="location"]');
+        expect(
+            wrapper
+                .findAll('[data-slot="message-scroller-rail-item"]')
+                .some((tick) => tick.element === current.element)
+        ).toBe(true);
+    });
+
+    it('user sees the current tick follow an in-place reorder', async () => {
+        const liveItems = reactive([
+            { id: 'first', label: 'First message' },
+            { id: 'second', label: 'Second message' },
+            { id: 'third', label: 'Third message' },
+        ]);
+        const wrapper = mountScroller({ scrollerItems: liveItems });
+        const viewport = viewportOf(wrapper);
+        setScrollMetrics(viewport, { scrollHeight: 1_000, clientHeight: 100 });
+        await wrapper.setProps({
+            itemRanges: (id: string) => {
+                const index = liveItems.findIndex((item) => item.id === id);
+                return { top: index * 100, bottom: (index + 1) * 100 };
+            },
+        });
+        triggerResize();
+        await settleLayout();
+        expect(wrapper.get('button[aria-current="location"]').attributes('aria-label')).toBe(
+            'First message'
+        );
+
+        [liveItems[0], liveItems[1]] = [liveItems[1]!, liveItems[0]!];
+        await settleLayout();
+
+        expect(wrapper.get('button[aria-current="location"]').attributes('aria-label')).toBe(
+            'Second message'
+        );
+    });
+
+    it('user sees the current tick follow an unsampled reorder with different heights', async () => {
+        const liveItems = reactive(
+            Array.from({ length: 1_000 }, (_, index) => ({
+                id: `reorder-${index}`,
+                label: `Message ${index + 1}`,
+            }))
+        );
+        const wrapper = mountScroller({ scrollerItems: liveItems });
+        const viewport = viewportOf(wrapper);
+        setScrollMetrics(viewport, {
+            scrollTop: 500,
+            scrollHeight: 100_900,
+            clientHeight: 400,
+        });
+        stubRect(viewport, { top: 0, height: 400 });
+        await wrapper.setProps({
+            itemRanges: (id: string) => {
+                let top = 0;
+                for (const item of liveItems) {
+                    const height = item.id === 'reorder-1' ? 1_000 : 100;
+                    if (item.id === id) return { top, bottom: top + height };
+                    top += height;
+                }
+                return null;
+            },
+        });
+        triggerResize();
+        await settleLayout();
+        expect(wrapper.get('button[aria-current="location"]').attributes('aria-label')).toBe(
+            'Message 1'
+        );
+
+        [liveItems[1], liveItems[12]] = [liveItems[12]!, liveItems[1]!];
+        await settleLayout();
+
+        expect(wrapper.get('button[aria-current="location"]').attributes('aria-label')).toBe(
+            'Message 12'
+        );
+    });
+
+    it('user sees their reading position highlighted while viewing a long unsampled turn', async () => {
+        const manyItems = Array.from({ length: 1000 }, (_, index) => ({
+            id: `range-${index}`,
+            label: `Message ${index + 1}`,
+        }));
+        const wrapper = mountScroller({ scrollerItems: manyItems });
+        const viewport = viewportOf(wrapper);
+        setScrollMetrics(viewport, { scrollHeight: 1000000, scrollTop: 1500, clientHeight: 400 });
+        stubRect(viewport, { top: 0, height: 400 });
+        await wrapper.setProps({
+            itemRanges: (id: string) => {
+                const index = Number(id.split('-')[1]);
+                return { top: index * 1000, bottom: (index + 1) * 1000 };
+            },
+        });
+        triggerResize();
+        await settleLayout();
+        expect(wrapper.find('button[aria-label="Message 2"]').exists()).toBe(false);
+        const active = wrapper.get('button[aria-current="location"]');
+        expect(active.classes()).toContain('text-primary-500');
     });
 
     it('user sees neighbouring ticks rise in a wave when pointing at a tick', async () => {
@@ -987,6 +1205,31 @@ describe('user follows streamed output', () => {
         );
     });
 
+    it('user sees an updated preview when streamed message text changes in place', async () => {
+        const liveItems = reactive(items.map((item) => ({ ...item })));
+        const wrapper = mountScroller({ scrollerItems: liveItems });
+        const viewport = viewportOf(wrapper);
+        setScrollMetrics(viewport, { scrollHeight: 1_200, clientHeight: 400 });
+        triggerResize();
+        await settleLayout();
+
+        pointerEvent(
+            'pointerenter',
+            'mouse',
+            wrapper.findAll('[data-slot="message-scroller-rail-item"]')[0]!.element as HTMLElement
+        );
+        await nextTick();
+        expect(wrapper.get('[data-slot="message-scroller-preview"]').text()).toContain(
+            'How should the first release work?'
+        );
+
+        liveItems[0]!.label = 'How should the second release work?';
+        await nextTick();
+        expect(wrapper.get('[data-slot="message-scroller-preview"]').text()).toContain(
+            'How should the second release work?'
+        );
+    });
+
     it('user can still reach the end when the scroll API is unavailable', async () => {
         const wrapper = mountScroller();
         const viewport = viewportOf(wrapper);
@@ -1038,6 +1281,10 @@ describe('user prefers reduced motion', () => {
         await nextTick();
 
         expect(scrollTo).toHaveBeenCalledWith({ top: 650, behavior: 'auto' });
+        expect(
+            (wrapper.get('[data-slot="message-scroller-tick"]').element as HTMLElement).style
+                .transition
+        ).toBe('none');
     });
 
     it('user gets an instant jump to the latest message even when smooth scrolling was requested', () => {

@@ -1,0 +1,121 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
+import { startPerfModelServer } from '../local-model-server.mjs';
+import { verifyBuiltArms } from './build.mjs';
+import { readComparison } from './comparison.mjs';
+import {
+    artifactsRoot,
+    binariesRoot,
+    DEFAULT_PORT,
+    evidenceRoot,
+    fixturesRoot,
+    logsRoot,
+    manifestsRoot,
+    MAX_DISPLAY_STARTUP_ATTEMPTS,
+    rawRoot,
+    runtimeRoot,
+    snapshotsRoot,
+} from './config.mjs';
+import { ensureDirectory, nowIso, readJsonFile, readJsonLines, writeJson } from './io.mjs';
+import { runOneMeasurement } from './measurement.mjs';
+import { buildRunPlan, protocolForOptions, protocolMismatches } from './protocol.mjs';
+import { measurementKey, validateRunHistory } from './records.mjs';
+
+function ensureEvidenceLayout(resume = false) {
+    for (const directory of [
+        artifactsRoot,
+        snapshotsRoot,
+        runtimeRoot,
+        logsRoot,
+        rawRoot,
+        fixturesRoot,
+        manifestsRoot,
+        binariesRoot,
+    ]) {
+        ensureDirectory(directory);
+    }
+    for (const file of [
+        path.join(rawRoot, 'events.jsonl'),
+        path.join(rawRoot, 'pss.jsonl'),
+        path.join(rawRoot, 'runs.jsonl'),
+        path.join(rawRoot, 'model-server.jsonl'),
+    ]) {
+        if (resume) {
+            fs.closeSync(fs.openSync(file, 'a'));
+        } else {
+            fs.writeFileSync(file, '');
+        }
+    }
+}
+
+export async function runMeasurements(options) {
+    const plan = buildRunPlan(options);
+    const protocol = protocolForOptions(options);
+    const previousPlan = options.resume
+        ? readJsonFile(path.join(evidenceRoot, 'run-plan.json'))
+        : null;
+    if (options.resume) {
+        if (!previousPlan?.protocol) {
+            throw new Error('Cannot resume without a persisted performance run protocol.');
+        }
+        const mismatches = protocolMismatches(previousPlan.protocol, protocol);
+        if (mismatches.length > 0) {
+            throw new Error(
+                `Cannot resume with a different performance protocol: ${mismatches.join(', ')}.`
+            );
+        }
+    }
+    const runsPath = path.join(rawRoot, 'runs.jsonl');
+    const existingRuns = options.resume ? readJsonLines(runsPath) : [];
+    const existingEvents = options.resume ? readJsonLines(path.join(rawRoot, 'events.jsonl')) : [];
+    const history = validateRunHistory(existingRuns, existingEvents, plan);
+    if (history.errors.length > 0) {
+        throw new Error(
+            `Cannot resume from inconsistent performance evidence: ${history.errors
+                .slice(0, 3)
+                .join('; ')}. Preserve its evidence.`
+        );
+    }
+    const remainingPlan = options.resume
+        ? plan.filter((item) => !history.completedKeys.has(measurementKey(item)))
+        : plan;
+    if (options.dryRun) {
+        console.log(JSON.stringify(remainingPlan, null, 2));
+        return;
+    }
+    const comparison = readComparison();
+    verifyBuiltArms();
+    const fixtures = readJsonFile(path.join(evidenceRoot, 'fixture-manifest.json'));
+    if (JSON.stringify(fixtures?.comparison) !== JSON.stringify(comparison)) {
+        throw new Error('Fixtures belong to a different baseline/candidate comparison.');
+    }
+    const server = await startPerfModelServer({
+        port: DEFAULT_PORT,
+        logFile: path.join(rawRoot, 'model-server.jsonl'),
+    });
+    try {
+        ensureEvidenceLayout(options.resume);
+        writeJson(path.join(evidenceRoot, 'run-plan.json'), {
+            generatedAt: nowIso(),
+            protocol,
+            plan,
+        });
+        for (const [index, item] of remainingPlan.entries()) {
+            console.log(
+                `[${index + 1}/${remainingPlan.length}] ${item.flow} ${
+                    item.historyLevel || ''
+                } block ${item.block} ${item.arm}`
+            );
+            const startupAttempts = history.attemptsByKey.get(measurementKey(item)) ?? 0;
+            if (startupAttempts >= MAX_DISPLAY_STARTUP_ATTEMPTS) {
+                throw new Error(
+                    `Display startup attempt limit reached for ${measurementKey(item)}.`
+                );
+            }
+            await runOneMeasurement({ ...item, options, attempt: startupAttempts + 1 });
+        }
+    } finally {
+        await server.close();
+    }
+}
