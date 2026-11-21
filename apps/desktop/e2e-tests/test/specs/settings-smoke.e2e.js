@@ -373,8 +373,15 @@ describe('user works in the settings window', () => {
             );
             await (await waitForTestIdDisplayed('privacy-protection-record-open')).click();
             const details = await waitForTestIdDisplayed('privacy-protection-details');
-            const original = await waitForTestIdDisplayed('privacy-protection-value-original');
-            const masked = await waitForTestIdDisplayed('privacy-protection-value-masked');
+            await browser.waitUntil(async () => {
+                const stages = await details.$$('[data-testid="privacy-protection-stage"]');
+                const originals = await details.$$(
+                    '[data-testid="privacy-protection-value-original"]'
+                );
+                const masked = await details.$$('[data-testid="privacy-protection-value-masked"]');
+                return stages.length === 2 && originals.length === 2 && masked.length === 2;
+            });
+            const [original, masked] = await details.$$('[data-testid="privacy-protection-stage"]');
             assertVisible(
                 (await original.getText()) === 'Contact robin@example.net and robin@example.net.' &&
                     (await masked.getText()) ===

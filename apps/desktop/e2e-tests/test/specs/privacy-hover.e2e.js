@@ -40,6 +40,30 @@ async function query(sql, params = [], method = 'run') {
     );
 }
 
+async function openMatchingRecord(direction, expectedLeft, expectedRight) {
+    const rows = await browser.$$(
+        `[data-testid="privacy-protection-record"][data-direction="${direction}"]`
+    );
+    for (const row of rows) {
+        const action = await row.$('[data-testid="privacy-protection-record-open"]');
+        await action.scrollIntoView();
+        await action.click();
+        const panel = await waitForTestIdDisplayed('privacy-protection-details');
+        await browser.waitUntil(
+            async () => (await panel.$$('[data-testid="privacy-protection-stage"]')).length === 2,
+            { timeoutMsg: `The ${direction} record details did not finish loading.` }
+        );
+        const frames = await panel.$$('[data-testid="privacy-protection-stage"]');
+        const left = await frames[0].getText();
+        const right = await frames[1].getText();
+        if (left.includes(expectedLeft) && right.includes(expectedRight)) {
+            return { action, panel, left, right };
+        }
+        await action.click();
+    }
+    throw new Error(`No ${direction} record contains the request value.`);
+}
+
 async function setCardWidth(width) {
     const currentWidth = await browser.execute(
         () =>
@@ -569,17 +593,17 @@ describe('given a real protected request in the desktop conversation', () => {
                     )
                 ).length > 0
         );
+        let restoreAction;
         for (const [direction, labels] of [
             ['mask', ['脱敏前', '脱敏后']],
             ['restore', ['还原前', '还原后']],
         ]) {
-            const row = await browser.$(
-                `[data-testid="privacy-protection-record"][data-direction="${direction}"]`
+            const { action, panel, left, right } = await openMatchingRecord(
+                direction,
+                direction === 'mask' ? original : sentPlaceholder,
+                direction === 'mask' ? sentPlaceholder : original
             );
-            const action = await row.$('[data-testid="privacy-protection-record-open"]');
-            await action.scrollIntoView();
-            await action.click();
-            const panel = await waitForTestIdDisplayed('privacy-protection-details');
+            if (direction === 'restore') restoreAction = action;
             await (await browser.$('[data-testid="settings-nav-privacy-filter"]')).moveTo();
             const restingBackground = await browser.execute(async (element) => {
                 await Promise.all(element.getAnimations().map((animation) => animation.finished));
@@ -603,9 +627,6 @@ describe('given a real protected request in the desktop conversation', () => {
                 JSON.stringify(actualLabels) === JSON.stringify(labels),
                 'Record direction captions are incorrect.'
             );
-            const frames = await panel.$$('[data-testid="privacy-protection-stage"]');
-            const left = await frames[0].getText();
-            const right = await frames[1].getText();
             assertVisible(
                 direction === 'mask'
                     ? left.includes(original) && right.includes(sentPlaceholder)
@@ -615,9 +636,8 @@ describe('given a real protected request in the desktop conversation', () => {
             await panel.saveScreenshot(path.join(screenshots, `privacy-record-${direction}.png`));
             await action.click();
         }
-        const action = await browser.$(
-            '[data-testid="privacy-protection-record"][data-direction="restore"] [data-testid="privacy-protection-record-open"]'
-        );
+        assertVisible(Boolean(restoreAction), 'The restored request record is unavailable.');
+        const action = restoreAction;
         await action.scrollIntoView();
         await action.click();
         const panel = await waitForTestIdDisplayed('privacy-protection-details');
