@@ -20,6 +20,7 @@
         (e: 'select', providerId: number): void;
         (e: 'toggle-enabled', providerId: number): void;
         (e: 'add-custom'): void;
+        (e: 'import'): void;
         (e: 'validation-error', message: string): void;
         (e: 'context-menu', providerId: number, event: MouseEvent): void;
     }
@@ -59,6 +60,14 @@
         </div>
 
         <div class="settings-side-panel-footer">
+            <Button
+                variant="outline-neutral"
+                class="mb-2 w-full break-words whitespace-normal"
+                data-testid="settings-import-provider-settings-button"
+                @click="emit('import')"
+            >
+                {{ t('settings.ai.import.title') }}
+            </Button>
             <Button
                 variant="strong"
                 class="flex w-full items-center justify-center gap-2 break-words whitespace-normal"

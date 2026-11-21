@@ -33,6 +33,16 @@ export const providerDraftSchema = providerFields
     .extend({ is_builtin: z.literal(0).optional() })
     .strict();
 export const providerPatchSchema = providerFields.partial().strict();
+export const providerImportEntrySchema = z.strictObject({
+    provider: providerDraftSchema,
+    model: z
+        .strictObject({
+            name: z.string().trim().min(1),
+            model_id: z.string().trim().min(1),
+        })
+        .nullable(),
+});
+export const providerImportEntriesSchema = z.array(providerImportEntrySchema).max(16);
 
 export const modelSchema = z.object({
     id,
@@ -85,6 +95,11 @@ export type Model = z.infer<typeof modelSchema>;
 export type NewModel = z.infer<typeof modelDraftSchema>;
 export type ModelPatch = z.infer<typeof modelPatchSchema>;
 export type ModelWithProvider = z.infer<typeof modelWithProviderSchema>;
+export type ProviderImportEntry = z.infer<typeof providerImportEntrySchema>;
+export type ImportedProvider = {
+    provider: Provider;
+    model: Model | null;
+};
 
 export const modelAdministrationErrorCodes = [
     'MODEL_ADMINISTRATION_UNAVAILABLE',
@@ -114,6 +129,9 @@ export interface ModelAdministration {
     deleteProvider(input: { id: number }): Promise<boolean>;
     findDefaultModel(): Promise<Model | undefined>;
     findModelsWithProvider(input?: { providerId?: number }): Promise<ModelWithProvider[]>;
+    importProviders(input: {
+        entries: readonly ProviderImportEntry[];
+    }): Promise<ImportedProvider[]>;
     createModel(data: NewModel): Promise<Model>;
     updateModel(input: { id: number; modelPatch: ModelPatch }): Promise<void>;
     deleteModel(input: { id: number }): Promise<boolean>;

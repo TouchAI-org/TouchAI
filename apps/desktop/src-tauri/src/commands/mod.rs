@@ -12,6 +12,7 @@ pub mod font;
 pub mod mcp;
 pub mod observability;
 pub mod paths;
+pub mod provider_settings_import;
 pub mod quick_search;
 pub mod shortcut;
 pub mod skills;
@@ -91,6 +92,7 @@ pub fn invoke_handler<R: tauri::Runtime>(
         observability::obs_dismiss_crashes,
         paths::get_app_directory_path,
         paths::get_runtime_info,
+        provider_settings_import::scan_provider_settings_import,
         built_in_tools::built_in_tools_execute_bash,
         built_in_tools::built_in_tools_start_bash,
         built_in_tools::built_in_tools_cancel_bash,

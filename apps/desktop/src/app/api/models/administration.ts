@@ -4,6 +4,7 @@ import type { ModelAdministration } from '@/modules/models/public';
 import { ModelAdministrationError } from '@/modules/models/public';
 
 export type {
+    ImportedProvider,
     Model,
     ModelAdministration,
     ModelPatch,
@@ -11,6 +12,7 @@ export type {
     NewModel,
     NewProvider,
     Provider,
+    ProviderImportEntry,
     ProviderPatch,
 } from '@/modules/models/public';
 export { ModelAdministrationError } from '@/modules/models/public';

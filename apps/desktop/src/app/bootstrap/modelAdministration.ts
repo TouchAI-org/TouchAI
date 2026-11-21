@@ -9,6 +9,7 @@ import {
     modelSchema,
     modelWithProviderSchema,
     providerDraftSchema,
+    providerImportEntriesSchema,
     providerPatchSchema,
     providerSchema,
 } from '@/modules/models/public';
@@ -51,12 +52,20 @@ const discoveryModels = z.array(
             .optional(),
     })
 );
+const importedProviderSchema = z.strictObject({
+    provider: providerSchema,
+    model: modelSchema.nullable(),
+});
 const commands = z.discriminatedUnion('operation', [
     z.strictObject({ operation: z.literal('providers') }),
     z.strictObject({ operation: z.literal('provider'), id }),
     z.strictObject({ operation: z.literal('provider-create'), data: providerDraftSchema }),
     z.strictObject({ operation: z.literal('provider-update'), id, patch: providerPatchSchema }),
     z.strictObject({ operation: z.literal('provider-delete'), id }),
+    z.strictObject({
+        operation: z.literal('provider-import'),
+        entries: providerImportEntriesSchema,
+    }),
     z.strictObject({ operation: z.literal('default') }),
     z.strictObject({ operation: z.literal('models'), providerId: id.optional() }),
     z.strictObject({ operation: z.literal('model-create'), data: modelDraftSchema }),
@@ -76,6 +85,7 @@ const requestSchema = z.strictObject({
     command: commands,
 });
 const resultSchema = z.union([
+    z.array(importedProviderSchema),
     z.array(providerSchema),
     providerSchema,
     z.array(modelWithProviderSchema),
@@ -160,6 +170,9 @@ export function createModelAdministrationWindow(input: {
                         break;
                     case 'provider-delete':
                         result = await owner.deleteProvider({ id: command.id });
+                        break;
+                    case 'provider-import':
+                        result = await owner.importProviders({ entries: command.entries });
                         break;
                     case 'default':
                         result = await owner.findDefaultModel();
@@ -325,6 +338,10 @@ export function createModelAdministrationWindow(input: {
         },
         deleteProvider: async ({ id }) =>
             z.boolean().parse(await request({ operation: 'provider-delete', id })),
+        importProviders: async ({ entries }) =>
+            z
+                .array(importedProviderSchema)
+                .parse(await request({ operation: 'provider-import', entries: [...entries] })),
         findDefaultModel: async () =>
             modelSchema.nullable().parse(await request({ operation: 'default' })) ?? undefined,
         findModelsWithProvider: async (options) =>
