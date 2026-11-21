@@ -294,7 +294,6 @@ export async function prepareFixtures() {
             }
         }
         armManifests[arm] = {
-            sourceBinary: binaryPathByArm[arm],
             sourceBinarySha256: sha256File(binaryPathByArm[arm]),
             migrationTags,
             fixtures: Object.fromEntries(
@@ -303,7 +302,6 @@ export async function prepareFixtures() {
                     {
                         path: file,
                         sha256: sha256File(file),
-                        size: fs.statSync(file).size,
                     },
                 ])
             ),
@@ -344,22 +342,7 @@ export async function prepareFixtures() {
         version: MANIFEST_VERSION,
         generatedAt: nowIso(),
         comparison: readComparison(),
-        provider: {
-            name: 'RFC 710 fixture',
-            driver: 'openai-compatible',
-            endpoint: `http://127.0.0.1:${DEFAULT_PORT}/v1`,
-        },
-        model: {
-            id: 'perf-model',
-            toolCall: true,
-            reasoning: true,
-            contextLimit: 131072,
-            outputLimit: 16384,
-        },
-        historyBytesPerMessage: 10240,
-        historyContentBytes: { minimum: 10240, includesMessagePrefix: true },
         arms: armManifests,
-        businessOracleColumns: businessProjection,
         businessOracles,
     };
     writeJson(path.join(evidenceRoot, 'fixture-manifest.json'), manifest);

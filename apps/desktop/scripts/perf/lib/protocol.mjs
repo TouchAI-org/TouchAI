@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import { armOrder, DEFAULT_PORT, evidenceRoot, fixtureLevels, startupSettleMs } from './config.mjs';
+import { armOrder, evidenceRoot, fixtureLevels, startupSettleMs } from './config.mjs';
 import { readJsonFile } from './io.mjs';
 
 export function parseArgs(argv) {
@@ -120,7 +120,6 @@ export function readOptions(args) {
         // Two 16-task pilot attempts hit the same JSC crash at the 16th task.
         progressTasks: numberArg(args, 'progress-tasks', 8),
         memoryIntervalMs: numberArg(args, 'memory-interval-ms', 250),
-        modelPort: DEFAULT_PORT,
         dryRun: args['dry-run'] === 'true',
         resume: args.resume === 'true',
     };

@@ -38,15 +38,6 @@ function processName(pid) {
     }
 }
 
-function processParent(pid) {
-    try {
-        const status = fs.readFileSync(`/proc/${pid}/status`, 'utf8');
-        return Number(status.match(/^PPid:\s+(\d+)$/m)?.[1] ?? 0);
-    } catch {
-        return 0;
-    }
-}
-
 function processCgroup(pid) {
     try {
         const text = fs.readFileSync(`/proc/${pid}/cgroup`, 'utf8').trim();
@@ -143,7 +134,6 @@ function processesForRoot(appRoot, runToken) {
             pid,
             name,
             environment,
-            parent: processParent(pid),
             cgroup: processCgroup(pid),
         });
     }

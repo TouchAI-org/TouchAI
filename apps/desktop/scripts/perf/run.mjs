@@ -37,7 +37,6 @@ async function main() {
         );
     }
 
-    ensureDirectory(logsRoot);
     ensureDirectory(evidenceRoot);
 
     if (command === 'prepare') {

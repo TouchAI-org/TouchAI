@@ -104,14 +104,9 @@ export async function runMeasurements(options) {
     const remainingPlan = options.resume
         ? plan.filter((item) => !completedKeys.has(measurementKey(item)))
         : plan;
-    const results = options.resume
-        ? existingSuccessfulRuns.filter((record) =>
-              plan.some((item) => measurementKey(item) === measurementKey(record))
-          )
-        : [];
     if (options.dryRun) {
         console.log(JSON.stringify(remainingPlan, null, 2));
-        return [];
+        return;
     }
     const comparison = readComparison();
     verifyBuiltArms();
@@ -122,10 +117,8 @@ export async function runMeasurements(options) {
     ensureEvidenceLayout(options.resume);
     writeJson(path.join(evidenceRoot, 'run-plan.json'), {
         generatedAt: nowIso(),
-        options,
         protocol,
         plan,
-        remainingPlan,
     });
     const server = await startPerfModelServer({
         port: DEFAULT_PORT,
@@ -147,16 +140,9 @@ export async function runMeasurements(options) {
                     `Display startup attempt limit reached for ${measurementKey(item)}.`
                 );
             }
-            results.push(
-                await runOneMeasurement({ ...item, options, attempt: startupAttempts + 1 })
-            );
+            await runOneMeasurement({ ...item, options, attempt: startupAttempts + 1 });
         }
     } finally {
         await server.close();
     }
-    writeJson(path.join(evidenceRoot, 'run-results.json'), {
-        generatedAt: nowIso(),
-        results,
-    });
-    return results;
 }
