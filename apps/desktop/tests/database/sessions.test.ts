@@ -1,8 +1,14 @@
-import { refreshSessionMetadata } from '@database/queries/sessions';
-import { listSessions } from '@database/queries/sessions';
+import { listSessions, refreshSessionMetadata } from '@database/queries/sessions';
 import type { InvokeArgs } from '@tauri-apps/api/core';
+import {
+    closeTestDatabases,
+    openMigratedDatabase,
+    routeQueriesTo,
+} from '@tests/database/sqliteHarness';
 import { getTauriInvokeCalls, interceptTauriInvoke } from '@tests/utils/tauri';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+
+afterEach(closeTestDatabases);
 
 function getRequest(payload: InvokeArgs | undefined) {
     return (payload as { request?: { sql: string; params?: unknown[]; method: string } })?.request;
@@ -48,5 +54,196 @@ describe('when a conversation records its model', () => {
 
         expect(searchRequest).toBeDefined();
         expect(searchRequest!.params).toContain('"abc" AND "def" AND "ghi"');
+    });
+});
+
+function seedSession(
+    database: ReturnType<typeof openMigratedDatabase>,
+    input: {
+        id: number;
+        title: string;
+        model: string;
+        createdAt: string;
+        preview?: string | null;
+        archivedAt?: string | null;
+    }
+) {
+    database
+        .prepare(
+            `INSERT INTO sessions (
+                id, session_id, title, model, last_message_preview, archived_at, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(
+            input.id,
+            `session-${input.id}`,
+            input.title,
+            input.model,
+            input.preview ?? null,
+            input.archivedAt ?? null,
+            input.createdAt,
+            input.createdAt
+        );
+}
+
+function seedMessage(
+    database: ReturnType<typeof openMigratedDatabase>,
+    input: {
+        id: number;
+        sessionId: number;
+        role: 'user' | 'assistant' | 'system' | 'tool_call';
+        content: string;
+    }
+) {
+    database
+        .prepare(
+            `INSERT INTO messages (id, session_id, role, created_at, updated_at)
+             VALUES (?, ?, ?, '2026-01-01 00:00:00', '2026-01-01 00:00:00')`
+        )
+        .run(input.id, input.sessionId, input.role);
+    database
+        .prepare(
+            `INSERT INTO message_parts (message_id, type, content, data, sort_order)
+             VALUES (?, 'text', ?, '{}', 0)`
+        )
+        .run(input.id, input.content);
+}
+
+describe('given conversation search needs structured candidate filters', () => {
+    it('user keeps a title match when a role filter excludes every message', async () => {
+        const database = openMigratedDatabase();
+        routeQueriesTo(database);
+        seedSession(database, {
+            id: 1,
+            title: 'Release checklist',
+            model: 'model-a',
+            createdAt: '2026-01-01 00:00:00',
+        });
+        seedMessage(database, {
+            id: 1,
+            sessionId: 1,
+            role: 'assistant',
+            content: 'Only the assistant discusses this topic.',
+        });
+
+        const sessions = await listSessions({
+            query: 'release',
+            roles: ['user'],
+        });
+
+        expect(sessions.map((session) => session.id)).toEqual([1]);
+    });
+
+    it('user applies role filters only to message content and never searches the session preview', async () => {
+        const database = openMigratedDatabase();
+        routeQueriesTo(database);
+        seedSession(database, {
+            id: 1,
+            title: 'User topic',
+            model: 'model-a',
+            createdAt: '2026-01-03 00:00:00',
+        });
+        seedMessage(database, {
+            id: 1,
+            sessionId: 1,
+            role: 'user',
+            content: 'needle in a user message',
+        });
+        seedMessage(database, {
+            id: 2,
+            sessionId: 1,
+            role: 'assistant',
+            content: 'needle in an assistant message',
+        });
+        seedSession(database, {
+            id: 2,
+            title: 'Preview only',
+            model: 'model-a',
+            createdAt: '2026-01-02 00:00:00',
+            preview: 'needle exists only in the preview',
+        });
+
+        const assistantMatches = await listSessions({
+            query: 'needle',
+            roles: ['assistant'],
+        });
+        const userMatches = await listSessions({
+            query: 'needle',
+            roles: ['user'],
+        });
+
+        expect(assistantMatches.map((session) => session.id)).toEqual([1]);
+        expect(userMatches.map((session) => session.id)).toEqual([1]);
+    });
+
+    it('user includes archived sessions and filters by model and created date boundaries', async () => {
+        const database = openMigratedDatabase();
+        routeQueriesTo(database);
+        seedSession(database, {
+            id: 1,
+            title: 'Archived target',
+            model: 'model-a',
+            createdAt: '2026-01-01 00:00:00',
+            archivedAt: '2026-02-01 00:00:00',
+        });
+        seedSession(database, {
+            id: 2,
+            title: 'Different model',
+            model: 'model-b',
+            createdAt: '2026-01-01 12:00:00',
+        });
+        seedSession(database, {
+            id: 3,
+            title: 'After range',
+            model: 'model-a',
+            createdAt: '2026-01-02 00:00:00',
+        });
+
+        const sessions = await listSessions({
+            query: 'archived',
+            roles: ['user', 'assistant'],
+            model: 'MODEL-A',
+            fromDate: '2026-01-01',
+            toDate: '2026-01-01',
+        });
+
+        expect(sessions.map((session) => session.id)).toEqual([1]);
+    });
+
+    it('user sees actionable date errors before a malformed range reaches the database', async () => {
+        const database = openMigratedDatabase();
+        routeQueriesTo(database);
+
+        await expect(
+            listSessions({ query: 'anything', fromDate: '2026-01-02', toDate: '2026-01-01' })
+        ).rejects.toThrow('from_date must not be later than to_date');
+        await expect(listSessions({ query: 'anything', fromDate: '2026-02-30' })).rejects.toThrow(
+            'from_date must be a valid local date'
+        );
+    });
+
+    it('user searches literal CJK, emoji, percent, underscore, and backslash text', async () => {
+        const database = openMigratedDatabase();
+        routeQueriesTo(database);
+        const query = '会话100%_\\🙂';
+        seedSession(database, {
+            id: 1,
+            title: 'Special query',
+            model: 'model-a',
+            createdAt: '2026-01-01 00:00:00',
+        });
+        seedMessage(database, {
+            id: 1,
+            sessionId: 1,
+            role: 'user',
+            content: `${query} appears literally`,
+        });
+
+        const sessions = await listSessions({
+            query,
+            roles: ['user', 'assistant'],
+        });
+
+        expect(sessions.map((session) => session.id)).toEqual([1]);
     });
 });
