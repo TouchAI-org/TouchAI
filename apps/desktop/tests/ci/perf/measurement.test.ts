@@ -122,7 +122,7 @@ describe('user runs one performance measurement', () => {
                 builds: ['baseline', 'current'].map((arm) => ({
                     arm,
                     comparison,
-                    binarySha256: binaries[arm].sha256,
+                    binarySha256: binaries[arm]!.sha256,
                 })),
             })
         );
