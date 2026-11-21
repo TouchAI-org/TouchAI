@@ -2,16 +2,15 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { buildBoth } from './lib/build.mjs';
-import { parseArgs } from './lib/cli.mjs';
 import { evidenceRoot, logsRoot } from './lib/config.mjs';
 import { prepareFixtures } from './lib/fixtures.mjs';
 import { appendLog, ensureDirectory, nowIso, readJsonFile } from './lib/io.mjs';
 import { runMeasurements } from './lib/orchestrator.mjs';
-import { readOptions } from './lib/protocol.mjs';
+import { parseArgs, readOptions } from './lib/protocol.mjs';
 import { prepareSnapshots } from './lib/snapshots.mjs';
 import { generateStats } from './stats/generate.mjs';
 
-export function performanceGateError(stats) {
+function performanceGateError(stats) {
     if (!stats) return 'RFC 710 performance evidence is missing stats.json.';
     if (!Number.isInteger(stats.rawCounts?.invalidRuns)) {
         return 'RFC 710 performance evidence is missing a valid rawCounts.invalidRuns.';

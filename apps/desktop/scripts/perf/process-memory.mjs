@@ -101,6 +101,19 @@ export function aggregateMemory(processes) {
     };
 }
 
+export function readProcessSample(
+    candidate,
+    { readMemory = readRollup, processExists = (pid) => fs.existsSync(`/proc/${pid}`) } = {}
+) {
+    const memory = readMemory(candidate.pid);
+    if (!memory && !processExists(candidate.pid)) return null;
+    return {
+        pid: candidate.pid,
+        name: candidate.name,
+        ...(memory ?? { pssKb: null, rssKb: null, privateDirtyKb: null }),
+    };
+}
+
 export function processBelongsToRun(
     candidate,
     { appPids, appCgroups, environmentMarker, runTokenMarker }
@@ -156,9 +169,8 @@ function processesForRoot(appRoot, runToken) {
         ) {
             continue;
         }
-        const memory = readRollup(candidate.pid);
-        if (!memory) continue;
-        result.push({ pid: candidate.pid, name: candidate.name, ...memory });
+        const sample = readProcessSample(candidate);
+        if (sample) result.push(sample);
     }
     return result.sort((left, right) => left.pid - right.pid);
 }

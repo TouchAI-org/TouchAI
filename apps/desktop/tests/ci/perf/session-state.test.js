@@ -1,3 +1,5 @@
+// Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
+
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import os from 'node:os';
@@ -7,7 +9,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require('node:sqlite');
-const { waitForSessionSettled } = require('../../../e2e-tests/perf/completion.js');
+const {
+    isSeededSessionReady,
+    seededSessionMessageId,
+    waitForSessionSettled,
+} = require('../../../e2e-tests/perf/session-state.js');
 const { seedAgentDatabase } = require('../../../e2e-tests/test/support/agent-fixture.js');
 
 let root;
@@ -37,7 +43,7 @@ function insertTurn(text, status) {
 }
 
 beforeEach(() => {
-    root = fs.mkdtempSync(path.join(os.tmpdir(), 'touchai-perf-completion-'));
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'touchai-perf-session-'));
     databasePath = path.join(root, 'touchai.db');
     seedAgentDatabase(databasePath, 'http://localhost:3426');
     database = new DatabaseSync(databasePath);
@@ -73,5 +79,46 @@ describe('user accepts a performance sample after the renderer shows the sentine
     it('user accepts an idle renderer only when its own submitted turn is durably completed', async () => {
         insertTurn(prompt, 'completed');
         await expect(waitForSessionSettled({ databasePath, prompt })).resolves.toBeUndefined();
+    });
+});
+
+describe('user opens a virtualized performance history session', () => {
+    it('user sees the session ready when only the final virtualized message is mounted', () => {
+        expect(seededSessionMessageId(100)).toBe('assistant-100');
+        expect(
+            isSeededSessionReady({
+                historyLevel: 100,
+                mountedMessageIds: ['assistant-100'],
+            })
+        ).toBe(true);
+    });
+
+    it('user does not treat a partially mounted virtualized session as ready', () => {
+        expect(
+            isSeededSessionReady({
+                historyLevel: 100,
+                mountedMessageIds: ['user-1', 'assistant-2'],
+            })
+        ).toBe(false);
+    });
+
+    it('user maps an odd message count to its final user message', () => {
+        expect(seededSessionMessageId(101)).toBe('user-101');
+        expect(
+            isSeededSessionReady({
+                historyLevel: 101,
+                mountedMessageIds: ['user-101'],
+            })
+        ).toBe(true);
+    });
+
+    it('user never treats an empty history level as a mounted seeded session', () => {
+        expect(seededSessionMessageId(0)).toBeNull();
+        expect(
+            isSeededSessionReady({
+                historyLevel: 0,
+                mountedMessageIds: ['assistant-0'],
+            })
+        ).toBe(false);
     });
 });

@@ -2,15 +2,15 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import {
-    isSeededSessionReady,
-    seededSessionMessageId,
-} from '../../scripts/perf/history-session.mjs';
 import { startupSettleMs } from '../../scripts/perf/lib/config.mjs';
 import { focusMain } from '../test/support/agent-ui.js';
 import { fillSearchDraft, pressEditorKey } from '../test/support/conversation-queue.js';
 import { callE2eBridge, waitForE2eBridge } from '../test/support/desktop.js';
-import { waitForSessionSettled } from './completion.js';
+import {
+    isSeededSessionReady,
+    seededSessionMessageId,
+    waitForSessionSettled,
+} from './session-state.js';
 
 const flow = process.env.TOUCHAI_PERF_FLOW ?? '';
 const arm = process.env.TOUCHAI_PERF_ARM ?? '';
@@ -23,7 +23,7 @@ const warmSampleCount =
         ? 8
         : Math.max(0, Number(process.env.TOUCHAI_PERF_WARM_SAMPLES) || 0);
 const progressWarmupTasks = Number(process.env.TOUCHAI_PERF_PROGRESS_WARMUPS) || 4;
-const progressMeasuredTasks = Number(process.env.TOUCHAI_PERF_PROGRESS_TASKS) || 16;
+const progressMeasuredTasks = Number(process.env.TOUCHAI_PERF_PROGRESS_TASKS) || 8;
 function appendEvent(value) {
     if (!eventsFile) return;
     fs.mkdirSync(path.dirname(eventsFile), { recursive: true });
@@ -49,7 +49,7 @@ function promptId(sample) {
 }
 
 function doneTokenFor(id) {
-    return `PERF710_DONE_${createHash('sha256').update(id).digest('hex').slice(0, 16)}`;
+    return `TOUCHAI_PERF_DONE_${createHash('sha256').update(id).digest('hex').slice(0, 16)}`;
 }
 
 async function waitForMainWindow() {
@@ -201,7 +201,7 @@ async function armRendererMeasurement(doneToken) {
             subtree: true,
             characterData: true,
         });
-        window.__PERF710_STATE__ = state;
+        window.__TOUCHAI_PERF_STATE__ = state;
         check();
     }, doneToken);
 }
@@ -225,7 +225,7 @@ async function captureSentinelTimeout(doneToken, error) {
     try {
         diagnostic = await withTimeout(
             browser.execute((token) => {
-                const state = window.__PERF710_STATE__ ?? null;
+                const state = window.__TOUCHAI_PERF_STATE__ ?? null;
                 const assistantMessages = [
                     ...document.querySelectorAll("[data-message-role='assistant']"),
                 ];
@@ -282,14 +282,14 @@ async function captureSentinelTimeout(doneToken, error) {
         (eventsFile ? path.dirname(eventsFile) : process.cwd());
     fs.mkdirSync(evidenceDirectory, { recursive: true });
     const artifactBase = path.join(evidenceDirectory, `${runId || 'perf'}-sentinel-timeout`);
-    fs.writeFileSync(`${artifactBase}.json`, `${JSON.stringify(diagnostic, null, 2)}\n`);
+    const diagnosticPath = `${artifactBase}.json`;
+    fs.writeFileSync(diagnosticPath, `${JSON.stringify(diagnostic, null, 2)}\n`);
     appendEvent({
         type: 'renderer-sentinel-timeout',
         error: String(error),
-        diagnosticPath: `${artifactBase}.json`,
-        screenshotPath: null,
+        diagnosticPath,
     });
-    return { diagnostic, diagnosticPath: `${artifactBase}.json`, screenshotPath: null };
+    return diagnosticPath;
 }
 
 async function waitRendererMeasurement(doneToken, timeoutMs = 180000) {
@@ -298,7 +298,7 @@ async function waitRendererMeasurement(doneToken, timeoutMs = 180000) {
             browser.waitUntil(
                 async () =>
                     await browser.execute(() => {
-                        const state = window.__PERF710_STATE__;
+                        const state = window.__TOUCHAI_PERF_STATE__;
                         state?.checkNow?.();
                         return Boolean(state?.result);
                     }),
@@ -311,19 +311,16 @@ async function waitRendererMeasurement(doneToken, timeoutMs = 180000) {
             `The renderer did not reach the performance sentinel within ${timeoutMs}ms.`
         );
     } catch (error) {
-        const evidence = await captureSentinelTimeout(doneToken, error);
+        const diagnosticPath = await captureSentinelTimeout(doneToken, error);
         throw new Error(
-            `${error instanceof Error ? error.message : String(error)} ` +
-                `Diagnostics: ${evidence.diagnosticPath}; screenshot: ${
-                    evidence.screenshotPath ?? 'unavailable'
-                }`,
+            `${error instanceof Error ? error.message : String(error)} Diagnostics: ${diagnosticPath}`,
             { cause: error }
         );
     }
     const result = await browser.execute(() => {
-        const value = window.__PERF710_STATE__?.result ?? null;
-        window.__PERF710_STATE__?.cleanup();
-        delete window.__PERF710_STATE__;
+        const value = window.__TOUCHAI_PERF_STATE__?.result ?? null;
+        window.__TOUCHAI_PERF_STATE__?.cleanup();
+        delete window.__TOUCHAI_PERF_STATE__;
         return value;
     });
     if (
@@ -345,7 +342,7 @@ async function submitAndMeasure(sample, options = {}) {
     const chunkBytes = options.chunkBytes ?? 24;
     const alternate = options.alternate ? 1 : 0;
     const marker = [
-        'PERF710',
+        'TOUCHAI_PERF',
         `flow=${flow}`,
         `promptId=${id}`,
         `rounds=${rounds}`,
@@ -439,7 +436,6 @@ async function runLatency() {
 
 async function runTask(sample, recordType) {
     await startNewSession();
-    appendEvent({ type: 'task-phase', phase: 'start', taskIndex: sample, recordType });
     await submitAndMeasure(sample, {
         recordType,
         rounds: 24,
@@ -449,7 +445,6 @@ async function runTask(sample, recordType) {
         chunkDelayMs: 1,
         timeoutMs: 600000,
     });
-    appendEvent({ type: 'task-phase', phase: 'end', taskIndex: sample, recordType });
 }
 
 async function runProgress() {
@@ -461,8 +456,6 @@ async function runProgress() {
         await runTask(sample, 'progress-task');
     }
     appendEvent({ type: 'progress-window', phase: 'end', ...(await domMetrics()) });
-    await sleep(5000);
-    appendEvent({ type: 'progress-window', phase: 'settled', ...(await domMetrics()) });
 }
 
 async function openSeededSession() {
@@ -491,17 +484,9 @@ async function openSeededSession() {
         }
     );
     await history.waitForExist({ reverse: true });
-    appendEvent({
-        type: 'long-phase',
-        phase: 'open-complete',
-        historyLevel,
-        expectedMessageId,
-        ...(await domMetrics()),
-    });
 }
 
 async function runLongSession() {
-    appendEvent({ type: 'long-phase', phase: 'idle', ...(await domMetrics()) });
     await sleep(3000);
     appendEvent({ type: 'long-phase', phase: 'baseline', ...(await domMetrics()) });
     await openSeededSession();

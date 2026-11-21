@@ -118,13 +118,7 @@ export async function generateStats() {
             plannedRuns: plannedRuns.length,
             validRuns: validRuns.length,
             invalidRuns: invalidRuns.length,
-            successfulRuns: validRuns.length,
-            failedRuns: invalidRuns.length,
             missingPlannedRuns: missingPlannedRuns.length,
-        },
-        planCompleteness: {
-            expectedRuns: plannedRuns.length,
-            missingRuns: missingPlannedRuns.map(measurementKey),
         },
         fixtureManifest: {
             present: fixtureManifest !== null,

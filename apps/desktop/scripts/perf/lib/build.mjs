@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import { readComparison } from './comparison.mjs';
 import {
+    arms,
     artifactsRoot,
     baselineSnapshot,
     binaryPathByArm,
@@ -24,7 +25,7 @@ import { runInCgroup } from './process.mjs';
 export function verifyBuiltArms() {
     const comparison = readComparison();
     const builds = readJsonFile(path.join(evidenceRoot, 'builds.json'))?.builds ?? [];
-    for (const arm of ['baseline', 'current']) {
+    for (const arm of arms) {
         const build = builds.find((entry) => entry.arm === arm);
         if (
             JSON.stringify(build?.comparison) !== JSON.stringify(comparison) ||
@@ -98,7 +99,7 @@ async function buildArm(arm) {
 export async function buildBoth() {
     ensureDirectory(logsRoot);
     const results = [];
-    for (const arm of ['baseline', 'current']) {
+    for (const arm of arms) {
         const result = await buildArm(arm);
         results.push(result);
         writeJson(path.join(evidenceRoot, 'builds.json'), {

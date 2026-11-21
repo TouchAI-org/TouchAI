@@ -75,11 +75,13 @@ describe('user runs RFC 710 performance on GitHub Actions', () => {
         expect(workflow).not.toContain('continue-on-error');
     });
 
-    it('user compares the actual pull request base and head without an obsolete baseline alias', async () => {
+    it('user compares the pull request merge commit with its base without an obsolete baseline alias', async () => {
         const workflow = await readFile(workflowPath, 'utf8');
 
         expect(workflow).toContain('github.event.pull_request.base.sha');
-        expect(workflow).toContain('github.event.pull_request.head.sha');
+        expect(workflow).toContain('PERF_CANDIDATE_REQUEST: ${{ inputs.candidate || github.sha }}');
+        expect(workflow).toContain('ref: ${{ inputs.candidate || github.sha }}');
+        expect(workflow).not.toContain('github.event.pull_request.head.sha');
         expect(workflow).toContain('node apps/desktop/scripts/perf/run.mjs all');
         expect(workflow).toContain('--baseline "$PERF_BASELINE"');
         expect(workflow).toContain('--candidate "$PERF_CANDIDATE"');

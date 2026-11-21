@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 
-export const perfRoot = path.resolve(scriptDir, '..');
+const perfRoot = path.resolve(scriptDir, '..');
 export const repoRoot = path.resolve(scriptDir, '../../../../..');
 export const evidenceRoot = path.resolve(
     process.env.TOUCHAI_PERF_EVIDENCE ?? path.join(os.tmpdir(), 'touchai-perf-evidence')
@@ -23,7 +23,7 @@ export const binariesRoot = path.join(evidenceRoot, 'binaries');
 export const cgroupExec = path.join(perfRoot, 'cgroup-exec.sh');
 export const memorySampler = path.join(perfRoot, 'process-memory.mjs');
 export const xvfbRunWithWm = path.join(perfRoot, 'xvfb-run-with-wm.sh');
-export const desktopRoot = path.join(repoRoot, 'apps/desktop');
+const desktopRoot = path.join(repoRoot, 'apps/desktop');
 export const wdioConfigRoot = path.join(desktopRoot, 'e2e-tests');
 export const wdioBinary = path.join(desktopRoot, 'node_modules/.bin/wdio');
 export const currentSnapshot = path.join(snapshotsRoot, 'current');
@@ -45,9 +45,9 @@ export const binaryPathByArm = {
 };
 
 export const fixtureLevels = [100, 500, 1000, 1500];
-export const fixtureNames = ['base', ...fixtureLevels.map((level) => `long-${level}`)];
+const fixtureNames = ['base', ...fixtureLevels.map((level) => `long-${level}`)];
 export const fixturePathByArm = Object.fromEntries(
-    ['baseline', 'current'].map((arm) => [
+    arms.map((arm) => [
         arm,
         Object.fromEntries(
             fixtureNames.map((name) => [

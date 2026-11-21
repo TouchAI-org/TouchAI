@@ -67,7 +67,7 @@ function waitForListening(child: ReturnType<typeof spawn>): Promise<string> {
 
         child.stdout?.on('data', (chunk: Buffer) => {
             stdout += chunk.toString('utf8');
-            const endpoint = stdout.match(/PERF710 model server listening on (\S+)/)?.[1];
+            const endpoint = stdout.match(/TOUCHAI_PERF model server listening on (\S+)/)?.[1];
             if (endpoint) {
                 clearTimeout(timer);
                 resolve(endpoint);
@@ -118,7 +118,7 @@ describe('user runs the RFC 710 local model server', () => {
         const logFile = path.join(root, 'nested', 'model-server.jsonl');
         const running = await startPerfModelServer({ port: 0, logFile });
         const promptId = 'tool-round';
-        const marker = `PERF710|promptId=${promptId}|rounds=1|chunks=1|chunkBytes=8|flow=latency`;
+        const marker = `TOUCHAI_PERF|promptId=${promptId}|rounds=1|chunks=1|chunkBytes=8|flow=latency`;
 
         try {
             const toolResponse = await postChat(running.port, {
@@ -139,7 +139,7 @@ describe('user runs the RFC 710 local model server', () => {
                     { role: 'tool', content: 'language=en-US' },
                 ],
             });
-            const doneToken = `PERF710_DONE_${createHash('sha256')
+            const doneToken = `TOUCHAI_PERF_DONE_${createHash('sha256')
                 .update(promptId)
                 .digest('hex')
                 .slice(0, 16)}`;
@@ -164,8 +164,14 @@ describe('user runs the RFC 710 local model server', () => {
         const desktopRoot = process.cwd();
         const script = path.join(desktopRoot, 'scripts', 'perf', 'local-model-server.mjs');
         const root = fs.mkdtempSync(path.join(desktopRoot, 'node_modules', '.perf model path-'));
-        const entry = path.join(root, 'local model server.mjs');
+        const entry = path.join(root, 'scripts', 'perf', 'local model server.mjs');
+        fs.mkdirSync(path.dirname(entry), { recursive: true });
+        fs.mkdirSync(path.join(root, 'scripts', 'perf', 'lib'), { recursive: true });
         fs.copyFileSync(script, entry);
+        fs.copyFileSync(
+            path.join(desktopRoot, 'scripts', 'perf', 'lib', 'config.mjs'),
+            path.join(root, 'scripts', 'perf', 'lib', 'config.mjs')
+        );
 
         const child = spawn(process.execPath, [entry, '--port', '0'], {
             cwd: desktopRoot,

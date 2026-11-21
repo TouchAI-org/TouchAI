@@ -5,7 +5,7 @@ import path from 'node:path';
 import { cgroupExec, repoRoot } from './config.mjs';
 import { appendLog, ensureDirectory, nowIso } from './io.mjs';
 
-export function commandLine(command, args) {
+function commandLine(command, args) {
     return [command, ...args]
         .map((part) => (/^[A-Za-z0-9_./:=+-]+$/.test(part) ? part : JSON.stringify(part)))
         .join(' ');
@@ -50,7 +50,7 @@ export function runSync(command, args, options = {}) {
     return { ...record, stdout: result.stdout, stderr: result.stderr };
 }
 
-export async function runStreaming(command, args, options = {}) {
+async function runStreaming(command, args, options = {}) {
     ensureDirectory(path.dirname(options.log));
     const descriptor = fs.openSync(options.log, 'a');
     const startedAt = Date.now();

@@ -2,7 +2,6 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { shouldRetryDisplayStartupFailure } from '../display-retry.mjs';
 import {
     artifactsRoot,
     binaryPathByArm,
@@ -27,6 +26,20 @@ import {
     sha256File,
 } from './io.mjs';
 import { runInCgroup } from './process.mjs';
+
+const DISPLAY_STARTUP_FAILURES = [
+    'Dunst did not register org.freedesktop.Notifications',
+    'Openbox did not become ready',
+    'Cannot open X11 display',
+    "Couldn't initialize X11 output",
+    'X connection broke',
+];
+
+export function shouldRetryDisplayStartupFailure({ runStarted, exitCode, signal, logText }) {
+    if (runStarted) return false;
+    if (exitCode === 0 && !signal) return false;
+    return DISPLAY_STARTUP_FAILURES.some((signature) => logText.includes(signature));
+}
 
 function stopChild(child, signal = 'SIGTERM') {
     return new Promise((resolve) => {
@@ -72,6 +85,10 @@ function hasRunStarted(runId) {
     );
 }
 
+function appendRunRecord(record) {
+    fs.appendFileSync(path.join(rawRoot, 'runs.jsonl'), `${JSON.stringify(record)}\n`);
+}
+
 function readDisplayFailureLog(runLogDir, wdioLog) {
     return [wdioLog, path.join(runLogDir, 'dunst.log'), path.join(runLogDir, 'openbox.log')]
         .filter((file) => fs.existsSync(file))
@@ -84,10 +101,15 @@ export function measurementInvalidReasons({
     signal,
     notificationFailures,
     samplerFailure,
+    launchError = null,
 }) {
     const reasons = [];
-    if (signal) reasons.push(`WebDriver signal ${signal}`);
-    if (exitCode !== 0) reasons.push(`WebDriver exit ${exitCode}`);
+    if (launchError) {
+        const message = launchError instanceof Error ? launchError.message : String(launchError);
+        reasons.push(`measurement launch failed: ${message}`);
+    }
+    if (!launchError && signal) reasons.push(`WebDriver signal ${signal}`);
+    if (!launchError && exitCode !== 0) reasons.push(`WebDriver exit ${exitCode}`);
     if (notificationFailures > 0) {
         reasons.push(
             `${notificationFailures} native notification failure${notificationFailures === 1 ? '' : 's'}`
@@ -156,6 +178,7 @@ export async function runOneMeasurement({
     const runDatabase = path.join(appRoot, 'data/touchai.db');
     fs.copyFileSync(fixtureFile, runDatabase);
     const fixtureSha256 = sha256File(runDatabase);
+    const binarySha256 = sha256File(binary);
     const pssLog = path.join(runLogDir, 'pss-sampler.log');
     const samplerStdout = fs.openSync(pssLog, 'a');
     const samplerStderr = fs.openSync(pssLog, 'a');
@@ -226,8 +249,31 @@ export async function runOneMeasurement({
         TOUCHAI_PERF_RUN_TOKEN: runId,
         TOUCHAI_PERF_WARM_SAMPLES: String(options.warmSamples),
     };
-    let result;
+    appendRunRecord({
+        type: 'run-launch',
+        at: nowIso(),
+        arm,
+        flow,
+        block,
+        sequenceIndex,
+        runId,
+        historyLevel: historyLevel || null,
+        fixture,
+        fixtureSha256,
+        binary,
+        binarySha256,
+        attempt,
+        log: wdioLog,
+    });
+    let result = {
+        exitCode: null,
+        signal: null,
+        elapsedMs: null,
+        cgroup: {},
+    };
+    let launchError = null;
     let samplerEarlyExit;
+    const launchStartedAt = Date.now();
     try {
         result = await runInCgroup({
             label: `run-${flow}`,
@@ -237,6 +283,8 @@ export async function runOneMeasurement({
             env,
             log: wdioLog,
         });
+    } catch (error) {
+        launchError = error;
     } finally {
         // Any sampler exit before WebDriver returns leaves the memory series
         // truncated, even when WebDriver itself eventually finishes cleanly.
@@ -254,9 +302,11 @@ export async function runOneMeasurement({
         signal: result.signal,
         notificationFailures,
         samplerFailure,
+        launchError,
     });
     const valid = invalidReasons.length === 0;
     const retryDisplayStartup =
+        !launchError &&
         !valid &&
         attempt < MAX_DISPLAY_STARTUP_ATTEMPTS &&
         shouldRetryDisplayStartupFailure({
@@ -278,10 +328,10 @@ export async function runOneMeasurement({
         fixture,
         fixtureSha256,
         binary,
-        binarySha256: sha256File(binary),
+        binarySha256,
         exitCode: result.exitCode,
         signal: result.signal,
-        elapsedMs: result.elapsedMs,
+        elapsedMs: launchError ? Date.now() - launchStartedAt : result.elapsedMs,
         cgroup: result.cgroup,
         notificationFailures,
         valid,
@@ -289,7 +339,7 @@ export async function runOneMeasurement({
         retryReason: retryDisplayStartup ? 'display-startup-failure' : null,
         log: wdioLog,
     };
-    fs.appendFileSync(path.join(rawRoot, 'runs.jsonl'), `${JSON.stringify(record)}\n`);
+    appendRunRecord(record);
 
     if (retryDisplayStartup) {
         const failureRoot = path.join(evidenceRoot, 'failures', runId);
@@ -316,7 +366,8 @@ export async function runOneMeasurement({
         ensureDirectory(failureRoot);
         copyIfExists(appRoot, path.join(failureRoot, 'app-root'));
         throw new Error(
-            `Performance run ${runId} is invalid: ${invalidReasons.join('; ')}. See ${wdioLog}.`
+            `Performance run ${runId} is invalid: ${invalidReasons.join('; ')}. See ${wdioLog}.`,
+            launchError ? { cause: launchError } : undefined
         );
     }
 
