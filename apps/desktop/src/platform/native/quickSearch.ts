@@ -6,6 +6,8 @@ import type {
     QuickShortcutItem,
 } from './types';
 
+export type { QuickSearchStatus } from './types';
+
 const DEFAULT_PAGE_SIZE = 60;
 const DEFAULT_ICON_SIZE = 48;
 const DEFAULT_REFERENCE_SUGGESTION_LIMIT = 12;
