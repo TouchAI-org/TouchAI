@@ -14,6 +14,13 @@ export interface MessageRow extends MessageEntity {
     attachments: MessageAttachmentRow[];
 }
 
+export interface ConversationSearchMessage {
+    id: number;
+    session_id: number;
+    role: 'user' | 'assistant';
+    content: string;
+}
+
 /** 为一批消息补全 parts 与附件，避免逐条查询。 */
 async function hydrateMessageRows(
     rows: MessageEntity[],
@@ -55,6 +62,76 @@ export async function findMessagesBySessionId(
         .all();
 
     return hydrateMessageRows(rows, database);
+}
+
+/**
+ * Loads at most the first and last 50 eligible messages for every candidate session in one
+ * database round trip. System and tool messages never enter the ranking payload.
+ */
+export async function findConversationSearchMessagesBySessionIds(
+    sessionIds: readonly number[],
+    roles: readonly ('user' | 'assistant')[],
+    database: DatabaseExecutor = db
+): Promise<ConversationSearchMessage[]> {
+    const uniqueSessionIds = [...new Set(sessionIds)];
+    const uniqueRoles = [...new Set(roles)].filter(
+        (role): role is 'user' | 'assistant' => role === 'user' || role === 'assistant'
+    );
+    if (uniqueSessionIds.length === 0 || uniqueRoles.length === 0) return [];
+
+    const sessionValues = sql.join(
+        uniqueSessionIds.map((sessionId) => sql`${sessionId}`),
+        sql`, `
+    );
+    const roleValues = sql.join(
+        uniqueRoles.map((role) => sql`${role}`),
+        sql`, `
+    );
+
+    const rows = await database.all<[number, number, 'user' | 'assistant', string]>(sql`
+        WITH ranked_messages AS (
+            SELECT
+                messages.id AS id,
+                messages.session_id AS session_id,
+                messages.role AS role,
+                coalesce((
+                    SELECT group_concat(parts.content, '')
+                    FROM (
+                        SELECT content
+                        FROM message_parts
+                        WHERE message_id = messages.id
+                          AND type = 'text'
+                        ORDER BY sort_order, id
+                    ) AS parts
+                ), '') AS content,
+                row_number() OVER (
+                    PARTITION BY messages.session_id
+                    ORDER BY messages.id
+                ) AS first_rank,
+                row_number() OVER (
+                    PARTITION BY messages.session_id
+                    ORDER BY messages.id DESC
+                ) AS last_rank
+            FROM messages
+            WHERE messages.session_id IN (${sessionValues})
+              AND messages.role IN (${roleValues})
+        )
+        SELECT
+            ranked_messages.id AS id,
+            ranked_messages.session_id AS session_id,
+            ranked_messages.role AS role,
+            ranked_messages.content AS content
+        FROM ranked_messages
+        WHERE ranked_messages.first_rank <= 50
+           OR ranked_messages.last_rank <= 50
+        ORDER BY ranked_messages.session_id, ranked_messages.id
+    `);
+    return rows.map(([id, sessionId, role, content]) => ({
+        id,
+        session_id: sessionId,
+        role,
+        content,
+    }));
 }
 
 /** Separate range and point reads keep the session/id index usable for long archives. */
