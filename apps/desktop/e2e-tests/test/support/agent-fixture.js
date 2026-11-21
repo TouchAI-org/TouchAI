@@ -83,9 +83,8 @@ export async function createAgentFixture(appRoot) {
             database.close();
         }
     }
-    function assertHealthy() {
-        if (provider.errors.length)
-            throw new AggregateError(provider.errors, 'Model fixture received unexpected requests');
+    async function assertHealthy() {
+        await provider.assertHealthy();
     }
     activeFixture = {
         appRoot,
@@ -96,13 +95,20 @@ export async function createAgentFixture(appRoot) {
         execute: (sql, ...bindings) =>
             withDatabase(false, (db) => db.prepare(sql).run(...bindings)),
         async close() {
+            let failure;
+            try {
+                await assertHealthy();
+            } catch (error) {
+                failure = error;
+            }
+            const calls = await provider.calls().catch(() => []);
             await provider.close();
             fs.writeFileSync(
                 path.join(appRoot, 'model-requests.json'),
-                JSON.stringify(provider.requests, null, 2)
+                JSON.stringify(calls, null, 2)
             );
             activeFixture = undefined;
-            assertHealthy();
+            if (failure) throw failure;
         },
     };
     return activeFixture;

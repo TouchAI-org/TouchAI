@@ -65,6 +65,15 @@ pnpm test:rust                          # Run Rust tests
 pnpm test:coverage:rust                 # Run Rust tests with coverage (requires cargo-llvm-cov)
 ```
 
+Desktop E2E also launches a separate app with an isolated root whose database path is a directory.
+Before opening a WebDriver session, it verifies that this E2E startup failure reports the SQLite
+error and exits non-zero within 15 seconds. On Windows it also opens the interactive startup error
+dialog with E2E mode disabled, verifies the native `TouchAI` dialog appears, closes it, and requires
+the app to exit non-zero without hanging. To run these native regressions after building the app,
+set `TOUCHAI_STARTUP_TEST_BINARY` to the built executable and run
+`node --test apps/desktop/e2e-tests/startup-failure.test.js` from the repository root. Keep `TEMP`
+and `TMP` under the task's external scratch directory so the fixture does not use real app data.
+
 CI runs both coverage gates on every desktop change: frontend in `frontend-tests`, Rust in `rust-coverage`. Each publishes a table to the step summary, and each failure blocks the required `CI Required` check.
 
 ## Coverage
@@ -154,6 +163,7 @@ apps/desktop/src-tauri/tests/ # Rust integration / command tests
 
 - Frontend tests: `apps/desktop/tests/**/*.test.ts`, mirroring the `src/` structure (`src/views/SearchView/windowSizing.ts` → `tests/SearchView/windowSizing.test.ts`)
 - Package source and tests are included in the workspace typechecks, Desktop Vitest run and coverage gates.
+- Provider contract tests live in `packages/models/tests/emulate/` and run with the package tests.
 - Repository CI tests: `tests/ci/**/*.test.ts`. Workflow and CODEOWNERS contracts live in `tests/ci/workflows/`; lockfile policy in `tests/ci/repository/`; ESLint design-system guards in `tests/ci/design-system/`. A test that imports `apps/desktop/scripts/**` stays in `apps/desktop/tests/ci/`, because it covers desktop build or release tooling.
 - UI preview tests: `tests/ci/ui-preview/**/*.test.js`, colocated with the repository automation they cover.
 - Desktop E2E: `apps/desktop/e2e-tests/**/*.e2e.js`
@@ -214,6 +224,10 @@ Rust follows the same rule in snake_case: `#[test] fn user_sees_prompt_sent_when
 ## Mocking
 
 Mock at system boundaries only: `@tauri-apps/api/mocks` for Tauri IPC, `tauri::test` for Rust commands, Vitest fake timers for timers. Do not mock your own pure functions or strategy objects, and never mock an internal helper just to assert it was called. If a module needs heavy mocking to test, it needs refactoring first.
+
+### Third-party HTTP services
+
+Model providers run on [emulate](https://github.com/vercel-labs/emulate), a dev dependency. `startLocalModelService()` serves OpenAI and Anthropic formats on loopback from rules, so tests keep the real SDK and HTTP path without a key or network. Both E2E model fixtures use it: `model-provider.js` with rules and `agent-stream.js` as a custom service for frame-level control.
 
 ## Assertion Priority
 

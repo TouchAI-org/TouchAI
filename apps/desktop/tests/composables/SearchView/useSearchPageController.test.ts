@@ -18,8 +18,12 @@ vi.mock('@tauri-apps/api/window', () => ({
 
 vi.mock('@/platform/native', () => ({
     native: {
+        runtime: {
+            getRuntimeInfo: vi.fn().mockResolvedValue({ isE2eTestMode: false }),
+        },
         window: {
             hideSearchWindow: vi.fn().mockResolvedValue(undefined),
+            setSearchSurfaceHideOnAppBlur: vi.fn().mockResolvedValue(undefined),
         },
     },
 }));
@@ -137,6 +141,92 @@ describe('when the user pins the search window on top', () => {
         await expect(mounted.result.setWindowPinned(true)).resolves.toBe(true);
 
         expect(currentWindowMock.setAlwaysOnTop).toHaveBeenCalledWith(true);
+
+        mounted.unmount();
+    });
+
+    it.each([
+        { requested: true, reported: false },
+        { requested: false, reported: true },
+    ])(
+        'user keeps the requested pin state $requested when the platform reports $reported',
+        async ({ requested, reported }) => {
+            currentWindowMock.isAlwaysOnTop.mockResolvedValue(reported);
+            const mounted = await mountComposable(() => useSearchWindowPin());
+            await mounted.result.syncWindowPinState();
+
+            await expect(mounted.result.setWindowPinned(requested)).resolves.toBe(requested);
+            expect(mounted.result.isPinned.value).toBe(requested);
+            expect(currentWindowMock.setAlwaysOnTop).toHaveBeenCalledWith(requested);
+
+            await expect(mounted.result.syncWindowPinState()).resolves.toBe(requested);
+            expect(mounted.result.isPinned.value).toBe(requested);
+
+            mounted.unmount();
+        }
+    );
+
+    it('user can unpin with a second toggle when the platform keeps reporting unpinned', async () => {
+        const mounted = await mountComposable(() => useSearchWindowPin());
+        await mounted.result.syncWindowPinState();
+
+        const pinned = await mounted.result.toggleWindowPin();
+        const unpinned = await mounted.result.toggleWindowPin();
+
+        expect([pinned, unpinned]).toEqual([true, false]);
+        expect(mounted.result.isPinned.value).toBe(false);
+        expect(currentWindowMock.setAlwaysOnTop).toHaveBeenLastCalledWith(false);
+
+        mounted.unmount();
+    });
+
+    it('user gets alternating pin states when toggling rapidly despite stale platform readback', async () => {
+        const mounted = await mountComposable(() => useSearchWindowPin());
+
+        const results = await Promise.all([
+            mounted.result.toggleWindowPin(),
+            mounted.result.toggleWindowPin(),
+            mounted.result.toggleWindowPin(),
+        ]);
+
+        expect(results).toEqual([true, false, true]);
+        expect(mounted.result.isPinned.value).toBe(true);
+
+        mounted.unmount();
+    });
+
+    it.each(['set', 'toggle'] as const)(
+        'user keeps the previous pin choice and can retry when a %s request fails',
+        async (action) => {
+            const mounted = await mountComposable(() => useSearchWindowPin());
+            await mounted.result.setWindowPinned(true);
+            const unpin = () =>
+                action === 'set'
+                    ? mounted.result.setWindowPinned(false)
+                    : mounted.result.toggleWindowPin();
+            currentWindowMock.setAlwaysOnTop.mockRejectedValueOnce(new Error('Pin denied'));
+
+            await expect(unpin()).rejects.toThrow('Pin denied');
+            expect(mounted.result.isPinned.value).toBe(true);
+            await expect(mounted.result.syncWindowPinState()).resolves.toBe(true);
+
+            await expect(unpin()).resolves.toBe(false);
+            expect(mounted.result.isPinned.value).toBe(false);
+
+            mounted.unmount();
+        }
+    );
+
+    it('user can pin after initial platform readback fails', async () => {
+        currentWindowMock.isAlwaysOnTop.mockRejectedValue(new Error('Readback unavailable'));
+        const mounted = await mountComposable(() => useSearchWindowPin());
+
+        await expect(mounted.result.syncWindowPinState()).rejects.toThrow('Readback unavailable');
+        expect(mounted.result.isPinned.value).toBe(false);
+
+        await expect(mounted.result.setWindowPinned(true)).resolves.toBe(true);
+        expect(mounted.result.isPinned.value).toBe(true);
+        await expect(mounted.result.syncWindowPinState()).resolves.toBe(true);
 
         mounted.unmount();
     });

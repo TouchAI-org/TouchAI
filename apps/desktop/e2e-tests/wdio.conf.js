@@ -61,6 +61,25 @@ function assertBuiltAppExists() {
     return appBinaryPath;
 }
 
+function assertFailedStartupExits() {
+    const result = spawnSync(process.execPath, ['--test', 'startup-failure.test.js'], {
+        cwd: __dirname,
+        stdio: 'inherit',
+        env: {
+            ...process.env,
+            TOUCHAI_STARTUP_TEST_BINARY: assertBuiltAppExists(),
+            TEMP: resolveTempDirectory(),
+            TMP: resolveTempDirectory(),
+        },
+    });
+    if (result.error || result.status !== 0) {
+        // WDIO can swallow onPrepare errors and still exit successfully. Terminate
+        // the runner directly so this preflight failure always blocks the E2E gate.
+        console.error('The startup-failure regression test failed. Check the output above.');
+        process.exit(typeof result.status === 'number' ? result.status || 1 : 1);
+    }
+}
+
 function resolveTempDirectory() {
     if (process.env.TOUCHAI_TEST_TEMP) {
         return process.env.TOUCHAI_TEST_TEMP;
@@ -274,6 +293,7 @@ export const config = {
             }
             fs.mkdirSync(runtimeRoot, { recursive: true });
             assertBuiltAppExists();
+            assertFailedStartupExits();
             return;
         }
 
@@ -300,6 +320,7 @@ export const config = {
         }
 
         assertBuiltAppExists();
+        assertFailedStartupExits();
     },
     beforeSession: async (_config, _capabilities, specs) => {
         assertBuiltAppExists();

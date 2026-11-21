@@ -334,6 +334,9 @@ importers:
       drizzle-kit:
         specifier: ^0.31.11
         version: 0.31.11
+      emulate:
+        specifier: 0.14.0
+        version: 0.14.0
       esbuild:
         specifier: 0.28.2
         version: 0.28.2
@@ -483,6 +486,9 @@ importers:
       '@types/node':
         specifier: ^25.9.9
         version: 25.9.9
+      emulate:
+        specifier: 0.14.0
+        version: 0.14.0
       typescript:
         specifier: ~6.0.3
         version: 6.0.3
@@ -4501,6 +4507,10 @@ packages:
 
   emoji-regex@10.6.0:
     resolution: {integrity: sha512-toUI84YS5YmxW219erniWD0CIVOo46xGKColeNQRgOzDorgBi1v4D71/OFzgD9GO2UGKIv1C3Sp8DAn0+j5w7A==}
+
+  emulate@0.14.0:
+    resolution: {integrity: sha512-mlM/PJ34ynD2OTGVBvy+8/F7gEDwkHWmpqLG/JetaDmaqifkHtCw2VMmXTKBy6Zwa5yvCziLvyyvmAoVeuPZoA==}
+    hasBin: true
 
   encodeurl@2.0.3:
     resolution: {integrity: sha512-mIteYONiEfc4xWf2F1WXovh1c8npzS00vNeiUPdwFF+QlVJni+gNvpQltLMQhob8rew/bWWc/bGTuUr0EUGt0w==}
@@ -11572,6 +11582,12 @@ snapshots:
   electron-to-chromium@1.5.465: {}
 
   emoji-regex@10.6.0: {}
+
+  emulate@0.14.0:
+    dependencies:
+      commander: 14.0.3
+      picocolors: 1.1.1
+      yaml: 2.9.1
 
   encodeurl@2.0.3: {}
 

@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 const TOUCHAI_APP_ROOT_ENV: &str = "TOUCHAI_APP_ROOT";
 const TOUCHAI_E2E_ENV: &str = "TOUCHAI_E2E";
+const TOUCHAI_E2E_DISABLE_SINGLE_INSTANCE_ENV: &str = "TOUCHAI_E2E_DISABLE_SINGLE_INSTANCE";
 const TOUCHAI_UI_PREVIEW_ENV: &str = "TOUCHAI_UI_PREVIEW";
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -32,6 +33,35 @@ pub fn is_e2e_test_mode() -> bool {
             .as_deref(),
         Some("1" | "true" | "yes" | "on")
     )
+}
+
+pub fn can_show_startup_failure_dialog() -> bool {
+    if is_e2e_test_mode() {
+        return false;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        has_linux_display(
+            std::env::var_os("DISPLAY"),
+            std::env::var_os("WAYLAND_DISPLAY"),
+        )
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        true
+    }
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn has_linux_display(
+    display: Option<std::ffi::OsString>,
+    wayland_display: Option<std::ffi::OsString>,
+) -> bool {
+    display
+        .into_iter()
+        .chain(wayland_display)
+        .any(|address| !address.is_empty())
 }
 
 /// The preview records a fixed-size, centered window. Content-driven resizes
@@ -79,6 +109,13 @@ const DEFAULT_E2E_WEBVIEW_ADDITIONAL_BROWSER_ARGS: &str = concat!(
 
 pub fn should_enable_single_instance() -> bool {
     !is_e2e_test_mode()
+        && !matches!(
+            std::env::var(TOUCHAI_E2E_DISABLE_SINGLE_INSTANCE_ENV)
+                .ok()
+                .map(|value| value.trim().to_ascii_lowercase())
+                .as_deref(),
+            Some("1" | "true" | "yes" | "on")
+        )
 }
 
 pub fn resolve_app_root_override() -> Option<PathBuf> {
@@ -92,12 +129,49 @@ pub fn resolve_app_root_override() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::{
-        e2e_webview_additional_browser_args, is_e2e_test_mode, is_ui_preview_mode,
-        DEFAULT_E2E_WEBVIEW_ADDITIONAL_BROWSER_ARGS, TOUCHAI_E2E_ENV, TOUCHAI_UI_PREVIEW_ENV,
+        can_show_startup_failure_dialog, e2e_webview_additional_browser_args, has_linux_display,
+        is_e2e_test_mode, is_ui_preview_mode, should_enable_single_instance,
+        DEFAULT_E2E_WEBVIEW_ADDITIONAL_BROWSER_ARGS, TOUCHAI_E2E_DISABLE_SINGLE_INSTANCE_ENV,
+        TOUCHAI_E2E_ENV, TOUCHAI_UI_PREVIEW_ENV,
     };
     use std::sync::Mutex;
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn user_does_not_wait_for_a_startup_dialog_when_e2e_mode_is_enabled() {
+        let _guard = ENV_LOCK.lock().expect("env lock");
+        for value in ["1", "true", "YES", " on "] {
+            std::env::set_var(TOUCHAI_E2E_ENV, value);
+            assert!(!can_show_startup_failure_dialog(), "E2E value: {value}");
+        }
+        std::env::remove_var(TOUCHAI_E2E_ENV);
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    #[test]
+    fn user_can_see_a_startup_dialog_when_launching_interactively_on_a_native_desktop() {
+        let _guard = ENV_LOCK.lock().expect("env lock");
+        std::env::remove_var(TOUCHAI_E2E_ENV);
+
+        assert!(can_show_startup_failure_dialog());
+    }
+
+    #[test]
+    fn user_cannot_see_a_linux_dialog_when_both_display_addresses_are_absent_or_empty() {
+        assert!(!has_linux_display(None, None));
+        assert!(!has_linux_display(Some("".into()), Some("".into())));
+        assert!(!has_linux_display(Some("".into()), None));
+        assert!(!has_linux_display(None, Some("".into())));
+    }
+
+    #[test]
+    fn user_can_see_a_linux_dialog_when_either_display_protocol_is_available() {
+        assert!(has_linux_display(Some(":99".into()), None));
+        assert!(has_linux_display(None, Some("wayland-0".into())));
+        assert!(has_linux_display(Some("".into()), Some("wayland-0".into())));
+        assert!(has_linux_display(Some(":99".into()), Some("".into())));
+    }
 
     #[test]
     fn e2e_browser_args_are_none_outside_e2e_mode() {
@@ -140,6 +214,29 @@ mod tests {
 
         std::env::remove_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS");
         std::env::remove_var(TOUCHAI_E2E_ENV);
+    }
+
+    #[test]
+    fn user_can_disable_single_instance_without_enabling_e2e_mode() {
+        let _guard = ENV_LOCK.lock().expect("env lock");
+        std::env::remove_var(TOUCHAI_E2E_ENV);
+        std::env::remove_var(TOUCHAI_E2E_DISABLE_SINGLE_INSTANCE_ENV);
+
+        assert!(should_enable_single_instance());
+
+        for value in ["1", "true", "YES", " on "] {
+            std::env::set_var(TOUCHAI_E2E_DISABLE_SINGLE_INSTANCE_ENV, value);
+            assert!(!should_enable_single_instance(), "disable value: {value}");
+        }
+
+        std::env::set_var(TOUCHAI_E2E_DISABLE_SINGLE_INSTANCE_ENV, "0");
+        assert!(should_enable_single_instance());
+
+        std::env::set_var(TOUCHAI_E2E_ENV, "1");
+        assert!(!should_enable_single_instance());
+
+        std::env::remove_var(TOUCHAI_E2E_ENV);
+        std::env::remove_var(TOUCHAI_E2E_DISABLE_SINGLE_INSTANCE_ENV);
     }
 
     #[test]

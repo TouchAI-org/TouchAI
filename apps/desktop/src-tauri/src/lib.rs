@@ -288,7 +288,9 @@ pub fn run() {
             let version = app.package_info().version.to_string();
             core::observability::panic::install_panic_hook(&version);
             if let Err(err) = setup::setup_app(app) {
-                return Err(Box::new(std::io::Error::other(err)));
+                setup::handle_initialization_failure(app, &err);
+                // Let the event loop process the exit request or interactive dialog.
+                return Ok(());
             }
             core::observability::log_header(&version);
             core::window::search_host::start_main_search_host_reconciliation(app.handle().clone());
