@@ -79,7 +79,9 @@ describe('user runs one performance measurement', () => {
             .split('\n')
             .map((line) => JSON.parse(line));
         expect(records.map((record) => record.type)).toEqual(['run-launch', 'run']);
+        expect(records[0]).toMatchObject({ attempt: 1 });
         expect(records[1]).toMatchObject({
+            attempt: 1,
             exitCode: null,
             signal: null,
             cgroup: {},
