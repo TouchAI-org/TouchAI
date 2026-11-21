@@ -314,6 +314,7 @@ export function buildLatencyStats(events, runs, modes, plannedItems) {
     }
 
     const metrics = [];
+    const scopedPlan = plannedItems.filter((item) => item.flow === 'latency');
     for (const mode of modes) {
         for (const metric of ['median', 'p95']) {
             metrics.push(
@@ -326,7 +327,7 @@ export function buildLatencyStats(events, runs, modes, plannedItems) {
                     metric,
                     gate: true,
                     seed: `latency-duration-${mode}-${metric}`,
-                    plannedItems,
+                    plannedItems: scopedPlan,
                 })
             );
             metrics.push(
@@ -340,7 +341,7 @@ export function buildLatencyStats(events, runs, modes, plannedItems) {
                     gate: false,
                     seed: `latency-first-text-${mode}-${metric}`,
                     notes: 'Auxiliary user-visible metric; the RFC gate is Enter-to-sentinel.',
-                    plannedItems,
+                    plannedItems: scopedPlan,
                 })
             );
         }
@@ -396,12 +397,21 @@ export function nearestMemory(samples, at, maxDistanceMs = 3000) {
     return bestDistance <= maxDistanceMs ? best : null;
 }
 
+export function nearestMemoryWithin(samples, at, startAt, endAt, maxDistanceMs = 3000) {
+    return nearestMemory(
+        samples.filter((sample) => sample.at >= startAt && sample.at <= endAt),
+        at,
+        maxDistanceMs
+    );
+}
+
 export function buildProgressStats(events, memory, runs, enabled, plannedItems) {
     if (!enabled) {
         return { status: 'NOT_RUN', metrics: [], samples: [] };
     }
     const runById = new Map(runs.map((run) => [run.runId, run]));
     const memoryByRun = groupMemoryByRun(memory);
+    const scopedPlan = plannedItems.filter((item) => item.flow === 'progress');
     const runRows = runs.filter((run) => run.flow === 'progress' && run.exitCode === 0);
     const steadyRows = [];
     const peakRows = [];
@@ -456,7 +466,7 @@ export function buildProgressStats(events, memory, runs, enabled, plannedItems) 
         gate: true,
         seed: 'progress-steady-pss',
         notes: 'Median of the last half of the measured progress window, after warmups.',
-        plannedItems,
+        plannedItems: scopedPlan,
     });
     const peak = summarizeMetric({
         id: 'progress.peak.pss',
@@ -468,7 +478,7 @@ export function buildProgressStats(events, memory, runs, enabled, plannedItems) 
         gate: false,
         seed: 'progress-peak-pss',
         notes: 'Auxiliary; peak is not the RFC steady-state budget.',
-        plannedItems,
+        plannedItems: scopedPlan,
     });
     const status = steady.status;
     return { status, metrics: [steady, peak], samples: steadyRows };
@@ -514,9 +524,15 @@ export function buildLongSessionStats(
             const terminal = eventForRun(events, run.runId, 'long-phase', 'terminal');
             const settled = eventForRun(events, run.runId, 'long-phase', 'settled');
             const samples = memoryByRun.get(run.runId) ?? [];
-            if (!baselineEvent || !retained || !streamStart || !terminal || !settled) continue;
+            if (!baselineEvent || !openStart || !retained || !streamStart || !terminal || !settled)
+                continue;
             const baselineMemory = nearestMemory(samples, baselineEvent.at);
-            const retainedMemory = nearestMemory(samples, retained.at);
+            const retainedMemory = nearestMemoryWithin(
+                samples,
+                retained.at,
+                openStart.at,
+                streamStart.at
+            );
             const settledMemory = nearestMemory(samples, settled.at);
             if (!baselineMemory || !retainedMemory || !settledMemory) continue;
             const openSamples = samples.filter(
@@ -559,6 +575,9 @@ export function buildLongSessionStats(
                     ),
                 ])
             );
+        const scopedPlan = plannedItems.filter(
+            (item) => item.flow === 'long-session' && Number(item.historyLevel) === Number(level)
+        );
         const metrics = [
             summarizeMetric({
                 id: `long-${level}.retained.pss`,
@@ -570,7 +589,7 @@ export function buildLongSessionStats(
                 gate: true,
                 seed: `long-${level}-retained-pss`,
                 notes: 'Steady-state post-open plateau PSS, app + WebKit. Compared directly across arms; history-only growth is reported separately.',
-                plannedItems,
+                plannedItems: scopedPlan,
             }),
             summarizeMetric({
                 id: `long-${level}.retained.dom`,
@@ -582,7 +601,7 @@ export function buildLongSessionStats(
                 gate: true,
                 seed: `long-${level}-retained-dom`,
                 notes: 'Rendered message-container DOM after opening the seeded history.',
-                plannedItems,
+                plannedItems: scopedPlan,
             }),
             summarizeMetric({
                 id: `long-${level}.history-growth.pss`,
@@ -594,7 +613,7 @@ export function buildLongSessionStats(
                 gate: false,
                 seed: `long-${level}-history-growth`,
                 notes: 'Post-open plateau minus idle baseline. Auxiliary because small histories can cancel into zero or negative deltas.',
-                plannedItems,
+                plannedItems: scopedPlan,
             }),
             summarizeMetric({
                 id: `long-${level}.open-peak.pss`,
@@ -606,7 +625,7 @@ export function buildLongSessionStats(
                 gate: false,
                 seed: `long-${level}-open-peak`,
                 notes: 'Auxiliary temporary clone/queue signal.',
-                plannedItems,
+                plannedItems: scopedPlan,
             }),
             summarizeMetric({
                 id: `long-${level}.stream-peak.pss`,
@@ -618,7 +637,7 @@ export function buildLongSessionStats(
                 gate: false,
                 seed: `long-${level}-stream-peak`,
                 notes: 'Auxiliary temporary work signal.',
-                plannedItems,
+                plannedItems: scopedPlan,
             }),
             summarizeMetric({
                 id: `long-${level}.settled.pss`,
@@ -630,7 +649,7 @@ export function buildLongSessionStats(
                 gate: false,
                 seed: `long-${level}-settled`,
                 notes: 'Auxiliary post-stream settled total memory, app + WebKit.',
-                plannedItems,
+                plannedItems: scopedPlan,
             }),
         ];
         const gates = metrics.filter((metric) => metric.gate);

@@ -19,6 +19,8 @@ export function resolveComparison(repository, baselineRef, candidateRef = 'HEAD'
         'pnpm-workspace.yaml',
         'package.json',
         'apps/desktop/package.json',
+        'apps/desktop/src-tauri/Cargo.toml',
+        'apps/desktop/src-tauri/Cargo.lock',
         'packages',
     ];
     const changed = git([

@@ -32,6 +32,10 @@ export const baselineSnapshot = path.join(snapshotsRoot, 'baseline');
 export const MANIFEST_VERSION = 1;
 export const MAX_DISPLAY_STARTUP_ATTEMPTS = 2;
 export const DEFAULT_PORT = readPort(process.env.TOUCHAI_PERF_PORT ?? 3426);
+export const startupSettleMs = readPositiveInteger(
+    process.env.TOUCHAI_PERF_STARTUP_SETTLE_MS ?? 8000,
+    'TOUCHAI_PERF_STARTUP_SETTLE_MS'
+);
 
 export const arms = ['baseline', 'current'];
 export const armOrder = ['baseline', 'current', 'current', 'baseline'];
@@ -64,4 +68,12 @@ function readPort(value) {
         throw new Error(`Invalid performance model port: ${value}`);
     }
     return port;
+}
+
+function readPositiveInteger(value, name) {
+    const number = Number(value);
+    if (!Number.isInteger(number) || number <= 0) {
+        throw new Error(`Invalid ${name}: ${value}`);
+    }
+    return number;
 }

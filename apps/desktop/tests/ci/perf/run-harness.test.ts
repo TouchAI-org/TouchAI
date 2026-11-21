@@ -50,13 +50,14 @@ function runHarness(root: string, args: string[]) {
     return runCommand(root, ['run', ...args]);
 }
 
-function runCommand(root: string, argv: string[]) {
+function runCommand(root: string, argv: string[], env: NodeJS.ProcessEnv = {}) {
     return spawnSync(process.execPath, [RUN_CLI, ...argv], {
         encoding: 'utf8',
         env: {
             ...process.env,
             TOUCHAI_PERF_EVIDENCE: root,
             TOUCHAI_PERF_ARTIFACTS: path.join(root, 'artifacts'),
+            ...env,
         },
         timeout: 30000,
     });
@@ -121,6 +122,30 @@ describe('user previews and resumes the RFC 710 performance run', () => {
         expect(() => resolveComparison(root, 'HEAD^', 'HEAD')).not.toThrow();
     });
 
+    it('user cannot compare different native dependency manifests', () => {
+        const root = comparisonRepository();
+        fs.mkdirSync(path.join(root, 'apps/desktop/src-tauri'), { recursive: true });
+        fs.writeFileSync(
+            path.join(root, 'apps/desktop/src-tauri/Cargo.toml'),
+            '[package]\nname = "touchai"\nversion = "0.1.0"\n'
+        );
+        fs.writeFileSync(path.join(root, 'apps/desktop/src-tauri/Cargo.lock'), 'version = 3\n');
+        spawnSync(
+            'git',
+            ['add', 'apps/desktop/src-tauri/Cargo.toml', 'apps/desktop/src-tauri/Cargo.lock'],
+            { cwd: root }
+        );
+        spawnSync('git', ['commit', '-qm', 'add native manifests'], { cwd: root });
+        fs.writeFileSync(
+            path.join(root, 'apps/desktop/src-tauri/Cargo.toml'),
+            '[package]\nname = "touchai"\nversion = "0.2.0"\n'
+        );
+        spawnSync('git', ['add', 'apps/desktop/src-tauri/Cargo.toml'], { cwd: root });
+        spawnSync('git', ['commit', '-qm', 'change native dependency'], { cwd: root });
+
+        expect(() => resolveComparison(root, 'HEAD^', 'HEAD')).toThrow('Cargo.toml');
+    });
+
     it('user cannot compare different database artifacts under the no-schema-change protocol', () => {
         const root = comparisonRepository();
         fs.writeFileSync(path.join(root, 'apps/desktop/src/database/seed.sql'), 'changed');
@@ -176,6 +201,93 @@ describe('user previews and resumes the RFC 710 performance run', () => {
         expect(JSON.parse(result.stdout ?? '')).toHaveLength(4);
         expect(fs.readFileSync(planFile, 'utf8')).toBe('previous-plan\n');
         expect(fs.readFileSync(runsFile, 'utf8')).toBe('previous-run\n');
+    });
+
+    it.skipIf(process.platform === 'win32')(
+        'user cannot read the previous comparison after snapshot preparation fails',
+        () => {
+            const root = createEvidenceRoot();
+            const manifest = path.join(root, 'source-manifest.json');
+            fs.writeFileSync(manifest, '{"comparison":{"stale":true}}\n');
+            const bin = path.join(root, 'bin');
+            fs.mkdirSync(bin);
+            for (const command of ['git', 'tar']) {
+                const executable = spawnSync('which', [command], {
+                    encoding: 'utf8',
+                }).stdout.trim();
+                fs.symlinkSync(executable, path.join(bin, command));
+            }
+            fs.writeFileSync(path.join(bin, 'pnpm'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+
+            const result = spawnSync(
+                process.execPath,
+                [RUN_CLI, 'prepare', '--baseline', 'HEAD', '--candidate', 'HEAD'],
+                {
+                    encoding: 'utf8',
+                    env: {
+                        ...process.env,
+                        PATH: bin,
+                        TOUCHAI_PERF_EVIDENCE: root,
+                        TOUCHAI_PERF_ARTIFACTS: path.join(root, 'artifacts'),
+                    },
+                    timeout: 60000,
+                }
+            );
+
+            expect(result.status).toBe(1);
+            expect(fs.existsSync(manifest)).toBe(false);
+        }
+    );
+
+    it('user cannot record a startup settle that the workload does not use', () => {
+        const root = createEvidenceRoot();
+        const result = runCommand(
+            root,
+            ['run', '--dry-run', '--flows', 'latency', '--latency-blocks', '1'],
+            { TOUCHAI_PERF_STARTUP_SETTLE_MS: '0' }
+        );
+
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain('TOUCHAI_PERF_STARTUP_SETTLE_MS');
+    });
+
+    it.each([
+        ['250', 'Unsupported'],
+        ['100,100', 'duplicate'],
+    ])('user cannot plan unsupported or duplicate history level %s', (historyLevels, error) => {
+        const root = createEvidenceRoot();
+        const result = runHarness(root, [
+            '--dry-run',
+            '--flows',
+            'long-session',
+            '--long-blocks',
+            '1',
+            '--history-levels',
+            historyLevels,
+        ]);
+
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain(error);
+    });
+
+    it('user can explicitly plan the supported 1500-message history level', () => {
+        const root = createEvidenceRoot();
+        const result = runHarness(root, [
+            '--dry-run',
+            '--flows',
+            'long-session',
+            '--long-blocks',
+            '1',
+            '--history-levels',
+            '1500',
+        ]);
+
+        expect(result.status).toBe(0);
+        expect([
+            ...new Set(
+                JSON.parse(result.stdout).map((item: { historyLevel: number }) => item.historyLevel)
+            ),
+        ]).toEqual([1500]);
     });
 
     it('user cannot resume with a different warm-sample protocol', () => {

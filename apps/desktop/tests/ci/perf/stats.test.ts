@@ -346,6 +346,9 @@ describe('user reads the RFC 710 performance statistics', () => {
 
         runStats(root);
         expect(readStats(root).overallStatus).not.toBe('PASS');
+        const summary = fs.readFileSync(path.join(root, 'summary.md'), 'utf8');
+        expect(summary).toContain('Overall: **BLOCKED**');
+        expect(summary).toContain('Invalid runs: 1');
     });
 
     it('user sees the selected baseline and candidate instead of a historical hardcoded commit', () => {
@@ -410,6 +413,62 @@ describe('user reads the RFC 710 performance statistics', () => {
         runStats(root);
         expect(readStats(root).overallStatus).not.toBe('PASS');
         expect(readStats(root).rawCounts.invalidRuns).toBe(1);
+    });
+
+    it('user cannot pass a long-session run without a retained sample before streaming', () => {
+        const root = createEvidenceRoot();
+        writeFixtureManifest(root);
+        writeSyntheticLongSessionRuns(root);
+        const eventsFile = path.join(root, 'raw/formal/events.jsonl');
+        const events = fs
+            .readFileSync(eventsFile, 'utf8')
+            .trim()
+            .split('\n')
+            .map((line) => JSON.parse(line));
+        const firstRunId = events[0].runId;
+        const retained = events.find(
+            (event) =>
+                event.runId === firstRunId &&
+                event.type === 'long-phase' &&
+                event.phase === 'retained'
+        );
+        const streamStart = events.find(
+            (event) =>
+                event.runId === firstRunId &&
+                event.type === 'long-phase' &&
+                event.phase === 'stream-start'
+        );
+        const firstRun = JSON.parse(
+            fs.readFileSync(path.join(root, 'raw/formal/runs.jsonl'), 'utf8').split('\n')[0]!
+        );
+        const memoryFile = path.join(root, 'raw/formal/pss.jsonl');
+        const samples = fs
+            .readFileSync(memoryFile, 'utf8')
+            .trim()
+            .split('\n')
+            .map((line) => JSON.parse(line))
+            .filter((sample) => !(sample.runId === firstRunId && sample.at === retained.at));
+        samples.push({
+            type: 'memory',
+            at: streamStart.at + 60,
+            runId: firstRunId,
+            arm: firstRun.arm,
+            flow: 'long-session',
+            processes: [{ pid: 1, name: 'TouchAI', pssKb: 1_090_000 }],
+            totalPssKb: 1_090_000,
+        });
+        fs.writeFileSync(
+            memoryFile,
+            `${samples.map((sample) => JSON.stringify(sample)).join('\n')}\n`
+        );
+
+        runStats(root);
+        const stats = readStats(root);
+
+        expect(stats.rawCounts.invalidRuns).toBe(1);
+        expect(stats.invalidRuns[0].invalidReasons).toContain(
+            'long-session retained observations are missing or invalid'
+        );
     });
 
     describe('given a cold-only protocol', () => {
@@ -485,7 +544,8 @@ describe('user reads the RFC 710 performance statistics', () => {
 
             expect(result.status).toBe(0);
             expect(settled.status).toBe('AUX');
-            expect(settled.armStats.current.median).toBeGreaterThan(0);
+            expect(settled.armStats.current.median).toBe(1_040_000);
+            expect(settled.armStats.baseline.median).toBe(1_050_000);
             expect(
                 settled.armStats.current.runs.every(
                     ([, values]: [string, number[]]) => (values[0] ?? 0) > 0
@@ -556,6 +616,39 @@ describe('user reads the RFC 710 performance statistics', () => {
         });
     });
 
+    describe('given a run and manifest without fixture hashes', () => {
+        it('user sees the run invalidated instead of matching two missing hashes', () => {
+            const root = createEvidenceRoot();
+            writeFixtureManifest(root);
+            writeSyntheticRuns(root, coldOnlyRuns());
+            const runsPath = path.join(root, 'raw/formal/runs.jsonl');
+            const records = fs
+                .readFileSync(runsPath, 'utf8')
+                .trim()
+                .split('\n')
+                .map((line) => JSON.parse(line));
+            for (const record of records) delete record.fixtureSha256;
+            fs.writeFileSync(
+                runsPath,
+                `${records.map((record) => JSON.stringify(record)).join('\n')}\n`
+            );
+            const manifestPath = path.join(root, 'fixture-manifest.json');
+            const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+            for (const arm of ['baseline', 'current']) {
+                delete manifest.arms[arm].fixtures.base.sha256;
+            }
+            fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 4)}\n`);
+
+            runStats(root);
+            const stats = readStats(root);
+
+            expect(stats.rawCounts.validRuns).toBe(0);
+            expect(stats.invalidRuns[0].invalidReasons).toContain(
+                'fixture hash is missing for baseline/base'
+            );
+        });
+    });
+
     describe('given fixtures with different business oracles', () => {
         it('user sees every run for that fixture invalidated', () => {
             const root = createEvidenceRoot();
@@ -610,5 +703,27 @@ describe('user reads the RFC 710 performance statistics', () => {
             expect(stats.latency.metrics[0].excludedClusterCount).toBe(2);
             expect(stats.overallStatus).toBe('BLOCKED');
         });
+    });
+
+    it('user sees excluded cluster counts scoped to the metric flow', () => {
+        const root = createEvidenceRoot();
+        writeFixtureManifest(root);
+        writeSyntheticRuns(root, coldOnlyRuns(3));
+        const planPath = path.join(root, 'run-plan.json');
+        const plan = JSON.parse(fs.readFileSync(planPath, 'utf8'));
+        plan.plan.push({
+            arm: 'baseline',
+            flow: 'progress',
+            block: 1,
+            sequenceIndex: 1,
+            fixture: 'base',
+            historyLevel: 0,
+        });
+        fs.writeFileSync(planPath, `${JSON.stringify(plan, null, 4)}\n`);
+
+        runStats(root);
+        const latency = readStats(root).latency.metrics[0];
+
+        expect(latency.excludedClusterCount).toBe(0);
     });
 });

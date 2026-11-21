@@ -142,7 +142,6 @@ describe('user reads a markdown answer', () => {
         const renderer = wrapper.findComponent(MarkdownRender);
 
         expect(renderer.props('virtualScroll')).toBeUndefined();
-        expect(wrapper.find('.height-estimation-probes').exists()).toBe(false);
         await flushPromises();
         const paragraph = wrapper.get('p');
         expect(paragraph.text()).toBe('streaming body');
@@ -162,7 +161,10 @@ describe('user reads a markdown answer', () => {
 
         expect(options.enabled).toBe(true);
         expect(options.scrollRoot()).toBe(scrollRoot);
-        expect(wrapper.find('.height-estimation-probes').exists()).toBe(true);
+        const completed = wrapper
+            .findAll('p')
+            .find((paragraph) => paragraph.text() === 'streaming body grows');
+        expect(completed?.isVisible()).toBe(true);
     });
 
     it('user sees standalone markdown without waiting for an outer scroll owner', async () => {

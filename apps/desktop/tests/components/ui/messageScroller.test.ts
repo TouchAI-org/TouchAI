@@ -429,6 +429,76 @@ describe('user navigates a long conversation', () => {
         }
     );
 
+    it('user keeps a rendered current tick after an append releases focus protection', async () => {
+        const manyItems = Array.from({ length: 96 }, (_, index) => ({
+            id: `sampled-${index}`,
+            label: `Message ${index + 1}`,
+        }));
+        const wrapper = mountScroller({ scrollerItems: manyItems });
+        const viewport = viewportOf(wrapper);
+        setScrollMetrics(viewport, {
+            scrollTop: 48_500,
+            scrollHeight: 100_000,
+            clientHeight: 400,
+        });
+        await wrapper.setProps({
+            itemRanges: (id: string) => {
+                const index = Number(id.split('-')[1]);
+                return { top: index * 1_000, bottom: (index + 1) * 1_000 };
+            },
+        });
+        triggerResize();
+        await settleLayout();
+
+        const target = wrapper.get('button[aria-label="Message 49"]').element as HTMLButtonElement;
+        target.focus();
+        await nextTick();
+        await wrapper.setProps({
+            items: [...manyItems, { id: 'sampled-96', label: 'Message 97' }],
+        });
+        await settleLayout();
+        expect(document.activeElement).toBe(target);
+
+        target.blur();
+        await settleLayout();
+
+        const current = wrapper.get('button[aria-current="location"]');
+        expect(
+            wrapper
+                .findAll('[data-slot="message-scroller-rail-item"]')
+                .some((tick) => tick.element === current.element)
+        ).toBe(true);
+    });
+
+    it('user sees the current tick follow an in-place reorder', async () => {
+        const liveItems = reactive([
+            { id: 'first', label: 'First message' },
+            { id: 'second', label: 'Second message' },
+            { id: 'third', label: 'Third message' },
+        ]);
+        const wrapper = mountScroller({ scrollerItems: liveItems });
+        const viewport = viewportOf(wrapper);
+        setScrollMetrics(viewport, { scrollHeight: 1_000, clientHeight: 100 });
+        await wrapper.setProps({
+            itemRanges: (id: string) => {
+                const index = liveItems.findIndex((item) => item.id === id);
+                return { top: index * 100, bottom: (index + 1) * 100 };
+            },
+        });
+        triggerResize();
+        await settleLayout();
+        expect(wrapper.get('button[aria-current="location"]').attributes('aria-label')).toBe(
+            'First message'
+        );
+
+        [liveItems[0], liveItems[1]] = [liveItems[1]!, liveItems[0]!];
+        await settleLayout();
+
+        expect(wrapper.get('button[aria-current="location"]').attributes('aria-label')).toBe(
+            'Second message'
+        );
+    });
+
     it('user sees their reading position highlighted while viewing a long unsampled turn', async () => {
         const manyItems = Array.from({ length: 1000 }, (_, index) => ({
             id: `range-${index}`,

@@ -1,6 +1,9 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -9,6 +12,22 @@ import { describe, expect, it } from 'vitest';
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(testDirectory, '../../..');
 const workflowPath = path.resolve(repositoryRoot, '.github/workflows/perf-nightly.yml');
+const perfRunner = path.resolve(repositoryRoot, 'apps/desktop/scripts/perf/run.mjs');
+
+function runGate(stats: unknown | null) {
+    const root = mkdtempSync(path.join(os.tmpdir(), 'touchai-perf-gate-'));
+    try {
+        if (stats !== null) {
+            writeFileSync(path.join(root, 'stats.json'), JSON.stringify(stats));
+        }
+        return spawnSync(process.execPath, [perfRunner, 'gate'], {
+            encoding: 'utf8',
+            env: { ...process.env, TOUCHAI_PERF_EVIDENCE: root, TOUCHAI_PERF_ARTIFACTS: root },
+        });
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+}
 
 describe('user runs RFC 710 performance on GitHub Actions', () => {
     it('user sees the canonical workflow use a GitHub-hosted display stack', async () => {
@@ -37,6 +56,8 @@ describe('user runs RFC 710 performance on GitHub Actions', () => {
         expect(workflow).toContain('--long-blocks "$LONG_BLOCKS"');
         expect(workflow).toContain('long-blocks must be at least 6');
         expect(workflow).toContain('--history-levels "$HISTORY_LEVELS"');
+        expect(workflow).toContain('persist-credentials: false');
+        expect(workflow).toContain('startup-settle-ms must be a positive integer');
         expect(workflow).not.toContain('${{ github.workspace }}/../');
         expect(workflow).not.toContain('TOUCHAI_PERF_EVIDENCE: ${{ runner.temp }}');
     });
@@ -48,8 +69,7 @@ describe('user runs RFC 710 performance on GitHub Actions', () => {
             "contains(github.event.pull_request.labels.*.name, 'perf:rfc710')"
         );
         expect(workflow).toContain('Enforce RFC 710 performance gate');
-        expect(workflow).toContain('.rawCounts.invalidRuns');
-        expect(workflow).toContain('.overallStatus');
+        expect(workflow).toContain('node apps/desktop/scripts/perf/run.mjs gate');
         expect(workflow).toContain('steady-state-memory) flows=progress,long-session');
         expect(workflow).toContain('cat "$TOUCHAI_PERF_EVIDENCE/summary.md"');
         expect(workflow).not.toContain('continue-on-error');
@@ -66,5 +86,30 @@ describe('user runs RFC 710 performance on GitHub Actions', () => {
         expect(workflow).not.toContain('pnpm perf:710');
         expect(workflow).toContain("inputs['latency-blocks'] || '60'");
         expect(workflow).toContain("PROGRESS_BLOCKS: '3'");
+    });
+
+    it('user sees the performance gate fail closed for every rejected report', () => {
+        const passing = runGate({ overallStatus: 'PASS', rawCounts: { invalidRuns: 0 } });
+        const invalid = runGate({ overallStatus: 'PASS', rawCounts: { invalidRuns: 1 } });
+        const blocked = runGate({ overallStatus: 'BLOCKED', rawCounts: { invalidRuns: 0 } });
+        const missing = runGate(null);
+
+        expect(passing.status).toBe(0);
+        expect(invalid.status).toBe(1);
+        expect(invalid.stderr).toContain('1 invalid run');
+        expect(blocked.status).toBe(1);
+        expect(blocked.stderr).toContain('BLOCKED');
+        expect(missing.status).toBe(1);
+        expect(missing.stderr).toContain('missing stats.json');
+    });
+
+    it.each([
+        { overallStatus: 'PASS' },
+        { overallStatus: 'PASS', rawCounts: { invalidRuns: '0' } },
+    ])('user sees a malformed invalid-run count fail the gate: %o', (stats) => {
+        const result = runGate(stats);
+
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain('rawCounts.invalidRuns');
     });
 });
