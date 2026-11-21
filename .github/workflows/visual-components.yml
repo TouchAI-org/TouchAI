@@ -324,8 +324,12 @@ jobs:
             # `GH_TOKEN` because the comment has to be written by the bot and not by
             # `github-actions`, and because the attachment URLs it embeds are only
             # readable from a comment an author posted.
+            #
+            # A differing baseline fails the comparison step above, and GitHub adds an
+            # implicit `success()` to an `if` that has no status function, so this has to
+            # name `!cancelled()` to report the run a reviewer actually needs.
             - name: Post the report on the pull request
-              if: steps.app.outputs.token != ''
+              if: ${{ !cancelled() && steps.app.outputs.token != '' }}
               working-directory: apps/desktop
               env:
                   GH_TOKEN: ${{ steps.app.outputs.token }}
