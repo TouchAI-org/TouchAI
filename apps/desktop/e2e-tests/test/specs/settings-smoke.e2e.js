@@ -259,7 +259,10 @@ describe('user works in the settings window', () => {
                 !(await mode.isEnabled()),
                 'Settings unlocked before a local model was verified.'
             );
-            const download = await waitForTestIdDisplayed('privacy-filter-download-model');
+            const download = await browser.$(
+                '[data-testid="privacy-filter-download-model"][data-model-id="astrlink-guard-int8"]'
+            );
+            await download.waitForDisplayed();
             assertVisible(
                 await download.isEnabled(),
                 'The missing local model did not expose a working download action.'
@@ -427,7 +430,11 @@ describe('user works in the settings window', () => {
                 ).getAttribute('aria-checked')) === 'true',
                 'Re-enabling protection retained the old rule mode.'
             );
-            await waitForTestIdDisplayed('privacy-filter-download-model');
+            await (
+                await browser.$(
+                    '[data-testid="privacy-filter-download-model"][data-model-id="astrlink-guard-int8"]'
+                )
+            ).waitForDisplayed();
             await browser.keys('Escape');
             await toggleSwitch(reloadedEnabled);
             await browser.waitUntil(
