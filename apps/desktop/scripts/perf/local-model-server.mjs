@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { createEmulator, defineEmulator } from 'emulate';
 
@@ -308,7 +309,7 @@ export async function startPerfModelServer(options = {}) {
     };
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
     const portArgIndex = process.argv.indexOf('--port');
     const logArgIndex = process.argv.indexOf('--log');
     const port =

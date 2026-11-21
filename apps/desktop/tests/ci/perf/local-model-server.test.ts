@@ -1,5 +1,6 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
+import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -50,6 +51,44 @@ function postRaw(port: number, payload: string): Promise<{ status: number; body:
 
 function postChat(port: number, body: unknown): Promise<{ status: number; body: string }> {
     return postRaw(port, JSON.stringify(body));
+}
+
+function waitForListening(child: ReturnType<typeof spawn>): Promise<string> {
+    return new Promise((resolve, reject) => {
+        let stdout = '';
+        let stderr = '';
+        const timer = setTimeout(() => {
+            reject(
+                new Error(
+                    `Timed out starting the model server.\nstdout:\n${stdout}\nstderr:\n${stderr}`
+                )
+            );
+        }, 5000);
+
+        child.stdout?.on('data', (chunk: Buffer) => {
+            stdout += chunk.toString('utf8');
+            const endpoint = stdout.match(/PERF710 model server listening on (\S+)/)?.[1];
+            if (endpoint) {
+                clearTimeout(timer);
+                resolve(endpoint);
+            }
+        });
+        child.stderr?.on('data', (chunk: Buffer) => {
+            stderr += chunk.toString('utf8');
+        });
+        child.once('error', (error) => {
+            clearTimeout(timer);
+            reject(error);
+        });
+        child.once('exit', (code, signal) => {
+            clearTimeout(timer);
+            reject(
+                new Error(
+                    `Model server exited before listening (code=${code}, signal=${signal}).\nstdout:\n${stdout}\nstderr:\n${stderr}`
+                )
+            );
+        });
+    });
 }
 
 afterAll(() => {
@@ -118,6 +157,31 @@ describe('user runs the RFC 710 local model server', () => {
             expect(records.filter((record) => record.type === 'complete')).toHaveLength(1);
         } finally {
             await running.close();
+        }
+    });
+
+    it('user starts the local model server when its checkout path contains spaces', async () => {
+        const desktopRoot = process.cwd();
+        const script = path.join(desktopRoot, 'scripts', 'perf', 'local-model-server.mjs');
+        const root = fs.mkdtempSync(path.join(desktopRoot, 'node_modules', '.perf model path-'));
+        const entry = path.join(root, 'local model server.mjs');
+        fs.copyFileSync(script, entry);
+
+        const child = spawn(process.execPath, [entry, '--port', '0'], {
+            cwd: desktopRoot,
+            stdio: ['ignore', 'pipe', 'pipe'],
+        });
+
+        try {
+            await expect(waitForListening(child)).resolves.toMatch(
+                /^http:\/\/(?:localhost|127\.0\.0\.1):\d+\/v1$/
+            );
+        } finally {
+            if (child.exitCode === null && child.signalCode === null) {
+                child.kill('SIGTERM');
+                await new Promise<void>((resolve) => child.once('exit', () => resolve()));
+            }
+            fs.rmSync(root, { recursive: true, force: true });
         }
     });
 });
