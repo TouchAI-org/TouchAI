@@ -101,6 +101,13 @@ export interface AgentPresentationChunk {
     toolBoundary?: boolean;
     toolEvent?: ToolEvent;
     contextCompaction?: { id: string; state: 'compacting' | 'compacted' | 'failed' };
+    userMessageSource?: { messageId?: string; sourceId: number };
+}
+
+export interface PresentedTextAppend {
+    partId: string;
+    offset: number;
+    content: string;
 }
 
 export interface AgentPresentationTools {

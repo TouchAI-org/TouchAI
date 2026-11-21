@@ -311,6 +311,7 @@ describe('user runs desktop E2E from one freshly built application', () => {
             'file-reference.e2e.js',
             'search-text-layout.e2e.js',
             'settings-smoke.e2e.js',
+            'privacy-hover.e2e.js',
             'prompt-compose.e2e.js',
             'window-size.e2e.js',
             'clipboard-paste.e2e.js',

@@ -360,7 +360,8 @@ export function createAgentSessions(input: AgentSessionHost) {
             snapshot,
             () => notify(started.taskId),
             messages,
-            tools
+            tools,
+            (append) => input.onTextAppended?.(started.taskId, append)
         );
         const cleanups = new Set<() => void>();
         const completion = started.completion

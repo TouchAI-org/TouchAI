@@ -145,6 +145,7 @@ describe('user is blocked from an unsupported version', () => {
 
         expect(wrapper.text()).toContain('最低支持版本 0.2.1');
         expect(wrapper.text()).toContain('当前版本 0.2.0');
+        expect(wrapper.text()).not.toContain('·');
     });
 
     it('user sees no detail line when nothing about the requirement is known', async () => {
@@ -157,10 +158,8 @@ describe('user is blocked from an unsupported version', () => {
             currentVersion: null,
         });
 
-        // Nothing to explain, so the red detail block is not drawn at all. The parts
-        // are joined with " · ", and it is that line which is missing.
+        // Nothing to explain, so the red detail block is not drawn at all.
         expect(wrapper.text()).not.toContain('最低支持版本');
-        expect(wrapper.text()).not.toContain(' · ');
     });
 
     it('user sees the release notes of the release they are being sent to', async () => {

@@ -176,7 +176,7 @@ describe('user searches the web from the assistant', () => {
         expect(result.result).toContain('Stars: 42');
         expect(result.conversationSemantic).toEqual({
             action: 'search',
-            target: 'browser router · GitHub',
+            target: 'browser router (GitHub)',
         });
     });
 
@@ -214,7 +214,7 @@ describe('user searches the web from the assistant', () => {
         );
         expect(result.conversationSemantic).toEqual({
             action: 'search',
-            target: 'OpenClaw 最新动态 · GitHub',
+            target: 'OpenClaw 最新动态 (GitHub)',
         });
     });
 
@@ -272,7 +272,7 @@ describe('user searches the web from the assistant', () => {
         expect(result.result).toContain('Results: 0');
         expect(result.conversationSemantic).toEqual({
             action: 'search',
-            target: 'OpenClaw 2026年的最新进展 · AnySearch',
+            target: 'OpenClaw 2026年的最新进展 (AnySearch)',
         });
     });
 

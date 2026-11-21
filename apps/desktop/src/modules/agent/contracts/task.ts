@@ -70,6 +70,7 @@ export interface PendingUserMessage extends PendingUserMessageInput {
 
 export interface DeliveredPendingUserMessage {
     id: string;
+    sourceMessageId?: number;
     prompt: string;
     attachments: AttachmentReference[];
     inputSnapshot?: InputHistorySnapshot;

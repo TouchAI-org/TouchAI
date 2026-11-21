@@ -220,6 +220,203 @@ describe('user works in the settings window', () => {
             );
         });
 
+        it('user changes privacy filtering modes, then sees relevant controls and keeps the disabled state after navigation', async () => {
+            const privacyNav = await waitForTestIdDisplayed('settings-nav-privacy-filter');
+            await privacyNav.click();
+            await waitForTestIdDisplayed('settings-privacy-filter-section');
+
+            const enabled = await waitForTestIdDisplayed('privacy-filter-enabled-toggle');
+            const mode = await waitForTestIdDisplayed('privacy-filter-mode-rules');
+            assertVisible(
+                (await getAriaChecked(enabled)) === 'false',
+                'Privacy filtering should start disabled.'
+            );
+            assertVisible(
+                !(await mode.isEnabled()),
+                'The filtering mode is editable while filtering is off.'
+            );
+            assertVisible(
+                !(await browser.$('[data-testid="privacy-filter-preview-run"]').isExisting()),
+                'The removed preview is still present.'
+            );
+            assertVisible(
+                !(await browser.$('[data-testid="privacy-filter-mode-recommended"]').isExisting()),
+                'The removed mode recommendation badge is still present.'
+            );
+
+            await toggleSwitch(enabled, 90000);
+            await browser.waitUntil(async () => mode.isEnabled(), {
+                timeoutMsg: 'Local-model preparation did not finish before settings unlocked.',
+            });
+            assertVisible(
+                (await (
+                    await waitForTestIdDisplayed('privacy-filter-mode-model')
+                ).getAttribute('aria-checked')) === 'true',
+                'Enabling protection did not default to the local model.'
+            );
+            await mode.click();
+            await browser.waitUntil(
+                async () =>
+                    !(await browser.$('[data-testid="privacy-filter-model-select"]').isExisting()),
+                {
+                    timeoutMsg: 'Rule-based filtering still shows model settings.',
+                }
+            );
+            await toggleSwitch(enabled);
+
+            await (await waitForTestIdDisplayed('settings-nav-general')).click();
+            await waitForTestIdDisplayed('settings-general-section');
+            await (await waitForTestIdDisplayed('settings-nav-privacy-filter')).click();
+            await waitForTestIdDisplayed('settings-privacy-filter-section');
+            const restoredEnabled = await waitForTestIdDisplayed('privacy-filter-enabled-toggle');
+            const restoredMode = await waitForTestIdDisplayed('privacy-filter-mode-rules');
+            assertVisible(
+                (await getAriaChecked(restoredEnabled)) === 'false',
+                'The disabled state was not saved.'
+            );
+            assertVisible(
+                (await restoredMode.getAttribute('aria-checked')) === 'true',
+                'The rule-based mode was not saved.'
+            );
+
+            await toggleSwitch(restoredEnabled, 90000);
+            await browser.waitUntil(async () => restoredMode.isEnabled(), {
+                timeoutMsg: 'Re-enabling protection did not finish model verification.',
+            });
+            assertVisible(
+                (await (
+                    await waitForTestIdDisplayed('privacy-filter-mode-model')
+                ).getAttribute('aria-checked')) === 'true',
+                'Re-enabling protection retained the old rule mode.'
+            );
+            await restoredMode.click();
+            await browser.keys('ArrowLeft');
+            const model = await waitForTestIdDisplayed('privacy-filter-model-select');
+            await model.click();
+            const download = await browser.$(
+                '[role="group"][aria-label="OpenAI Privacy Filter Q8"] [data-testid="privacy-filter-download-model"]'
+            );
+            await download.waitForDisplayed();
+            assertVisible(
+                await download.isEnabled(),
+                'The model cannot be downloaded from its selector.'
+            );
+            assertVisible(
+                (await model.getText()).includes('AstrLink'),
+                'The verified AstrLink model was not configured automatically.'
+            );
+            const modelNames = await browser.execute(() =>
+                Array.from(document.querySelectorAll('[role="listbox"] [role="option"]')).map(
+                    (option) => option.textContent
+                )
+            );
+            assertVisible(
+                modelNames.length === 3 && modelNames[0].includes('AstrLink'),
+                'AstrLink is not first in the model library.'
+            );
+            assertVisible(
+                await (
+                    await waitForTestIdDisplayed('privacy-filter-model-recommended')
+                ).isDisplayed(),
+                'The recommended model is not marked.'
+            );
+            await browser.keys('Escape');
+
+            assertVisible(
+                !(await browser.$('[data-testid="privacy-filter-download-source"]').isExisting()),
+                'The removed download source setting is still present.'
+            );
+
+            await browser.execute(async () => {
+                await window.__TAURI_INTERNALS__.invoke('privacy_filter_record_protection', {
+                    record: {
+                        mode: 'rules',
+                        outcome: 'protected',
+                        maskedCount: 2,
+                        categories: [{ kind: 'email', count: 2 }],
+                    },
+                    details: {
+                        values: [
+                            {
+                                kind: 'email',
+                                original: 'robin@example.net',
+                                placeholder: '{{EMAIL_0123456789abcdef}}',
+                                count: 2,
+                                matches: [{ id: 'email', count: 2 }],
+                            },
+                        ],
+                        texts: [
+                            'Contact {{EMAIL_0123456789abcdef}} and {{EMAIL_0123456789abcdef}}.',
+                        ],
+                        truncated: false,
+                    },
+                });
+            });
+            const record = await waitForTestIdDisplayed('privacy-protection-record');
+            assertVisible(
+                (await record.getText()).includes('Protected 2'),
+                'The native protection record was not shown.'
+            );
+            await (await waitForTestIdDisplayed('privacy-protection-record-open')).click();
+            const details = await waitForTestIdDisplayed('privacy-protection-details');
+            const original = await waitForTestIdDisplayed('privacy-protection-value-original');
+            const masked = await waitForTestIdDisplayed('privacy-protection-value-masked');
+            assertVisible(
+                (await original.getText()) === 'Contact robin@example.net and robin@example.net.' &&
+                    (await masked.getText()) ===
+                        'Contact {{EMAIL_0123456789abcdef}} and {{EMAIL_0123456789abcdef}}.' &&
+                    (await original.$$('[data-testid="privacy-protected-text"]')).length === 2 &&
+                    (await masked.$$('[data-testid="privacy-protected-text"]')).length === 2,
+                'The two stages do not match the native context and exact replacement occurrences.'
+            );
+            assertVisible(
+                (await details.isDisplayed()) && !(await browser.$('[role="dialog"]').isExisting()),
+                'Expanding the record still opens a dialog instead of an inline list.'
+            );
+            await (await waitForTestIdDisplayed('privacy-protection-record-open')).click();
+            await browser.waitUntil(
+                async () =>
+                    !(await browser.$('[data-testid="privacy-protection-details"]').isExisting()),
+                { timeoutMsg: 'Closing the details left concrete content visible.' }
+            );
+            await (await waitForTestIdDisplayed('privacy-protection-records-clear')).click();
+            const confirmation = await browser.$('[role="alertdialog"]');
+            await confirmation.waitForDisplayed();
+            const buttons = await confirmation.$$('button');
+            let confirmed = false;
+            for (const button of buttons) {
+                if ((await button.getText()) === 'Clear records') {
+                    await button.click();
+                    confirmed = true;
+                    break;
+                }
+            }
+            assertVisible(confirmed, 'The clear-records confirmation action is missing.');
+            await browser.waitUntil(
+                async () =>
+                    (await browser.$$('[data-testid="privacy-protection-record"]')).length === 0,
+                { timeoutMsg: 'The protection record was not cleared.' }
+            );
+            await toggleSwitch(restoredEnabled);
+
+            const editableControls = await browser.execute(() => {
+                const page = document.querySelector(
+                    '[data-testid="settings-privacy-filter-section"]'
+                );
+                return Array.from(page.querySelectorAll('button, input')).filter(
+                    (control) =>
+                        control.dataset.testid !== 'privacy-filter-enabled-toggle' &&
+                        !control.matches(':disabled')
+                ).length;
+            });
+            assertVisible(
+                editableControls === 0,
+                'Some privacy settings remain editable while filtering is off.'
+            );
+            await (await waitForTestIdDisplayed('settings-nav-general')).click();
+            await waitForTestIdDisplayed('settings-general-section');
+        });
+
         // Visual regression runs before the search test, because that one types a
         // query and the sidebar hides the section list while a query is active.
         //

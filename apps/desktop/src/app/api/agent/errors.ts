@@ -24,6 +24,8 @@ export enum AiErrorCode {
     CONTEXT_TOO_LARGE = 'CONTEXT_TOO_LARGE',
     CONTEXT_COMPACTION_FAILED = 'CONTEXT_COMPACTION_FAILED',
     PERSISTENCE_FAILED = 'PERSISTENCE_FAILED',
+    PRIVACY_FILTER_BLOCKED = 'PRIVACY_FILTER_BLOCKED',
+    PRIVACY_REPLAY_BLOCKED = 'PRIVACY_REPLAY_BLOCKED',
 
     // 网络相关错误 (3xxx) - 可重试
     NETWORK_ERROR = 'NETWORK_ERROR',
@@ -72,6 +74,9 @@ const ERROR_MESSAGES: Record<AiErrorCode, SourceText> = {
     [AiErrorCode.CONTEXT_COMPACTION_FAILED]:
         '上下文压缩未完成，原始对话已保留。请重试或选择更大上下文的模型。',
     [AiErrorCode.PERSISTENCE_FAILED]: '保存失败',
+    [AiErrorCode.PRIVACY_FILTER_BLOCKED]: '脱敏失败，消息未发送。请检查隐私保护设置后重试。',
+    [AiErrorCode.PRIVACY_REPLAY_BLOCKED]:
+        '当前会话包含无法安全回放的签名思考，消息未发送。请新建会话后重试。',
 
     // 网络相关
     [AiErrorCode.NETWORK_ERROR]: '网络连接失败，请检查网络设置',

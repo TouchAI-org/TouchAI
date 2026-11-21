@@ -11,6 +11,10 @@ import { AppEvent } from '@/app/api/settings/events';
 import { updatesApiKey } from '@/app/api/updates';
 import SettingsWindowView from '@/views/SettingsView/index.vue';
 
+import { useTestPrivacyApi } from '../../utils/privacyApi';
+
+useTestPrivacyApi();
+
 /*
  * 标题栏的窗口控制按钮现在包在 ui/Tooltip 里。reka-ui 的 TooltipContent 通过
  * Teleport 渲染，在 jsdom 下会因 insertBefore 失败而抛错。

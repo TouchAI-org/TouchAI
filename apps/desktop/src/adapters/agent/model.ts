@@ -6,6 +6,7 @@ import type { ConfiguredModelConnection } from '@/modules/models';
 
 import { findModelConfigurationError } from '../models/errors';
 import type { DesktopModelLanguage as ModelLanguageContext } from '../models/input';
+import type { DesktopModelRequest } from '../models/input';
 import { prepareModelRequest } from '../models/transport';
 import type { AgentMessageAdapter } from './messages';
 
@@ -15,6 +16,10 @@ export interface CoreModelStreamOptions {
     languageContext: ModelLanguageContext;
     nextRequestIndex(): number;
     saveManifest(manifest: AttachmentDeliveryManifestRequest): Promise<void>;
+    protect?(
+        request: DesktopModelRequest,
+        send: (request: DesktopModelRequest) => AsyncIterable<AiStreamChunk>
+    ): AsyncIterable<AiStreamChunk>;
 }
 
 /** Model transport sees opaque resources; Desktop retains the unchanged durable provenance. */
@@ -30,18 +35,34 @@ export function createCoreModelStream(options: CoreModelStreamOptions) {
 
     return async function* (request: AiRequestOptions): AsyncGenerator<AiStreamChunk> {
         request.signal?.throwIfAborted();
-        const prepared = prepareModelRequest(
-            {
-                ...request,
-                messages: toDesktop(request.messages),
-                attachmentRequestIndex: nextRequestIndex(),
-                onAttachmentManifestResolved: saveManifest,
-                modelLanguageContext: languageContext,
-            },
-            { driver, providerId, resourceKey }
-        );
+        const desktop: DesktopModelRequest = {
+            ...request,
+            messages: await Promise.all(
+                toDesktop(request.messages).map(async (message) => ({
+                    ...message,
+                    ...(message.role === 'user' && !message.contextSource
+                        ? {
+                              contextSource: await options.messages.resolveUserMessageSource(
+                                  message.content
+                              ),
+                          }
+                        : {}),
+                }))
+            ),
+            attachmentRequestIndex: nextRequestIndex(),
+            onAttachmentManifestResolved: saveManifest,
+            modelLanguageContext: languageContext,
+        };
+        const prepared = prepareModelRequest(desktop, { driver, providerId, resourceKey });
+        const send = (input: DesktopModelRequest) => {
+            if (input === desktop) return stream(prepared);
+            const masked = prepareModelRequest(input, { driver, providerId, resourceKey });
+            // Transport names may be masked; the local manifest retains original provenance.
+            masked.onTransportResolved = prepared.onTransportResolved;
+            return stream(masked);
+        };
         try {
-            yield* stream(prepared);
+            yield* options.protect ? options.protect(desktop, send) : send(desktop);
         } catch (error) {
             const configuration = findModelConfigurationError(error);
             if (configuration) {

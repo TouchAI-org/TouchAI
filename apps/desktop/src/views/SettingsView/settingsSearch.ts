@@ -22,6 +22,7 @@ interface SearchItemDefinition {
     labelKey: MessageKey;
     descriptionKey?: MessageKey;
     targetId: string;
+    requiresPrivacyModel?: boolean;
 }
 
 /**
@@ -91,6 +92,41 @@ const settingDefinitions: Partial<Record<NavigationSection, SearchItemDefinition
         { labelKey: 'settings.search.section.routing', targetId: 'search-routing' },
         { labelKey: 'settings.search.priority', targetId: 'search-priority' },
         { labelKey: 'settings.search.parallelProviders', targetId: 'search-parallelProviders' },
+    ],
+    'privacy-filter': [
+        { labelKey: 'settings.privacyFilter.enabled', targetId: 'privacy-filter-enabled' },
+        {
+            labelKey: 'settings.privacyFilter.section.ruleCategories',
+            targetId: 'privacy-filter-scope',
+        },
+        {
+            labelKey: 'settings.privacyFilter.section.modelCategories',
+            targetId: 'privacy-filter-scope',
+        },
+        {
+            labelKey: 'settings.privacyFilter.mode.label',
+            targetId: 'privacy-filter-mode',
+        },
+        {
+            labelKey: 'settings.privacyFilter.failureAction.label',
+            targetId: 'privacy-filter-failure-action',
+            requiresPrivacyModel: true,
+        },
+        // Model controls are conditional; locating them must not change the active mode.
+        { labelKey: 'settings.privacyFilter.model', targetId: 'privacy-filter-mode' },
+        {
+            labelKey: 'settings.privacyFilter.confidenceThreshold',
+            targetId: 'privacy-filter-mode',
+        },
+        { labelKey: 'settings.privacyFilter.maskedWords', targetId: 'privacy-filter-masked-words' },
+        {
+            labelKey: 'settings.privacyFilter.records.title',
+            targetId: 'privacy-protection-records',
+        },
+        {
+            labelKey: 'settings.privacyFilter.secretPrefixes',
+            targetId: 'privacy-filter-secret-prefixes',
+        },
     ],
     browser: [
         { labelKey: 'settings.browser.browserDataPath', targetId: 'browser-data-path' },
@@ -170,7 +206,7 @@ const settingDefinitions: Partial<Record<NavigationSection, SearchItemDefinition
     ],
 };
 
-export function searchSettings(query: string): SettingsSearchResult[] {
+export function searchSettings(query: string, useLocalPrivacyModel = true): SettingsSearchResult[] {
     const tokens = query.normalize('NFKC').trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
     if (!tokens.length) return [];
 
@@ -183,9 +219,12 @@ export function searchSettings(query: string): SettingsSearchResult[] {
             description: section.description,
             haystack: `${section.label} ${section.description}`,
         };
+        const definitions = (settingDefinitions[section.id] ?? []).filter(
+            (definition) => useLocalPrivacyModel || !definition.requiresPrivacyModel
+        );
         return [
             sectionResult,
-            ...(settingDefinitions[section.id] ?? []).map((definition) => ({
+            ...definitions.map((definition) => ({
                 ...common,
                 id: `${section.id}:${definition.labelKey}`,
                 targetId: definition.targetId,

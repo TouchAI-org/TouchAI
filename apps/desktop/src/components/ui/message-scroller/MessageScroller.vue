@@ -1,4 +1,5 @@
 <script setup lang="ts">
+    import { previewCardVariants, previewTextVariants } from '@components/ui/preview-card';
     import { useMotion } from '@composables/useMotion';
     import { AnimatePresence, motion } from 'motion-v';
     import {
@@ -760,7 +761,8 @@
                     <AnimatePresence mode="wait" :initial="false">
                         <motion.div
                             :key="displayedItem.id"
-                            class="max-h-28 overflow-hidden rounded-lg border border-border-subtle bg-background-primary p-3 font-serif shadow-lg"
+                            class="max-h-28 overflow-hidden"
+                            :class="previewCardVariants({ variant: 'scroll' })"
                             :initial="{ opacity: 0, y: 4 }"
                             :animate="{ opacity: 1, y: 0 }"
                             :exit="{
@@ -771,12 +773,13 @@
                             :transition="reducedMotion ? { duration: 0 } : transitions.fast"
                             data-slot="message-scroller-preview"
                         >
-                            <p class="truncate text-compact font-medium text-text-primary">
+                            <p class="truncate" :class="previewTextVariants({ variant: 'title' })">
                                 {{ displayedItem.label }}
                             </p>
                             <p
                                 v-if="displayedItem.description"
-                                class="mt-1 line-clamp-3 text-caption leading-5 text-text-secondary"
+                                class="mt-1 line-clamp-3"
+                                :class="previewTextVariants({ variant: 'description' })"
                                 data-slot="message-scroller-preview-description"
                             >
                                 {{ displayedItem.description }}

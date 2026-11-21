@@ -161,13 +161,13 @@ describe('user inspects a day with the pointer', () => {
 
     it('user sees the extra detail for a day when the caller supplies it', async () => {
         const wrapper = mountHeatmap({
-            detailOf: (date: string) => (date === '2026-01-02' ? '1.2k tokens · $0.04' : null),
+            detailOf: (date: string) => (date === '2026-01-02' ? '1.2k tokens ($0.04)' : null),
         });
         await flushPromises();
 
         await cell(wrapper, '2026-01-02').trigger('pointerenter');
 
-        expect(bubble(wrapper).text()).toContain('1.2k tokens · $0.04');
+        expect(bubble(wrapper).text()).toContain('1.2k tokens ($0.04)');
     });
 
     it('user sees no extra detail line for a day the caller has none for', async () => {

@@ -140,7 +140,7 @@ export const usageMessagesZhCN = {
 
     // Heatmap
     'settings.usage.heatmap.title': '使用热力图',
-    'settings.usage.heatmap.yearSummary': '近一年活跃 {days} 天 · 共 {tokens} tokens',
+    'settings.usage.heatmap.yearSummary': '近一年活跃 {days} 天，共 {tokens} tokens',
     'settings.usage.heatmap.legendUnit': '每日请求',
     'settings.usage.heatmap.legendDay': '天',
 
@@ -277,7 +277,7 @@ export const usageMessagesEnUS = {
     'settings.usage.tools.more': '{count} more tools not listed',
 
     'settings.usage.heatmap.title': 'Activity heatmap',
-    'settings.usage.heatmap.yearSummary': '{days} active days · {tokens} tokens in the past year',
+    'settings.usage.heatmap.yearSummary': '{days} active days, {tokens} tokens in the past year',
     'settings.usage.heatmap.legendUnit': 'Daily calls',
     'settings.usage.heatmap.legendDay': 'days',
 

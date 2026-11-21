@@ -1,3 +1,7 @@
+import { useTestPrivacyWindow } from '@tests/utils/privacyWindow';
+
+useTestPrivacyWindow();
+
 import StatusDivider from '@components/ui/status-divider/StatusDivider.vue';
 import { mount, type VueWrapper } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
