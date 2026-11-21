@@ -61,6 +61,11 @@ pub struct PrivacyProtectionRecordInput {
     pub outcome: PrivacyProtectionOutcome,
     pub masked_count: u32,
     pub categories: Vec<PrivacyProtectionCategory>,
+    /// Conversation and model labels stay optional so records written by older builds still load.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_name: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -70,6 +75,15 @@ pub struct PrivacyProtectionRecord {
     pub created_at: u64,
     #[serde(flatten)]
     pub summary: PrivacyProtectionRecordInput,
+}
+
+/// Direction is an IPC view concern; the version-1 disk format remains unchanged.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrivacyProtectionEntry {
+    #[serde(flatten)]
+    pub record: PrivacyProtectionRecord,
+    pub direction: &'static str,
 }
 
 #[derive(Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Hash)]
@@ -128,7 +142,9 @@ struct StoredRecords {
 }
 
 struct RecordsState {
+    generation: u64,
     records: Vec<PrivacyProtectionRecord>,
+    restorations: Vec<PrivacyProtectionRecord>,
     details: HashMap<String, PrivacyProtectionDetails>,
 }
 
@@ -177,7 +193,9 @@ impl PrivacyProtectionRecords {
         let store = Self {
             path,
             state: Mutex::new(RecordsState {
+                generation: 0,
                 records,
+                restorations: Vec::new(),
                 details: HashMap::new(),
             }),
         };
@@ -200,6 +218,7 @@ impl PrivacyProtectionRecords {
         .join(RECORDS_FILE_NAME))
     }
 
+    #[cfg(test)]
     pub fn append(
         &self,
         summary: PrivacyProtectionRecordInput,
@@ -207,11 +226,29 @@ impl PrivacyProtectionRecords {
         self.append_with_details(summary, None)
     }
 
+    #[cfg(test)]
     pub fn append_with_details(
         &self,
         summary: PrivacyProtectionRecordInput,
         details: Option<PrivacyProtectionDetails>,
     ) -> Result<PrivacyProtectionRecord, String> {
+        self.append_at_generation(summary, details, None)?
+            .ok_or_else(|| "Privacy record generation changed".to_string())
+    }
+
+    pub fn generation(&self) -> Result<u64, String> {
+        self.state
+            .lock()
+            .map(|state| state.generation)
+            .map_err(|_| "Privacy protection records are unavailable".to_string())
+    }
+
+    pub fn append_at_generation(
+        &self,
+        summary: PrivacyProtectionRecordInput,
+        details: Option<PrivacyProtectionDetails>,
+        generation: Option<u64>,
+    ) -> Result<Option<PrivacyProtectionRecord>, String> {
         validate_summary(&summary)?;
         if let Some(details) = &details {
             validate_details(details, &summary)?;
@@ -226,6 +263,9 @@ impl PrivacyProtectionRecords {
             .lock()
             .map_err(|_| "Privacy protection records are unavailable".to_string())?;
         let previous = state.records.clone();
+        if generation.is_some_and(|expected| expected != state.generation) {
+            return Ok(None);
+        }
         state.records.insert(0, record.clone());
         prune(&mut state.records, record.created_at);
         if let Err(error) = self.persist(&state.records) {
@@ -236,7 +276,7 @@ impl PrivacyProtectionRecords {
             state.details.insert(record.id.clone(), details);
         }
         prune_details(&mut state);
-        Ok(record)
+        Ok(Some(record))
     }
 
     pub fn list(&self) -> Result<Vec<PrivacyProtectionRecord>, String> {
@@ -245,7 +285,9 @@ impl PrivacyProtectionRecords {
             .lock()
             .map_err(|_| "Privacy protection records are unavailable".to_string())?;
         let previous = state.records.clone();
-        prune(&mut state.records, now_millis()?);
+        let now = now_millis()?;
+        prune(&mut state.records, now);
+        prune(&mut state.restorations, now);
         if previous.len() != state.records.len() {
             if let Err(error) = self.persist(&state.records) {
                 state.records = previous;
@@ -254,6 +296,81 @@ impl PrivacyProtectionRecords {
         }
         prune_details(&mut state);
         Ok(state.records.clone())
+    }
+
+    #[cfg(test)]
+    pub fn append_restoration(
+        &self,
+        summary: PrivacyProtectionRecordInput,
+        details: PrivacyProtectionDetails,
+    ) -> Result<PrivacyProtectionRecord, String> {
+        self.append_restoration_at_generation(summary, details, None)?
+            .ok_or_else(|| "Privacy record generation changed".to_string())
+    }
+
+    pub fn append_restoration_at_generation(
+        &self,
+        summary: PrivacyProtectionRecordInput,
+        details: PrivacyProtectionDetails,
+        generation: Option<u64>,
+    ) -> Result<Option<PrivacyProtectionRecord>, String> {
+        validate_summary(&summary)?;
+        if summary.outcome != PrivacyProtectionOutcome::Protected {
+            return Err("A blocked request cannot have a restored reply".to_string());
+        }
+        validate_details(&details, &summary)?;
+        let record = PrivacyProtectionRecord {
+            id: uuid::Uuid::new_v4().to_string(),
+            created_at: now_millis()?,
+            summary,
+        };
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| "Privacy protection records are unavailable".to_string())?;
+        if generation.is_some_and(|expected| expected != state.generation) {
+            return Ok(None);
+        }
+        state.restorations.insert(0, record.clone());
+        prune(&mut state.restorations, record.created_at);
+        state.details.insert(record.id.clone(), details);
+        prune_details(&mut state);
+        Ok(Some(record))
+    }
+
+    pub fn entries(&self) -> Result<Vec<PrivacyProtectionEntry>, String> {
+        let outgoing = self.list()?;
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| "Privacy protection records are unavailable".to_string())?;
+        let mut entries: Vec<_> = state
+            .restorations
+            .iter()
+            .cloned()
+            .map(|record| PrivacyProtectionEntry {
+                record,
+                direction: "restore",
+            })
+            .chain(outgoing.into_iter().map(|record| PrivacyProtectionEntry {
+                record,
+                direction: "mask",
+            }))
+            .collect();
+        entries.sort_by(|left, right| right.record.created_at.cmp(&left.record.created_at));
+        entries.truncate(MAX_RECORDS);
+        Ok(entries)
+    }
+
+    /// Ids whose concrete details are still held in memory; used to hide disclosure controls
+    /// for records that can no longer be expanded.
+    pub fn detail_ids(&self) -> Result<Vec<String>, String> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| "Privacy protection records are unavailable".to_string())?;
+        prune_details(&mut state);
+        Ok(state.details.keys().cloned().collect())
     }
 
     pub fn details(&self, record_id: &str) -> Result<Option<PrivacyProtectionDetails>, String> {
@@ -265,6 +382,7 @@ impl PrivacyProtectionRecords {
         if !state
             .records
             .iter()
+            .chain(state.restorations.iter())
             .any(|record| record.id == record_id && record.created_at >= cutoff)
         {
             state.details.remove(record_id);
@@ -273,7 +391,7 @@ impl PrivacyProtectionRecords {
         Ok(state.details.get(record_id).cloned())
     }
 
-    pub fn clear(&self) -> Result<(), String> {
+    pub fn clear(&self) -> Result<u64, String> {
         let mut state = self
             .state
             .lock()
@@ -285,7 +403,9 @@ impl PrivacyProtectionRecords {
             return Err(error);
         }
         state.details.clear();
-        Ok(())
+        state.restorations.clear();
+        state.generation += 1;
+        Ok(state.generation)
     }
 
     fn persist(&self, records: &[PrivacyProtectionRecord]) -> Result<(), String> {
@@ -335,6 +455,14 @@ fn validate_summary(summary: &PrivacyProtectionRecordInput) -> Result<(), String
         || summary.masked_count > 1_000_000
         || (summary.masked_count == 0 && summary.outcome == PrivacyProtectionOutcome::Protected)
     {
+        return Err("Invalid privacy protection summary".to_string());
+    }
+    if summary.session_id.is_some_and(|id| id <= 0) {
+        return Err("Invalid privacy protection summary".to_string());
+    }
+    if summary.model_name.as_deref().is_some_and(|name| {
+        name.trim().is_empty() || name.chars().count() > 200 || name.chars().any(char::is_control)
+    }) {
         return Err("Invalid privacy protection summary".to_string());
     }
     Ok(())
@@ -443,9 +571,14 @@ fn validate_rule_matches(value: &PrivacyProtectionValue, truncated: bool) -> Res
 }
 
 fn prune_details(state: &mut RecordsState) {
-    let recent: HashSet<_> = state
-        .records
+    let mut entries: Vec<_> = state
+        .restorations
         .iter()
+        .chain(state.records.iter())
+        .collect();
+    entries.sort_by(|left, right| right.created_at.cmp(&left.created_at));
+    let recent: HashSet<_> = entries
+        .into_iter()
         .take(MAX_DETAIL_RECORDS)
         .map(|record| record.id.as_str())
         .collect();
@@ -512,6 +645,122 @@ mod tests {
             "texts": ["Email {{EMAIL_0123456789abcdef}} twice"],
             "truncated": false
         })).expect("valid memory-only details")
+    }
+
+    #[test]
+    fn user_clears_history_then_late_writes_cannot_restore_old_records_or_details() {
+        let records = PrivacyProtectionRecords::default();
+        let old = records.generation().expect("generation");
+        let current = records.clear().expect("clear");
+        assert!(records
+            .append_at_generation(protected_request(), Some(protected_details()), Some(old))
+            .expect("stale mask")
+            .is_none());
+        assert!(records
+            .append_restoration_at_generation(protected_request(), protected_details(), Some(old))
+            .expect("stale restoration")
+            .is_none());
+        assert!(records.entries().expect("entries").is_empty());
+        assert!(records.detail_ids().expect("details").is_empty());
+        assert!(records
+            .append_at_generation(
+                protected_request(),
+                Some(protected_details()),
+                Some(current)
+            )
+            .expect("new request")
+            .is_some());
+    }
+
+    #[test]
+    fn user_restores_a_reply_then_sees_one_reverse_record_without_changing_disk_summaries_and_can_clear_both(
+    ) {
+        let (_root, path) = temporary_path();
+        let records = PrivacyProtectionRecords::new(Some(path.clone()));
+        let outgoing = records
+            .append_with_details(protected_request(), Some(protected_details()))
+            .expect("outgoing");
+        let before = fs::read(&path).expect("stored summary");
+        let reply = records
+            .append_restoration(protected_request(), protected_details())
+            .expect("restored response");
+        let entries = records.entries().expect("entries");
+        let json = serde_json::to_value(entries).expect("IPC entries");
+        assert_eq!(json.as_array().expect("rows").len(), 2);
+        assert_eq!(
+            json.as_array()
+                .expect("rows")
+                .iter()
+                .find(|row| row["id"] == reply.id)
+                .expect("reply")["direction"],
+            "restore"
+        );
+        assert_eq!(fs::read(&path).expect("unchanged disk"), before);
+        assert!(records.details(&reply.id).expect("reply details").is_some());
+        let reopened = PrivacyProtectionRecords::new(Some(path));
+        assert_eq!(reopened.entries().expect("reopened").len(), 1);
+        assert_eq!(reopened.list().expect("old summary")[0].id, outgoing.id);
+        records.clear().expect("clear");
+        assert!(records.entries().expect("cleared").is_empty());
+        assert!(records
+            .details(&reply.id)
+            .expect("cleared details")
+            .is_none());
+    }
+
+    #[test]
+    fn user_browses_recent_requests_then_sees_their_labels_and_only_memory_backed_rows_can_expand()
+    {
+        let (_root, path) = temporary_path();
+        let records = PrivacyProtectionRecords::new(Some(path.clone()));
+        let labelled = records
+            .append_with_details(
+                serde_json::from_value(json!({
+                    "mode": "rules", "outcome": "protected", "maskedCount": 2,
+                    "categories": [{"kind": "email", "count": 2}],
+                    "sessionId": 7, "modelName": "Example Model"
+                }))
+                .expect("valid labelled summary"),
+                Some(protected_details()),
+            )
+            .expect("record with concrete details");
+        let summary_only = records.append(protected_request()).expect("summary record");
+
+        let listed = records.list().expect("records");
+        let labelled_row = listed
+            .iter()
+            .find(|record| record.id == labelled.id)
+            .expect("labelled record");
+        assert_eq!(labelled_row.summary.session_id, Some(7));
+        assert_eq!(
+            labelled_row.summary.model_name.as_deref(),
+            Some("Example Model")
+        );
+        assert_eq!(
+            records.detail_ids().expect("detail ids"),
+            vec![labelled.id.clone()]
+        );
+        assert!(!records
+            .detail_ids()
+            .expect("detail ids")
+            .contains(&summary_only.id));
+
+        let restarted = PrivacyProtectionRecords::new(Some(path));
+        let restored = restarted.list().expect("records after restart");
+        assert_eq!(
+            restored
+                .iter()
+                .find(|record| record.id == labelled.id)
+                .expect("restored labels")
+                .summary
+                .model_name
+                .as_deref(),
+            Some("Example Model")
+        );
+        assert!(restarted
+            .detail_ids()
+            .expect("no details after restart")
+            .is_empty());
     }
 
     #[test]

@@ -32,7 +32,7 @@
             <Input
                 v-model="draft"
                 variant="filled"
-                maxlength="256"
+                maxlength="4096"
                 autocomplete="off"
                 spellcheck="false"
                 class="min-w-0 flex-1"

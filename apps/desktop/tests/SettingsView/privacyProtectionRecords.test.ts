@@ -1,4 +1,5 @@
 import { emit } from '@tauri-apps/api/event';
+import { useTestPrivacyWindow } from '@tests/utils/privacyWindow';
 import { DOMWrapper, enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -7,6 +8,7 @@ import PrivacyProtectionRecords from '@/views/SettingsView/components/PrivacyFil
 
 import { getLastTauriInvokeCall, mockTauriCommand } from '../utils/tauri';
 
+useTestPrivacyWindow();
 enableAutoUnmount(afterEach);
 
 const record = {
@@ -27,10 +29,94 @@ beforeEach(() => {
 });
 
 describe('given privacy protection records stored on this device', () => {
+    it('user opens a slow record then sees a busy disclosure until its context is ready and can close it without retained text', async () => {
+        let finish!: (details: unknown) => void;
+        mockTauriCommand('privacy_filter_records', [record]);
+        mockTauriCommand('privacy_filter_record_detail_ids', [record.id]);
+        mockTauriCommand(
+            'privacy_filter_record_details',
+            new Promise((resolve) => {
+                finish = resolve;
+            })
+        );
+        const wrapper = mount(PrivacyProtectionRecords, { props: { disabled: false } });
+        await flushPromises();
+        const open = wrapper.get('[data-testid="privacy-protection-record-open"]');
+        await open.trigger('click');
+        await flushPromises();
+        expect(open.attributes('aria-busy')).toBe('true');
+        expect(wrapper.find('[data-testid="privacy-protection-record-loading"]').exists()).toBe(
+            true
+        );
+        finish({
+            values: [
+                {
+                    kind: 'email',
+                    original: 'ready@example.test',
+                    placeholder: '{{EMAIL_0123456789abcdef}}',
+                    count: 1,
+                },
+            ],
+            texts: [],
+            truncated: false,
+        });
+        await flushPromises();
+        expect(open.attributes('aria-busy')).toBe('false');
+        expect(wrapper.find('[data-testid="privacy-protection-record-loading"]').exists()).toBe(
+            false
+        );
+        expect(wrapper.text()).toContain('ready@example.test');
+        await open.trigger('click');
+        expect(wrapper.text()).not.toContain('ready@example.test');
+    });
+
+    it('user expands a record among many requests when showing more then twenty more cards append while the same record remains open', async () => {
+        const records = Array.from({ length: 41 }, (_, index) => ({
+            ...record,
+            id: `request-${index + 1}`,
+        }));
+        mockTauriCommand('privacy_filter_records', records);
+        mockTauriCommand('privacy_filter_record_detail_ids', [record.id]);
+        mockTauriCommand('privacy_filter_record_details', {
+            values: [
+                {
+                    kind: 'email',
+                    original: 'ada@example.test',
+                    placeholder: '{{EMAIL_0123456789abcdef}}',
+                    count: 1,
+                },
+            ],
+            texts: [],
+            truncated: false,
+        });
+        const wrapper = mount(PrivacyProtectionRecords, { props: { disabled: false } });
+        await flushPromises();
+        expect(wrapper.findAll('[data-testid="privacy-protection-record"]')).toHaveLength(20);
+        await wrapper.get('[data-testid="privacy-protection-record-open"]').trigger('click');
+        await flushPromises();
+        await wrapper.get('[data-testid="privacy-protection-records-more"]').trigger('click');
+        await flushPromises();
+        expect(wrapper.findAll('[data-testid="privacy-protection-record"]')).toHaveLength(40);
+        expect(wrapper.findAll('[data-testid="privacy-protection-details"]')).toHaveLength(1);
+        expect(
+            wrapper
+                .get('[data-testid="privacy-protection-record-open"]')
+                .attributes('aria-expanded')
+        ).toBe('true');
+        await wrapper.get('[data-testid="privacy-protection-records-more"]').trigger('click');
+        await flushPromises();
+        expect(wrapper.findAll('[data-testid="privacy-protection-record"]')).toHaveLength(41);
+        expect(wrapper.find('[data-testid="privacy-protection-records-more"]').exists()).toBe(
+            false
+        );
+        expect(wrapper.text()).toContain('ada@example.test');
+    });
+
     it('user expands a recent record then sees its original, replacement and matched rule inline without a dialog', async () => {
         const original = 'ada@example.test';
         const placeholder = '{{EMAIL_0123456789abcdef}}';
         mockTauriCommand('privacy_filter_records', [record]);
+        mockTauriCommand('privacy_filter_record_detail_ids', [record.id]);
         mockTauriCommand('privacy_filter_record_details', {
             values: [
                 {
@@ -61,15 +147,14 @@ describe('given privacy protection records stored on this device', () => {
         expect(details.get('[data-testid="privacy-protection-value-masked"]').text()).toBe(
             placeholder
         );
-        expect(details.get('[data-testid="privacy-protection-value-rule"]').text()).toContain(
-            '邮箱地址格式'
-        );
+        expect(details.findAll('[data-testid="privacy-protection-stage"]')).toHaveLength(2);
         expect(details.find('[data-testid="privacy-protection-details-view"]').exists()).toBe(
             false
         );
         expect(
             row.get('[data-testid="privacy-protection-record-open"]').attributes('aria-expanded')
         ).toBe('true');
+        expect(row.get('[data-testid="privacy-protection-record-count"]').text()).toBe('保护3条');
         expect(getLastTauriInvokeCall('privacy_filter_record_details')?.payload).toEqual({
             recordId: record.id,
         });
@@ -79,25 +164,29 @@ describe('given privacy protection records stored on this device', () => {
         expect(document.body.textContent).not.toContain(original);
     });
 
-    it('user opens a summary after restart then sees why its concrete content is unavailable without losing the summary', async () => {
+    it('user revisits a summary after restart then it cannot be expanded and no disclosure control remains', async () => {
         mockTauriCommand('privacy_filter_records', [record]);
-        mockTauriCommand('privacy_filter_record_details', null);
+        mockTauriCommand('privacy_filter_record_detail_ids', []);
         const wrapper = mount(PrivacyProtectionRecords, {
             props: { disabled: false },
             attachTo: document.body,
         });
         await flushPromises();
-        await wrapper.get('[data-testid="privacy-protection-record-open"]').trigger('click');
+        const open = wrapper.get('[data-testid="privacy-protection-record-open"]');
+        expect(open.attributes('aria-disabled')).toBe('true');
+        expect(open.attributes('tabindex')).toBe('-1');
+        expect(wrapper.find('[data-testid="privacy-protection-record-chevron"]').exists()).toBe(
+            false
+        );
+        await open.trigger('click');
         await flushPromises();
-        const details = wrapper.get('[data-testid="privacy-protection-details"]');
-        expect(details.text()).toContain('具体内容已不可用');
-        expect(wrapper.text()).toContain('内存');
-        expect(details.text()).not.toContain('{{');
-        expect(wrapper.text()).toContain('已保护 3 处文本');
+        expect(wrapper.find('[data-testid="privacy-protection-details"]').exists()).toBe(false);
+        expect(wrapper.text()).toContain('规则 / 邮箱、密钥与凭据');
     });
 
-    it('user cannot load a row then retries and sees its replacement list inline with any truncation disclosed', async () => {
+    it('user cannot load a row then retries and sees its retained replacement list inline', async () => {
         mockTauriCommand('privacy_filter_records', [record]);
+        mockTauriCommand('privacy_filter_record_detail_ids', [record.id]);
         mockTauriCommand('privacy_filter_record_details', () => {
             throw new Error('Unavailable');
         });
@@ -125,8 +214,7 @@ describe('given privacy protection records stored on this device', () => {
         await details.get('[data-testid="privacy-protection-details-retry"]').trigger('click');
         await flushPromises();
         expect(details.text()).toContain('ada@example.test');
-        expect(details.text()).toContain('部分内容未保留');
-        expect(details.text()).toContain('未保留命中规则');
+        expect(details.text()).toContain('脱敏前');
         expect(document.querySelector('[role="dialog"]')).toBeNull();
     });
 
@@ -134,7 +222,7 @@ describe('given privacy protection records stored on this device', () => {
         const wrapper = mount(PrivacyProtectionRecords, { props: { disabled: false } });
         await flushPromises();
         expect(wrapper.text()).toContain('暂无保护记录');
-        expect(wrapper.text()).toContain('最近 30 天、最多 200 条摘要');
+        expect(wrapper.text()).toContain('保护内容仅在运行期间保留，最多保留30天或200条');
         expect(
             wrapper.get('[data-testid="privacy-protection-records-clear"]').attributes('disabled')
         ).toBeDefined();
@@ -154,9 +242,9 @@ describe('given privacy protection records stored on this device', () => {
         records = [record];
         await emit('privacy-filter-records-changed', null);
         await flushPromises();
-        expect(wrapper.text()).toContain('已保护 3 处文本');
+        expect(wrapper.text()).toContain('规则 / 邮箱、密钥与凭据');
         expect(wrapper.text()).toContain('邮箱');
-        expect(wrapper.text()).toContain('算法规则');
+        expect(wrapper.text()).toContain('规则');
         expect(
             wrapper
                 .get('[data-testid="privacy-protection-summary-requests"]')
@@ -189,10 +277,10 @@ describe('given privacy protection records stored on this device', () => {
         mockTauriCommand('privacy_filter_records', [record]);
         await wrapper.get('[data-testid="privacy-protection-records-retry"]').trigger('click');
         await flushPromises();
-        expect(wrapper.text()).toContain('已保护 3 处文本');
+        expect(wrapper.text()).toContain('规则 / 邮箱、密钥与凭据');
         await wrapper.setProps({ disabled: true });
         for (const button of wrapper.findAll('button')) expect(button.element.disabled).toBe(true);
-        expect(wrapper.text()).toContain('已保护 3 处文本');
+        expect(wrapper.text()).toContain('规则 / 邮箱、密钥与凭据');
     });
 
     it('user filters records by category, mode and outcome then sees matching summaries and date groups', async () => {
@@ -270,8 +358,7 @@ describe('given privacy protection records stored on this device', () => {
         blocked!.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
         await flushPromises();
         expect(wrapper.findAll('[data-testid="privacy-protection-record"]')).toHaveLength(1);
-        expect(wrapper.text()).toContain('检测失败，已阻止请求');
-        expect(wrapper.text()).not.toContain('已保护 3 处文本');
+        expect(wrapper.text()).toContain('已阻止');
     });
 
     it('user switches from thirty days to seven days, then sees only recent summaries and totals', async () => {
@@ -319,5 +406,30 @@ describe('given privacy protection records stored on this device', () => {
         expect(wrapper.get('[data-testid="privacy-protection-records-range"]').text()).toContain(
             '近 7 天'
         );
+    });
+
+    it('user receives a restored reply when opening settings then its reverse record is counted separately from protected requests', async () => {
+        mockTauriCommand('privacy_filter_records', [
+            { ...record, id: 'reply-1', direction: 'restore', modelName: 'Kimi K2' },
+            record,
+        ]);
+        const wrapper = mount(PrivacyProtectionRecords, { props: { disabled: false } });
+        await flushPromises();
+        const rows = wrapper.findAll('[data-testid="privacy-protection-record"]');
+        expect(rows[0]!.text()).toContain('还原3条');
+        expect(rows[1]!.text()).toContain('保护3条');
+        expect(rows[0]!.get('[data-testid="privacy-protection-record-meta"]').text()).toMatch(
+            /^Kimi K2/
+        );
+        expect(
+            wrapper
+                .get('[data-testid="privacy-protection-summary-requests"]')
+                .attributes('data-value')
+        ).toBe('1');
+        expect(
+            wrapper
+                .get('[data-testid="privacy-protection-summary-masked"]')
+                .attributes('data-value')
+        ).toBe('3');
     });
 });

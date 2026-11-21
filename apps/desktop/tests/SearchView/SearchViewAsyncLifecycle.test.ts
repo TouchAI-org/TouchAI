@@ -18,6 +18,10 @@ import type { SkillPickerState } from '@/views/SearchView/components/SearchBar/c
 import SearchView from '@/views/SearchView/index.vue';
 import type { SearchSurfacePreparationControllerOptions } from '@/views/SearchView/searchSurfacePreparation';
 
+import { useTestPrivacyApi } from '../utils/privacyApi';
+
+useTestPrivacyApi();
+
 const {
     askUserState,
     controllerMock,
@@ -155,9 +159,11 @@ vi.mock('@tauri-apps/api/window', () => ({
     getCurrentWindow: () => currentWindowMock,
 }));
 
-vi.mock('pinia', async () => {
+vi.mock('pinia', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('pinia')>();
     const { ref } = await import('vue');
     return {
+        ...actual,
         storeToRefs: () => ({
             searchWindowDefaultSize: ref({ width: 750, height: 60 }),
             searchKeybindings: ref({
@@ -175,9 +181,13 @@ vi.mock('pinia', async () => {
     };
 });
 
-vi.mock('@/i18n', () => ({
-    t: (key: string) => key,
-}));
+vi.mock('@/i18n', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/i18n')>();
+    return {
+        ...actual,
+        t: (key: string) => key,
+    };
+});
 
 vi.mock('@/stores/askUser', () => ({
     useAskUserStore: () => askUserState,

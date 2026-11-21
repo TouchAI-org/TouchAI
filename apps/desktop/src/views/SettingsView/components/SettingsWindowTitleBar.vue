@@ -85,7 +85,7 @@
                 type="button"
                 data-testid="settings-window-minimize"
                 data-tauri-drag-region="false"
-                class="flex h-full w-11 items-center justify-center text-neutral-500 transition-colors hover:bg-neutral-200/70 hover:text-neutral-900"
+                class="flex h-full w-11 items-center justify-center text-neutral-500 transition-colors hover:bg-neutral-200/70 hover:text-neutral-900 focus-visible:bg-surface-active-strong focus-visible:text-text-primary"
                 :aria-label="t('window.minimize')"
                 @click="handleMinimize"
             >
@@ -96,7 +96,7 @@
                 type="button"
                 data-testid="settings-window-maximize"
                 data-tauri-drag-region="false"
-                class="flex h-full w-11 items-center justify-center text-neutral-500 transition-colors hover:bg-neutral-200/70 hover:text-neutral-900"
+                class="flex h-full w-11 items-center justify-center text-neutral-500 transition-colors hover:bg-neutral-200/70 hover:text-neutral-900 focus-visible:bg-surface-active-strong focus-visible:text-text-primary"
                 :aria-label="isWindowMaximized ? t('window.restore') : t('window.maximize')"
                 @click="handleToggleMaximize"
             >
@@ -111,7 +111,7 @@
                 type="button"
                 data-testid="settings-window-close"
                 data-tauri-drag-region="false"
-                class="flex h-full w-11 items-center justify-center text-neutral-500 transition-colors hover:bg-red-600 hover:text-white"
+                class="flex h-full w-11 items-center justify-center text-neutral-500 transition-colors hover:bg-red-600 hover:text-white focus-visible:bg-background-danger focus-visible:text-text-danger"
                 :aria-label="t('window.close')"
                 @click="handleClose"
             >

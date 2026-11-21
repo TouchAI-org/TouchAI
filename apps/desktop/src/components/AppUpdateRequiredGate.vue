@@ -87,7 +87,7 @@
                 : null,
         ].filter(Boolean);
 
-        return parts.join(' · ');
+        return parts.join(' ');
     });
     const primaryActionText = computed(() => {
         if (isChecking.value) {

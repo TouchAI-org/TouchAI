@@ -6,15 +6,18 @@
 
     import { useProductAnalyticsApi } from '@/app/api/analytics/product';
     import { log } from '@/app/api/diagnostics';
+    import type { PrivacyReviewAnnotation } from '@/app/api/privacy';
     import { writeClipboardText } from '@/app/api/windows/clipboard';
     import { notify } from '@/app/api/windows/notifications';
     import { t } from '@/i18n';
+
+    import MarkdownPrivacyCode from './MarkdownPrivacyCode.vue';
     const { runResultAction } = useProductAnalyticsApi();
 
     defineOptions({ inheritAttrs: false });
     const props = withDefaults(
         defineProps<{
-            node: CodeBlockNodeProps['node'];
+            node: CodeBlockNodeProps['node'] & { privacyAnnotations?: PrivacyReviewAnnotation[] };
             showHeader?: boolean;
             showCopyButton?: boolean;
         }>(),
@@ -49,7 +52,13 @@
 <template>
     <div class="relative">
         <!-- Reserve copy space while retaining markstream's renderer and header controls. -->
+        <MarkdownPrivacyCode
+            v-if="node.privacyAnnotations?.length"
+            :node="{ ...node, privacyAnnotations: node.privacyAnnotations }"
+            :show-header="showHeader"
+        />
         <CodeBlockNode
+            v-else
             v-bind="$attrs"
             class="[&_.code-block-header]:pr-12"
             :node="node"

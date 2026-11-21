@@ -1,3 +1,7 @@
+import { useTestPrivacyWindow } from '@tests/utils/privacyWindow';
+
+useTestPrivacyWindow();
+
 import { flushPromises, mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick, toRaw } from 'vue';

@@ -2,30 +2,30 @@
     import AppIcon from '@components/AppIcon.vue';
     import CustomSelect from '@components/CustomSelect.vue';
     import EmptyState from '@components/EmptyState.vue';
-    import MotionCollapse from '@components/MotionCollapse.vue';
-    import AnimatedCounter from '@components/ui/animated-counter/AnimatedCounter.vue';
-    import { Badge } from '@components/ui/badge';
+    import ModelLogo from '@components/ModelLogo.vue';
+    import BarChart from '@components/ui/bar-chart/BarChart.vue';
     import { Button } from '@components/ui/button';
+    import MetricCards from '@components/ui/metric-cards/MetricCards.vue';
     import { useAlert } from '@composables/useAlert';
     import { useConfirm } from '@composables/useConfirm';
-    import { native } from '@services/NativeService';
+    import { useMotion } from '@composables/useMotion';
+    import { motion } from 'motion-v';
+    import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+
+    import { log } from '@/app/api/diagnostics';
     import {
-        PRIVACY_FILTER_RECORDS_CHANGED_EVENT,
-        PRIVACY_FILTER_RECORDS_LIMIT,
         PRIVACY_FILTER_RECORDS_RETENTION_DAYS,
         type PrivacyProtectionKind,
         type PrivacyProtectionRecord,
-    } from '@services/NativeService/privacyFilter';
-    import { log } from '@services/ObservabilityService';
-    import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-    import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-
+        usePrivacyApi,
+    } from '@/app/api/privacy';
     import { getLocale, t } from '@/i18n';
 
     import PrivacyProtectionDetails from './PrivacyProtectionDetails.vue';
     import { privacyProtectionKindLabels as kindLabels } from './privacyProtectionLabels';
 
     const props = defineProps<{ disabled: boolean }>();
+    const privacyApi = usePrivacyApi();
     type RangeDays = 7 | typeof PRIVACY_FILTER_RECORDS_RETENTION_DAYS;
     type CategoryFilter = 'all' | PrivacyProtectionKind;
     type ModeFilter = 'all' | 'model' | 'rules';
@@ -33,7 +33,10 @@
     const DAY_MILLIS = 24 * 60 * 60 * 1_000;
     const PAGE_SIZE = 20;
     const records = ref<PrivacyProtectionRecord[]>([]);
+    const detailIds = ref<Set<string>>(new Set());
+    const sessionTitles = ref<Map<number, string>>(new Map());
     const selectedRecord = ref<PrivacyProtectionRecord | null>(null);
+    const readyRecordId = ref<string | null>(null);
     const loading = ref(false);
     const clearing = ref(false);
     const loadFailed = ref(false);
@@ -44,8 +47,9 @@
     const outcomeFilter = ref<OutcomeFilter>('all');
     const now = ref(Date.now());
     const { confirm } = useConfirm();
+    const { transitions } = useMotion();
     const alert = useAlert();
-    let unlisten: UnlistenFn | undefined;
+    let unlisten: (() => void) | undefined;
     let unmounted = false;
     let requestSequence = 0;
 
@@ -58,10 +62,18 @@
         },
     ]);
 
-    const recordsInRange = computed(() => {
-        const cutoff = now.value - rangeDays.value * DAY_MILLIS;
-        return records.value.filter((record) => record.createdAt >= cutoff);
+    const rangeStart = computed(() => {
+        const start = new Date(now.value);
+        start.setDate(start.getDate() - rangeDays.value + 1);
+        start.setHours(0, 0, 0, 0);
+        return start.getTime();
     });
+    const recordsInRange = computed(() =>
+        records.value.filter((record) => record.createdAt >= rangeStart.value)
+    );
+    const requestsInRange = computed(() =>
+        recordsInRange.value.filter((record) => record.direction !== 'restore')
+    );
     const categoryCounts = computed(() => {
         const counts = new Map<PrivacyProtectionKind, number>();
         for (const record of recordsInRange.value) {
@@ -80,7 +92,7 @@
             .filter((kind) => (categoryCounts.value.get(kind) ?? 0) > 0)
             .map((kind) => ({
                 value: kind as CategoryFilter,
-                label: `${t(kindLabels[kind])} · ${categoryCounts.value.get(kind)}`,
+                label: `${t(kindLabels[kind])} (${categoryCounts.value.get(kind)})`,
             })),
     ]);
     const modeOptions = computed<Array<{ value: ModeFilter; label: string }>>(() => [
@@ -94,28 +106,63 @@
         { value: 'blocked', label: t('settings.privacyFilter.records.filter.blocked') },
     ]);
     const summary = computed(() => ({
-        requests: recordsInRange.value.length,
-        protectedCount: recordsInRange.value.reduce(
+        requests: requestsInRange.value.length,
+        protectedCount: requestsInRange.value.reduce(
             (total, record) => total + record.maskedCount,
             0
         ),
-        blockedCount: recordsInRange.value.filter((record) => record.outcome === 'blocked').length,
+        blockedCount: requestsInRange.value.filter((record) => record.outcome === 'blocked').length,
     }));
-    const summaryCards = computed(() => [
-        {
-            key: 'requests',
-            label: t('settings.privacyFilter.records.summary.requests'),
-            value: summary.value.requests,
-        },
+    const summaryCards = computed(() =>
+        [
+            {
+                key: 'requests',
+                label: t('settings.privacyFilter.records.summary.requests'),
+                value: summary.value.requests,
+            },
+            {
+                key: 'masked',
+                label: t('settings.privacyFilter.records.summary.masked'),
+                value: summary.value.protectedCount,
+            },
+            {
+                key: 'blocked',
+                label: t('settings.privacyFilter.records.summary.blocked'),
+                value: summary.value.blockedCount,
+            },
+        ].map((card) => ({
+            ...card,
+            value: card.value.toLocaleString(getLocale()),
+            counter: { value: card.value },
+        }))
+    );
+    const dailyRecords = computed(() => {
+        const counts = new Map<string, number>();
+        for (const record of requestsInRange.value) {
+            const key = localDayKey(record.createdAt);
+            counts.set(key, (counts.get(key) ?? 0) + record.maskedCount);
+        }
+        const dateFormat = new Intl.DateTimeFormat(getLocale(), {
+            month: 'short',
+            day: 'numeric',
+        });
+        return Array.from({ length: rangeDays.value }, (_, index) => {
+            const day = new Date(rangeStart.value);
+            day.setDate(day.getDate() + index);
+            const key = localDayKey(day.getTime());
+            return {
+                key,
+                label: dateFormat.format(day),
+                axisLabel: `${day.getMonth() + 1}/${day.getDate()}`,
+                values: { masked: counts.get(key) ?? 0 },
+            };
+        });
+    });
+    const chartSeries = computed(() => [
         {
             key: 'masked',
             label: t('settings.privacyFilter.records.summary.masked'),
-            value: summary.value.protectedCount,
-        },
-        {
-            key: 'blocked',
-            label: t('settings.privacyFilter.records.summary.blocked'),
-            value: summary.value.blockedCount,
+            color: 'var(--color-text-secondary)',
         },
     ]);
     const filteredRecords = computed(() =>
@@ -128,9 +175,6 @@
         )
     );
     const visibleRecords = computed(() => filteredRecords.value.slice(0, visibleLimit.value));
-    const peakMaskedCount = computed(() =>
-        Math.max(1, ...filteredRecords.value.map((record) => record.maskedCount))
-    );
     const recordGroups = computed(() => {
         const groups: Array<{ key: string; label: string; records: PrivacyProtectionRecord[] }> =
             [];
@@ -152,16 +196,53 @@
             outcomeFilter.value !== 'all'
     );
 
+    function detailsAvailable(record: PrivacyProtectionRecord): boolean {
+        return detailIds.value.has(record.id);
+    }
+
+    function sessionTitle(record: PrivacyProtectionRecord): string {
+        const id = record.sessionId;
+        return (
+            (id ? sessionTitles.value.get(id) : undefined) ??
+            t('settings.privacyFilter.records.unknownSession')
+        );
+    }
+
+    function modeAndCategories(record: PrivacyProtectionRecord): string {
+        const mode = t(
+            record.mode === 'model' ? 'conversation.privacy.model' : 'conversation.privacy.builtin'
+        );
+        const categories = record.categories
+            .slice(0, 2)
+            .map((category) => t(kindLabels[category.kind]));
+        return categories.length ? `${mode} / ${categories.join('、')}` : mode;
+    }
+
     async function refresh() {
         const sequence = ++requestSequence;
         loading.value = true;
         try {
-            const next = await native.privacyFilter.getRecords();
+            const [next, availableDetailIds] = await Promise.all([
+                privacyApi.getRecords(),
+                privacyApi.getDetailRecordIds(),
+            ]);
             if (unmounted || sequence !== requestSequence) return;
             records.value = next;
+            detailIds.value = new Set(availableDetailIds);
+            const sessionIds = [
+                ...new Set(
+                    next
+                        .map((record) => record.sessionId)
+                        .filter((id): id is number => Number.isSafeInteger(id) && (id ?? 0) > 0)
+                ),
+            ];
+            const titles = sessionIds.length ? await privacyApi.findSessionTitles(sessionIds) : [];
+            if (unmounted || sequence !== requestSequence) return;
+            sessionTitles.value = new Map(titles.map((row) => [row.id, row.title]));
             if (
                 selectedRecord.value &&
-                !next.some((record) => record.id === selectedRecord.value?.id)
+                (!next.some((record) => record.id === selectedRecord.value?.id) ||
+                    !detailsAvailable(selectedRecord.value))
             ) {
                 closeDetails();
             }
@@ -187,7 +268,7 @@
         if (!approved || props.disabled || unmounted) return;
         clearing.value = true;
         try {
-            await native.privacyFilter.clearRecords();
+            await privacyApi.clearRecords();
             requestSequence += 1;
             loading.value = false;
             closeDetails();
@@ -202,12 +283,19 @@
     }
 
     function openRecord(record: PrivacyProtectionRecord): void {
+        if (!detailsAvailable(record)) return;
         if (props.disabled || clearing.value) return;
+        readyRecordId.value = null;
         selectedRecord.value = selectedRecord.value?.id === record.id ? null : record;
     }
 
     function closeDetails(): void {
         selectedRecord.value = null;
+        readyRecordId.value = null;
+    }
+
+    function detailsReady(record: PrivacyProtectionRecord): void {
+        if (selectedRecord.value?.id === record.id) readyRecordId.value = record.id;
     }
 
     function resetFilters() {
@@ -252,13 +340,6 @@
         }).format(timestamp);
     }
 
-    function details(record: PrivacyProtectionRecord): string {
-        return `${timeLabel(record.createdAt)} · ${t(record.mode === 'model' ? 'settings.privacyFilter.mode.model' : 'settings.privacyFilter.mode.rules')}`;
-    }
-
-    function barWidth(record: PrivacyProtectionRecord): string {
-        return `${Math.max(1, (record.maskedCount / peakMaskedCount.value) * 100)}%`;
-    }
     watch([rangeDays, categoryFilter, modeFilter, outcomeFilter], () => {
         visibleLimit.value = PAGE_SIZE;
         closeDetails();
@@ -281,7 +362,7 @@
 
     onMounted(async () => {
         try {
-            const stop = await listen(PRIVACY_FILTER_RECORDS_CHANGED_EVENT, () => void refresh());
+            const stop = await privacyApi.onRecordsChanged(() => void refresh());
             if (unmounted) {
                 stop();
                 return;
@@ -301,26 +382,15 @@
 
 <template>
     <section
-        class="space-y-4"
-        data-settings-search-target="privacy-protection-records"
-        aria-labelledby="privacy-protection-records-title"
+        class="space-y-4 text-settings-text"
+        :aria-label="t('settings.privacyFilter.records.overview')"
+        :aria-busy="loading"
     >
-        <div class="flex items-start gap-4">
-            <div class="min-w-0">
-                <h2 id="privacy-protection-records-title" class="settings-section-title">
-                    {{ t('settings.privacyFilter.records.title') }}
-                </h2>
-                <p class="settings-section-description">
-                    {{
-                        t('settings.privacyFilter.records.retention', {
-                            days: PRIVACY_FILTER_RECORDS_RETENTION_DAYS,
-                            count: PRIVACY_FILTER_RECORDS_LIMIT,
-                        })
-                    }}
-                </p>
-            </div>
-            <div class="ml-auto flex shrink-0 items-center gap-1.5">
-                <div class="w-28">
+        <div class="space-y-2">
+            <slot name="heading" />
+            <div class="flex items-center justify-between gap-4">
+                <slot name="description" />
+                <div class="ml-auto w-32 shrink-0">
                     <CustomSelect
                         :model-value="rangeDays"
                         :options="rangeOptions"
@@ -329,6 +399,77 @@
                         trigger-test-id="privacy-protection-records-range"
                         option-test-id-prefix="privacy-protection-records-range-"
                         @update:model-value="setRange"
+                    />
+                </div>
+            </div>
+        </div>
+        <MetricCards :cards="summaryCards" test-id-prefix="privacy-protection-summary-" />
+        <div class="rounded-control bg-metric-surface/80 p-4">
+            <h3 class="mb-2 text-xs text-muted-foreground">
+                {{ t('settings.privacyFilter.records.daily') }}
+            </h3>
+            <BarChart
+                :data="dailyRecords"
+                :series="chartSeries"
+                :label="t('settings.privacyFilter.records.daily')"
+                :height="144"
+                :format-tick="
+                    (value) => (Number.isInteger(value) ? value.toLocaleString(getLocale()) : '')
+                "
+                :legend="false"
+                :show-average="false"
+            />
+        </div>
+    </section>
+
+    <slot />
+
+    <section
+        class="space-y-4 text-settings-text"
+        data-settings-search-target="privacy-protection-records"
+        aria-labelledby="privacy-protection-records-title"
+    >
+        <div class="flex flex-wrap items-center gap-3">
+            <div class="min-w-0">
+                <h2
+                    id="privacy-protection-records-title"
+                    class="settings-section-title text-settings-text"
+                >
+                    {{ t('settings.privacyFilter.records.title') }}
+                </h2>
+                <p class="settings-section-description">
+                    {{ t('settings.privacyFilter.records.retention') }}
+                </p>
+            </div>
+            <div class="ml-auto flex shrink-0 items-center justify-end gap-1.5">
+                <div class="w-32">
+                    <CustomSelect
+                        v-model="categoryFilter"
+                        :options="categoryOptions"
+                        :disabled="disabled || loading"
+                        :aria-label="t('settings.privacyFilter.records.filter.category')"
+                        trigger-test-id="privacy-protection-records-category-filter"
+                        option-test-id-prefix="privacy-protection-records-category-"
+                    />
+                </div>
+                <div class="w-28">
+                    <CustomSelect
+                        v-model="modeFilter"
+                        :options="modeOptions"
+                        :disabled="disabled || loading"
+                        :aria-label="t('settings.privacyFilter.records.filter.mode')"
+                        trigger-test-id="privacy-protection-records-mode-filter"
+                        option-test-id-prefix="privacy-protection-records-mode-"
+                    />
+                </div>
+                <div class="w-28">
+                    <CustomSelect
+                        v-model="outcomeFilter"
+                        :options="outcomeOptions"
+                        :disabled="disabled || loading"
+                        :aria-label="t('settings.privacyFilter.records.filter.outcome')"
+                        trigger-test-id="privacy-protection-records-outcome-filter"
+                        option-test-id-prefix="privacy-protection-records-outcome-"
                     />
                 </div>
                 <Button
@@ -341,61 +482,6 @@
                 >
                     <AppIcon name="trash" class="h-4 w-4" />
                 </Button>
-            </div>
-        </div>
-
-        <div class="grid grid-cols-3 gap-3">
-            <div
-                v-for="card in summaryCards"
-                :key="card.key"
-                class="flex min-w-0 flex-col gap-1 rounded-control bg-surface-raised px-4 py-3"
-            >
-                <span class="truncate text-xs text-text-secondary">{{ card.label }}</span>
-                <span
-                    class="truncate font-serif text-title leading-tight font-semibold text-text-primary tabular-nums"
-                    :data-testid="`privacy-protection-summary-${card.key}`"
-                    :aria-label="String(card.value)"
-                    :data-value="card.value"
-                >
-                    <AnimatedCounter
-                        :value="card.value"
-                        :animate-on-view="true"
-                        :locale="getLocale()"
-                    />
-                </span>
-            </div>
-        </div>
-
-        <div class="flex flex-wrap items-center gap-1.5">
-            <div class="w-32">
-                <CustomSelect
-                    v-model="categoryFilter"
-                    :options="categoryOptions"
-                    :disabled="disabled || loading"
-                    :aria-label="t('settings.privacyFilter.records.filter.category')"
-                    trigger-test-id="privacy-protection-records-category-filter"
-                    option-test-id-prefix="privacy-protection-records-category-"
-                />
-            </div>
-            <div class="w-28">
-                <CustomSelect
-                    v-model="modeFilter"
-                    :options="modeOptions"
-                    :disabled="disabled || loading"
-                    :aria-label="t('settings.privacyFilter.records.filter.mode')"
-                    trigger-test-id="privacy-protection-records-mode-filter"
-                    option-test-id-prefix="privacy-protection-records-mode-"
-                />
-            </div>
-            <div class="w-28">
-                <CustomSelect
-                    v-model="outcomeFilter"
-                    :options="outcomeOptions"
-                    :disabled="disabled || loading"
-                    :aria-label="t('settings.privacyFilter.records.filter.outcome')"
-                    trigger-test-id="privacy-protection-records-outcome-filter"
-                    option-test-id-prefix="privacy-protection-records-outcome-"
-                />
             </div>
         </div>
 
@@ -442,117 +528,149 @@
                 </template>
             </EmptyState>
         </div>
-        <div v-else class="space-y-3">
+        <div v-else class="space-y-6 text-muted-foreground">
             <section v-for="group in recordGroups" :key="group.key" class="space-y-2">
-                <h3 class="px-1 text-xs font-medium text-text-secondary">
+                <h3 class="px-1 text-xs font-medium">
                     {{ group.label }}
                 </h3>
-                <div class="rounded-control bg-surface-raised p-3">
-                    <ul :aria-label="t('settings.privacyFilter.records.title')">
+                <div>
+                    <ul class="space-y-2" :aria-label="t('settings.privacyFilter.records.title')">
                         <li
                             v-for="record in group.records"
                             :key="record.id"
                             data-testid="privacy-protection-record"
-                            class="min-w-0 rounded-action"
+                            :data-direction="record.direction ?? 'mask'"
+                            class="min-w-0 rounded-panel border border-border-subtle bg-settings-surface"
                         >
                             <button
                                 type="button"
-                                class="flex min-h-11 w-full items-center gap-2.5 rounded-action px-2 py-1.5 text-left transition-colors hover:bg-surface-hover disabled:cursor-not-allowed"
+                                class="flex min-h-12 w-full items-center gap-3 rounded-panel px-4 py-3 text-left focus-visible:bg-surface-hover focus-visible:underline focus-visible:underline-offset-4 disabled:cursor-not-allowed"
                                 data-testid="privacy-protection-record-open"
-                                :title="details(record)"
-                                :aria-expanded="selectedRecord?.id === record.id"
-                                :aria-controls="`privacy-protection-details-${record.id}`"
+                                :aria-expanded="
+                                    detailsAvailable(record) && selectedRecord?.id === record.id
+                                "
+                                :aria-controls="
+                                    detailsAvailable(record)
+                                        ? `privacy-protection-details-${record.id}`
+                                        : undefined
+                                "
+                                :aria-disabled="!detailsAvailable(record) || undefined"
+                                :tabindex="detailsAvailable(record) ? undefined : -1"
                                 :disabled="disabled || clearing"
+                                :aria-busy="
+                                    selectedRecord?.id === record.id && readyRecordId !== record.id
+                                "
                                 @click="openRecord(record)"
                             >
-                                <div class="w-1/3 min-w-0 shrink-0">
-                                    <div class="truncate text-dense text-text-primary">
-                                        {{
-                                            record.outcome === 'blocked'
-                                                ? t('settings.privacyFilter.records.blocked')
-                                                : t('settings.privacyFilter.records.protected', {
-                                                      count: record.maskedCount,
-                                                  })
-                                        }}
-                                    </div>
-                                    <div class="truncate text-caption text-text-tertiary">
-                                        {{
-                                            t(
-                                                record.mode === 'model'
-                                                    ? 'settings.privacyFilter.mode.model'
-                                                    : 'settings.privacyFilter.mode.rules'
-                                            )
-                                        }}
-                                    </div>
-                                </div>
-                                <div
-                                    class="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-border-subtle"
-                                >
-                                    <div
-                                        class="h-full rounded-full"
-                                        :class="
-                                            record.outcome === 'blocked'
-                                                ? 'bg-text-warning'
-                                                : 'bg-text-secondary'
-                                        "
-                                        :style="{ width: barWidth(record) }"
-                                    />
-                                </div>
-                                <div class="hidden max-w-56 shrink-0 justify-end gap-1 sm:flex">
-                                    <Badge
-                                        v-for="category in record.categories.slice(0, 2)"
-                                        :key="category.kind"
-                                        variant="tag"
-                                        size="sm"
-                                        tone="gray"
-                                    >
-                                        {{ t(kindLabels[category.kind]) }} {{ category.count }}
-                                    </Badge>
-                                    <Badge
-                                        v-if="record.categories.length > 2"
-                                        variant="tag"
-                                        size="sm"
-                                        tone="gray"
-                                    >
-                                        +{{ record.categories.length - 2 }}
-                                    </Badge>
-                                </div>
-                                <span
-                                    class="w-12 shrink-0 text-right text-dense text-text-secondary"
-                                >
-                                    <span class="tabular-nums">
-                                        {{ timeLabel(record.createdAt) }}
+                                <div class="flex min-w-0 flex-1 flex-col gap-1">
+                                    <span class="flex min-w-0 items-center gap-2">
+                                        <ModelLogo
+                                            :model-id="record.modelName ?? ''"
+                                            :name="record.modelName"
+                                            size="xs"
+                                        />
+                                        <span
+                                            class="min-w-0 truncate text-dense text-settings-text"
+                                        >
+                                            {{ sessionTitle(record) }}
+                                        </span>
                                     </span>
+                                    <span
+                                        class="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-0.5 text-caption"
+                                        data-testid="privacy-protection-record-meta"
+                                    >
+                                        <span>
+                                            {{
+                                                record.modelName ||
+                                                t('settings.privacyFilter.records.unknownModel')
+                                            }}
+                                        </span>
+                                        <span>{{ modeAndCategories(record) }}</span>
+                                    </span>
+                                </div>
+                                <span class="flex shrink-0 items-center gap-2 text-caption">
+                                    <span
+                                        v-if="record.outcome === 'protected'"
+                                        class="flex items-center gap-1 font-medium tabular-nums"
+                                        data-testid="privacy-protection-record-count"
+                                    >
+                                        <AppIcon name="shield-check" class="h-3 w-3 shrink-0" />
+                                        <span>
+                                            {{
+                                                t(
+                                                    record.direction === 'restore'
+                                                        ? 'settings.privacyFilter.records.restoredShort'
+                                                        : 'settings.privacyFilter.records.protectedShort',
+                                                    {
+                                                        count: record.maskedCount.toLocaleString(
+                                                            getLocale()
+                                                        ),
+                                                    }
+                                                )
+                                            }}
+                                        </span>
+                                    </span>
+                                    <span v-else>
+                                        {{ t('settings.privacyFilter.records.blockedShort') }}
+                                    </span>
+                                    <time class="tabular-nums">
+                                        {{ timeLabel(record.createdAt) }}
+                                    </time>
                                 </span>
-                                <AppIcon
-                                    name="chevron-right"
-                                    class="h-4 w-4 shrink-0 text-text-tertiary transition-transform"
-                                    :class="selectedRecord?.id === record.id && 'rotate-90'"
+                                <span
+                                    class="flex h-4 w-4 shrink-0 items-center justify-center"
                                     aria-hidden="true"
-                                />
+                                >
+                                    <AppIcon
+                                        v-if="
+                                            selectedRecord?.id === record.id &&
+                                            readyRecordId !== record.id
+                                        "
+                                        name="loading"
+                                        class="h-4 w-4 animate-spin"
+                                        data-testid="privacy-protection-record-loading"
+                                    />
+                                    <AppIcon
+                                        v-else-if="detailsAvailable(record)"
+                                        data-testid="privacy-protection-record-chevron"
+                                        name="chevron-right"
+                                        class="h-4 w-4 transition-transform"
+                                        :class="selectedRecord?.id === record.id && 'rotate-90'"
+                                    />
+                                </span>
                             </button>
-                            <MotionCollapse
+                            <motion.div
+                                v-if="selectedRecord?.id === record.id"
                                 :id="`privacy-protection-details-${record.id}`"
-                                :open="selectedRecord?.id === record.id"
-                                lazy
+                                class="overflow-hidden"
+                                :initial="{ height: 0, opacity: 0 }"
+                                :animate="
+                                    readyRecordId === record.id
+                                        ? { height: 'auto', opacity: 1 }
+                                        : { height: 0, opacity: 0 }
+                                "
+                                :transition="transitions.fast"
+                                data-testid="privacy-protection-record-expansion"
                             >
                                 <PrivacyProtectionDetails
-                                    v-if="selectedRecord?.id === record.id"
                                     :record="record"
+                                    @ready="detailsReady(record)"
                                 />
-                            </MotionCollapse>
+                            </motion.div>
                         </li>
                     </ul>
                 </div>
             </section>
         </div>
-        <Button
-            v-if="visibleLimit < filteredRecords.length"
-            variant="outline-neutral"
-            :disabled="disabled"
-            @click="visibleLimit += PAGE_SIZE"
-        >
-            {{ t('settings.privacyFilter.records.more') }}
-        </Button>
+        <div v-if="visibleLimit < filteredRecords.length" class="flex justify-center">
+            <Button
+                variant="ghost-neutral"
+                data-testid="privacy-protection-records-more"
+                :disabled="disabled"
+                @click="visibleLimit += PAGE_SIZE"
+            >
+                {{ t('settings.privacyFilter.records.more') }}
+            </Button>
+        </div>
     </section>
 </template>

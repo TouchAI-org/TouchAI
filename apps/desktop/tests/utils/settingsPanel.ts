@@ -8,6 +8,7 @@ import { productAnalyticsApiKey } from '@/app/api/analytics/product';
 import { modelAdministrationApiKey } from '@/app/api/models/administration';
 import { modelDiscoveryApiKey } from '@/app/api/models/discovery';
 import { modelMetadataApiKey } from '@/app/api/models/metadata';
+import { privacyApiKey } from '@/app/api/privacy';
 import { dataManagementApiKey } from '@/app/api/settings/dataManagement';
 import { settingsApiKey } from '@/app/api/settings/preferences';
 import { toolSettingsApiKey } from '@/app/api/settings/tools';
@@ -47,6 +48,7 @@ export async function createSettingsPanelFixture(
     app.use(pinia);
     presentation.provide(app);
     app.provide(settingsApiKey, client.settings);
+    app.provide(privacyApiKey, client.privacy);
     app.provide(productAnalyticsApiKey, client.productAnalytics);
     app.provide(analyticsPreferencesApiKey, client.analyticsPreferences!);
     app.provide(dataManagementApiKey, client.dataManagement!);
@@ -77,6 +79,7 @@ export async function createSettingsPanelFixture(
                 plugins: [pinia],
                 provide: {
                     [settingsApiKey as symbol]: client.settings,
+                    [privacyApiKey as symbol]: client.privacy,
                     [productAnalyticsApiKey as symbol]: client.productAnalytics,
                     [analyticsPreferencesApiKey as symbol]: client.analyticsPreferences!,
                     [dataManagementApiKey as symbol]: client.dataManagement!,

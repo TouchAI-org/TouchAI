@@ -226,7 +226,7 @@ describe('user works in the settings window', () => {
             await waitForTestIdDisplayed('settings-privacy-filter-section');
 
             const enabled = await waitForTestIdDisplayed('privacy-filter-enabled-toggle');
-            const mode = await waitForTestIdDisplayed('privacy-filter-mode-select');
+            const mode = await waitForTestIdDisplayed('privacy-filter-mode-rules');
             assertVisible(
                 (await getAriaChecked(enabled)) === 'false',
                 'Privacy filtering should start disabled.'
@@ -239,10 +239,22 @@ describe('user works in the settings window', () => {
                 !(await browser.$('[data-testid="privacy-filter-preview-run"]').isExisting()),
                 'The removed preview is still present.'
             );
+            assertVisible(
+                !(await browser.$('[data-testid="privacy-filter-mode-recommended"]').isExisting()),
+                'The removed mode recommendation badge is still present.'
+            );
 
-            await toggleSwitch(enabled);
+            await toggleSwitch(enabled, 90000);
+            await browser.waitUntil(async () => mode.isEnabled(), {
+                timeoutMsg: 'Local-model preparation did not finish before settings unlocked.',
+            });
+            assertVisible(
+                (await (
+                    await waitForTestIdDisplayed('privacy-filter-mode-model')
+                ).getAttribute('aria-checked')) === 'true',
+                'Enabling protection did not default to the local model.'
+            );
             await mode.click();
-            await (await waitForTestIdDisplayed('privacy-filter-mode-rules')).click();
             await browser.waitUntil(
                 async () =>
                     !(await browser.$('[data-testid="privacy-filter-model-select"]').isExisting()),
@@ -257,28 +269,41 @@ describe('user works in the settings window', () => {
             await (await waitForTestIdDisplayed('settings-nav-privacy-filter')).click();
             await waitForTestIdDisplayed('settings-privacy-filter-section');
             const restoredEnabled = await waitForTestIdDisplayed('privacy-filter-enabled-toggle');
-            const restoredMode = await waitForTestIdDisplayed('privacy-filter-mode-select');
+            const restoredMode = await waitForTestIdDisplayed('privacy-filter-mode-rules');
             assertVisible(
                 (await getAriaChecked(restoredEnabled)) === 'false',
                 'The disabled state was not saved.'
             );
             assertVisible(
-                (await restoredMode.getText()).includes('Algorithmic rules'),
+                (await restoredMode.getAttribute('aria-checked')) === 'true',
                 'The rule-based mode was not saved.'
             );
 
-            await toggleSwitch(restoredEnabled);
+            await toggleSwitch(restoredEnabled, 90000);
+            await browser.waitUntil(async () => restoredMode.isEnabled(), {
+                timeoutMsg: 'Re-enabling protection did not finish model verification.',
+            });
+            assertVisible(
+                (await (
+                    await waitForTestIdDisplayed('privacy-filter-mode-model')
+                ).getAttribute('aria-checked')) === 'true',
+                'Re-enabling protection retained the old rule mode.'
+            );
             await restoredMode.click();
-            await (await waitForTestIdDisplayed('privacy-filter-mode-model')).click();
+            await browser.keys('ArrowLeft');
             const model = await waitForTestIdDisplayed('privacy-filter-model-select');
             await model.click();
             const download = await browser.$(
-                '[role="group"][aria-label="AstrLink Guard INT8"] [data-testid="privacy-filter-download-model"]'
+                '[role="group"][aria-label="OpenAI Privacy Filter Q8"] [data-testid="privacy-filter-download-model"]'
             );
             await download.waitForDisplayed();
             assertVisible(
                 await download.isEnabled(),
                 'The model cannot be downloaded from its selector.'
+            );
+            assertVisible(
+                (await model.getText()).includes('AstrLink'),
+                'The verified AstrLink model was not configured automatically.'
             );
             const modelNames = await browser.execute(() =>
                 Array.from(document.querySelectorAll('[role="listbox"] [role="option"]')).map(
@@ -336,12 +361,13 @@ describe('user works in the settings window', () => {
             const details = await waitForTestIdDisplayed('privacy-protection-details');
             const original = await waitForTestIdDisplayed('privacy-protection-value-original');
             const masked = await waitForTestIdDisplayed('privacy-protection-value-masked');
-            const rule = await waitForTestIdDisplayed('privacy-protection-value-rule');
             assertVisible(
-                (await original.getText()) === 'robin@example.net' &&
-                    (await masked.getText()) === '{{EMAIL_0123456789abcdef}}' &&
-                    (await rule.getText()).includes('Email address format'),
-                'The inline replacement list does not match the native values and captured rule.'
+                (await original.getText()) === 'Contact robin@example.net and robin@example.net.' &&
+                    (await masked.getText()) ===
+                        'Contact {{EMAIL_0123456789abcdef}} and {{EMAIL_0123456789abcdef}}.' &&
+                    (await original.$$('[data-testid="privacy-protected-text"]')).length === 2 &&
+                    (await masked.$$('[data-testid="privacy-protected-text"]')).length === 2,
+                'The two stages do not match the native context and exact replacement occurrences.'
             );
             assertVisible(
                 (await details.isDisplayed()) && !(await browser.$('[role="dialog"]').isExisting()),

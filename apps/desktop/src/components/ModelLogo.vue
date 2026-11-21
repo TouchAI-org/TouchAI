@@ -41,7 +41,7 @@
     interface Props {
         modelId: string;
         name?: string;
-        size?: 'sm' | 'md' | 'lg';
+        size?: 'xs' | 'sm' | 'md' | 'lg';
     }
 
     const props = withDefaults(defineProps<Props>(), {
@@ -51,6 +51,8 @@
 
     const sizeClass = computed(() => {
         switch (props.size) {
+            case 'xs':
+                return 'h-4 w-4';
             case 'sm':
                 return 'h-6 w-6';
             case 'lg':
@@ -62,6 +64,7 @@
 
     const fallbackTextClass = computed(() => {
         switch (props.size) {
+            case 'xs':
             case 'sm':
                 return 'text-2xs';
             case 'lg':

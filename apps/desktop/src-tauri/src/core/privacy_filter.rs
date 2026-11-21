@@ -27,6 +27,7 @@ pub const DOWNLOAD_PROGRESS_EVENT: &str = "privacy-filter-download-progress";
 const MAX_MODEL_WINDOW: usize = 512;
 const MODEL_WINDOW_STRIDE: usize = 128;
 const MAX_MODEL_TOKENS: usize = 16_384;
+const MAX_MODEL_WINDOWS: usize = 64;
 const MAX_REQUEST_TEXTS: usize = 4096;
 const MAX_REQUEST_TEXT_BYTES: usize = MAX_MODEL_TOKENS * 4;
 const MODEL_READ_TIMEOUT: Duration = Duration::from_secs(60);
@@ -750,6 +751,14 @@ pub fn detect(
         .map(|text| loaded.encode_text(text))
         .collect::<Result<Vec<_>, _>>()?;
     ensure_model_token_budget(encodings.iter().map(unique_token_count))?;
+    if encodings
+        .iter()
+        .map(|encoding| 1 + encoding.get_overflowing().len())
+        .sum::<usize>()
+        > MAX_MODEL_WINDOWS
+    {
+        return Err("Privacy scan input exceeds the model work limit".to_string());
+    }
     texts
         .iter()
         .zip(&encodings)
@@ -960,7 +969,13 @@ fn unique_token_count(encoding: &Encoding) -> usize {
     let overflowing = encoding.get_overflowing();
     let token_count = std::iter::once(encoding)
         .chain(overflowing.iter())
-        .map(|window| window.get_ids().len())
+        .map(|window| {
+            window
+                .get_attention_mask()
+                .iter()
+                .filter(|mask| **mask != 0)
+                .count()
+        })
         .sum::<usize>();
     token_count.saturating_sub(overflowing.len() * MODEL_WINDOW_STRIDE)
 }
@@ -1306,6 +1321,26 @@ mod tests {
     }
 
     #[test]
+    fn user_scans_many_short_fragments_then_padding_does_not_consume_the_content_budget() {
+        let mut encoding = tokenizers::Encoding::from_tokens(
+            vec![tokenizers::Token::new(1, "sample".to_string(), (0, 6))],
+            0,
+        );
+        encoding.pad(
+            super::MAX_MODEL_WINDOW,
+            0,
+            0,
+            "[PAD]",
+            tokenizers::PaddingDirection::Right,
+        );
+        assert_eq!(super::unique_token_count(&encoding), 1);
+        assert!(
+            ensure_model_token_budget((0..33).map(|_| super::unique_token_count(&encoding)))
+                .is_ok()
+        );
+    }
+
+    #[test]
     fn user_does_not_get_a_partial_scan_when_the_request_exceeds_the_token_budget() {
         assert_eq!(
             ensure_model_token_budget([MAX_MODEL_TOKENS, 1]).unwrap_err(),
@@ -1341,10 +1376,10 @@ mod tests {
             .expect("set TOUCHAI_PRIVACY_MODEL_TEST_DIR to the downloaded model fixture");
         let text = "My private email address is alice@example.com. Please contact me there.";
 
-        let results = super::detect(vec![text.to_string()], directory)
+        let results = super::detect(vec![text.to_string(); 33], directory)
             .expect("the verified local model should load and scan text");
 
-        assert_eq!(results.len(), 1);
+        assert_eq!(results.len(), 33);
         assert!(results[0].iter().any(|span| {
             span.kind == "email"
                 && text.get(span.start..span.end) == Some("alice@example.com")

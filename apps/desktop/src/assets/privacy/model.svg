@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" id="pm-d1bd81654582" viewBox="0 0 160 120" stroke-width=".6" data-theme="light" aria-hidden="true" focusable="false">
+  <metadata>Document icon: Remix Icon v4.6.0, Copyright Remix Design, Apache-2.0.</metadata>
+  <style>
+    #pm-d1bd81654582 {
+      color-scheme: only light;
+      --paper: light-dark(#fff, #323238);
+      --stroke: light-dark(rgba(47,42,34,.23), rgba(255,255,255,.23));
+      --line: light-dark(#e5e9ef, #3f3f47);
+      --title: light-dark(#cdd4de, #52525b);
+      --icon: light-dark(#a3abb7, #7d828c);
+      --accent: light-dark(#3462ad, #7ea6ea);
+      --selection: light-dark(#e6edf9, #38465e);
+      --chip: light-dark(#f1f3f6, #393940);
+      --wire: light-dark(#a0aab8, #8993a0);
+      --node-stroke: light-dark(#697587, #b6bfcc);
+    }
+    #pm-d1bd81654582[data-theme="dark"] { color-scheme: dark; }
+    @media (prefers-color-scheme: dark) {
+      #pm-d1bd81654582[data-theme="auto"] { color-scheme: dark; }
+    }
+  </style>
+  <!-- A passage in the inspector. The model's output points to one span within it. -->
+  <rect x="48" y="16" width="98" height="88" rx="11" fill="var(--paper)" stroke="var(--stroke)"/>
+  <path transform="translate(58 22) scale(.56)" fill="var(--icon)" d="M20 22H4C3.44772 22 3 21.5523 3 21V3C3 2.44772 3.44772 2 4 2H20C20.5523 2 21 2.44772 21 3V21C21 21.5523 20.5523 22 20 22ZM19 20V4H5V20H19ZM7 6H11V10H7V6ZM7 12H17V14H7V12ZM7 16H17V18H7V16ZM13 7H17V9H13V7Z"/>
+  <rect x="76" y="26" width="34" height="5" rx="2.5" fill="var(--title)"/>
+  <path d="M48 39h98" stroke="var(--stroke)"/>
+  <g fill="var(--line)">
+    <rect x="79" y="47" width="21" height="4" rx="2"/><rect x="104" y="47" width="31" height="4" rx="2"/>
+    <rect x="126" y="62" width="9" height="4" rx="2"/>
+    <rect x="79" y="77" width="36" height="4" rx="2"/><rect x="119" y="77" width="16" height="4" rx="2"/>
+    <rect x="79" y="88" width="28" height="4" rx="2"/>
+  </g>
+  <path d="M68 66h8c5 0 5-2 10-2h3" fill="none" stroke="var(--icon)" stroke-width="1"/>
+  <rect x="88" y="57" width="34" height="14" rx="4" fill="var(--selection)" stroke="var(--accent)"/>
+  <rect x="94" y="62" width="22" height="4" rx="2" fill="var(--accent)"/>
+
+  <!-- The local model, shown as connected layers of neurons on its processor. -->
+  <rect x="14" y="35" width="58" height="62" rx="11" fill="var(--chip)" stroke="var(--stroke)"/>
+  <path d="m25 56 18-9 18 19-18 19-18-9 18-10-18-10m18-9L25 76m0-20 18 29m0-19h18" fill="none" stroke="var(--wire)" stroke-width="1" stroke-linejoin="round"/>
+  <g fill="var(--paper)" stroke="var(--node-stroke)" stroke-width="1">
+    <circle cx="25" cy="56" r="3.5"/><circle cx="25" cy="76" r="3.5"/>
+    <circle cx="43" cy="47" r="3.5"/><circle cx="43" cy="66" r="3.5"/><circle cx="43" cy="85" r="3.5"/>
+    <circle cx="61" cy="66" r="4.2" fill="var(--node-stroke)"/>
+  </g>
+</svg>

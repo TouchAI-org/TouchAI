@@ -8,6 +8,9 @@ import NavigationSidebar from '@/views/SettingsView/components/NavigationSidebar
 import { SETTINGS_SIDEBAR_COLLAPSED_WIDTH } from '@/views/SettingsView/settingsSidebarLayout';
 
 import desktopPackageJson from '../../../package.json';
+import { useTestPrivacyApi } from '../../utils/privacyApi';
+
+useTestPrivacyApi();
 
 /*
  * The existing navigationSidebar test covers the destination list, the version

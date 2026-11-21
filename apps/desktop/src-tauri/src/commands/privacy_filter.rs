@@ -1,5 +1,5 @@
 use crate::core::privacy_filter::records::{
-    PrivacyProtectionDetails, PrivacyProtectionRecord, PrivacyProtectionRecordInput,
+    PrivacyProtectionDetails, PrivacyProtectionEntry, PrivacyProtectionRecordInput,
     RECORDS_CHANGED_EVENT,
 };
 use crate::core::privacy_filter::{
@@ -14,11 +14,14 @@ pub fn privacy_filter_record_protection<R: Runtime>(
     runtime: State<'_, PrivacyFilterRuntime>,
     record: PrivacyProtectionRecordInput,
     details: Option<PrivacyProtectionDetails>,
+    generation: Option<u64>,
 ) -> Result<(), String> {
-    if details.is_some() {
-        runtime.records.append_with_details(record, details)?;
-    } else {
-        runtime.records.append(record)?;
+    if runtime
+        .records
+        .append_at_generation(record, details, generation)?
+        .is_none()
+    {
+        return Ok(());
     }
     if app.emit(RECORDS_CHANGED_EVENT, ()).is_err() {
         log::warn!("Could not notify privacy protection record listeners");
@@ -27,10 +30,45 @@ pub fn privacy_filter_record_protection<R: Runtime>(
 }
 
 #[tauri::command]
+pub fn privacy_filter_record_generation(
+    runtime: State<'_, PrivacyFilterRuntime>,
+) -> Result<u64, String> {
+    runtime.records.generation()
+}
+
+#[tauri::command]
 pub fn privacy_filter_records(
     runtime: State<'_, PrivacyFilterRuntime>,
-) -> Result<Vec<PrivacyProtectionRecord>, String> {
-    runtime.records.list()
+) -> Result<Vec<PrivacyProtectionEntry>, String> {
+    runtime.records.entries()
+}
+
+#[tauri::command]
+pub fn privacy_filter_record_restoration<R: Runtime>(
+    app: AppHandle<R>,
+    runtime: State<'_, PrivacyFilterRuntime>,
+    record: PrivacyProtectionRecordInput,
+    details: PrivacyProtectionDetails,
+    generation: Option<u64>,
+) -> Result<(), String> {
+    if runtime
+        .records
+        .append_restoration_at_generation(record, details, generation)?
+        .is_none()
+    {
+        return Ok(());
+    }
+    if app.emit(RECORDS_CHANGED_EVENT, ()).is_err() {
+        log::warn!("Could not notify privacy restoration record listeners");
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn privacy_filter_record_detail_ids(
+    runtime: State<'_, PrivacyFilterRuntime>,
+) -> Result<Vec<String>, String> {
+    runtime.records.detail_ids()
 }
 
 #[tauri::command]
@@ -45,12 +83,18 @@ pub fn privacy_filter_record_details(
 pub fn privacy_filter_clear_records<R: Runtime>(
     app: AppHandle<R>,
     runtime: State<'_, PrivacyFilterRuntime>,
-) -> Result<(), String> {
-    runtime.records.clear()?;
-    if app.emit(RECORDS_CHANGED_EVENT, ()).is_err() {
+) -> Result<u64, String> {
+    let generation = runtime.records.clear()?;
+    if app
+        .emit(
+            RECORDS_CHANGED_EVENT,
+            serde_json::json!({"cleared": true, "generation": generation}),
+        )
+        .is_err()
+    {
         log::warn!("Could not notify privacy protection record listeners");
     }
-    Ok(())
+    Ok(generation)
 }
 
 #[tauri::command]
@@ -164,7 +208,7 @@ mod tests {
     }
 
     #[test]
-    fn user_reads_masked_content_from_another_window_and_clearing_removes_it_while_legacy_summaries_still_work(
+    fn user_records_a_request_then_settings_reads_memory_only_details_and_clearing_removes_both_while_legacy_payloads_still_work(
     ) {
         let app = mock_builder()
             .manage(super::PrivacyFilterRuntime::default())
@@ -180,6 +224,7 @@ mod tests {
             .build()
             .expect("settings window");
         let summary = json!({"mode": "rules", "outcome": "protected", "maskedCount": 1, "categories": [{"kind": "email", "count": 1}]});
+        let generation = invoke(&main, "privacy_filter_record_generation", json!({}));
         let details = json!({"values": [{"kind": "email", "original": "alice@example.test", "placeholder": "{{EMAIL_0123456789abcdef}}", "count": 1, "matches": [{"id": "email", "count": 1}]}], "texts": ["Email {{EMAIL_0123456789abcdef}}"], "truncated": false});
         invoke(
             &main,
@@ -204,7 +249,39 @@ mod tests {
             json!({"recordId": "unknown"})
         )
         .is_null());
-        invoke(&settings, "privacy_filter_clear_records", json!({}));
+        invoke(
+            &main,
+            "privacy_filter_record_restoration",
+            json!({"record": summary, "details": details}),
+        );
+        let entries = invoke(&settings, "privacy_filter_records", json!({}));
+        let restored = entries
+            .as_array()
+            .expect("entries")
+            .iter()
+            .find(|entry| entry["direction"] == "restore")
+            .expect("reverse record");
+        let reply_id = restored["id"].as_str().expect("reply id");
+        assert_eq!(
+            invoke(
+                &settings,
+                "privacy_filter_record_details",
+                json!({"recordId": reply_id})
+            ),
+            details
+        );
+        let cleared = invoke(&settings, "privacy_filter_clear_records", json!({}));
+        assert_eq!(cleared, json!(generation.as_u64().expect("generation") + 1));
+        for command in [
+            "privacy_filter_record_protection",
+            "privacy_filter_record_restoration",
+        ] {
+            invoke(
+                &main,
+                command,
+                json!({"record": summary, "details": details, "generation": generation}),
+            );
+        }
         assert_eq!(
             invoke(&main, "privacy_filter_records", json!({})),
             json!([])
@@ -213,6 +290,12 @@ mod tests {
             &main,
             "privacy_filter_record_details",
             json!({"recordId": id})
+        )
+        .is_null());
+        assert!(invoke(
+            &main,
+            "privacy_filter_record_details",
+            json!({"recordId": reply_id})
         )
         .is_null());
         invoke(

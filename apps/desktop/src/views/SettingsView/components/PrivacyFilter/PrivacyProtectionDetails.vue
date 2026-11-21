@@ -1,39 +1,71 @@
 <script setup lang="ts">
     import { Button } from '@components/ui/button';
-    import { native } from '@services/NativeService';
-    import type {
-        PrivacyProtectionDetails,
-        PrivacyProtectionRecord,
-    } from '@services/NativeService/privacyFilter';
-    import { log } from '@services/ObservabilityService';
     import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue';
 
-    import { getLocale, t } from '@/i18n';
+    import { log } from '@/app/api/diagnostics';
+    import {
+        type PrivacyProtectionDetails,
+        type PrivacyProtectionRecord,
+        usePrivacyApi,
+    } from '@/app/api/privacy';
+    import { t } from '@/i18n';
 
-    import { privacyProtectionRuleDescription } from './privacyProtectionLabels';
+    import { privacyProtectionContexts } from './privacyProtectionContext';
 
     const props = defineProps<{ record: PrivacyProtectionRecord }>();
-    const PAGE_SIZE = 20;
+    const emit = defineEmits<{ ready: [] }>();
+    const privacyApi = usePrivacyApi();
     const details = shallowRef<PrivacyProtectionDetails | null>(null);
     const loading = ref(false);
     const loadFailed = ref(false);
-    const visibleLimit = ref(PAGE_SIZE);
     let requestSequence = 0;
-    const visibleValues = computed(() => details.value?.values.slice(0, visibleLimit.value) ?? []);
+
+    const contexts = computed(() =>
+        details.value ? privacyProtectionContexts(details.value) : []
+    );
+
+    const stages = computed(() => {
+        if (!contexts.value.length) return [];
+        const restore = props.record.direction === 'restore';
+        return [
+            {
+                label: t(
+                    restore
+                        ? 'settings.privacyFilter.records.details.beforeRestore'
+                        : 'settings.privacyFilter.records.details.beforeMask'
+                ),
+                side: restore ? ('masked' as const) : ('original' as const),
+            },
+            {
+                label: t(
+                    props.record.outcome === 'blocked'
+                        ? 'settings.privacyFilter.records.details.notSentShort'
+                        : restore
+                          ? 'settings.privacyFilter.records.details.afterRestore'
+                          : 'settings.privacyFilter.records.details.afterMask'
+                ),
+                side: restore ? ('original' as const) : ('masked' as const),
+                blocked: props.record.outcome === 'blocked',
+            },
+        ];
+    });
 
     async function refresh(): Promise<void> {
         const sequence = ++requestSequence;
         loading.value = true;
         loadFailed.value = false;
         try {
-            const next = await native.privacyFilter.getRecordDetails(props.record.id);
+            const next = await privacyApi.getRecordDetails(props.record.id);
             if (sequence === requestSequence) details.value = next;
         } catch {
             if (sequence !== requestSequence) return;
             loadFailed.value = true;
             log.warn('[PrivacyProtection] Could not read record details');
         } finally {
-            if (sequence === requestSequence) loading.value = false;
+            if (sequence === requestSequence) {
+                loading.value = false;
+                emit('ready');
+            }
         }
     }
 
@@ -41,7 +73,6 @@
         () => props.record.id,
         () => {
             details.value = null;
-            visibleLimit.value = PAGE_SIZE;
             void refresh();
         },
         { immediate: true }
@@ -53,7 +84,7 @@
 
 <template>
     <div
-        class="mx-2 space-y-3 border-t border-border-subtle py-3"
+        class="space-y-3 px-4 pt-3 pb-4 font-serif text-muted-foreground"
         data-testid="privacy-protection-details"
         :aria-busy="loading"
     >
@@ -75,82 +106,77 @@
                 {{ t('common.retry') }}
             </Button>
         </div>
-        <p
-            v-else-if="!details || !visibleValues.length"
-            class="text-xs text-text-secondary"
-            role="status"
-        >
+        <p v-else-if="!stages.length" class="text-xs text-text-secondary" role="status">
             {{ t('settings.privacyFilter.records.details.unavailable') }}
         </p>
-        <template v-else>
-            <table
-                class="w-full table-fixed text-left text-xs"
-                :aria-label="t('settings.privacyFilter.records.details.list')"
+        <div
+            v-else
+            class="space-y-3"
+            :aria-label="t('settings.privacyFilter.records.details.list')"
+        >
+            <div class="grid grid-cols-2 gap-3">
+                <h4
+                    v-for="stage in stages"
+                    :key="stage.label"
+                    class="px-0.5 text-caption font-normal"
+                    data-testid="privacy-protection-stage-label"
+                >
+                    {{ stage.label }}
+                </h4>
+            </div>
+            <section
+                v-for="(context, contextIndex) in contexts"
+                :key="contextIndex"
+                class="min-w-0"
+                data-testid="privacy-protection-context"
             >
-                <thead class="text-text-secondary">
-                    <tr>
-                        <th scope="col" class="w-1/3 px-2 pb-2 font-medium">
-                            {{ t('settings.privacyFilter.records.details.originalValue') }}
-                        </th>
-                        <th scope="col" class="w-1/3 px-2 pb-2 font-medium">
-                            {{ t('settings.privacyFilter.records.details.replacement') }}
-                        </th>
-                        <th scope="col" class="w-1/3 px-2 pb-2 font-medium">
-                            {{ t('settings.privacyFilter.records.details.matchedRule') }}
-                        </th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-border-subtle text-text-primary">
-                    <tr
-                        v-for="value in visibleValues"
-                        :key="value.placeholder"
-                        data-testid="privacy-protection-value"
+                <div
+                    class="settings-scrollbar max-h-96 overflow-y-auto overscroll-contain"
+                    :tabindex="context.excerpts.length > 1 ? 0 : undefined"
+                    :aria-label="t('settings.privacyFilter.records.details.list')"
+                >
+                    <div
+                        class="grid grid-cols-2 items-stretch gap-3"
+                        data-testid="privacy-protection-context-row"
                     >
-                        <td
-                            class="px-2 py-3 align-top font-mono leading-relaxed break-words whitespace-pre-wrap"
-                            data-testid="privacy-protection-value-original"
+                        <div
+                            v-for="stage in stages"
+                            :key="stage.label"
+                            class="min-w-0 space-y-3 rounded-control border border-border-subtle bg-settings-surface p-3 text-caption leading-6 break-words whitespace-pre-wrap"
+                            role="group"
+                            :aria-label="stage.label"
+                            data-testid="privacy-protection-stage"
                         >
-                            {{ value.original }}
-                        </td>
-                        <td
-                            class="px-2 py-3 align-top font-mono leading-relaxed break-words whitespace-pre-wrap"
-                            data-testid="privacy-protection-value-masked"
-                        >
-                            {{ value.placeholder }}
-                        </td>
-                        <td
-                            class="space-y-1 px-2 py-3 align-top leading-relaxed break-words"
-                            data-testid="privacy-protection-value-rule"
-                        >
-                            <template v-if="value.matches?.length">
-                                <p v-for="(hit, index) in value.matches" :key="index">
-                                    {{ privacyProtectionRuleDescription(hit, value.kind) }}
-                                    <span
-                                        v-if="hit.count > 1 || value.matches.length > 1"
-                                        class="text-text-tertiary tabular-nums"
+                            <p v-if="stage.blocked">
+                                {{ t('settings.privacyFilter.records.details.notSentShort') }}
+                            </p>
+                            <template v-else>
+                                <p v-for="(paragraph, index) in context.excerpts" :key="index">
+                                    <template
+                                        v-for="(part, partIndex) in paragraph"
+                                        :key="partIndex"
                                     >
-                                        ×{{ hit.count.toLocaleString(getLocale()) }}
-                                    </span>
+                                        <span
+                                            v-if="part.marked"
+                                            class="rounded-sm bg-privacy-mark px-0.5 py-0.5"
+                                            :data-testid="
+                                                stage.side === 'original'
+                                                    ? 'privacy-protection-value-original'
+                                                    : 'privacy-protection-value-masked'
+                                            "
+                                            data-no-i18n="true"
+                                            translate="no"
+                                        >
+                                            {{ part[stage.side] }}
+                                        </span>
+                                        <template v-else>{{ part[stage.side] }}</template>
+                                    </template>
                                 </p>
                             </template>
-                            <span v-else class="text-text-tertiary">
-                                {{ t('settings.privacyFilter.records.details.ruleUnavailable') }}
-                            </span>
-                        </td>
-                    </tr>
-                </tbody>
-            </table>
-            <Button
-                v-if="details && visibleLimit < details.values.length"
-                variant="outline-neutral"
-                data-testid="privacy-protection-values-more"
-                @click="visibleLimit += PAGE_SIZE"
-            >
-                {{ t('settings.privacyFilter.records.details.moreValues') }}
-            </Button>
-        </template>
-        <p v-if="details?.truncated" class="text-xs text-text-warning" role="status">
-            {{ t('settings.privacyFilter.records.details.truncated') }}
-        </p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
     </div>
 </template>

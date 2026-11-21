@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" id="pm-befb866a9d0f" viewBox="0 0 160 120" stroke-width=".6" data-theme="light" aria-hidden="true" focusable="false">
+  <metadata>Braces, at and result icons: Remix Icon v4.6.0, Copyright Remix Design, Apache-2.0.</metadata>
+  <style>
+    #pm-befb866a9d0f {
+      color-scheme: only light;
+      --paper: light-dark(#fff, #323238);
+      --stroke: light-dark(rgba(47,42,34,.23), rgba(255,255,255,.23));
+      --cell: light-dark(#f1f3f6, #2a2a2f);
+      --line: light-dark(#e5e9ef, #3f3f47);
+      --title: light-dark(#cdd4de, #52525b);
+      --icon: light-dark(#a3abb7, #7d828c);
+      --action: light-dark(#6b7280, #a4a9b4);
+      --accent: light-dark(#3462ad, #7ea6ea);
+      --on-accent: light-dark(#fff, #26262b);
+    }
+    #pm-befb866a9d0f[data-theme="dark"] { color-scheme: dark; }
+    @media (prefers-color-scheme: dark) {
+      #pm-befb866a9d0f[data-theme="auto"] { color-scheme: dark; }
+    }
+  </style>
+  <!-- A fixed email pattern. The slots are variable; the @ and dot are literal. -->
+  <rect x="14" y="16" width="132" height="88" rx="11" fill="var(--paper)" stroke="var(--stroke)"/>
+  <rect x="21" y="23" width="118" height="25" rx="6" fill="var(--cell)"/>
+  <path transform="translate(25 27) scale(.7)" fill="var(--action)" d="M4 18V14.3C4 13.4716 3.32843 12.8 2.5 12.8H2V11.2H2.5C3.32843 11.2 4 10.5284 4 9.7V6C4 4.34315 5.34315 3 7 3H8V5H7C6.44772 5 6 5.44772 6 6V10.1C6 10.9858 5.42408 11.7372 4.62623 12C5.42408 12.2628 6 13.0142 6 13.9V18C6 18.5523 6.44772 19 7 19H8V21H7C5.34315 21 4 19.6569 4 18ZM20 14.3V18C20 19.6569 18.6569 21 17 21H16V19H17C17.5523 19 18 18.5523 18 18V13.9C18 13.0142 18.5759 12.2628 19.3738 12C18.5759 11.7372 18 10.9858 18 10.1V6C18 5.44772 17.5523 5 17 5H16V3H17C18.6569 3 20 4.34315 20 6V9.7C20 10.5284 20.6716 11.2 21.5 11.2H22V12.8H21.5C20.6716 12.8 20 13.4716 20 14.3Z"/>
+  <path d="M46 28v15" stroke="var(--title)"/>
+  <g fill="var(--paper)" stroke="var(--icon)" stroke-dasharray="2 1.5">
+    <rect x="52" y="31" width="16" height="9" rx="3"/><rect x="88" y="31" width="16" height="9" rx="3"/><rect x="113" y="31" width="12" height="9" rx="3"/>
+  </g>
+  <path transform="translate(70 27.5) scale(.67)" fill="var(--action)" d="M20 12C20 7.58172 16.4183 4 12 4C7.58172 4 4 7.58172 4 12C4 16.4183 7.58172 20 12 20C13.6418 20 15.1681 19.5054 16.4381 18.6571L17.5476 20.3214C15.9602 21.3818 14.0523 22 12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2C17.5228 2 22 6.47715 22 12V13.5C22 15.433 20.433 17 18.5 17C17.2958 17 16.2336 16.3918 15.6038 15.4659C14.6942 16.4115 13.4158 17 12 17C9.23858 17 7 14.7614 7 12C7 9.23858 9.23858 7 12 7C13.1258 7 14.1647 7.37209 15.0005 8H17V13.5C17 14.3284 17.6716 15 18.5 15C19.3284 15 20 14.3284 20 13.5V12ZM12 9C10.3431 9 9 10.3431 9 12C9 13.6569 10.3431 15 12 15C13.6569 15 15 13.6569 15 12C15 10.3431 13.6569 9 12 9Z"/>
+  <circle cx="108.5" cy="39" r="1.5" fill="var(--action)"/>
+
+  <!-- Two candidates. Only the lower row has both literals in the right order. -->
+  <path d="M22 73.5h116" stroke="var(--stroke)"/>
+  <g fill="var(--line)">
+    <rect x="52" y="59" width="25" height="4" rx="2"/><rect x="81" y="59" width="18" height="4" rx="2"/><rect x="103" y="59" width="16" height="4" rx="2"/>
+  </g>
+  <circle cx="33.5" cy="61" r="7.5" fill="var(--cell)"/>
+  <path transform="translate(26.5 54) scale(.58)" fill="var(--icon)" d="M5 11V13H19V11H5Z"/>
+  <circle cx="33.5" cy="86" r="7.5" fill="var(--accent)"/>
+  <path transform="translate(26.5 79) scale(.58)" fill="var(--on-accent)" d="M9.9997 15.1709L19.1921 5.97852L20.6063 7.39273L9.9997 17.9993L3.63574 11.6354L5.04996 10.2212L9.9997 15.1709Z"/>
+  <g fill="var(--title)">
+    <rect x="52" y="84" width="16" height="4" rx="2"/><rect x="88" y="84" width="16" height="4" rx="2"/><rect x="113" y="84" width="12" height="4" rx="2"/>
+  </g>
+  <path transform="translate(70 78) scale(.67)" fill="var(--action)" d="M20 12C20 7.58172 16.4183 4 12 4C7.58172 4 4 7.58172 4 12C4 16.4183 7.58172 20 12 20C13.6418 20 15.1681 19.5054 16.4381 18.6571L17.5476 20.3214C15.9602 21.3818 14.0523 22 12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2C17.5228 2 22 6.47715 22 12V13.5C22 15.433 20.433 17 18.5 17C17.2958 17 16.2336 16.3918 15.6038 15.4659C14.6942 16.4115 13.4158 17 12 17C9.23858 17 7 14.7614 7 12C7 9.23858 9.23858 7 12 7C13.1258 7 14.1647 7.37209 15.0005 8H17V13.5C17 14.3284 17.6716 15 18.5 15C19.3284 15 20 14.3284 20 13.5V12ZM12 9C10.3431 9 9 10.3431 9 12C9 13.6569 10.3431 15 12 15C13.6569 15 15 13.6569 15 12C15 10.3431 13.6569 9 12 9Z"/>
+  <circle cx="108.5" cy="89.5" r="1.5" fill="var(--action)"/>
+</svg>

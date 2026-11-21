@@ -589,8 +589,8 @@
                                         "
                                         data-testid="computer-use-install"
                                         variant="ghost-neutral"
-                                        :aria-label="`${t(busy ? 'common.loading' : 'settings.computerUse.action.prepare')} · ${option.label}`"
-                                        :title="`${t(busy ? 'common.loading' : 'settings.computerUse.action.prepare')} · ${option.label}`"
+                                        :aria-label="`${t(busy ? 'common.loading' : 'settings.computerUse.action.prepare')} (${option.label})`"
+                                        :title="`${t(busy ? 'common.loading' : 'settings.computerUse.action.prepare')} (${option.label})`"
                                         :aria-busy="busyDriver === option.value"
                                         :disabled="
                                             driverDisabled || updatingDriver === option.value
@@ -610,8 +610,8 @@
                                         v-if="statuses[option.value]?.installed"
                                         data-testid="computer-use-check-update"
                                         variant="ghost-neutral"
-                                        :aria-label="`${t('settings.computerUse.action.checkUpdate')} · ${option.label}`"
-                                        :title="`${t('settings.computerUse.action.checkUpdate')} · ${option.label}`"
+                                        :aria-label="`${t('settings.computerUse.action.checkUpdate')} (${option.label})`"
+                                        :title="`${t('settings.computerUse.action.checkUpdate')} (${option.label})`"
                                         :aria-busy="updatingDriver === option.value"
                                         :disabled="
                                             driverDisabled || updatingDriver === option.value
@@ -631,8 +631,8 @@
                                         v-if="statuses[option.value]?.installed"
                                         data-testid="computer-use-remove"
                                         variant="ghost-neutral"
-                                        :aria-label="`${t('settings.computerUse.action.remove')} · ${option.label}`"
-                                        :title="`${t('settings.computerUse.action.remove')} · ${option.label}`"
+                                        :aria-label="`${t('settings.computerUse.action.remove')} (${option.label})`"
+                                        :title="`${t('settings.computerUse.action.remove')} (${option.label})`"
                                         :disabled="
                                             driverDisabled || updatingDriver === option.value
                                         "

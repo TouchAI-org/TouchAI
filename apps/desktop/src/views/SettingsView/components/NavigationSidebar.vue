@@ -424,7 +424,7 @@
                 type="button"
                 data-testid="settings-sidebar-version"
                 :class="[
-                    't-press ml-auto inline-flex shrink-0 cursor-pointer items-center rounded-[6px] bg-surface-selected px-2 py-0.5 text-caption leading-4 text-neutral-500 transition-colors hover:bg-surface-active-strong hover:text-neutral-700',
+                    't-press ml-auto inline-flex shrink-0 cursor-pointer items-center rounded-[6px] bg-surface-selected px-2 py-0.5 text-caption leading-4 text-neutral-500 transition-colors hover:bg-surface-active-strong hover:text-neutral-700 focus-visible:bg-secondary focus-visible:text-text-primary',
                     isLabelVisible ? 'opacity-100' : 'pointer-events-none opacity-0',
                 ]"
                 :tabindex="isLabelVisible ? undefined : -1"
@@ -453,7 +453,7 @@
                 :data-testid="`settings-nav-${item.id}`"
                 :title="item.label"
                 :class="[
-                    't-press t-sidebar-item group flex h-10 cursor-pointer items-center rounded-control text-left text-compact font-normal',
+                    't-press t-sidebar-item group flex h-10 cursor-pointer items-center rounded-control text-left text-compact font-normal focus-visible:bg-secondary focus-visible:text-text-primary',
                     isCollapsed
                         ? 'mx-auto w-10 justify-center gap-0 px-0'
                         : 'w-full justify-start gap-2.5 px-3',
@@ -496,7 +496,7 @@
                     type="button"
                     data-testid="settings-sidebar-github"
                     :class="[
-                        't-press flex cursor-pointer items-center justify-center rounded-full text-neutral-400 hover:bg-surface-hover-soft hover:text-neutral-700',
+                        't-press flex cursor-pointer items-center justify-center rounded-full text-neutral-400 hover:bg-surface-hover-soft hover:text-neutral-700 focus-visible:bg-surface-hover-soft focus-visible:text-text-primary',
                         isCollapsed ? 'h-10 w-10' : 'h-7 w-7',
                     ]"
                     :title="t('settings.sidebar.githubRepository')"
@@ -511,7 +511,7 @@
                     type="button"
                     data-testid="settings-sidebar-issues"
                     :class="[
-                        't-press flex h-7 cursor-pointer items-center justify-center overflow-hidden rounded-full text-neutral-400 hover:bg-surface-hover-soft hover:text-neutral-700',
+                        't-press flex h-7 cursor-pointer items-center justify-center overflow-hidden rounded-full text-neutral-400 hover:bg-surface-hover-soft hover:text-neutral-700 focus-visible:bg-surface-hover-soft focus-visible:text-text-primary',
                         isLabelVisible ? 'w-7 opacity-100' : 'w-0 opacity-0',
                     ]"
                     :title="t('settings.sidebar.feedback')"
@@ -533,7 +533,7 @@
             :aria-valuenow="sidebarWidth"
             :aria-expanded="!isTargetCollapsed"
             tabindex="0"
-            class="absolute top-0 right-[-3px] z-10 h-full w-1.5 cursor-col-resize transition-colors hover:bg-neutral-300/50"
+            class="absolute top-0 right-[-3px] z-10 h-full w-1.5 cursor-col-resize transition-colors hover:bg-neutral-300/50 focus-visible:bg-border-strong"
             :title="t('settings.sidebar.resizeHint')"
             @keydown="handleResizeKeyDown"
             @pointerdown="handleResizePointerDown"
