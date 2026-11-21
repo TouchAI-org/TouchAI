@@ -27,12 +27,22 @@
 
 /* ─── 占位提示 ─────────────────────────────────────────────────── */
 
+/* 占位提示脱离文本流，长文案单行截断，不挤压空段落的高度与光标位置 */
+:deep(.tiptap p.is-editor-empty:first-child) {
+    position: relative;
+}
+
 :deep(.tiptap p.is-editor-empty:first-child)::before {
     content: attr(data-placeholder);
-    float: left;
+    position: absolute;
+    top: 0;
+    right: 0;
+    left: 0;
+    overflow: hidden;
     color: var(--color-gray-400);
+    text-overflow: ellipsis;
+    white-space: nowrap;
     pointer-events: none;
-    height: 0;
     user-select: none;
 }
 

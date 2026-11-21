@@ -53,7 +53,7 @@
 
     function releaseHeading(section: AppUpdateReleaseSection): string {
         const date = formatShortDate(section.publishedAt);
-        return date ? `V${section.version} · ${date}` : `V${section.version}`;
+        return date ? `V${section.version} (${date})` : `V${section.version}`;
     }
 
     const versionLabel = computed(() => {
@@ -83,7 +83,7 @@
             unit,
             maximumFractionDigits: 1,
         }).format(props.packageSizeBytes / divisor);
-        return `${datedLabel} · ${t('settings.general.update.packageSize', { size })}`;
+        return `${datedLabel} ${t('settings.general.update.packageSize', { size })}`;
     });
 </script>
 

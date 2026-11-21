@@ -227,7 +227,7 @@ describe('given file results beside the main input', () => {
         expect(input.props('filePickerContext')).toBeNull();
         expect(wrapper.find('[data-inline-completion]').exists()).toBe(false);
         expect(wrapper.get('.ProseMirror p').attributes('data-placeholder')).toBe(
-            'Write your request...'
+            "Write what you're thinking... Use / or $ to search skills, @ to search files"
         );
         expect(input.vm.captureInputHistorySnapshot().text).toBe('');
     });

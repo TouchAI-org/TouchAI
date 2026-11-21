@@ -5,6 +5,7 @@ import type {
     AgentPresentationChunk,
     AgentPresentationMessages,
     AgentPresentationTools,
+    PresentedTextAppend,
 } from './presentation';
 import type {
     DeliveredPendingUserMessage,
@@ -60,4 +61,5 @@ export interface AgentSessionHost {
     tools: AgentPresentationTools;
     publishStatus?(snapshot: TaskViewSnapshot): void;
     reportObserverError?(error: unknown): void;
+    onTextAppended?(taskId: string, append: PresentedTextAppend): void;
 }

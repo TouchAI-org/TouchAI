@@ -47,6 +47,7 @@ import IconPlus from '~icons/lucide/plus';
 import IconRefresh from '~icons/lucide/refresh-cw';
 import IconSearch from '~icons/lucide/search';
 import IconCog from '~icons/lucide/settings';
+import IconShieldCheck from '~icons/lucide/shield-check';
 import IconStop from '~icons/lucide/square';
 import IconTerminal from '~icons/lucide/terminal';
 import IconTrash from '~icons/lucide/trash-2';
@@ -104,6 +105,7 @@ export const appIconMap = {
     plus: IconPlus,
     refresh: IconRefresh,
     search: IconSearch,
+    'shield-check': IconShieldCheck,
     settings: IconCog,
     skill: IconSkill,
     stop: IconStop,

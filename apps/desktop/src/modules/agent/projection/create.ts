@@ -15,6 +15,7 @@ import type {
     AgentPresentationChunk,
     AgentPresentationMessages,
     AgentPresentationTools,
+    PresentedTextAppend,
     ToolApprovalDecisionRequest,
     ToolEvent,
 } from '../contracts/presentation';
@@ -72,7 +73,8 @@ export class SessionTaskProjection {
         private readonly snapshot: TaskViewSnapshot,
         private readonly publish: () => void,
         private readonly messages: AgentPresentationMessages,
-        tools: AgentPresentationTools
+        tools: AgentPresentationTools,
+        private readonly onTextAppended?: (append: PresentedTextAppend) => void
     ) {
         this.widgets = new ProjectionWidgets(tools.widgetToolName);
         this.toolCalls = createToolCallProjection(tools);
@@ -276,6 +278,22 @@ export class SessionTaskProjection {
     }
 
     handleChunk(chunk: AgentPresentationChunk): void {
+        if (chunk.userMessageSource) {
+            const binding = chunk.userMessageSource;
+            const user = [...this.snapshot.sessionHistory]
+                .reverse()
+                .find(
+                    (message) =>
+                        message.role === 'user' &&
+                        (!binding.messageId || message.id === binding.messageId)
+                );
+            if (user) {
+                user.sourceMessageId = binding.sourceId;
+                this.touch();
+                this.publish();
+            }
+            return;
+        }
         const assistantMessage = this.getActiveAssistantMessage();
         if (!assistantMessage) {
             return;
@@ -326,9 +344,13 @@ export class SessionTaskProjection {
             assistantMessage.content = this.response;
             const lastPart = assistantMessage.parts[assistantMessage.parts.length - 1];
             if (lastPart && lastPart.type === 'text') {
+                const offset = lastPart.content.length;
                 lastPart.content += chunk.content;
+                this.onTextAppended?.({ partId: lastPart.id, offset, content: chunk.content });
             } else {
-                assistantMessage.parts.push(createTextPart(chunk.content));
+                const part = createTextPart(chunk.content);
+                assistantMessage.parts.push(part);
+                this.onTextAppended?.({ partId: part.id, offset: 0, content: chunk.content });
             }
         }
 
@@ -384,6 +406,7 @@ export class SessionTaskProjection {
             });
             this.snapshot.sessionHistory.push({
                 id: message.id,
+                sourceMessageId: message.sourceMessageId,
                 role: 'user',
                 content: message.prompt,
                 attachments: message.attachments.length

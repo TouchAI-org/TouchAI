@@ -1,3 +1,7 @@
+import { useTestPrivacyWindow } from '@tests/utils/privacyWindow';
+
+useTestPrivacyWindow();
+
 import { mockTauriCommand } from '@tests/utils/tauri';
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';

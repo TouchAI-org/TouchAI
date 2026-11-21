@@ -9,6 +9,10 @@ import { updatesApiKey } from '@/app/api/updates';
 import { setLocale } from '@/i18n';
 import SettingsView from '@/views/SettingsView/index.vue';
 
+import { useTestPrivacyApi } from '../utils/privacyApi';
+
+useTestPrivacyApi();
+
 const { asyncViewControls, setTitleMock } = vi.hoisted(() => {
     const pendingResolvers = new Set<() => void>();
 

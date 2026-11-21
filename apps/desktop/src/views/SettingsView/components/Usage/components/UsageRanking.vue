@@ -94,12 +94,12 @@
         return formatTokensCompact(item.tokens);
     }
 
-    /** Session subtitle: model · last active. */
+    /** Session subtitle: model and last active time. */
     function subtitleOf(item: UsageRankItem): string {
         const parts = [item.subtitle, item.lastAt ? formatDbTime(item.lastAt) : null].filter(
             Boolean
         );
-        return parts.join(' · ');
+        return parts.join(' ');
     }
 
     const metricOptions = computed<Array<{ value: UsageRankMetric; label: string }>>(() => {

@@ -76,7 +76,7 @@
     function detailOf(date: string): string | null {
         const entry = byDay.value.get(date);
         if (!entry || entry.requests === 0) return null;
-        return `${formatTokensCompact(entry.tokens)} tokens · ${formatCost(entry.costMicros)}`;
+        return `${formatTokensCompact(entry.tokens)} tokens (${formatCost(entry.costMicros)})`;
     }
 
     function formatDate(date: Date): string {

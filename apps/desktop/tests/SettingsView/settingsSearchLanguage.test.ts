@@ -72,6 +72,36 @@ describe('user searches the settings in another language', () => {
     it('user gets nothing for an empty query', () => {
         expect(searchSettings('   ')).toEqual([]);
     });
+
+    it('user finds local model management when searching in either interface language', () => {
+        setLocale('zh-CN');
+        const englishResult = searchSettings('model').find(
+            (result) => result.id === 'privacy-filter:settings.privacyFilter.model'
+        );
+
+        setLocale('en-US');
+        const chineseResult = searchSettings('识别模型').find(
+            (result) => result.id === 'privacy-filter:settings.privacyFilter.model'
+        );
+
+        expect(englishResult?.section).toBe('privacy-filter');
+        expect(chineseResult?.section).toBe('privacy-filter');
+        expect(englishResult?.targetId).toBe('privacy-filter-mode');
+        expect(chineseResult?.targetId).toBe('privacy-filter-mode');
+    });
+
+    it('user searches privacy filtering, then finds the mode selector without a removed preview entry', () => {
+        const results = searchSettings('隐私保护');
+        expect(results.some((result) => result.targetId === 'privacy-filter-mode')).toBe(true);
+        expect(results.some((result) => result.targetId === 'privacy-filter-try-it')).toBe(false);
+    });
+
+    it('user searches for masking failure then finds that setting only in local model mode', () => {
+        expect(searchSettings('脱敏失败时', false)).toEqual([]);
+        expect(searchSettings('脱敏失败时', true)).toEqual([
+            expect.objectContaining({ targetId: 'privacy-filter-failure-action' }),
+        ]);
+    });
 });
 
 describe('user searches settings by the section they belong to', () => {

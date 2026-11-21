@@ -28,7 +28,7 @@ describe('user reads the update notification', () => {
             summarizeUpdateReleaseNotes(
                 '## 更新内容\n\n- 修复 [设置窗口](https://example.com) 问题\n- `Ctrl+K` 可用'
             )
-        ).toBe('更新内容 · 修复 设置窗口 问题 · Ctrl+K 可用');
+        ).toBe('更新内容 修复 设置窗口 问题 Ctrl+K 可用');
     });
 
     it('user sees the package notes when both note sources exist', () => {

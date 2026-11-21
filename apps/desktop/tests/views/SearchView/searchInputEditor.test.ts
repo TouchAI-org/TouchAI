@@ -620,7 +620,7 @@ describe('when the app language changes while the search bar is open', () => {
         expect(editor.view.dom.querySelectorAll('[data-placeholder]').length).toBe(1);
         expect(
             editor.view.dom.querySelector('[data-placeholder]')?.getAttribute('data-placeholder')
-        ).toBe('Write your request...');
+        ).toBe("Write what you're thinking... Use / or $ to search skills, @ to search files");
 
         unmount();
     });

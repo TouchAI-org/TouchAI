@@ -1,4 +1,8 @@
 import * as messages from '@/app/api/settings/messages';
+import {
+    createPrivacySettingsApi,
+    privacySettingsSections,
+} from '@/app/workflows/settings/privacy';
 import { createToolSettingsApi, toolSettingsSections } from '@/app/workflows/settings/tools';
 import { setLocale, t } from '@/i18n';
 import {
@@ -54,7 +58,7 @@ export function assembleSettingsWindow(label: string | null) {
         persistence: createSettingsPersistence(),
         messages,
         diagnostics: log,
-        sections: toolSettingsSections(),
+        sections: [...toolSettingsSections(), ...privacySettingsSections()],
         role: label === 'main' ? 'owner' : 'client',
     });
     const api = Object.freeze<SettingsApi>({
@@ -73,6 +77,7 @@ export function assembleSettingsWindow(label: string | null) {
     });
     return Object.freeze({
         api,
+        privacySettings: createPrivacySettingsApi(service),
         toolSettings:
             label === 'settings' || label === 'main'
                 ? createToolSettingsApi(service, {

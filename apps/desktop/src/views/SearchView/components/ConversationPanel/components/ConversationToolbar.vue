@@ -200,6 +200,7 @@
     }
 
     .toolbar-button:hover,
+    .toolbar-button:focus-visible,
     .toolbar-button--active {
         background: var(--color-conversation-toolbar-hover);
         color: var(--color-conversation-toolbar-hover-text);
@@ -212,7 +213,8 @@
         box-shadow: var(--shadow-conversation-toolbar-pinned);
     }
 
-    .toolbar-button--pinned:hover {
+    .toolbar-button--pinned:hover,
+    .toolbar-button--pinned:focus-visible {
         background: var(--color-conversation-toolbar-pinned-hover);
         color: var(--color-text-primary);
     }

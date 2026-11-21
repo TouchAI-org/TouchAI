@@ -87,7 +87,7 @@ describe('computer use conversation activity', () => {
             action: 'run_steps',
             arguments: { app: 'Notepad', steps: [{ tool: 'press_key' }, { tool: 'type_text' }] },
         });
-        expect(wrapper.text()).toContain('Notepad · 2 步');
+        expect(wrapper.text()).toContain('Notepad 2 步');
     });
 
     it('user given an English locale when reading a native action then sees localized wording', () => {

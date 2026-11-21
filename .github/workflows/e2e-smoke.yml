@@ -384,8 +384,11 @@ jobs:
                   permission-pull-requests: write
                   permission-issues: write
 
+            # The comparison step fails on a mismatch, so this has to run past a failed
+            # step. Without `!cancelled()` GitHub's implicit `success()` would skip the
+            # report in exactly the run that needs one.
             - name: Post the report on the pull request
-              if: steps.app.outputs.token != ''
+              if: ${{ !cancelled() && steps.app.outputs.token != '' }}
               env:
                   GH_TOKEN: ${{ steps.app.outputs.token }}
                   GITHUB_REPOSITORY: ${{ github.repository }}

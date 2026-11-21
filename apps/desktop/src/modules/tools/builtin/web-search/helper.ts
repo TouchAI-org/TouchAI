@@ -127,7 +127,7 @@ function formatResultQualitySignals(result: WebSearchResult): string | null {
     if (result.authority !== undefined) {
         signals.push(`Authority: ${result.authority}`);
     }
-    return signals.length > 0 ? signals.join(' · ') : null;
+    return signals.length > 0 ? signals.join(', ') : null;
 }
 
 function appendResultLines(

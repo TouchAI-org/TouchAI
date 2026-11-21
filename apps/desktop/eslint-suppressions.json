@@ -569,7 +569,7 @@
             "count": 1
         },
         "vue/no-restricted-class": {
-            "count": 23
+            "count": 19
         }
     },
     "src/views/SettingsView/components/Usage/components/UsageDashboardSkeleton.vue": {

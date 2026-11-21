@@ -9,6 +9,10 @@ import {
     settingsNavigationGroups,
 } from '@/views/SettingsView/settingsNavigation';
 
+import { useTestPrivacyApi } from '../utils/privacyApi';
+
+useTestPrivacyApi();
+
 vi.mock('@components/AppIcon.vue', () => ({
     default: {
         name: 'AppIcon',
@@ -52,6 +56,9 @@ describe('user navigates the settings sections', () => {
         expect(wrapper.get('[data-testid="settings-nav-mcp-tools"]').attributes('title')).toBe(
             'MCP tools'
         );
+        expect(wrapper.get('[data-testid="settings-nav-privacy-filter"]').attributes('title')).toBe(
+            'Privacy protection'
+        );
         expect(
             wrapper.get('[data-testid="settings-nav-data-management"]').attributes('title')
         ).toBe('Data & privacy');
@@ -73,6 +80,7 @@ describe('user navigates the settings sections', () => {
             'Computer control',
             'Skills',
             'MCP tools',
+            'Privacy protection',
             'Data & privacy',
         ]);
         expect(getSettingsNavigationItem('mcp-tools')?.description).toBe(

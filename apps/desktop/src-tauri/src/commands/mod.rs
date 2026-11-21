@@ -12,6 +12,7 @@ pub mod font;
 pub mod mcp;
 pub mod observability;
 pub mod paths;
+pub mod privacy_filter;
 pub mod quick_search;
 pub mod shortcut;
 pub mod skills;
@@ -91,6 +92,20 @@ pub fn invoke_handler<R: tauri::Runtime>(
         observability::obs_dismiss_crashes,
         paths::get_app_directory_path,
         paths::get_runtime_info,
+        privacy_filter::privacy_filter_model_status,
+        privacy_filter::privacy_filter_models,
+        privacy_filter::privacy_filter_release_models,
+        privacy_filter::privacy_filter_download_model,
+        privacy_filter::privacy_filter_cancel_model_download,
+        privacy_filter::privacy_filter_delete_model,
+        privacy_filter::privacy_filter_detect,
+        privacy_filter::privacy_filter_record_protection,
+        privacy_filter::privacy_filter_record_restoration,
+        privacy_filter::privacy_filter_records,
+        privacy_filter::privacy_filter_record_generation,
+        privacy_filter::privacy_filter_record_detail_ids,
+        privacy_filter::privacy_filter_record_details,
+        privacy_filter::privacy_filter_clear_records,
         built_in_tools::built_in_tools_execute_bash,
         built_in_tools::built_in_tools_start_bash,
         built_in_tools::built_in_tools_cancel_bash,

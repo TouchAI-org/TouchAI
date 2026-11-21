@@ -30,7 +30,12 @@
                 >
                     <template v-for="(part, index) in inlineParts" :key="index">
                         <SkillLabel v-if="part.type === 'skill'" :name="part.name" />
-                        <template v-else>{{ part.text }}</template>
+                        <PrivacyAnnotatedText
+                            v-else
+                            :text="part.text"
+                            :offset="part.offset"
+                            :annotations="privacyAnnotations"
+                        />
                     </template>
                 </div>
 
@@ -162,6 +167,7 @@
 <script setup lang="ts">
     import ActionButton from '@components/ActionButton.vue';
     import AppIcon from '@components/AppIcon.vue';
+    import PrivacyAnnotatedText from '@components/PrivacyAnnotatedText.vue';
     import SkillLabel from '@components/SkillLabel.vue';
     import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 
@@ -169,7 +175,9 @@
     import { log } from '@/app/api/diagnostics';
     import { writeClipboardText } from '@/app/api/windows/clipboard';
     import { notify } from '@/app/api/windows/notifications';
+    import { usePrivacyAnnotations } from '@/composables/usePrivacyAnnotations';
     import { t } from '@/i18n';
+    import { usePrivacyStore } from '@/stores/privacy';
 
     import { buildUserMessageInlineParts } from './userMessageParts';
 
@@ -185,8 +193,16 @@
     }
 
     const props = defineProps<Props>();
-    const inlineParts = computed(() =>
-        buildUserMessageInlineParts(props.message.content, props.message.inputSnapshot)
+    const settings = usePrivacyStore();
+    const displayText = computed(() => props.message.inputSnapshot?.text ?? props.message.content);
+    const privacyMessageId = computed(() => {
+        if (props.message.sourceMessageId) return props.message.sourceMessageId;
+        const stored = /^user-(\d+)$/.exec(props.message.id);
+        return stored ? Number(stored[1]) : undefined;
+    });
+    const reviewedAnnotations = usePrivacyAnnotations(privacyMessageId, displayText);
+    const privacyAnnotations = computed(() =>
+        settings.privacyFilterSettings.enabled ? reviewedAnnotations.value : []
     );
     const emit = defineEmits<{
         sendNow: [messageId: string];
@@ -297,6 +313,18 @@
         window.removeEventListener('resize', handleWindowResize);
         resizeObserver?.disconnect();
         resizeObserver = null;
+    });
+
+    const inlineParts = computed(() => {
+        let offset = 0;
+        return buildUserMessageInlineParts(props.message.content, props.message.inputSnapshot).map(
+            (part) => {
+                if (part.type !== 'text') return part;
+                const result = { ...part, offset };
+                offset += part.text.length;
+                return result;
+            }
+        );
     });
 
     async function handleCopy() {

@@ -695,17 +695,24 @@ describe('when the user switches the application language', () => {
                 ? extensionOptions.placeholder
                 : () => extensionOptions?.placeholder ?? '';
 
-        expect(placeholder()).toBe('写下你的需求...');
+        expect(placeholder()).toBe('写下你所想...使用 / 或 $ 搜索技能，@ 搜索文件');
 
         const placeholderElement = document.createElement('p');
-        placeholderElement.setAttribute('data-placeholder', '写下你的需求...');
+        placeholderElement.setAttribute(
+            'data-placeholder',
+            '写下你所想...使用 / 或 $ 搜索技能，@ 搜索文件'
+        );
         lastEditor().view.dom.appendChild(placeholderElement);
 
         setLocale('en-US');
         await flushAsyncWork();
 
-        expect(placeholder()).toBe('Write your request...');
-        expect(placeholderElement.getAttribute('data-placeholder')).toBe('Write your request...');
+        expect(placeholder()).toBe(
+            "Write what you're thinking... Use / or $ to search skills, @ to search files"
+        );
+        expect(placeholderElement.getAttribute('data-placeholder')).toBe(
+            "Write what you're thinking... Use / or $ to search skills, @ to search files"
+        );
 
         unmount();
     });

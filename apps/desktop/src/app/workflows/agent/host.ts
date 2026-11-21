@@ -16,6 +16,7 @@ import { createCoreModelStream } from '@/adapters/agent/model';
 import type { CorePersistenceAdapter } from '@/adapters/agent/persistence';
 import { createCorePersistenceAdapter } from '@/adapters/agent/persistence';
 import { createCoreToolsAdapter } from '@/adapters/agent/tools';
+import type { PrivacyApi } from '@/app/api/privacy';
 import type { PersistenceProjector } from '@/modules/agent';
 import { createSessionReadModel, summarizePromptSnapshot } from '@/modules/agent';
 import type {
@@ -32,6 +33,7 @@ import {
     getUnsupportedAttachmentTypes,
 } from '@/modules/attachments';
 import type { ModelSummary } from '@/modules/models';
+import type { PrivacyRestoredSpan } from '@/modules/privacy/public';
 import type { ToolEvent, ToolModelReference, ToolsModule } from '@/modules/tools';
 import { createPublicWidgetStream, createToolAudit, createWidgetDrafts } from '@/modules/tools';
 import { awaitAbortable } from '@/utils/abort';
@@ -45,6 +47,7 @@ import {
     reportQueuedMessageStartFailure,
 } from './pending';
 import { createTaskPersistence } from './persistence';
+import { createDesktopPrivacyStream } from './privacy';
 import { composePromptSnapshot } from './prompt';
 import { buildPromptTransportMessages } from './transport';
 
@@ -64,6 +67,7 @@ export interface MainTaskObservations {
 }
 
 export interface MainAgentWorkflowOptions {
+    privacy?: PrivacyApi;
     models: {
         start(
             taskId: string,
@@ -99,6 +103,11 @@ export interface MainAgentWorkflowOptions {
 }
 
 interface TaskResources {
+    userMessageId?: string;
+    initialUserContent?: import('@/adapters/models/input').DesktopModelMessage['content'];
+    initialUserSourceId?: number;
+    userSourcePresented?: boolean;
+    pendingRestoration?: { content: string; spans: PrivacyRestoredSpan[]; generation: number };
     pendingMessageId?: string;
     pendingDelivery?: AgentPendingDelivery;
     signal: AbortSignal;
@@ -378,6 +387,10 @@ export function createMainAgentWorkflow(input: MainAgentWorkflowOptions) {
                                 createToolAudit({ taskId: scope.taskId, isCurrent }),
                         });
                         record = {
+                            userMessageId: options.userMessageId,
+                            initialUserContent: [...desktopMessages]
+                                .reverse()
+                                .find((message) => message.role === 'user')?.content,
                             pendingMessageId: options.pendingMessageId,
                             pendingDelivery,
                             signal: scope.signal,
@@ -417,7 +430,19 @@ export function createMainAgentWorkflow(input: MainAgentWorkflowOptions) {
                 ...source,
                 async start(checkpoint, scope) {
                     try {
-                        return await source.start(checkpoint, scope);
+                        const started = await source.start(checkpoint, scope);
+                        if (started.currentUserOrigin && record.initialUserContent !== undefined) {
+                            const origin = record.messages.toDesktopSource(
+                                started.currentUserOrigin
+                            );
+                            record.messages.bindUserMessageSource(
+                                record.initialUserContent,
+                                origin
+                            );
+                            record.initialUserSourceId = origin.id;
+                            record.initialUserContent = undefined;
+                        }
+                        return started;
                     } catch (error) {
                         if (record.pendingMessageId) reportQueuedMessageStartFailure();
                         throw error;
@@ -531,6 +556,22 @@ export function createMainAgentWorkflow(input: MainAgentWorkflowOptions) {
                     record.nextRequestIndex = scope.iteration;
                 }
                 const stream = createCoreModelStream({
+                    protect: input.privacy
+                        ? createDesktopPrivacyStream({
+                              settings: input.privacy,
+                              review: {
+                                  privacyReviewGeneration: input.privacy.getReviewGeneration,
+                                  publishPrivacyReview: input.privacy.publishPrivacyReview,
+                              },
+                              context: () => ({
+                                  sessionId: record.projector.getSessionId() ?? undefined,
+                                  modelName: configured.summary.modelName,
+                              }),
+                              restored: (content, spans, generation) => {
+                                  record.pendingRestoration = { content, spans, generation };
+                              },
+                          })
+                        : undefined,
                     connection: lease.connection,
                     messages: record.messages,
                     languageContext: record.snapshot.modelLanguageContext,
@@ -569,6 +610,21 @@ export function createMainAgentWorkflow(input: MainAgentWorkflowOptions) {
                 });
                 const leaveStream = observe(taskId, (output) => output.beginStream?.());
                 try {
+                    if (!record.userSourcePresented && record.initialUserSourceId) {
+                        record.userSourcePresented = true;
+                        for (const listener of presentation.get(taskId) ?? [])
+                            listener(
+                                {
+                                    content: '',
+                                    done: false,
+                                    userMessageSource: {
+                                        messageId: record.userMessageId,
+                                        sourceId: record.initialUserSourceId,
+                                    },
+                                },
+                                scope.attemptToken
+                            );
+                    }
                     for await (const chunk of stream(request)) {
                         scope.signal.throwIfAborted();
                         observe(taskId, (output) => output.stream(chunk));
@@ -576,8 +632,10 @@ export function createMainAgentWorkflow(input: MainAgentWorkflowOptions) {
                         scope.signal.throwIfAborted();
                         // Widget filtering is presentation-only. Core must validate every raw tool call.
                         yield chunk;
+                        record.pendingRestoration = undefined;
                     }
                 } finally {
+                    record.pendingRestoration = undefined;
                     projectWidget.dispose();
                     observe(taskId, () => leaveStream?.());
                 }
@@ -623,6 +681,21 @@ export function createMainAgentWorkflow(input: MainAgentWorkflowOptions) {
         releaseTask,
         sessions: {
             ...sessions,
+            onTextAppended(
+                taskId: string,
+                append: { partId: string; offset: number; content: string }
+            ) {
+                const record = resources.get(taskId);
+                const pending = record?.pendingRestoration;
+                if (record) record.pendingRestoration = undefined;
+                if (pending && pending.content === append.content)
+                    input.privacy?.publishRestoredPrivacyReview(
+                        append.partId,
+                        append.offset,
+                        pending.spans,
+                        pending.generation
+                    );
+            },
             modelSummary: (taskId: string, key: string) => bindings.describe(taskId, key),
             subscribePresentation(taskId: string, listener: PresentationListener) {
                 if (disposed) throw new Error('AGENT_DISPOSED');
