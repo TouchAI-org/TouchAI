@@ -3,7 +3,6 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
-import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -12,23 +11,6 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { startPerfModelServer } from '../../../scripts/perf/local-model-server.mjs';
 
 const cleanup: string[] = [];
-
-async function findFreePort(): Promise<number> {
-    const server = net.createServer();
-    await new Promise<void>((resolve, reject) => {
-        server.once('error', reject);
-        server.listen(0, '127.0.0.1', resolve);
-    });
-    const address = server.address();
-    if (!address || typeof address === 'string') {
-        throw new Error('Expected a TCP address');
-    }
-    const port = address.port;
-    await new Promise<void>((resolve, reject) => {
-        server.close((error) => (error ? reject(error) : resolve()));
-    });
-    return port;
-}
 
 function postInvalidJson(port: number): Promise<{ status: number; body: string }> {
     return postRaw(port, '{"messages":');
@@ -76,11 +58,10 @@ afterAll(() => {
 
 describe('user runs the RFC 710 local model server', () => {
     it('user sees a generic error without parser diagnostics for an invalid JSON body', async () => {
-        const port = await findFreePort();
-        const running = await startPerfModelServer({ port });
+        const running = await startPerfModelServer({ port: 0 });
 
         try {
-            const response = await postInvalidJson(port);
+            const response = await postInvalidJson(running.port);
 
             expect(response.status).toBe(400);
             expect(JSON.parse(response.body)).toEqual({
@@ -96,21 +77,22 @@ describe('user runs the RFC 710 local model server', () => {
         const root = fs.mkdtempSync(path.join(os.tmpdir(), 'touchai-perf-model-'));
         cleanup.push(root);
         const logFile = path.join(root, 'nested', 'model-server.jsonl');
-        const port = await findFreePort();
-        const running = await startPerfModelServer({ port, logFile });
+        const running = await startPerfModelServer({ port: 0, logFile });
         const promptId = 'tool-round';
         const marker = `PERF710|promptId=${promptId}|rounds=1|chunks=1|chunkBytes=8|flow=latency`;
 
         try {
-            const toolResponse = await postChat(port, {
+            const toolResponse = await postChat(running.port, {
                 model: 'perf-model',
                 messages: [{ role: 'user', content: marker }],
             });
             expect(toolResponse.status).toBe(200);
             expect(toolResponse.body).toContain('"tool_calls"');
             expect(toolResponse.body).toContain('builtin__setting');
+            expect(toolResponse.body).toContain('"finish_reason":"tool_calls"');
+            expect(toolResponse.body).toContain('data: [DONE]');
 
-            const finalResponse = await postChat(port, {
+            const finalResponse = await postChat(running.port, {
                 model: 'perf-model',
                 messages: [
                     { role: 'user', content: marker },
@@ -124,6 +106,8 @@ describe('user runs the RFC 710 local model server', () => {
                 .slice(0, 16)}`;
             expect(finalResponse.status).toBe(200);
             expect(finalResponse.body).toContain(doneToken);
+            expect(finalResponse.body).toContain('"finish_reason":"stop"');
+            expect(finalResponse.body).toContain('data: [DONE]');
 
             const records = fs
                 .readFileSync(logFile, 'utf8')
