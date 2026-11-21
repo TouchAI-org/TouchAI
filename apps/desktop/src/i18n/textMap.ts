@@ -516,6 +516,10 @@ export const zhToEnTextMap = {
     '当前会话已有正在运行的任务，请等待完成或先取消':
         'This session already has a running task. Wait for it to finish or cancel it first.',
     任务不存在或已结束: 'The task does not exist or has ended.',
+    '当前会话包含无法安全回放的签名思考，消息未发送。请新建会话后重试。':
+        'This conversation contains signed reasoning that cannot be replayed safely. Your message was not sent. Please start a new conversation.',
+    '脱敏失败，消息未发送。请检查隐私保护设置后重试。':
+        'Masking failed and your message was not sent. Check your privacy protection settings and try again.',
     '网络连接失败，请检查网络设置': 'Network connection failed. Check your network settings.',
     'API 请求失败': 'API request failed.',
     '请求超时，请稍后重试': 'Request timed out. Try again later.',

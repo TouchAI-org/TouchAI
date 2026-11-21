@@ -1,15 +1,20 @@
-import { invoke } from '@services/NativeService/invoke';
+import { interceptTauriInvoke } from '@tests/utils/tauri';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { privacyFilter } from '@/services/NativeService/privacyFilter';
+import { privacyFilter } from '@/platform/native/privacyFilter';
 
-vi.mock('@services/NativeService/invoke', () => ({ invoke: vi.fn() }));
-
-const mockInvoke = vi.mocked(invoke);
+const mockInvoke = vi.fn();
 
 describe('given the user manages the local privacy detection model', () => {
     beforeEach(() => {
         mockInvoke.mockReset();
+        interceptTauriInvoke(({ cmd, payload }, next) =>
+            cmd.startsWith('privacy_filter_')
+                ? payload === undefined
+                    ? mockInvoke(cmd)
+                    : mockInvoke(cmd, payload)
+                : next()
+        );
     });
 
     it('user gets the installed model status from the native command', async () => {
@@ -45,7 +50,7 @@ describe('given the user manages the local privacy detection model', () => {
         ]);
     });
 
-    it('user records private details separately from the stored summary and retrieves them only for the selected record', async () => {
+    it('user records a protected request then settings can fetch its memory-only replacements separately from the summary', async () => {
         const record = {
             mode: 'rules' as const,
             outcome: 'protected' as const,
@@ -59,17 +64,20 @@ describe('given the user manages the local privacy detection model', () => {
                     original: 'ada@example.test',
                     placeholder: '{{EMAIL_0123456789abcdef}}',
                     count: 1,
-                    matches: [{ id: 'email' as const, count: 1 }],
                 },
             ],
-            texts: ['Email {{EMAIL_0123456789abcdef}}'],
+            texts: [],
             truncated: false,
         };
+        mockInvoke.mockResolvedValue(3);
+        const generation = await privacyFilter.getRecordGeneration();
+        expect(generation).toBe(3);
         mockInvoke.mockResolvedValue(undefined);
-        await privacyFilter.recordProtection(record, details);
+        await privacyFilter.recordProtection(record, details, generation);
         expect(mockInvoke).toHaveBeenCalledWith('privacy_filter_record_protection', {
             record,
             details,
+            generation: 3,
         });
         expect(JSON.stringify(record)).not.toContain('ada@example.test');
         mockInvoke.mockResolvedValue(details);
@@ -77,6 +85,9 @@ describe('given the user manages the local privacy detection model', () => {
         expect(mockInvoke).toHaveBeenCalledWith('privacy_filter_record_details', {
             recordId: 'request-1',
         });
+        mockInvoke.mockResolvedValue(['request-1']);
+        await expect(privacyFilter.getDetailRecordIds()).resolves.toEqual(['request-1']);
+        expect(mockInvoke).toHaveBeenCalledWith('privacy_filter_record_detail_ids');
         mockInvoke.mockResolvedValue(null);
         await expect(privacyFilter.getRecordDetails('before-restart')).resolves.toBeNull();
     });
@@ -90,5 +101,38 @@ describe('given the user manages the local privacy detection model', () => {
             modelId: 'astrlink-guard-int8',
             texts: ['Morgan Lee asked'],
         });
+    });
+
+    it('user restores a reply then settings receives its reverse direction and memory-only context through the native contract', async () => {
+        const record = {
+            mode: 'rules' as const,
+            outcome: 'protected' as const,
+            maskedCount: 1,
+            categories: [{ kind: 'email' as const, count: 1 }],
+        };
+        const details = {
+            values: [
+                {
+                    kind: 'email' as const,
+                    original: 'ada@example.test',
+                    placeholder: '{{EMAIL_0123456789abcdef}}',
+                    count: 1,
+                },
+            ],
+            texts: ['Reply to {{EMAIL_0123456789abcdef}}.'],
+            truncated: false,
+        };
+        mockInvoke.mockResolvedValue(undefined);
+        await privacyFilter.recordRestoration(record, details, 3);
+        expect(mockInvoke).toHaveBeenCalledWith('privacy_filter_record_restoration', {
+            record,
+            details,
+            generation: 3,
+        });
+        const entries = [{ ...record, id: 'reply-1', createdAt: 1, direction: 'restore' }];
+        mockInvoke.mockResolvedValue(entries);
+        await expect(privacyFilter.getRecords()).resolves.toEqual(entries);
+        mockInvoke.mockResolvedValue(4);
+        await expect(privacyFilter.clearRecords()).resolves.toBe(4);
     });
 });

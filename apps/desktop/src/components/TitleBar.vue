@@ -53,7 +53,7 @@
                     <button
                         v-if="showMinimize"
                         data-tauri-drag-region="false"
-                        class="flex h-8 w-8 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-600"
+                        class="flex h-8 w-8 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-600 focus-visible:bg-surface-hover focus-visible:text-text-primary"
                         :aria-label="t('window.minimize')"
                         @click="handleMinimize"
                     >
@@ -67,7 +67,7 @@
                     <button
                         v-if="showClose"
                         data-tauri-drag-region="false"
-                        class="flex h-8 w-8 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-red-50 hover:text-red-600"
+                        class="flex h-8 w-8 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-red-50 hover:text-red-600 focus-visible:bg-background-danger focus-visible:text-text-danger"
                         :aria-label="t('window.close')"
                         @click="handleClose"
                     >

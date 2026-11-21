@@ -137,8 +137,8 @@ it('user sees version headings only when several releases are combined', async (
 
     const headings = dialog().findAll('h1');
     expect(headings.map((heading) => heading.text())).toEqual([
-        'V1.3.0-beta.3 · Nov 12, 2026',
-        'V1.3.0-beta.2 · Nov 10, 2026',
+        'V1.3.0-beta.3 (Nov 12, 2026)',
+        'V1.3.0-beta.2 (Nov 10, 2026)',
     ]);
     expect(dialog().text()).not.toContain('Changelog');
 

@@ -359,11 +359,11 @@ describe('user gets search results from the DeepSeek provider', () => {
         });
         expect(result.result).toContain('Source: Example News');
         expect(result.result).toContain('Snippet: Model-facing summary');
-        expect(result.result).toContain('Score: 2.4 · Authority: 3');
+        expect(result.result).toContain('Score: 2.4, Authority: 3');
         // 语义后缀展示的是搜索引擎，而不是命中的站点。
         expect(result.conversationSemantic).toEqual({
             action: 'search',
-            target: 'DeepSeek V4 发布 · DeepSeek',
+            target: 'DeepSeek V4 发布 (DeepSeek)',
         });
     });
 
@@ -382,7 +382,7 @@ describe('user gets search results from the DeepSeek provider', () => {
         expect(result.isError).toBe(true);
         expect(result.conversationSemantic).toEqual({
             action: 'search',
-            target: 'DeepSeek 最新进展 · DeepSeek',
+            target: 'DeepSeek 最新进展 (DeepSeek)',
         });
     });
 

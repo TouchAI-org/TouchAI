@@ -139,6 +139,7 @@
 
     import { webSearchHostname, type WebSearchSource } from '@/app/api/tools/results';
     import SourceFavicon from '@/views/SearchView/components/WebSearch/SourceFavicon.vue';
+    import { formatSearchSummary } from '@/views/SearchView/components/WebSearch/summary';
 
     const FADE_WIDTH = 40;
     const SKELETON_COUNT = 4;
@@ -192,7 +193,7 @@
     const skeletonCount = computed(() => (showSkeletons.value ? SKELETON_COUNT : 0));
 
     /**
-     * 语义 target 是 `<query> · <engine>`，那个后缀在会话预览等处也用，
+     * 语义 target 是 `<query> (<engine>)`，那个后缀在会话预览等处也用，
      * 所以不改它本身，只在本卡片里去掉尾部，避免与标签重复。
      */
     const displaySummary = computed(() => {
@@ -201,8 +202,7 @@
         if (!summary) return '';
         if (!engine) return summary;
 
-        const suffix = ` · ${engine}`;
-        return summary.endsWith(suffix) ? summary.slice(0, -suffix.length).trim() : summary;
+        return formatSearchSummary(summary, engine, true);
     });
 
     const railStyle = computed(() => ({

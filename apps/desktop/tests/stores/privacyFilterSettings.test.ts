@@ -5,7 +5,7 @@ import {
     parsePrivacyFilterSettings,
     PRIVACY_DATA_TYPES,
     serializePrivacyFilterSettings,
-} from '@services/SettingsService/domain';
+} from '@/modules/privacy/public';
 
 describe('given privacy filter preferences have not been configured', () => {
     it('user sees filtering disabled and local detection selected when settings are opened', () => {

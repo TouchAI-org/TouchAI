@@ -53,6 +53,49 @@ function messages(): AiMessage[] {
 }
 
 describe('given a Desktop task owns stored provenance and media bindings', () => {
+    it('user sends an unchanged saved message then its transport copy resolves the same source while edited content cannot reuse that proof', async () => {
+        const adapter = createAgentMessageAdapter();
+        const source = { id: 41, fingerprint: 'saved-proof' };
+        const input: AiMessage = {
+            role: 'user',
+            content: [{ type: 'text', text: 'Contact ada@example.test' }],
+            contextSource: source,
+        };
+        adapter.toCore([input]);
+        expect(await adapter.resolveUserMessageSource(input.content)).toEqual(source);
+        input.content = 'Changed';
+        expect(await adapter.resolveUserMessageSource(input.content)).toBeUndefined();
+        adapter.dispose();
+    });
+
+    it('user has identical text saved twice then transport review cannot guess which stored message was sent', async () => {
+        const adapter = createAgentMessageAdapter();
+        adapter.toCore(
+            [41, 42].map((id) => ({
+                role: 'user',
+                content: 'Same text',
+                contextSource: { id, fingerprint: `proof-${id}` },
+            }))
+        );
+        expect(await adapter.resolveUserMessageSource('Same text')).toBeUndefined();
+        adapter.dispose();
+    });
+
+    it('user compacts an old message out of context then its source proof is released while retained messages still resolve', async () => {
+        const adapter = createAgentMessageAdapter();
+        const core = adapter.toCore(
+            [41, 42].map((id) => ({
+                role: 'user',
+                content: `Message ${id}`,
+                contextSource: { id, fingerprint: `proof-${id}` },
+            }))
+        );
+        adapter.retain([core[1]!]);
+        expect(await adapter.resolveUserMessageSource('Message 41')).toBeUndefined();
+        expect(await adapter.resolveUserMessageSource('Message 42')).toMatchObject({ id: 42 });
+        adapter.dispose();
+    });
+
     it('user keeps opaque Core references while restoring the original stored records at the Desktop boundary', () => {
         const adapter = createAgentMessageAdapter();
         const neutral = adapter.toCore(messages());

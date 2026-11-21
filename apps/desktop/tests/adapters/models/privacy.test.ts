@@ -7,33 +7,33 @@ const privacyModel = vi.hoisted(() => ({
     detect: vi.fn(),
     recordProtection: vi.fn(),
 }));
-const attachmentQueries = vi.hoisted(() => ({
-    findAttachmentRemoteRef: vi.fn(),
-    touchAttachmentRemoteRefLastUsed: vi.fn(),
-    upsertAttachmentRemoteRef: vi.fn(),
-}));
 
-vi.mock('@services/NativeService', () => ({
-    native: {
-        privacyFilter: privacyModel,
-    },
-}));
-vi.mock('@database/queries', () => attachmentQueries);
+import { mockTauriCommand } from '@tests/utils/tauri';
+import { buildModelMessages } from '@touchai/models';
 
-import type { AiMessage } from '@/services/AgentService/contracts/protocol';
-import { buildModelMessages } from '@/services/AgentService/infrastructure/providers/ai-sdk/messages';
-import {
-    maskAiMessages,
-    recordPrivacyProtection,
-} from '@/services/AgentService/infrastructure/providers/ai-sdk/privacyFilter';
+import type { DesktopModelMessage as AiMessage } from '@/adapters/models/input';
+import { maskDesktopModelMessages as maskAiMessages } from '@/adapters/models/privacy';
+import { prepareModelRequest } from '@/adapters/models/transport';
+import { recordPrivacyProtection } from '@/modules/privacy';
 import {
     DEFAULT_PRIVACY_FILTER_SETTINGS,
     type PrivacyFilterSettings,
-} from '@services/SettingsService/domain';
+} from '@/modules/privacy/public';
 
 describe('given a user sends a prompt with privacy filtering enabled', () => {
     beforeEach(() => {
         vi.stubGlobal('crypto', webcrypto);
+        mockTauriCommand('privacy_filter_model_status', (payload) =>
+            privacyModel.getModelStatus((payload as { modelId: string }).modelId)
+        );
+        mockTauriCommand('privacy_filter_detect', (payload) => {
+            const { texts, modelId } = payload as { texts: string[]; modelId: string };
+            return privacyModel.detect(texts, modelId);
+        });
+        mockTauriCommand('privacy_filter_record_protection', (payload) => {
+            const { record, details } = payload as { record: unknown; details: unknown };
+            return privacyModel.recordProtection(record, details);
+        });
         privacyModel.getModelStatus.mockReset();
         privacyModel.getModelStatus.mockResolvedValue({ installed: false });
         privacyModel.detect.mockReset();
@@ -42,6 +42,61 @@ describe('given a user sends a prompt with privacy filtering enabled', () => {
 
     afterEach(() => {
         vi.unstubAllGlobals();
+    });
+
+    it('user masks identified user text then review retains the exact accepted positions and actual rule without copying the whole message', async () => {
+        const text = '请联系 ada@example.test。';
+        const result = await maskAiMessages(
+            [
+                {
+                    role: 'user',
+                    content: text,
+                    contextSource: { id: 41, fingerprint: 'a'.repeat(64) },
+                },
+            ],
+            {
+                ...DEFAULT_PRIVACY_FILTER_SETTINGS,
+                enabled: true,
+                useLocalModel: false,
+            }
+        );
+        expect(result.annotations).toEqual([
+            {
+                messageId: 41,
+                textHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+                start: text.indexOf('ada@example.test'),
+                end: text.indexOf('ada@example.test') + 'ada@example.test'.length,
+                original: 'ada@example.test',
+                placeholder: expect.stringMatching(/^\{\{EMAIL_[0-9a-f]{16}\}\}$/),
+                kind: 'email',
+                rule: { id: 'email' },
+            },
+        ]);
+        expect(JSON.stringify(result.annotations)).not.toContain('请联系');
+    });
+
+    it('user masks unidentified or non-user text then no historical message is guessed for review', async () => {
+        const settings = {
+            ...DEFAULT_PRIVACY_FILTER_SETTINGS,
+            enabled: true,
+            useLocalModel: false,
+        };
+        const unidentified = await maskAiMessages(
+            [{ role: 'user', content: 'ada@example.test' }],
+            settings
+        );
+        const assistant = await maskAiMessages(
+            [
+                {
+                    role: 'assistant',
+                    content: 'ada@example.test',
+                    contextSource: { id: 41, fingerprint: 'a'.repeat(64) },
+                },
+            ],
+            settings
+        );
+        expect(unidentified.annotations).toEqual([]);
+        expect(assistant.annotations).toEqual([]);
     });
 
     it.each([
@@ -102,15 +157,26 @@ describe('given a user sends a prompt with privacy filtering enabled', () => {
                     key === category,
                 ])
             ) as PrivacyFilterSettings['categories'];
-            const result = await maskAiMessages([{ role: 'user', content: text }], {
-                ...DEFAULT_PRIVACY_FILTER_SETTINGS,
-                enabled: true,
-                useLocalModel: false,
-                categories,
-            });
-            const value = result.session.protectionDetails().values[0];
-            expect(value).toBeDefined();
-            expect(value?.matches).toEqual([{ id, count: 1 }]);
+            const result = await maskAiMessages(
+                [
+                    {
+                        role: 'user',
+                        content: text,
+                        contextSource: { id: 41, fingerprint: 'a'.repeat(64) },
+                    },
+                ],
+                {
+                    ...DEFAULT_PRIVACY_FILTER_SETTINGS,
+                    enabled: true,
+                    useLocalModel: false,
+                    categories,
+                }
+            );
+            expect(result.annotations).toHaveLength(1);
+            expect(result.annotations[0]?.rule).toEqual({ id });
+            expect(result.annotations[0]?.original).toBe(
+                text.slice(result.annotations[0]!.start, result.annotations[0]!.end)
+            );
             expect(result.session.restoreText(String(result.messages[0]?.content))).toBe(text);
             expect(JSON.stringify(result.session.protectionSummary())).not.toContain('matches');
         }
@@ -120,7 +186,13 @@ describe('given a user sends a prompt with privacy filtering enabled', () => {
         const prefix = 'company_token_';
         const word = 'Project Nightfall';
         const result = await maskAiMessages(
-            [{ role: 'user', content: `${prefix}ABCDEF ${word}` }],
+            [
+                {
+                    role: 'user',
+                    content: `${prefix}ABCDEF ${word}`,
+                    contextSource: { id: 41, fingerprint: 'a'.repeat(64) },
+                },
+            ],
             {
                 ...DEFAULT_PRIVACY_FILTER_SETTINGS,
                 enabled: true,
@@ -130,9 +202,37 @@ describe('given a user sends a prompt with privacy filtering enabled', () => {
                 maskedWords: [word],
             }
         );
-        expect(result.session.protectionDetails().values.map((value) => value.matches)).toEqual([
-            [{ id: 'customPrefix', value: prefix, count: 1 }],
-            [{ id: 'customWord', value: word, count: 1 }],
+        expect(result.annotations.map((annotation) => annotation.rule)).toEqual([
+            { id: 'customPrefix', value: prefix },
+            { id: 'customWord', value: word },
+        ]);
+    });
+
+    it('user selects the local model then their own words and prefixes still mask without depending on model categories', async () => {
+        const prefix = 'company_token_';
+        const word = 'Project Nightfall';
+        privacyModel.getModelStatus.mockResolvedValue({ installed: true });
+        privacyModel.detect.mockResolvedValue([[]]);
+        const result = await maskAiMessages(
+            [
+                {
+                    role: 'user',
+                    content: `${prefix}ABCDEF ${word}`,
+                    contextSource: { id: 41, fingerprint: 'a'.repeat(64) },
+                },
+            ],
+            {
+                ...DEFAULT_PRIVACY_FILTER_SETTINGS,
+                enabled: true,
+                useLocalModel: true,
+                categories: { ...DEFAULT_PRIVACY_FILTER_SETTINGS.categories, secrets: false },
+                secretPrefixes: [prefix],
+                maskedWords: [word],
+            }
+        );
+        expect(result.annotations.map((annotation) => annotation.rule)).toEqual([
+            { id: 'customPrefix', value: prefix },
+            { id: 'customWord', value: word },
         ]);
     });
 
@@ -143,7 +243,13 @@ describe('given a user sends a prompt with privacy filtering enabled', () => {
             [{ start: 0, end: name.length, kind: 'private_person', score: 0.95 }],
         ]);
         const result = await maskAiMessages(
-            [{ role: 'user', content: name }],
+            [
+                {
+                    role: 'user',
+                    content: name,
+                    contextSource: { id: 41, fingerprint: 'a'.repeat(64) },
+                },
+            ],
             {
                 ...DEFAULT_PRIVACY_FILTER_SETTINGS,
                 enabled: true,
@@ -151,9 +257,10 @@ describe('given a user sends a prompt with privacy filtering enabled', () => {
             },
             'openmed-privacy-filter'
         );
-        expect(result.session.protectionDetails().values[0]?.matches).toEqual([
-            { id: 'localModel', modelId: 'openmed-privacy-filter', count: 1 },
-        ]);
+        expect(result.annotations[0]?.rule).toEqual({
+            id: 'localModel',
+            modelId: 'openmed-privacy-filter',
+        });
     });
 
     it('user has an email detected by both a rule and a model then only the accepted replacement source is reported', async () => {
@@ -167,23 +274,31 @@ describe('given a user sends a prompt with privacy filtering enabled', () => {
             enabled: true,
             categories: { ...DEFAULT_PRIVACY_FILTER_SETTINGS.categories, email: true },
         };
-        const result = await maskAiMessages([{ role: 'user', content: email }], settings);
-        expect(result.session.protectionDetails().values[0]?.matches).toEqual([
-            { id: 'email', count: 1 },
-        ]);
+        const result = await maskAiMessages(
+            [
+                {
+                    role: 'user',
+                    content: email,
+                    contextSource: { id: 41, fingerprint: 'a'.repeat(64) },
+                },
+            ],
+            settings
+        );
+        expect(result.annotations[0]?.rule).toEqual({ id: 'email' });
         const excluded = await maskAiMessages([{ role: 'user', content: email }], {
             ...settings,
             neverMask: [email],
         });
-        expect(excluded.session.protectionDetails().values).toEqual([]);
+        expect(excluded.annotations).toEqual([]);
     });
 
-    it('user keeps credentials out of the provider prompt and restores them locally when no model is installed', async () => {
+    it('user keeps credentials out of the provider prompt and restores them locally when using algorithmic rules', async () => {
         const secret = 'sk-test12345678901234567890';
         const sourceMessages = [{ role: 'user' as const, content: `Use this key: ${secret}` }];
         const settings = {
             ...DEFAULT_PRIVACY_FILTER_SETTINGS,
             enabled: true,
+            useLocalModel: false,
             categories: { ...DEFAULT_PRIVACY_FILTER_SETTINGS.categories, secrets: true },
         };
 
@@ -209,6 +324,7 @@ describe('given a user sends a prompt with privacy filtering enabled', () => {
         const settings: PrivacyFilterSettings = {
             ...DEFAULT_PRIVACY_FILTER_SETTINGS,
             enabled: true,
+            useLocalModel: false,
             categories: {
                 ...DEFAULT_PRIVACY_FILTER_SETTINGS.categories,
                 secrets: false,
@@ -254,7 +370,7 @@ describe('given a user sends a prompt with privacy filtering enabled', () => {
         );
     });
 
-    it('user switches from algorithm rules to a model then custom words stop affecting the outgoing text', async () => {
+    it('user switches from algorithm rules to a model then their custom word still masks the outgoing text', async () => {
         const settings = {
             ...DEFAULT_PRIVACY_FILTER_SETTINGS,
             enabled: true,
@@ -277,10 +393,10 @@ describe('given a user sends a prompt with privacy filtering enabled', () => {
         const rules = await maskAiMessages(messages, settings);
         expect(rules.messages[0]?.content).not.toContain('Nightfall');
         const model = await maskAiMessages(messages, { ...settings, useLocalModel: true });
-        expect(model.messages[0]?.content).toBe('Project Nightfall');
+        expect(model.messages[0]?.content).not.toContain('Nightfall');
     });
 
-    it('user protects a detected name then the same original and placeholder are available locally without appearing in the provider text', async () => {
+    it('user masks a detected name then settings receives its memory-only replacement separately from request statistics', async () => {
         const name = ['Morgan', 'Lee'].join(' ');
         const text = `Please contact ${name} today.`;
         privacyModel.getModelStatus.mockResolvedValue({ installed: true });
@@ -294,11 +410,20 @@ describe('given a user sends a prompt with privacy filtering enabled', () => {
                 },
             ],
         ]);
-        const result = await maskAiMessages([{ role: 'user', content: text }], {
-            ...DEFAULT_PRIVACY_FILTER_SETTINGS,
-            enabled: true,
-            categories: { ...DEFAULT_PRIVACY_FILTER_SETTINGS.categories, privatePerson: true },
-        });
+        const result = await maskAiMessages(
+            [
+                {
+                    role: 'user',
+                    content: text,
+                    contextSource: { id: 41, fingerprint: 'a'.repeat(64) },
+                },
+            ],
+            {
+                ...DEFAULT_PRIVACY_FILTER_SETTINGS,
+                enabled: true,
+                categories: { ...DEFAULT_PRIVACY_FILTER_SETTINGS.categories, privatePerson: true },
+            }
+        );
         await recordPrivacyProtection(result.session);
         const [summary, details] = privacyModel.recordProtection.mock.calls[0]!;
         expect(summary).toEqual({
@@ -312,19 +437,32 @@ describe('given a user sends a prompt with privacy filtering enabled', () => {
                 {
                     kind: 'privatePerson',
                     original: name,
-                    placeholder: expect.stringMatching(/^\{\{PERSON_[0-9a-f]{16}\}\}$/),
+                    placeholder: result.annotations[0]!.placeholder,
                     count: 1,
                     matches: [{ id: 'localModel', modelId: 'astrlink-guard-int8', count: 1 }],
                 },
             ],
-            texts: [result.messages[0]?.content],
+            texts: [result.messages[0]!.content],
             truncated: false,
         });
+        expect(JSON.stringify(summary)).not.toContain(name);
+        expect(result.annotations).toEqual([
+            {
+                messageId: 41,
+                textHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+                start: text.indexOf(name),
+                end: text.indexOf(name) + name.length,
+                original: name,
+                placeholder: expect.stringMatching(/^\{\{PERSON_[0-9a-f]{16}\}\}$/),
+                kind: 'privatePerson',
+                rule: { id: 'localModel', modelId: 'astrlink-guard-int8' },
+            },
+        ]);
         expect(result.messages[0]?.content).not.toContain(name);
         expect(result.session.restoreText(String(result.messages[0]?.content))).toBe(text);
     });
 
-    it('user cannot save a detail record then masking and restoration remain valid and later records can be saved', async () => {
+    it('user encounters a protection record save failure then reply restoration still works and a later record includes replacements', async () => {
         const text = 'Email ada@example.test';
         const result = await maskAiMessages([{ role: 'user', content: text }], {
             ...DEFAULT_PRIVACY_FILTER_SETTINGS,
@@ -338,9 +476,9 @@ describe('given a user sends a prompt with privacy filtering enabled', () => {
         expect(result.session.restoreText(String(result.messages[0]?.content))).toBe(text);
         privacyModel.recordProtection.mockResolvedValue(undefined);
         await recordPrivacyProtection(result.session);
-        expect(privacyModel.recordProtection.mock.lastCall?.[1].values[0].original).toBe(
-            'ada@example.test'
-        );
+        expect(privacyModel.recordProtection.mock.lastCall?.[1].values).toEqual([
+            expect.objectContaining({ original: 'ada@example.test', count: 1 }),
+        ]);
     });
 
     it('user selects an alternative installed model then that model handles local detection', async () => {
@@ -401,7 +539,10 @@ describe('given a user sends a prompt with privacy filtering enabled', () => {
 
         const masked = await maskAiMessages([sourceMessage], settings);
         const outgoing = await buildModelMessages({
-            messages: masked.messages,
+            messages: prepareModelRequest(
+                { model: 'gpt-4.1', messages: masked.messages },
+                { driver: 'openai', providerId: 1, resourceKey: () => undefined }
+            ).messages,
             providerDriver: 'openai',
             modelId: 'gpt-4.1',
         });
@@ -494,6 +635,21 @@ describe('given a user sends a prompt with privacy filtering enabled', () => {
         await expect(maskAiMessages(message, settings)).resolves.toMatchObject({
             messages: [{ content: 'Contact Morgan Lee.' }],
         });
+    });
+
+    it('user masks multiple messages then an incomplete model result fails the request instead of treating messages as scanned', async () => {
+        privacyModel.getModelStatus.mockResolvedValue({ installed: true });
+        privacyModel.detect.mockResolvedValue([[]]);
+
+        await expect(
+            maskAiMessages(
+                [
+                    { role: 'user', content: 'First message' },
+                    { role: 'user', content: 'Second message' },
+                ],
+                { ...DEFAULT_PRIVACY_FILTER_SETTINGS, enabled: true }
+            )
+        ).rejects.toThrow('Invalid local privacy detection response');
     });
 });
 

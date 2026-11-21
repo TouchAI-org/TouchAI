@@ -25,7 +25,7 @@ function makeSources(count: number): WebSearchSource[] {
 
 const BASE_PROPS = {
     verbText: '已搜索',
-    summaryText: 'DeepSeek V4 什么时候发布 · DeepSeek',
+    summaryText: 'DeepSeek V4 什么时候发布 (DeepSeek)',
     durationText: '611ms',
 };
 
@@ -50,7 +50,7 @@ describe('user sees the sources under an answer', () => {
 
         const line = wrapper.get('.tool-call-log-line').text();
         expect(line).toContain('已搜索');
-        expect(line).toContain('DeepSeek V4 什么时候发布 · DeepSeek');
+        expect(line).toContain('DeepSeek V4 什么时候发布 (DeepSeek)');
         expect(line).toContain('(611ms)');
     });
 
@@ -65,6 +65,21 @@ describe('user sees the sources under an answer', () => {
         );
         expect(wrapper.get('.web-search-sources__engine').text()).toBe('DeepSeek');
         expect(wrapper.get('.tool-call-log-line').text()).toContain('(611ms)');
+    });
+
+    it('user given a saved summary with an old engine separator then sees only the search query', () => {
+        const wrapper = mount(WebSearchSourcesCard, {
+            props: {
+                ...BASE_PROPS,
+                summaryText: 'DeepSeek V4 什么时候发布 · DeepSeek',
+                sources: makeSources(2),
+                providerName: 'DeepSeek',
+            },
+        });
+
+        expect(wrapper.get('.tool-call-log-content').text().trim()).toBe(
+            'DeepSeek V4 什么时候发布'
+        );
     });
 
     it('user keeps the summary untouched when it does not carry the engine suffix', () => {

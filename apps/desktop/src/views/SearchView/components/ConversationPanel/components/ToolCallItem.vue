@@ -163,6 +163,7 @@
     import { SEARCH_PROVIDER_METADATA, type SearchProviderId } from '@/app/api/tools/catalog';
     import { buildComputerUsePresentation } from '@/app/api/tools/results';
     import { t } from '@/i18n';
+    import { formatSearchSummary } from '@/views/SearchView/components/WebSearch/summary';
 
     import BuiltInBashToolCallItem from './BuiltInBashToolCallItem.vue';
     import WebSearchSourcesCard from './WebSearchSourcesCard.vue';
@@ -367,11 +368,19 @@
             fallbackBuiltinVerbText.value
         );
     });
-    const builtinSummaryText = computed(() =>
-        computerUsePresentation.value
+    const builtinSummaryText = computed(() => {
+        const summary = computerUsePresentation.value
             ? (computerUsePresentation.value.content ?? '')
-            : props.toolCall.builtinPresentation?.content?.trim() || toolDisplayName.value
-    );
+            : props.toolCall.builtinPresentation?.content?.trim() || toolDisplayName.value;
+        if (
+            !isBuiltinTool.value ||
+            builtinToolToken.value !== WEB_SEARCH_TOOL_TOKEN ||
+            summary === props.toolCall.arguments?.query ||
+            summary === props.toolCall.arguments?.description
+        )
+            return summary;
+        return formatSearchSummary(summary, webSearchProviderName.value);
+    });
     const isBuiltinSummaryPayload = computed(() => {
         return Boolean(
             props.toolCall.builtinPresentation?.content?.trim() || isToolDisplayNamePayload.value

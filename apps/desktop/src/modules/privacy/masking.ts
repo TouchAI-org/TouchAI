@@ -1,3 +1,4 @@
+import type { PrivacyRestoredSpan } from './contracts';
 import {
     PRIVACY_FILTER_DETAIL_BYTES_LIMIT,
     PRIVACY_FILTER_DETAIL_TEXTS_LIMIT,
@@ -7,7 +8,7 @@ import {
     type PrivacyProtectionRule,
     type PrivacyProtectionSummary,
     type PrivacyProtectionValue,
-} from '@/services/NativeService/privacyFilter';
+} from './contracts';
 
 const DETAIL_PART_BYTES_LIMIT = PRIVACY_FILTER_DETAIL_BYTES_LIMIT / 2;
 const textEncoder = new TextEncoder();
@@ -20,28 +21,17 @@ export interface PrivacyMaskingSpan {
     rule?: PrivacyProtectionRule;
 }
 
-export class PrivacyMaskingSession {
-    private readonly originalsByPlaceholder = new Map<string, string>();
-    private readonly pendingTextByStream = new Map<string, string>();
+class PrivacyProtectionCapture {
     private readonly protectedCounts = new Map<PrivacyProtectionKind, number>();
     private readonly protectedValues = new Map<
         string,
-        Omit<PrivacyProtectionValue, 'original' | 'placeholder'>
+        Omit<PrivacyProtectionValue, 'placeholder'>
     >();
     private readonly protectedTexts: string[] = [];
+    private readonly textIndexByStream = new Map<string, number>();
     private detailValueBytes = 0;
     private detailTextBytes = 0;
     private detailsTruncated = false;
-    private usedLocalModel = false;
-
-    get mode(): 'rules' | 'model' {
-        return this.usedLocalModel ? 'model' : 'rules';
-    }
-
-    markLocalModelUsed(): void {
-        this.usedLocalModel = true;
-    }
-
     protectionSummary(): PrivacyProtectionSummary {
         const categories = [...this.protectedCounts].map(([kind, count]) => ({ kind, count }));
         return {
@@ -56,7 +46,6 @@ export class PrivacyMaskingSession {
             values.push({
                 ...value,
                 placeholder,
-                original: this.originalsByPlaceholder.get(placeholder)!,
                 ...(value.matches ? { matches: value.matches.map((match) => ({ ...match })) } : {}),
             });
         }
@@ -72,55 +61,13 @@ export class PrivacyMaskingSession {
         };
     }
 
-    maskText(text: string, spans: PrivacyMaskingSpan[]): string {
-        const orderedSpans = spans
-            .filter(
-                (span) =>
-                    Number.isInteger(span.start) &&
-                    Number.isInteger(span.end) &&
-                    span.start >= 0 &&
-                    span.end > span.start &&
-                    span.end <= text.length &&
-                    span.placeholder.length > 0
-            )
-            .sort((left, right) => left.start - right.start || right.end - left.end);
-        const acceptedSpans: PrivacyMaskingSpan[] = [];
-        let consumedUntil = 0;
-
-        for (const span of orderedSpans) {
-            if (span.start < consumedUntil) {
-                continue;
-            }
-            acceptedSpans.push(span);
-            consumedUntil = span.end;
-            const original = text.slice(span.start, span.end);
-            this.originalsByPlaceholder.set(span.placeholder, original);
-            const kind = protectionKind(span.kind);
-            this.protectedCounts.set(kind, (this.protectedCounts.get(kind) ?? 0) + 1);
-            this.rememberValue(span.placeholder, original, kind, span.rule);
-        }
-
-        if (acceptedSpans.length === 0) {
-            return text;
-        }
-
-        let cursor = 0;
-        let masked = '';
-        for (const span of acceptedSpans) {
-            masked += text.slice(cursor, span.start) + span.placeholder;
-            cursor = span.end;
-        }
-        masked += text.slice(cursor);
-        this.rememberText(masked);
-        return masked;
-    }
-
-    private rememberValue(
+    rememberValue(
         placeholder: string,
         original: string,
         kind: PrivacyProtectionKind,
         rule?: PrivacyProtectionRule
     ): void {
+        this.protectedCounts.set(kind, (this.protectedCounts.get(kind) ?? 0) + 1);
         const previous = this.protectedValues.get(placeholder);
         if (previous) {
             previous.count += 1;
@@ -140,7 +87,7 @@ export class PrivacyMaskingSession {
             this.detailsTruncated = true;
             return;
         }
-        const value = { kind, count: 1 };
+        const value = { kind, original, count: 1 };
         this.protectedValues.set(placeholder, value);
         this.detailValueBytes += bytes;
         this.rememberRule(value, rule);
@@ -173,7 +120,7 @@ export class PrivacyMaskingSession {
         this.detailValueBytes += bytes;
     }
 
-    private rememberText(masked: string): void {
+    rememberText(masked: string): void {
         if (this.protectedTexts.includes(masked)) return;
         const remaining = DETAIL_PART_BYTES_LIMIT - this.detailTextBytes;
         if (
@@ -192,15 +139,133 @@ export class PrivacyMaskingSession {
         this.detailTextBytes += bytes;
     }
 
-    restoreText(text: string): string {
-        let restored = text;
-        for (const [placeholder, original] of this.originalsByPlaceholder) {
-            restored = restored.split(placeholder).join(original);
+    appendText(chunk: string, streamId: string): void {
+        if (!chunk || (this.detailsTruncated && this.detailTextBytes >= DETAIL_PART_BYTES_LIMIT))
+            return;
+        const bytes = textEncoder.encode(chunk).length;
+        if (bytes > DETAIL_PART_BYTES_LIMIT - this.detailTextBytes) {
+            this.detailsTruncated = true;
+            this.detailTextBytes = DETAIL_PART_BYTES_LIMIT;
+            return;
         }
-        return restored;
+        let index = this.textIndexByStream.get(streamId);
+        if (index === undefined) {
+            if (this.protectedTexts.length >= PRIVACY_FILTER_DETAIL_TEXTS_LIMIT) {
+                this.detailsTruncated = true;
+                return;
+            }
+            index = this.protectedTexts.length;
+            this.textIndexByStream.set(streamId, index);
+            this.protectedTexts.push('');
+        }
+        this.protectedTexts[index] = (this.protectedTexts[index] ?? '') + chunk;
+        this.detailTextBytes += bytes;
+    }
+}
+
+export class PrivacyMaskingSession {
+    constructor(
+        readonly reviewGeneration = 0,
+        readonly recordGeneration?: number
+    ) {}
+    private readonly originalsByPlaceholder = new Map<string, string>();
+    private readonly rulesByPlaceholder = new Map<
+        string,
+        Pick<PrivacyRestoredSpan, 'kind' | 'rule'>
+    >();
+    private readonly pendingTextByStream = new Map<string, string>();
+    private readonly jsonStrings = new Map<string, { text: string; escaped: boolean }>();
+    private readonly protection = new PrivacyProtectionCapture();
+    private readonly restoration = new PrivacyProtectionCapture();
+    private usedLocalModel = false;
+
+    get mode(): 'rules' | 'model' {
+        return this.usedLocalModel ? 'model' : 'rules';
     }
 
-    pushText(chunk: string, streamId = 'default'): string {
+    markLocalModelUsed(): void {
+        this.usedLocalModel = true;
+    }
+
+    protectionSummary(): PrivacyProtectionSummary {
+        return this.protection.protectionSummary();
+    }
+
+    protectionDetails(): PrivacyProtectionDetails {
+        return this.protection.protectionDetails();
+    }
+
+    restorationSummary(): PrivacyProtectionSummary {
+        return this.restoration.protectionSummary();
+    }
+
+    restorationDetails(): PrivacyProtectionDetails {
+        return this.restoration.protectionDetails();
+    }
+
+    captureRestoredContent(
+        chunk: string,
+        spans: PrivacyRestoredSpan[],
+        streamId = 'content'
+    ): void {
+        this.restoration.appendText(chunk, streamId);
+        for (const span of spans) {
+            this.restoration.rememberValue(span.placeholder, span.original, span.kind, span.rule);
+        }
+    }
+
+    maskText(
+        text: string,
+        spans: PrivacyMaskingSpan[],
+        onAccepted?: (span: PrivacyMaskingSpan, original: string) => void
+    ): string {
+        const orderedSpans = spans
+            .filter(
+                (span) =>
+                    Number.isInteger(span.start) &&
+                    Number.isInteger(span.end) &&
+                    span.start >= 0 &&
+                    span.end > span.start &&
+                    span.end <= text.length &&
+                    span.placeholder.length > 0
+            )
+            .sort((left, right) => left.start - right.start || right.end - left.end);
+        let cursor = 0;
+        let masked = '';
+        let accepted = false;
+        for (const span of orderedSpans) {
+            if (span.start < cursor && span.end > cursor)
+                throw new Error('Unmerged privacy detection ranges');
+            if (span.start < cursor) continue;
+            accepted = true;
+            const original = text.slice(span.start, span.end);
+            const kind = protectionKind(span.kind);
+            this.originalsByPlaceholder.set(span.placeholder, original);
+            this.rulesByPlaceholder.set(span.placeholder, {
+                kind,
+                ...(span.rule ? { rule: { ...span.rule } } : {}),
+            });
+            this.protection.rememberValue(span.placeholder, original, kind, span.rule);
+            onAccepted?.(span, original);
+            masked += text.slice(cursor, span.start) + span.placeholder;
+            cursor = span.end;
+        }
+        if (!accepted) return text;
+        masked += text.slice(cursor);
+        this.protection.rememberText(masked);
+        return masked;
+    }
+
+    restoreText(text: string, onRestored?: (span: PrivacyRestoredSpan) => void): string {
+        const streamId = 'complete-value';
+        return this.pushText(text, streamId, onRestored) + this.flushText(streamId);
+    }
+
+    pushText(
+        chunk: string,
+        streamId = 'default',
+        onRestored?: (span: PrivacyRestoredSpan) => void
+    ): string {
         const pending = (this.pendingTextByStream.get(streamId) ?? '') + chunk;
         let cursor = 0;
         let visible = '';
@@ -216,7 +281,16 @@ export class PrivacyMaskingSession {
             }
 
             if (nextPlaceholder) {
-                visible += pending.slice(cursor, nextPlaceholder.index) + nextPlaceholder.original;
+                visible += pending.slice(cursor, nextPlaceholder.index);
+                const start = visible.length;
+                visible += nextPlaceholder.original;
+                onRestored?.({
+                    start,
+                    end: visible.length,
+                    original: nextPlaceholder.original,
+                    placeholder: nextPlaceholder.value,
+                    ...this.rulesByPlaceholder.get(nextPlaceholder.value)!,
+                });
                 cursor = nextPlaceholder.index + nextPlaceholder.value.length;
                 continue;
             }
@@ -235,11 +309,47 @@ export class PrivacyMaskingSession {
     flushText(streamId = 'default'): string {
         const pending = this.pendingTextByStream.get(streamId) ?? '';
         this.pendingTextByStream.delete(streamId);
-        return this.restoreText(pending);
+        // Only an incomplete placeholder prefix can remain after pushText.
+        return pending;
     }
 
-    restoreToolArguments(value: string): string {
-        return this.restoreText(value);
+    restoreToolArguments(value: string, captureId?: string): string {
+        const spans: PrivacyRestoredSpan[] = [];
+        const restored: unknown = JSON.parse(value, (_key, item: unknown) =>
+            typeof item === 'string' ? this.restoreText(item, (span) => spans.push(span)) : item
+        );
+        if (captureId) this.captureRestoredContent(value, spans, captureId);
+        return JSON.stringify(restored);
+    }
+
+    pushToolArguments(chunk: string, streamId: string): string {
+        // JSON.parse owns escapes. Buffer only the current string literal, never reparsing
+        // an ever-growing object or injecting unescaped originals into the protocol.
+        let pending = this.jsonStrings.get(streamId);
+        let output = '';
+        for (const char of chunk) {
+            if (!pending) {
+                if (char === '"') pending = { text: char, escaped: false };
+                else output += char;
+                continue;
+            }
+            pending.text += char;
+            if (pending.text.length > 1024 * 1024)
+                throw new Error('Privacy tool string exceeds the input limit');
+            if (pending.escaped) pending.escaped = false;
+            else if (char === '\\') pending.escaped = true;
+            else if (char === '"') {
+                output += JSON.stringify(this.restoreText(JSON.parse(pending.text) as string));
+                pending = undefined;
+            }
+        }
+        if (pending) this.jsonStrings.set(streamId, pending);
+        else this.jsonStrings.delete(streamId);
+        return output;
+    }
+
+    finishToolArguments(streamId: string): void {
+        this.jsonStrings.delete(streamId);
     }
 
     private longestPlaceholderPrefixSuffix(value: string): number {
@@ -256,7 +366,7 @@ export class PrivacyMaskingSession {
         return longest;
     }
 }
-function protectionKind(kind: string): PrivacyProtectionKind {
+export function protectionKind(kind: string): PrivacyProtectionKind {
     const kinds: Record<string, PrivacyProtectionKind> = {
         email: 'email',
         phone: 'phone',

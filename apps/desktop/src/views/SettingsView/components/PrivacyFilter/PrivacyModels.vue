@@ -7,31 +7,33 @@
     import { Input } from '@components/ui/input';
     import { useAlert } from '@composables/useAlert';
     import { useConfirm } from '@composables/useConfirm';
-    import { native } from '@services/NativeService';
+    import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+
+    import { log } from '@/app/api/diagnostics';
     import {
-        PRIVACY_FILTER_DOWNLOAD_PROGRESS_EVENT,
-        type PrivacyFilterDownloadProgress,
+        DEFAULT_PRIVACY_MODEL_ID,
+        type PrivacyDataType,
         type PrivacyFilterModelId,
         type PrivacyFilterModelInfo,
         type PrivacyFilterModelStatus,
-    } from '@services/NativeService/privacyFilter';
-    import { log } from '@services/ObservabilityService';
-    import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-    import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-
-    import { type MessageKey, t } from '@/i18n';
-    import type { PrivacyDataType } from '@services/SettingsService/domain';
-    import { useSettingsStore } from '@/stores/settings';
+        usePrivacyApi,
+    } from '@/app/api/privacy';
+    import { t } from '@/i18n';
+    import { usePrivacyStore } from '@/stores/privacy';
 
     const props = defineProps<{
         disabled: boolean;
         confidenceThreshold: number;
+        activationRequested?: boolean;
     }>();
     const emit = defineEmits<{
         'update:confidenceThreshold': [value: number];
         'update:modelDataTypes': [value: PrivacyDataType[]];
+        modelReady: [modelId: PrivacyFilterModelId];
+        cancelActivation: [];
     }>();
-    const settingsStore = useSettingsStore();
+    const privacyApi = usePrivacyApi();
+    const settingsStore = usePrivacyStore();
     const alert = useAlert();
     const { confirm } = useConfirm();
     const models = ref<PrivacyFilterModelInfo[]>([]);
@@ -41,15 +43,11 @@
     const menuOpen = ref(false);
     const busyModel = ref<PrivacyFilterModelId | null>(null);
     const cancellingModel = ref<PrivacyFilterModelId | null>(null);
-    let unlisten: UnlistenFn | undefined;
+    const modelSection = ref<HTMLElement | null>(null);
+    let unlisten: (() => void) | undefined;
     let disposed = false;
     let refreshSequence = 0;
 
-    const descriptions: Record<PrivacyFilterModelId, MessageKey> = {
-        'astrlink-guard-int8': 'settings.privacyFilter.model.astrlink',
-        'openai-privacy-filter': 'settings.privacyFilter.model.openai',
-        'openmed-privacy-filter': 'settings.privacyFilter.model.openmed',
-    };
     const selectedId = computed(() => settingsStore.privacyFilterModelId);
     const selectedModel = computed(() =>
         models.value.find((model) => model.id === selectedId.value)
@@ -58,7 +56,7 @@
     const downloading = computed(() =>
         models.value.find((model) => statuses.value[model.id]?.downloading)
     );
-    const controlsDisabled = computed(() => props.disabled);
+    const controlsDisabled = computed(() => props.disabled && !props.activationRequested);
     const selectorDisabled = computed(
         () =>
             controlsDisabled.value ||
@@ -68,9 +66,7 @@
         models.value.map((model) => ({
             value: model.id,
             label: model.name,
-            description: model.supported
-                ? `${formatBytes(model.totalBytes)} · ${t(descriptions[model.id])}`
-                : t('settings.privacyFilter.modelUnsupported'),
+            description: formatBytes(model.totalBytes),
             disabled:
                 !model.supported ||
                 !statuses.value[model.id]?.installed ||
@@ -82,18 +78,16 @@
         return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(bytes / divisor)} ${divisor === 1_000_000_000 ? 'GB' : 'MB'}`;
     }
 
-    async function refresh() {
+    async function refresh(readyModelId: PrivacyFilterModelId = DEFAULT_PRIVACY_MODEL_ID) {
         const sequence = ++refreshSequence;
         refreshing.value = true;
         statusFailed.value = false;
         try {
-            const catalog = models.value.length
-                ? models.value
-                : await native.privacyFilter.getModels();
+            const catalog = models.value.length ? models.value : await privacyApi.getModels();
             if (disposed || sequence !== refreshSequence) return;
             models.value = catalog;
             const results = await Promise.allSettled(
-                catalog.map((model) => native.privacyFilter.getModelStatus(model.id))
+                catalog.map((model) => privacyApi.getModelStatus(model.id))
             );
             if (disposed || sequence !== refreshSequence) return;
             results.forEach((result, index) => {
@@ -102,6 +96,14 @@
                 }
             });
             statusFailed.value = results.some((result) => result.status === 'rejected');
+            const ready = results[catalog.findIndex((model) => model.id === readyModelId)];
+            if (
+                props.activationRequested &&
+                ready?.status === 'fulfilled' &&
+                ready.value.installed &&
+                !ready.value.downloading
+            )
+                emit('modelReady', readyModelId);
         } catch {
             if (!disposed && sequence === refreshSequence) statusFailed.value = true;
             log.warn('[PrivacyProtection] Could not read model status');
@@ -109,6 +111,15 @@
             if (sequence === refreshSequence) refreshing.value = false;
         }
     }
+
+    async function requestDownload() {
+        await refresh();
+        await nextTick();
+        if (disposed || controlsDisabled.value) return;
+        modelSection.value?.scrollIntoView({ block: 'center', behavior: 'instant' });
+        menuOpen.value = true;
+    }
+    defineExpose({ requestDownload });
 
     async function selectModel(modelId: PrivacyFilterModelId) {
         if (
@@ -118,9 +129,13 @@
             downloading.value
         )
             return;
+        if (props.activationRequested) {
+            emit('modelReady', modelId);
+            return;
+        }
         try {
             await settingsStore.updatePrivacyFilterModelId(modelId);
-            await native.privacyFilter.releaseModels();
+            await privacyApi.releaseModels();
         } catch {
             alert.error(t('settings.privacyFilter.saveFailed'));
         }
@@ -140,12 +155,14 @@
         )
             return;
         const previouslySelected = selectedId.value;
+        const preparingActivation = props.activationRequested;
         busyModel.value = modelId;
         cancellingModel.value = null;
         statuses.value[modelId] = { ...status, downloading: true, downloadedBytes: 0 };
         try {
-            await native.privacyFilter.downloadModel(modelId, 'auto');
-            await refresh();
+            await privacyApi.downloadModel(modelId, 'auto');
+            await refresh(modelId);
+            if (preparingActivation) return;
             if (
                 !disposed &&
                 !controlsDisabled.value &&
@@ -153,7 +170,7 @@
                 statuses.value[modelId]?.installed
             ) {
                 await settingsStore.updatePrivacyFilterModelId(modelId);
-                await native.privacyFilter.releaseModels();
+                await privacyApi.releaseModels();
             }
         } catch {
             if (!disposed && cancellingModel.value !== modelId)
@@ -173,8 +190,9 @@
         )
             return;
         cancellingModel.value = modelId;
+        if (props.activationRequested) emit('cancelActivation');
         try {
-            await native.privacyFilter.cancelModelDownload(modelId);
+            await privacyApi.cancelModelDownload(modelId);
         } catch {
             cancellingModel.value = null;
             if (!disposed) alert.error(t('settings.privacyFilter.modelCancelFailed'));
@@ -206,7 +224,7 @@
             return;
         busyModel.value = modelId;
         try {
-            await native.privacyFilter.deleteModel(modelId);
+            await privacyApi.deleteModel(modelId);
             await refresh();
         } catch {
             if (!disposed) alert.error(t('settings.privacyFilter.modelDeleteFailed'));
@@ -217,18 +235,23 @@
 
     function setConfidence(value: string | number) {
         const number = Number(value);
-        if (controlsDisabled.value || !installed.value || value === '' || !Number.isFinite(number))
-            return;
+        if (props.disabled || !installed.value || value === '' || !Number.isFinite(number)) return;
         emit('update:confidenceThreshold', Math.min(1, Math.max(0, number)));
     }
 
     watch(controlsDisabled, (disabled) => {
         if (!disabled) return;
         menuOpen.value = false;
-        void native.privacyFilter
-            .releaseModels()
-            .catch(() => log.warn('[PrivacyProtection] Could not unload the local model'));
     });
+    watch(
+        () => props.disabled,
+        (disabled) => {
+            if (!disabled) return;
+            void privacyApi
+                .releaseModels()
+                .catch(() => log.warn('[PrivacyProtection] Could not unload the local model'));
+        }
+    );
     watch(
         selectedModel,
         (model) => {
@@ -239,20 +262,17 @@
 
     onMounted(async () => {
         try {
-            const stop = await listen<PrivacyFilterDownloadProgress>(
-                PRIVACY_FILTER_DOWNLOAD_PROGRESS_EVENT,
-                ({ payload }) => {
-                    const previous = statuses.value[payload.modelId];
-                    if (payload.totalBytes > 0 && previous)
-                        statuses.value[payload.modelId] = {
-                            ...previous,
-                            ...payload,
-                            downloading: true,
-                        };
-                    if (!payload.totalBytes || payload.downloadedBytes >= payload.totalBytes)
-                        void refresh();
-                }
-            );
+            const stop = await privacyApi.onDownloadProgress((payload) => {
+                const previous = statuses.value[payload.modelId];
+                if (payload.totalBytes > 0 && previous)
+                    statuses.value[payload.modelId] = {
+                        ...previous,
+                        ...payload,
+                        downloading: true,
+                    };
+                if (!payload.totalBytes || payload.downloadedBytes >= payload.totalBytes)
+                    void refresh(payload.modelId);
+            });
             if (disposed) {
                 stop();
                 return;
@@ -270,13 +290,20 @@
 </script>
 
 <template>
-    <section class="space-y-4">
+    <section ref="modelSection" class="space-y-4">
         <h2 class="settings-section-title">{{ t('settings.privacyFilter.section.localModel') }}</h2>
         <div class="settings-row-group divide-y divide-border/70">
             <SettingsRow
                 data-settings-search-target="privacy-filter-model-manager"
                 control-width="320"
                 :label="t('settings.privacyFilter.model')"
+                :description="
+                    statusFailed
+                        ? t('settings.privacyFilter.modelStatusUnavailable')
+                        : activationRequested && !installed
+                          ? t('settings.privacyFilter.activation.downloadRequired')
+                          : undefined
+                "
             >
                 <CustomSelect
                     v-model:open="menuOpen"
@@ -285,7 +312,9 @@
                     :disabled="selectorDisabled"
                     :aria-label="t('settings.privacyFilter.model')"
                     :placeholder="t('settings.privacyFilter.modelSelect')"
+                    protect-option-text
                     trigger-test-id="privacy-filter-model-select"
+                    content-test-id="privacy-filter-model-options"
                     option-test-id-prefix="privacy-filter-model-"
                     @update:model-value="selectModel"
                 >
@@ -329,7 +358,7 @@
                                 variant="ghost-neutral"
                                 data-testid="privacy-filter-cancel-download"
                                 :data-model-id="option.value"
-                                :aria-label="`${t('settings.privacyFilter.modelCancel')} · ${option.label}`"
+                                :aria-label="`${t('settings.privacyFilter.modelCancel')} (${option.label})`"
                                 :title="t('settings.privacyFilter.modelCancel')"
                                 :disabled="controlsDisabled || cancellingModel === option.value"
                                 @click="cancelDownload(option.value)"
@@ -342,7 +371,7 @@
                             variant="ghost-neutral"
                             data-testid="privacy-filter-delete-model"
                             :data-model-id="option.value"
-                            :aria-label="`${t('settings.privacyFilter.modelDelete')} · ${option.label}`"
+                            :aria-label="`${t('settings.privacyFilter.modelDelete')} (${option.label})`"
                             :title="t('settings.privacyFilter.modelDelete')"
                             :disabled="
                                 controlsDisabled || Boolean(busyModel) || Boolean(downloading)
@@ -352,24 +381,13 @@
                             <AppIcon name="trash" class="h-4 w-4" />
                         </Button>
                         <Button
-                            v-else-if="statusFailed"
+                            v-else-if="statusFailed || !statuses[option.value]"
                             variant="ghost-neutral"
                             data-testid="privacy-filter-model-retry"
                             :data-model-id="option.value"
                             :aria-label="t('common.retry')"
                             :disabled="controlsDisabled || refreshing"
-                            @click="refresh"
-                        >
-                            <AppIcon name="refresh" class="h-4 w-4" />
-                        </Button>
-                        <Button
-                            v-else-if="!statuses[option.value]"
-                            variant="ghost-neutral"
-                            data-testid="privacy-filter-model-retry"
-                            :data-model-id="option.value"
-                            :aria-label="t('common.retry')"
-                            :disabled="controlsDisabled || refreshing"
-                            @click="refresh"
+                            @click="refresh()"
                         >
                             <AppIcon name="refresh" class="h-4 w-4" />
                         </Button>
@@ -378,7 +396,7 @@
                             variant="ghost-neutral"
                             data-testid="privacy-filter-download-model"
                             :data-model-id="option.value"
-                            :aria-label="`${t('settings.privacyFilter.modelDownload')} · ${option.label}`"
+                            :aria-label="`${t('settings.privacyFilter.modelDownload')} (${option.label})`"
                             :title="t('settings.privacyFilter.modelDownload')"
                             :disabled="
                                 controlsDisabled ||
@@ -393,44 +411,6 @@
                         </Button>
                     </template>
                 </CustomSelect>
-                <div
-                    v-if="statusFailed"
-                    class="mt-2 flex items-center justify-between gap-2"
-                    role="status"
-                >
-                    <p class="text-xs text-text-danger">
-                        {{ t('settings.privacyFilter.modelStatusUnavailable') }}
-                    </p>
-                    <Button
-                        variant="ghost-neutral"
-                        data-testid="privacy-filter-model-status-retry"
-                        :aria-label="t('common.retry')"
-                        :title="t('common.retry')"
-                        :disabled="controlsDisabled || refreshing"
-                        @click="refresh"
-                    >
-                        <AppIcon name="refresh" class="h-4 w-4" />
-                    </Button>
-                </div>
-                <p
-                    v-else-if="downloading"
-                    class="mt-2 text-xs text-text-secondary"
-                    role="status"
-                    data-testid="privacy-filter-model-downloading"
-                >
-                    {{ t('settings.privacyFilter.modelDownloading') }}
-                </p>
-                <p
-                    v-else-if="installed"
-                    class="mt-2 text-xs text-text-success"
-                    role="status"
-                    data-testid="privacy-filter-model-installed"
-                >
-                    {{ t('settings.privacyFilter.modelInstalled') }}
-                </p>
-                <p v-else-if="selectedModel" class="mt-2 text-xs text-text-secondary" role="status">
-                    {{ t('settings.privacyFilter.modelNotInstalled') }}
-                </p>
             </SettingsRow>
             <SettingsRow
                 data-settings-search-target="privacy-filter-confidence"
@@ -445,12 +425,13 @@
                     max="1"
                     step="0.05"
                     :model-value="confidenceThreshold"
-                    :disabled="controlsDisabled || !installed"
+                    :disabled="disabled || !installed"
                     :aria-label="t('settings.privacyFilter.confidenceThreshold')"
                     data-testid="privacy-filter-confidence-threshold"
                     @update:model-value="setConfidence"
                 />
             </SettingsRow>
+            <slot name="failure-action" />
         </div>
     </section>
 </template>

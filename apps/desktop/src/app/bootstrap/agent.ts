@@ -4,6 +4,7 @@ import type { AgentApi, StartSessionTaskOptions } from '@/app/api/agent/contract
 import { AiError, AiErrorCode } from '@/app/api/agent/errors';
 import { assembleAnalyticsWindow } from '@/app/composition/analytics';
 import type { DesktopMainAgentHost } from '@/app/composition/main';
+import { assemblePrivacyWindow } from '@/app/composition/privacy';
 import { assembleSettingsWindow } from '@/app/composition/settings';
 import { assembleMainUpdates } from '@/app/composition/updates';
 import { createStartupNotices } from '@/app/workflows/data-management/notices';
@@ -44,6 +45,7 @@ export function initializeAgentWindow(input: { capabilities?: StartupCapabilitie
     const lifetime = new AbortController();
     const capabilities = input.capabilities ?? createStartupCapabilities(log.warn);
     const preferences = assembleSettingsWindow(label);
+    const privacy = assemblePrivacyWindow(preferences.privacySettings);
     const analytics = assembleAnalyticsWindow(label);
     const startupNotices = main
         ? createStartupNotices({ initializePreferences: preferences.api.initialize })
@@ -64,6 +66,7 @@ export function initializeAgentWindow(input: { capabilities?: StartupCapabilitie
               owner = module.assembleDesktopMainAgent({
                   analytics: analytics.sink,
                   settings: preferences.api,
+                  privacy: privacy.api,
                   beforeStart: async () => {
                       await preferences.api.initialize();
                       await capabilities.waitForAgent();
@@ -273,6 +276,7 @@ export function initializeAgentWindow(input: { capabilities?: StartupCapabilitie
     });
     let disposal: Promise<void> | undefined;
     return Object.freeze({
+        privacy: privacy.api,
         api,
         startup: startupNotices ? Object.freeze({ consume: startupNotices.consume }) : undefined,
         productAnalytics: analytics.product,
@@ -317,6 +321,7 @@ export function initializeAgentWindow(input: { capabilities?: StartupCapabilitie
             tools.dispose();
             computer.dispose();
             startupNotices?.dispose();
+            privacy.dispose();
             preferences.dispose();
             analytics.dispose();
             updates.dispose();

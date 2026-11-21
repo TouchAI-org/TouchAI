@@ -1,6 +1,24 @@
+import { DEFAULT_PRIVACY_MODEL_ID, type PrivacyFilterModelId } from '@/config/privacy';
 import { z } from '@/utils/zod';
 
 export const PRIVACY_FILTER_SETTINGS_KEY = 'privacy_filter_settings';
+export const PRIVACY_FILTER_MODEL_KEY = 'privacy_filter_model_id';
+export const PRIVACY_FILTER_FAILURE_ACTION_KEY = 'privacy_filter_failure_action';
+
+export type PrivacyFilterFailureAction = 'block' | 'fallback-rules' | 'send-original';
+
+export function normalizePrivacyFilterFailureAction(value: unknown): PrivacyFilterFailureAction {
+    if (value === null || value === undefined) return 'fallback-rules';
+    return value === 'fallback-rules' || value === 'send-original' ? value : 'block';
+}
+
+export function normalizePrivacyFilterModelId(value: unknown): PrivacyFilterModelId {
+    return value === 'openai-privacy-filter' ||
+        value === 'openmed-privacy-filter' ||
+        value === 'astrlink-guard-int8'
+        ? value
+        : DEFAULT_PRIVACY_MODEL_ID;
+}
 export const PRIVACY_FILTER_SETTINGS_VERSION = 2;
 
 export const PRIVACY_DATA_TYPES = [
@@ -120,8 +138,7 @@ export function normalizePrivacyFilterSettings(value: unknown): PrivacyFilterSet
         ? Math.min(1, Math.max(0, data.confidenceThreshold ?? 0.8))
         : DEFAULT_PRIVACY_FILTER_SETTINGS.confidenceThreshold;
 
-    // Settings version 1 had two independent booleans and no categories. The
-    // Legacy maps remain readable, but categories are the only writable source.
+    // Read legacy booleans and maps; categories are the only writable source.
     const savedCategories = data.categories;
     const categories = Object.fromEntries(
         PRIVACY_FILTER_CATEGORIES.map((category) => [

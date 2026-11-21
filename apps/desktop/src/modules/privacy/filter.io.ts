@@ -1,37 +1,15 @@
-import type { ModelMessage } from 'ai';
+import { log } from '@/platform/diagnostics';
+import { native } from '@/platform/native';
 
-import type { AiMessage, AiStreamChunk } from '@/services/AgentService/contracts/protocol';
-import { native } from '@/services/NativeService';
-import {
-    DEFAULT_PRIVACY_MODEL_ID,
-    type PrivacyFilterModelId,
-    type PrivacyProtectionRule,
-} from '@/services/NativeService/privacyFilter';
-import { log } from '@/services/ObservabilityService';
-import {
-    PRIVACY_DATA_TYPES,
-    type PrivacyDataType,
-    type PrivacyFilterSettings,
-} from '@services/SettingsService/domain';
-
-import { PrivacyMaskingSession, type PrivacyMaskingSpan } from './privacyMasking';
-
-interface TextTarget {
-    value: string;
-    write(value: string): void;
-}
-
+import type { PrivacyFilterModelId, PrivacyProtectionRule } from './contracts';
+import type { PrivacyMaskingSession, PrivacyMaskingSpan } from './masking';
+import { PRIVACY_DATA_TYPES, type PrivacyDataType, type PrivacyFilterSettings } from './settings';
 interface MaskRange {
     start: number;
     end: number;
     kind: string;
     score: number;
     rule: PrivacyProtectionRule;
-}
-
-interface PrivacyMaskingResult<T = ModelMessage> {
-    messages: T[];
-    session: PrivacyMaskingSession;
 }
 
 const SECRET_PATTERNS = [
@@ -173,19 +151,21 @@ function detectRuleRanges(text: string, settings: PrivacyFilterSettings): MaskRa
             undefined,
             1
         );
-        for (const prefix of settings.useLocalModel ? [] : settings.secretPrefixes) {
-            for (const { start, end: prefixEnd } of findLiteralRanges(text, prefix)) {
-                let end = prefixEnd;
-                while (end < text.length && !/[\s,;#]/.test(text[end] ?? '')) end += 1;
-                if (end > prefixEnd) {
-                    ranges.push({
-                        start,
-                        end,
-                        kind: 'custom_secret',
-                        score: 1,
-                        rule: { id: 'customPrefix', value: prefix },
-                    });
-                }
+    }
+
+    // User-defined prefixes are explicit rules, independent of any category switch.
+    for (const prefix of settings.secretPrefixes) {
+        for (const { start, end: prefixEnd } of findLiteralRanges(text, prefix)) {
+            let end = prefixEnd;
+            while (end < text.length && !/[\s,;#]/.test(text[end] ?? '')) end += 1;
+            if (end > prefixEnd) {
+                ranges.push({
+                    start,
+                    end,
+                    kind: 'custom_secret',
+                    score: 1,
+                    rule: { id: 'customPrefix', value: prefix },
+                });
             }
         }
     }
@@ -222,7 +202,7 @@ function detectRuleRanges(text: string, settings: PrivacyFilterSettings): MaskRa
         }
     }
 
-    for (const word of settings.useLocalModel ? [] : settings.maskedWords) {
+    for (const word of settings.maskedWords) {
         addLiteralMatches(text, word, 'term', ranges, { id: 'customWord', value: word });
     }
     return ranges;
@@ -297,71 +277,6 @@ function shouldUseLocalModel(settings: PrivacyFilterSettings): boolean {
     );
 }
 
-function setTarget(target: TextTarget, text: string): void {
-    target.write(text);
-}
-
-function collectTextTargets(messages: ModelMessage[]): TextTarget[] {
-    const targets: TextTarget[] = [];
-    const add = (value: unknown, write: (value: string) => void) => {
-        if (typeof value === 'string' && value.length > 0) {
-            targets.push({ value, write });
-        }
-    };
-
-    for (const message of messages) {
-        const content = (message as { content?: unknown }).content;
-        if (typeof content === 'string') {
-            add(content, (value) => {
-                (message as { content: string }).content = value;
-            });
-            continue;
-        }
-        if (!Array.isArray(content)) continue;
-
-        for (const part of content as Array<Record<string, unknown>>) {
-            if (
-                (part.type === 'text' || part.type === 'reasoning') &&
-                typeof part.text === 'string'
-            ) {
-                add(part.text, (value) => {
-                    part.text = value;
-                });
-            } else if (part.type === 'tool-call' && part.input !== undefined) {
-                let serialized: string;
-                try {
-                    serialized = JSON.stringify(part.input) ?? '{}';
-                } catch {
-                    continue;
-                }
-                add(serialized, (value) => {
-                    part.input = JSON.parse(value) as unknown;
-                });
-            } else if (
-                part.type === 'tool-result' &&
-                part.output &&
-                typeof part.output === 'object'
-            ) {
-                const output = part.output as Record<string, unknown>;
-                if (output.type === 'text' && typeof output.value === 'string') {
-                    add(output.value, (value) => {
-                        output.value = value;
-                    });
-                } else if (output.type === 'content' && Array.isArray(output.value)) {
-                    for (const outputPart of output.value as Array<Record<string, unknown>>) {
-                        if (outputPart.type === 'text' && typeof outputPart.text === 'string') {
-                            add(outputPart.text, (value) => {
-                                outputPart.text = value;
-                            });
-                        }
-                    }
-                }
-            }
-        }
-    }
-    return targets;
-}
-
 async function findRanges(
     texts: string[],
     settings: PrivacyFilterSettings,
@@ -369,56 +284,70 @@ async function findRanges(
     session: PrivacyMaskingSession,
     modelId: PrivacyFilterModelId
 ): Promise<MaskRange[][]> {
-    const ruleRanges = texts.map((text) => detectRuleRanges(text, settings));
-    let modelRanges: MaskRange[][] = texts.map(() => []);
+    let modelRanges: MaskRange[][] = [];
 
     if (useModel && shouldUseLocalModel(settings)) {
         const status = await native.privacyFilter.getModelStatus(modelId);
-        if (status.installed) {
-            const detections = await native.privacyFilter.detect(texts, modelId);
-            session.markLocalModelUsed();
-            modelRanges = texts.map((text, index) =>
-                (detections[index] ?? [])
-                    .filter(
-                        (span) =>
-                            span.start >= 0 &&
-                            span.end > span.start &&
-                            span.end <= text.length &&
-                            span.score >= settings.confidenceThreshold &&
-                            isModelKindAllowed(span.kind, settings)
-                    )
-                    .map((span) => ({
-                        start: span.start,
-                        end: span.end,
-                        kind: span.kind,
-                        score: span.score,
-                        rule: { id: 'localModel' as const, modelId },
-                    }))
-            );
-        }
+        if (!status.installed || status.downloading)
+            throw new Error('The selected local privacy model is unavailable');
+        const detections = await native.privacyFilter.detect(texts, modelId);
+        if (
+            !Array.isArray(detections) ||
+            detections.length !== texts.length ||
+            !detections.every((spans) => Array.isArray(spans))
+        )
+            throw new Error('Invalid local privacy detection response');
+        session.markLocalModelUsed();
+        modelRanges = texts.map((text, index) =>
+            detections[index]!.filter(
+                (span) =>
+                    span.start >= 0 &&
+                    span.end > span.start &&
+                    span.end <= text.length &&
+                    span.score >= settings.confidenceThreshold &&
+                    isModelKindAllowed(span.kind, settings)
+            ).map((span) => ({
+                start: span.start,
+                end: span.end,
+                kind: span.kind,
+                score: span.score,
+                rule: { id: 'localModel' as const, modelId },
+            }))
+        );
     }
 
     return texts.map((text, index) =>
         excludeNeverMaskRanges(
             text,
-            [...(ruleRanges[index] ?? []), ...(modelRanges[index] ?? [])],
+            [...detectRuleRanges(text, settings), ...(modelRanges[index] ?? [])],
             settings.neverMask
         )
     );
 }
 
-async function maskTexts(
+export async function maskTexts(
     texts: string[],
     settings: PrivacyFilterSettings,
     session: PrivacyMaskingSession,
     useModel: boolean,
-    modelId: PrivacyFilterModelId
+    modelId: PrivacyFilterModelId,
+    onAccepted?: (index: number, span: PrivacyMaskingSpan, original: string) => void
 ): Promise<string[]> {
     const rangesByText = await findRanges(texts, settings, useModel, session, modelId);
     return Promise.all(
         texts.map(async (text, index) => {
+            // Merge before hashing: a placeholder must identify the entire covered original.
+            const merged: MaskRange[] = [];
+            for (const range of (rangesByText[index] ?? []).sort(
+                (a, b) => a.start - b.start || b.end - a.end
+            )) {
+                const previous = merged[merged.length - 1];
+                if (previous && range.start < previous.end)
+                    previous.end = Math.max(previous.end, range.end);
+                else merged.push({ ...range });
+            }
             const spans: PrivacyMaskingSpan[] = await Promise.all(
-                (rangesByText[index] ?? []).map(async (range) => ({
+                merged.map(async (range) => ({
                     ...range,
                     placeholder: await createPlaceholder(
                         range.kind,
@@ -426,257 +355,59 @@ async function maskTexts(
                     ),
                 }))
             );
-            return session.maskText(text, spans);
+            return session.maskText(text, spans, (span, original) =>
+                onAccepted?.(index, span, original)
+            );
         })
     );
 }
 
-export async function maskModelMessages(
-    sourceMessages: ModelMessage[],
-    settings: PrivacyFilterSettings,
-    existingSession = new PrivacyMaskingSession(),
-    useModel = true,
-    modelId: PrivacyFilterModelId = DEFAULT_PRIVACY_MODEL_ID
-): Promise<PrivacyMaskingResult> {
-    if (!settings.enabled) {
-        return { messages: sourceMessages, session: existingSession };
-    }
-
-    const messages = sourceMessages.map((message) => ({ ...message })) as ModelMessage[];
-    for (let index = 0; index < messages.length; index += 1) {
-        const content = (sourceMessages[index] as { content?: unknown }).content;
-        if (Array.isArray(content)) {
-            (messages[index] as { content: unknown }).content = content.map((part) => {
-                if (!part || typeof part !== 'object') return part;
-                const cloned = { ...(part as Record<string, unknown>) };
-                if (
-                    cloned.type === 'tool-result' &&
-                    cloned.output &&
-                    typeof cloned.output === 'object'
-                ) {
-                    const output = cloned.output as Record<string, unknown>;
-                    cloned.output = {
-                        ...output,
-                        ...(Array.isArray(output.value)
-                            ? {
-                                  value: output.value.map((item) =>
-                                      item && typeof item === 'object'
-                                          ? { ...(item as Record<string, unknown>) }
-                                          : item
-                                  ),
-                              }
-                            : {}),
-                    };
-                }
-                return cloned;
-            });
-        }
-    }
-
-    const targets = collectTextTargets(messages);
-    if (targets.length === 0) {
-        return { messages, session: existingSession };
-    }
-    const masked = await maskTexts(
-        targets.map((target) => target.value),
-        settings,
-        existingSession,
-        useModel,
-        modelId
-    );
-    targets.forEach((target, index) => setTarget(target, masked[index] ?? target.value));
-    return { messages, session: existingSession };
-}
-
-function cloneAiMessages(source: AiMessage[]): AiMessage[] {
-    return source.map((message) => ({
-        ...message,
-        content: Array.isArray(message.content)
-            ? message.content.map((part) =>
-                  part.type === 'file' || part.type === 'image'
-                      ? { ...part, meta: { ...part.meta } }
-                      : part.type === 'tool_use'
-                        ? { ...part, input: { ...part.input } }
-                        : { ...part }
-              )
-            : message.content,
-        tool_calls: message.tool_calls?.map((toolCall) => ({ ...toolCall })),
-    }));
-}
-
-function collectAiMessageTextTargets(messages: AiMessage[]): TextTarget[] {
-    const targets: TextTarget[] = [];
-    const add = (value: unknown, write: (value: string) => void) => {
-        if (typeof value === 'string' && value.length > 0) {
-            targets.push({ value, write });
-        }
-    };
-
-    for (const message of messages) {
-        if (typeof message.content === 'string') {
-            add(message.content, (value) => {
-                message.content = value;
-            });
-        } else {
-            for (const part of message.content) {
-                switch (part.type) {
-                    case 'text':
-                    case 'reasoning':
-                        add(part.text, (value) => {
-                            part.text = value;
-                        });
-                        break;
-                    case 'file':
-                        add(part.name, (value) => {
-                            part.name = value;
-                        });
-                        add(part.meta.name, (value) => {
-                            part.meta.name = value;
-                        });
-                        add(part.meta.originPath, (value) => {
-                            part.meta.originPath = value;
-                        });
-                        if (part.textContent !== undefined) {
-                            add(part.textContent, (value) => {
-                                part.textContent = value;
-                            });
-                        }
-                        break;
-                    case 'image':
-                        add(part.name, (value) => {
-                            part.name = value;
-                        });
-                        add(part.meta.name, (value) => {
-                            part.meta.name = value;
-                        });
-                        add(part.meta.originPath, (value) => {
-                            part.meta.originPath = value;
-                        });
-                        break;
-                    case 'tool_use': {
-                        let serialized: string;
-                        try {
-                            serialized = JSON.stringify(part.input) ?? '{}';
-                        } catch {
-                            break;
-                        }
-                        add(serialized, (value) => {
-                            try {
-                                part.input = JSON.parse(value) as Record<string, unknown>;
-                            } catch {
-                                part.input = {};
-                            }
-                        });
-                        break;
-                    }
-                    case 'tool_result':
-                        add(part.content, (value) => {
-                            part.content = value;
-                        });
-                        break;
-                }
-            }
-        }
-
-        for (const toolCall of message.tool_calls ?? []) {
-            add(toolCall.arguments, (value) => {
-                toolCall.arguments = value;
-            });
-        }
-    }
-    return targets;
-}
-
-export async function maskAiMessages(
-    sourceMessages: AiMessage[],
-    settings: PrivacyFilterSettings,
-    modelId: PrivacyFilterModelId = DEFAULT_PRIVACY_MODEL_ID
-): Promise<PrivacyMaskingResult<AiMessage>> {
-    const session = new PrivacyMaskingSession();
-    if (!settings.enabled) {
-        return { messages: sourceMessages, session };
-    }
-    const messages = cloneAiMessages(sourceMessages);
-
-    const targets = collectAiMessageTextTargets(messages);
-    if (targets.length === 0) {
-        return { messages, session };
-    }
-    const masked = await maskTexts(
-        targets.map((target) => target.value),
-        settings,
-        session,
-        true,
-        modelId
-    );
-    targets.forEach((target, index) => setTarget(target, masked[index] ?? target.value));
-    return { messages, session };
-}
-
-export function restorePrivacyChunk(
-    chunk: AiStreamChunk,
+export async function recordPrivacyRestoration(
     session: PrivacyMaskingSession,
-    restoredToolBuffers: Map<string, string>
-): AiStreamChunk {
-    const restored = { ...chunk };
-    restored.content = session.pushText(chunk.content, 'content');
-    if (chunk.textState === 'end' || chunk.done) {
-        restored.content += session.flushText('content');
+    context?: { sessionId?: number; modelName?: string },
+    currentGeneration = session.reviewGeneration
+): Promise<void> {
+    const summary = session.restorationSummary();
+    if (!summary.maskedCount || session.reviewGeneration !== currentGeneration) return;
+    try {
+        await native.privacyFilter.recordRestoration(
+            { ...summary, mode: session.mode, outcome: 'protected', ...context },
+            session.restorationDetails(),
+            session.recordGeneration
+        );
+    } catch {
+        log.warn('[PrivacyProtection] Reply restoration record could not be saved');
     }
-    if (typeof chunk.reasoning === 'string') {
-        restored.reasoning = session.pushText(chunk.reasoning, 'reasoning');
-    }
-    if (chunk.reasoningState === 'end' || chunk.done) {
-        restored.reasoning = (restored.reasoning ?? '') + session.flushText('reasoning');
-    }
-    if (chunk.toolCallDeltas) {
-        restored.toolCallDeltas = chunk.toolCallDeltas.map((delta) => {
-            const streamId = `tool:${delta.index}`;
-            if (delta.isComplete && typeof delta.argumentsBuffer === 'string') {
-                restoredToolBuffers.delete(streamId);
-                session.flushText(streamId);
-                return {
-                    ...delta,
-                    argumentsBuffer: session.restoreToolArguments(delta.argumentsBuffer),
-                };
-            }
-            const originalDelta = delta.argumentsDelta ?? '';
-            const visibleDelta = session.pushText(originalDelta, streamId);
-            const visibleArguments = `${restoredToolBuffers.get(streamId) ?? ''}${visibleDelta}`;
-            restoredToolBuffers.set(streamId, visibleArguments);
-            return {
-                ...delta,
-                argumentsDelta: visibleDelta,
-                argumentsBuffer: visibleArguments,
-            };
-        });
-    }
-    if (chunk.toolCalls) {
-        restored.toolCalls = chunk.toolCalls.map((toolCall) => ({
-            ...toolCall,
-            arguments: session.restoreToolArguments(toolCall.arguments),
-        }));
-    }
-    return restored;
 }
-
-export const PRIVACY_FILTER_DATA_TYPES = PRIVACY_DATA_TYPES;
 
 export async function recordPrivacyProtection(
     session: PrivacyMaskingSession,
     outcome: 'protected' | 'blocked' = 'protected',
-    mode = session.mode
+    mode = session.mode,
+    context?: { sessionId?: number; modelName?: string },
+    currentGeneration = session.reviewGeneration
 ): Promise<void> {
     const summary = session.protectionSummary();
-    if (summary.maskedCount === 0 && outcome === 'protected') return;
+    if (
+        session.reviewGeneration !== currentGeneration ||
+        (summary.maskedCount === 0 && outcome === 'protected')
+    )
+        return;
     try {
-        const record = { ...summary, mode, outcome };
-        if (summary.maskedCount > 0) {
-            await native.privacyFilter.recordProtection(record, session.protectionDetails());
-        } else {
-            await native.privacyFilter.recordProtection(record);
-        }
+        await native.privacyFilter.recordProtection(
+            {
+                ...summary,
+                mode,
+                outcome,
+                ...(context?.sessionId ? { sessionId: context.sessionId } : {}),
+                ...(context?.modelName ? { modelName: context.modelName } : {}),
+            },
+            session.protectionDetails(),
+            session.recordGeneration
+        );
     } catch {
         log.warn('[PrivacyProtection] Request record could not be saved');
     }
 }
+
+export const getPrivacyRecordGeneration = native.privacyFilter.getRecordGeneration;

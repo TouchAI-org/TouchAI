@@ -95,6 +95,13 @@ describe('user searches the settings in another language', () => {
         expect(results.some((result) => result.targetId === 'privacy-filter-mode')).toBe(true);
         expect(results.some((result) => result.targetId === 'privacy-filter-try-it')).toBe(false);
     });
+
+    it('user searches for masking failure then finds that setting only in local model mode', () => {
+        expect(searchSettings('脱敏失败时', false)).toEqual([]);
+        expect(searchSettings('脱敏失败时', true)).toEqual([
+            expect.objectContaining({ targetId: 'privacy-filter-failure-action' }),
+        ]);
+    });
 });
 
 describe('user searches settings by the section they belong to', () => {

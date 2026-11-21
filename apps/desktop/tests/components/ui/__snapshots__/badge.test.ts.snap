@@ -3,6 +3,9 @@
 exports[`user sees a badge > user sees a capability chip > user sees the enabled capability chip in blue 1`] = `
 [
   "bg-blue-50",
+  "focus-visible:decoration-text-secondary",
+  "focus-visible:underline",
+  "focus-visible:underline-offset-4",
   "font-medium",
   "hover:bg-blue-100",
   "px-1.5",
@@ -17,6 +20,9 @@ exports[`user sees a badge > user sees a capability chip > user sees the enabled
 exports[`user sees a badge > user sees a capability chip > user tone=blue 开启态稳定性 1`] = `
 [
   "bg-blue-50",
+  "focus-visible:decoration-text-secondary",
+  "focus-visible:underline",
+  "focus-visible:underline-offset-4",
   "font-medium",
   "hover:bg-blue-100",
   "px-1.5",
@@ -31,6 +37,9 @@ exports[`user sees a badge > user sees a capability chip > user tone=blue 开启
 exports[`user sees a badge > user sees a capability chip > user tone=green 开启态稳定性 1`] = `
 [
   "bg-green-50",
+  "focus-visible:decoration-text-secondary",
+  "focus-visible:underline",
+  "focus-visible:underline-offset-4",
   "font-medium",
   "hover:bg-green-100",
   "px-1.5",
@@ -45,6 +54,9 @@ exports[`user sees a badge > user sees a capability chip > user tone=green 开�
 exports[`user sees a badge > user sees a capability chip > user tone=indigo 开启态稳定性 1`] = `
 [
   "bg-indigo-50",
+  "focus-visible:decoration-text-secondary",
+  "focus-visible:underline",
+  "focus-visible:underline-offset-4",
   "font-medium",
   "hover:bg-indigo-100",
   "px-1.5",
@@ -59,6 +71,9 @@ exports[`user sees a badge > user sees a capability chip > user tone=indigo 开�
 exports[`user sees a badge > user sees a capability chip > user tone=orange 开启态稳定性 1`] = `
 [
   "bg-orange-50",
+  "focus-visible:decoration-text-secondary",
+  "focus-visible:underline",
+  "focus-visible:underline-offset-4",
   "font-medium",
   "hover:bg-orange-100",
   "px-1.5",
@@ -73,6 +88,9 @@ exports[`user sees a badge > user sees a capability chip > user tone=orange 开�
 exports[`user sees a badge > user sees a capability chip > user tone=purple 开启态稳定性 1`] = `
 [
   "bg-purple-50",
+  "focus-visible:decoration-text-secondary",
+  "focus-visible:underline",
+  "focus-visible:underline-offset-4",
   "font-medium",
   "hover:bg-purple-100",
   "px-1.5",

@@ -21,6 +21,7 @@
     import type { ClipboardPayload } from '@/app/api/attachments/drafts';
     import { useClipboardDraftApi } from '@/app/api/attachments/drafts';
     import { log } from '@/app/api/diagnostics';
+    import { type PrivacyReviewAnnotation, usePrivacyApi } from '@/app/api/privacy';
     import type {
         SearchSurfaceCommandEvent,
         SessionStatusReminderActionEvent,
@@ -38,6 +39,7 @@
         SEARCH_SURFACE_MOTION,
         SEARCH_SURFACE_REVEAL_EASING,
     } from '@/config/searchWindow';
+    const { publishPrivacyReview, clearPrivacyReview } = usePrivacyApi();
     import { type AppLocale, t } from '@/i18n';
     const searchWindow = useSearchWindowApi();
     const clipboardService = useClipboardDraftApi();
@@ -396,6 +398,8 @@
             resetSearchWindowBounds: () => Promise<void>;
             setSearchFixture: (query: string, results: QuickShortcutItem[]) => void;
             setConversation: (messages: SessionMessage[]) => Promise<void>;
+            setPrivacyReviewAnnotations: (annotations: PrivacyReviewAnnotation[]) => void;
+            clearPrivacyReview: () => void;
             setAskUserRequest: (request: E2eAskUserRequest) => void;
             clearAskUser: () => void;
             setLanguage: (locale: AppLocale) => Promise<void>;
@@ -2667,6 +2671,12 @@
                 await playSessionExpandAnimation(contentHeight).catch((error) => {
                     log.error('[SearchView] Failed to expand the E2E conversation fixture:', error);
                 });
+            },
+            setPrivacyReviewAnnotations(annotations: PrivacyReviewAnnotation[]) {
+                publishPrivacyReview(annotations);
+            },
+            clearPrivacyReview() {
+                clearPrivacyReview();
             },
             setAskUserRequest(request: E2eAskUserRequest) {
                 if (request.kind === 'confirm') {

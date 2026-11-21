@@ -15,8 +15,8 @@
              leaving visible long code blocks stuck in the loading fallback. -->
         <MarkdownRender
             :key="markdownRenderKey"
-            custom-id="touchai"
-            :nodes="nodes"
+            :custom-id="privacyMarkdown.hasAnnotations ? 'touchai-privacy' : 'touchai'"
+            :nodes="renderedNodes"
             :final="props.final"
             :is-dark="false"
             :themes="codeBlockThemes"
@@ -59,6 +59,9 @@
     import WebSearchCitationLink from '@/views/SearchView/components/WebSearch/WebSearchCitationLink.vue';
 
     import MarkdownCodeBlock from './MarkdownCodeBlock.vue';
+    import MarkdownPrivacyText from './MarkdownPrivacyText.vue';
+    import MarkdownRemoteImage from './MarkdownRemoteImage.vue';
+    import MarkdownSafeHtml from './MarkdownSafeHtml.vue';
 
     let isConfigured = false;
 
@@ -123,8 +126,20 @@
             // 与具体组件无关的基础插件（emoji / katex / mermaid）在模块级注册一次。
             applyMarkdownBasePlugins();
             setCustomComponents?.('touchai', {
+                html_inline: MarkdownSafeHtml,
+                html_block: MarkdownSafeHtml,
+                image: MarkdownRemoteImage,
                 link: WebSearchCitationLink,
                 code_block: MarkdownCodeBlock,
+            });
+            setCustomComponents?.('touchai-privacy', {
+                html_inline: MarkdownSafeHtml,
+                html_block: MarkdownSafeHtml,
+                image: MarkdownRemoteImage,
+                link: WebSearchCitationLink,
+                code_block: MarkdownCodeBlock,
+                text: MarkdownPrivacyText,
+                inline_code: MarkdownPrivacyText,
             });
             isConfigured = true;
         }
@@ -139,11 +154,13 @@
         type ParsedNode,
         parseMarkdownToStructure,
     } from 'markstream-vue';
-    import { computed, inject, onUnmounted, ref, watch } from 'vue';
+    import { computed, inject, onUnmounted, ref, useId, watch } from 'vue';
 
     import { useProductAnalyticsApi } from '@/app/api/analytics/product';
+    import type { PrivacyReviewAnnotation } from '@/app/api/privacy';
     import { writeClipboardText } from '@/app/api/windows/clipboard';
     import { notify } from '@/app/api/windows/notifications';
+    import { preparePrivacyMarkdown } from '@/components/markdown/privacyAnnotations';
     import { getLocale, locale, t } from '@/i18n';
     import codeSurfaceStyles from '@/styles/markdown-code-surface.css?inline';
     import { containsLongCodeBlock } from '@/utils/markdownCodeBlock';
@@ -155,6 +172,7 @@
 
     interface Props {
         content: string;
+        privacyAnnotations?: PrivacyReviewAnnotation[];
         variant?: 'default' | 'reasoning';
         final?: boolean;
         /** 非终态流式更新合并窗口（ms）；0 表示每次内容变化立即重新解析。 */
@@ -165,6 +183,7 @@
         variant: 'default',
         final: true,
         parseCoalesceMs: 50,
+        privacyAnnotations: () => [],
     });
 
     const containerClass = computed(() => {
@@ -257,8 +276,12 @@
         return result;
     }
 
+    const privacyPrefix = `\uE000${useId()}:`;
+    const privacyMarkdown = computed(() =>
+        preparePrivacyMarkdown(props.content, props.privacyAnnotations, privacyPrefix)
+    );
     const markdownParseInput = computed(() => ({
-        content: escapeShellVariablesOutsideCode(props.content),
+        content: escapeShellVariablesOutsideCode(privacyMarkdown.value.content),
         final: props.final,
         locale: locale.value,
     }));
@@ -296,6 +319,8 @@
     }
 
     const nodes = ref<ParsedNode[]>([]);
+    // Restore with the mapping from the same coalesced parse, never a newer chunk's offsets.
+    const renderedNodes = ref<ParsedNode[]>([]);
     let parseCoalesceTimer: ReturnType<typeof setTimeout> | null = null;
 
     function cancelParseCoalesce() {
@@ -308,6 +333,7 @@
     function parseImmediately() {
         cancelParseCoalesce();
         nodes.value = parseCurrentInput();
+        renderedNodes.value = privacyMarkdown.value.restoreNodes(nodes.value);
     }
 
     // 流式追加时合并解析窗口：一个窗口内只重新解析一次，而不是每个 chunk 都全量解析。
@@ -329,6 +355,7 @@
             parseCoalesceTimer = setTimeout(() => {
                 parseCoalesceTimer = null;
                 nodes.value = parseCurrentInput();
+                renderedNodes.value = privacyMarkdown.value.restoreNodes(nodes.value);
             }, coalesceMs);
         },
         { immediate: true, flush: 'post' }
@@ -348,6 +375,7 @@
     const renderCodeBlocksAsPre = computed(
         () =>
             !props.final &&
+            !privacyMarkdown.value.hasAnnotations &&
             containsLongCodeBlock(props.content, LONG_CODE_BLOCK_STREAMING_THRESHOLD)
     );
 

@@ -26,23 +26,26 @@
      * 另外 BashToolConfig 的开启色是 bg-primary-500 / 关闭色 bg-gray-200，
      * 与其余位置的 bg-primary-700 / bg-neutral-200 不同，用 tone 区分。
      */
-    const switchRootVariants = cva('', {
-        variants: {
-            size: {
-                sm: 't-toggle-track relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full',
-                md: 't-toggle-track relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full',
-                lg: 't-toggle-track relative inline-flex h-5 w-9 items-center rounded-full',
+    const switchRootVariants = cva(
+        'focus-visible:data-[state=checked]:bg-primary-hover focus-visible:data-[state=unchecked]:bg-primary/30',
+        {
+            variants: {
+                size: {
+                    sm: 't-toggle-track relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full',
+                    md: 't-toggle-track relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full',
+                    lg: 't-toggle-track relative inline-flex h-5 w-9 items-center rounded-full',
+                },
+                tone: {
+                    default: '',
+                    subtle: '',
+                },
             },
-            tone: {
-                default: '',
-                subtle: '',
+            defaultVariants: {
+                size: 'sm',
+                tone: 'default',
             },
-        },
-        defaultVariants: {
-            size: 'sm',
-            tone: 'default',
-        },
-    });
+        }
+    );
 
     const switchThumbVariants = cva('t-toggle-thumb rounded-full bg-white', {
         variants: {

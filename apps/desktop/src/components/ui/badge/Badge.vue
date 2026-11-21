@@ -31,7 +31,7 @@
     const badgeVariants = cva('', {
         variants: {
             variant: {
-                toggle: 'rounded px-1.5 py-0.5 text-xs font-medium transition-colors',
+                toggle: 'rounded px-1.5 py-0.5 text-xs font-medium transition-colors focus-visible:underline focus-visible:decoration-text-secondary focus-visible:underline-offset-4',
                 tag: 'inline-flex min-w-0 items-center rounded text-center font-medium break-words whitespace-normal',
                 source: 'inline-flex min-w-max items-center rounded border border-badge-border bg-badge-surface px-1 py-0.5 text-3xs leading-none whitespace-nowrap text-badge-foreground shadow-sm',
             },

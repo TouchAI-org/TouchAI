@@ -1,3 +1,7 @@
+import { useTestPrivacyWindow } from '@tests/utils/privacyWindow';
+
+useTestPrivacyWindow();
+
 import { enableAutoUnmount, mount } from '@vue/test-utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent, h, nextTick, ref } from 'vue';
