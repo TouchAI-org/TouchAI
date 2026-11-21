@@ -6,10 +6,8 @@ import path from 'node:path';
 import {
     assertVisible,
     callE2eBridge,
-    getAriaChecked,
     resetSearchSurface,
     switchToWindowContaining,
-    toggleSwitch,
     useInterfaceLanguage,
     useProductFont,
     waitForE2eBridge,
@@ -305,16 +303,22 @@ describe('given a real protected request in the desktop conversation', () => {
             'INSERT INTO models (provider_id, name, model_id, is_default, context_limit, output_limit) VALUES (?, ?, ?, ?, ?, ?)',
             [providerId, 'Kimi K2', 'privacy-hover-test', 1, 8192, 512]
         );
+        await callE2eBridge('setPrivacyFilterSettings', {
+            enabled: true,
+            useLocalModel: false,
+        });
         await callE2eBridge('openSettingsWindow');
         await switchToWindowContaining('/settings');
         await (await waitForTestIdDisplayed('settings-nav-privacy-filter')).click();
         const enabled = await waitForTestIdDisplayed('privacy-filter-enabled-toggle');
-        if ((await getAriaChecked(enabled)) !== 'true') await toggleSwitch(enabled, 90000);
+        assertVisible(
+            (await enabled.getAttribute('aria-checked')) === 'true',
+            'The rule-based privacy fixture did not enable protection.'
+        );
         const rules = await waitForTestIdDisplayed('privacy-filter-mode-rules');
         await browser.waitUntil(async () => rules.isEnabled(), {
-            timeoutMsg: 'Local-model preparation did not finish before choosing rules.',
+            timeoutMsg: 'The rule-based privacy fixture did not reach the settings window.',
         });
-        await rules.click();
         await browser.waitUntil(
             async () => {
                 const saved = await query(

@@ -36,6 +36,10 @@ describe('user works in the settings window', () => {
         await useInterfaceLanguage();
         await useProductFont();
         mainWindowHandle = await browser.getWindowHandle();
+        await callE2eBridge('setPrivacyFilterSettings', {
+            enabled: false,
+            useLocalModel: false,
+        });
 
         await callE2eBridge('openSettingsWindow');
         await switchToWindowContaining('/settings');
@@ -220,7 +224,7 @@ describe('user works in the settings window', () => {
             );
         });
 
-        it('user changes privacy filtering modes, then sees relevant controls and keeps the disabled state after navigation', async () => {
+        it('user prepares local privacy without downloading in CI then keeps rule-based preferences across navigation', async () => {
             const privacyNav = await waitForTestIdDisplayed('settings-nav-privacy-filter');
             await privacyNav.click();
             await waitForTestIdDisplayed('settings-privacy-filter-section');
@@ -244,66 +248,21 @@ describe('user works in the settings window', () => {
                 'The removed mode recommendation badge is still present.'
             );
 
-            await toggleSwitch(enabled, 90000);
-            await browser.waitUntil(async () => mode.isEnabled(), {
-                timeoutMsg: 'Local-model preparation did not finish before settings unlocked.',
-            });
-            assertVisible(
-                (await (
-                    await waitForTestIdDisplayed('privacy-filter-mode-model')
-                ).getAttribute('aria-checked')) === 'true',
-                'Enabling protection did not default to the local model.'
-            );
-            await mode.click();
-            await browser.waitUntil(
-                async () =>
-                    !(await browser.$('[data-testid="privacy-filter-model-select"]').isExisting()),
-                {
-                    timeoutMsg: 'Rule-based filtering still shows model settings.',
-                }
-            );
             await toggleSwitch(enabled);
-
-            await (await waitForTestIdDisplayed('settings-nav-general')).click();
-            await waitForTestIdDisplayed('settings-general-section');
-            await (await waitForTestIdDisplayed('settings-nav-privacy-filter')).click();
-            await waitForTestIdDisplayed('settings-privacy-filter-section');
-            const restoredEnabled = await waitForTestIdDisplayed('privacy-filter-enabled-toggle');
-            const restoredMode = await waitForTestIdDisplayed('privacy-filter-mode-rules');
-            assertVisible(
-                (await getAriaChecked(restoredEnabled)) === 'false',
-                'The disabled state was not saved.'
-            );
-            assertVisible(
-                (await restoredMode.getAttribute('aria-checked')) === 'true',
-                'The rule-based mode was not saved.'
-            );
-
-            await toggleSwitch(restoredEnabled, 90000);
-            await browser.waitUntil(async () => restoredMode.isEnabled(), {
-                timeoutMsg: 'Re-enabling protection did not finish model verification.',
-            });
             assertVisible(
                 (await (
                     await waitForTestIdDisplayed('privacy-filter-mode-model')
                 ).getAttribute('aria-checked')) === 'true',
-                'Re-enabling protection retained the old rule mode.'
+                'Preparing protection did not default to the local model.'
             );
-            await restoredMode.click();
-            await browser.keys('ArrowLeft');
-            const model = await waitForTestIdDisplayed('privacy-filter-model-select');
-            await model.click();
-            const download = await browser.$(
-                '[role="group"][aria-label="OpenAI Privacy Filter Q8"] [data-testid="privacy-filter-download-model"]'
+            assertVisible(
+                !(await mode.isEnabled()),
+                'Settings unlocked before a local model was verified.'
             );
-            await download.waitForDisplayed();
+            const download = await waitForTestIdDisplayed('privacy-filter-download-model');
             assertVisible(
                 await download.isEnabled(),
-                'The model cannot be downloaded from its selector.'
-            );
-            assertVisible(
-                (await model.getText()).includes('AstrLink'),
-                'The verified AstrLink model was not configured automatically.'
+                'The missing local model did not expose a working download action.'
             );
             const modelNames = await browser.execute(() =>
                 Array.from(document.querySelectorAll('[role="listbox"] [role="option"]')).map(
@@ -321,10 +280,62 @@ describe('user works in the settings window', () => {
                 'The recommended model is not marked.'
             );
             await browser.keys('Escape');
-
+            await toggleSwitch(enabled);
+            await browser.waitUntil(
+                async () =>
+                    !(await browser.$('[data-testid="privacy-filter-model-select"]').isExisting()),
+                { timeoutMsg: 'Cancelling preparation left local-model controls visible.' }
+            );
+            const persistedWhilePreparing = await browser.execute(async () => {
+                const result = await window.__TAURI_INTERNALS__.invoke('database_query', {
+                    request: {
+                        sql: 'SELECT value FROM settings WHERE key = ?',
+                        params: ['privacy_filter_settings'],
+                        method: 'get',
+                    },
+                });
+                return result.rows[0]?.value ?? null;
+            });
+            const persistedPreferences = JSON.parse(persistedWhilePreparing);
             assertVisible(
-                !(await browser.$('[data-testid="privacy-filter-download-source"]').isExisting()),
-                'The removed download source setting is still present.'
+                persistedPreferences.enabled === false &&
+                    persistedPreferences.useLocalModel === false,
+                'Preparing a missing local model changed the saved privacy preference.'
+            );
+
+            await switchToWindowWithE2eBridge(mainWindowHandle);
+            await callE2eBridge('setPrivacyFilterSettings', {
+                enabled: true,
+                useLocalModel: false,
+            });
+            await switchToWindowContaining('/settings');
+            await waitForTestIdDisplayed('settings-privacy-filter-section');
+            const restoredEnabled = await waitForTestIdDisplayed('privacy-filter-enabled-toggle');
+            const restoredMode = await waitForTestIdDisplayed('privacy-filter-mode-rules');
+            assertVisible(
+                (await getAriaChecked(restoredEnabled)) === 'true',
+                'The rule-based preference did not reach the settings window.'
+            );
+            assertVisible(
+                (await restoredMode.getAttribute('aria-checked')) === 'true',
+                'The rule-based mode was not selected.'
+            );
+            await browser.waitUntil(async () => restoredMode.isEnabled(), {
+                timeoutMsg: 'Rule-based settings did not unlock after they were enabled.',
+            });
+            const model = await waitForTestIdDisplayed('privacy-filter-mode-model');
+            await model.click();
+            assertVisible(
+                await (await waitForTestIdDisplayed('privacy-filter-model-select')).isDisplayed(),
+                'Choosing the local-model mode did not reveal its controls.'
+            );
+            await restoredMode.click();
+            await browser.waitUntil(
+                async () =>
+                    !(await browser.$('[data-testid="privacy-filter-model-select"]').isExisting()),
+                {
+                    timeoutMsg: 'Rule-based filtering still shows model settings.',
+                }
             );
 
             await browser.execute(async () => {
@@ -398,6 +409,32 @@ describe('user works in the settings window', () => {
                 { timeoutMsg: 'The protection record was not cleared.' }
             );
             await toggleSwitch(restoredEnabled);
+            await (await waitForTestIdDisplayed('settings-nav-general')).click();
+            await waitForTestIdDisplayed('settings-general-section');
+            await (await waitForTestIdDisplayed('settings-nav-privacy-filter')).click();
+            await waitForTestIdDisplayed('settings-privacy-filter-section');
+            const reloadedEnabled = await waitForTestIdDisplayed('privacy-filter-enabled-toggle');
+            const reloadedMode = await waitForTestIdDisplayed('privacy-filter-mode-rules');
+            assertVisible(
+                (await getAriaChecked(reloadedEnabled)) === 'false' &&
+                    (await reloadedMode.getAttribute('aria-checked')) === 'true',
+                'The disabled rule-based preference was not kept after navigation.'
+            );
+            await toggleSwitch(reloadedEnabled);
+            assertVisible(
+                (await (
+                    await waitForTestIdDisplayed('privacy-filter-mode-model')
+                ).getAttribute('aria-checked')) === 'true',
+                'Re-enabling protection retained the old rule mode.'
+            );
+            await waitForTestIdDisplayed('privacy-filter-download-model');
+            await browser.keys('Escape');
+            await toggleSwitch(reloadedEnabled);
+            await browser.waitUntil(
+                async () =>
+                    !(await browser.$('[data-testid="privacy-filter-model-select"]').isExisting()),
+                { timeoutMsg: 'Cancelling the second preparation left model controls visible.' }
+            );
 
             const editableControls = await browser.execute(() => {
                 const page = document.querySelector(
@@ -413,8 +450,6 @@ describe('user works in the settings window', () => {
                 editableControls === 0,
                 'Some privacy settings remain editable while filtering is off.'
             );
-            await (await waitForTestIdDisplayed('settings-nav-general')).click();
-            await waitForTestIdDisplayed('settings-general-section');
         });
 
         // Visual regression runs before the search test, because that one types a

@@ -21,7 +21,11 @@
     import type { ClipboardPayload } from '@/app/api/attachments/drafts';
     import { useClipboardDraftApi } from '@/app/api/attachments/drafts';
     import { log } from '@/app/api/diagnostics';
-    import { type PrivacyReviewAnnotation, usePrivacyApi } from '@/app/api/privacy';
+    import {
+        type PrivacyFilterSettings,
+        type PrivacyReviewAnnotation,
+        usePrivacyApi,
+    } from '@/app/api/privacy';
     import type {
         SearchSurfaceCommandEvent,
         SessionStatusReminderActionEvent,
@@ -39,7 +43,8 @@
         SEARCH_SURFACE_MOTION,
         SEARCH_SURFACE_REVEAL_EASING,
     } from '@/config/searchWindow';
-    const { publishPrivacyReview, clearPrivacyReview } = usePrivacyApi();
+    const privacyApi = usePrivacyApi();
+    const { publishPrivacyReview, clearPrivacyReview } = privacyApi;
     import { type AppLocale, t } from '@/i18n';
     const searchWindow = useSearchWindowApi();
     const clipboardService = useClipboardDraftApi();
@@ -399,6 +404,7 @@
             setSearchFixture: (query: string, results: QuickShortcutItem[]) => void;
             setConversation: (messages: SessionMessage[]) => Promise<void>;
             setPrivacyReviewAnnotations: (annotations: PrivacyReviewAnnotation[]) => void;
+            setPrivacyFilterSettings: (settings: Partial<PrivacyFilterSettings>) => Promise<void>;
             clearPrivacyReview: () => void;
             setAskUserRequest: (request: E2eAskUserRequest) => void;
             clearAskUser: () => void;
@@ -2674,6 +2680,13 @@
             },
             setPrivacyReviewAnnotations(annotations: PrivacyReviewAnnotation[]) {
                 publishPrivacyReview(annotations);
+            },
+            async setPrivacyFilterSettings(settings: Partial<PrivacyFilterSettings>) {
+                await privacyApi.initialize();
+                await privacyApi.updatePrivacyFilterSettings({
+                    ...privacyApi.getPrivacyFilterSettings(),
+                    ...settings,
+                });
             },
             clearPrivacyReview() {
                 clearPrivacyReview();
