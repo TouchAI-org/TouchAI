@@ -8,6 +8,8 @@ import { createEmulator, defineEmulator } from 'emulate';
 import { DEFAULT_PORT } from './lib/config.mjs';
 
 const DEFAULT_CHUNK_DELAY_MS = 16;
+const EXPECTED_TOOL_NAME = 'builtin__setting';
+const EXPECTED_TOOL_ARGUMENTS = { action: 'get', keys: ['language'] };
 const encoder = new TextEncoder();
 
 function sleep(ms) {
@@ -27,6 +29,107 @@ function contentText(content) {
     if (typeof content === 'string') return content;
     if (!Array.isArray(content)) return '';
     return content.map((part) => (part && typeof part.text === 'string' ? part.text : '')).join('');
+}
+
+function expectedToolCallId(promptId, round) {
+    return `perf_call_${promptId}_${round}`;
+}
+
+function sameJsonValue(left, right) {
+    return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function expectedSettingCall(call, promptId, round) {
+    return call?.id === expectedToolCallId(promptId, round);
+}
+
+function validateToolHistory(messages, prompt, rounds) {
+    const promptId = prompt.fields.promptId;
+    const afterPrompt = messages.slice(prompt.userIndex + 1);
+    let cursor = 0;
+    let count = 0;
+
+    while (count < rounds) {
+        let callIndex = cursor;
+        while (
+            callIndex < afterPrompt.length &&
+            afterPrompt[callIndex]?.role !== 'tool' &&
+            !Array.isArray(afterPrompt[callIndex]?.tool_calls)
+        ) {
+            callIndex += 1;
+        }
+        const message = afterPrompt[callIndex];
+        const call = Array.isArray(message?.tool_calls)
+            ? message.tool_calls.find((item) => expectedSettingCall(item, promptId, count))
+            : null;
+        if (!message || !call) {
+            break;
+        }
+        const callId = expectedToolCallId(promptId, count);
+        if (
+            message.tool_calls.length !== 1 ||
+            call.type !== 'function' ||
+            call.function?.name !== EXPECTED_TOOL_NAME
+        ) {
+            return {
+                count: 0,
+                error: `Invalid performance tool history: round ${count + 1} used the wrong tool call.`,
+            };
+        }
+        let args;
+        try {
+            args =
+                typeof call.function.arguments === 'string'
+                    ? JSON.parse(call.function.arguments)
+                    : call.function.arguments;
+        } catch {
+            return {
+                count: 0,
+                error: `Invalid performance tool history: round ${count + 1} has malformed arguments.`,
+            };
+        }
+        if (!sameJsonValue(args, EXPECTED_TOOL_ARGUMENTS)) {
+            return {
+                count: 0,
+                error: `Invalid performance tool history: round ${count + 1} read the wrong setting.`,
+            };
+        }
+
+        const result = afterPrompt[callIndex + 1];
+        if (result?.role !== 'tool' || result.tool_call_id !== callId) {
+            return {
+                count: 0,
+                error: `Invalid performance tool history: round ${count + 1} has no matching call ID result.`,
+            };
+        }
+        if (
+            result.isError === true ||
+            !/\(language\)\s*:\s*(?:en-US|zh-CN)\b/.test(contentText(result.content))
+        ) {
+            return {
+                count: 0,
+                error: `Invalid performance tool history: round ${count + 1} did not read the setting successfully.`,
+            };
+        }
+
+        cursor = callIndex + 2;
+        count += 1;
+    }
+
+    const leftover = afterPrompt.slice(cursor);
+    if (leftover.some((message) => message?.role === 'tool')) {
+        return {
+            count: 0,
+            error: 'Invalid performance tool history: unexpected or mismatched tool result.',
+        };
+    }
+    if (leftover.some((message) => message?.tool_calls?.length)) {
+        return {
+            count: 0,
+            error: 'Invalid performance tool history: unexpected or incomplete tool call.',
+        };
+    }
+    return { count, error: null };
 }
 
 function parsePerfPrompt(messages) {
@@ -145,11 +248,8 @@ function createCompletionStream({ id, model }) {
     };
 }
 
-async function streamResponse(stream, body, prompt, options) {
+async function streamResponse(stream, prompt, options, toolCount) {
     const rounds = Math.max(0, Number(prompt.fields.rounds) || 0);
-    const toolCount = body.messages
-        .slice(prompt.userIndex + 1)
-        .filter((message) => message?.role === 'tool').length;
     const alternate = prompt.fields.alternate === '1';
     const chunkDelayMs = Number(prompt.fields.chunkDelayMs) || options.chunkDelayMs;
 
@@ -159,8 +259,8 @@ async function streamResponse(stream, body, prompt, options) {
             id: `perf_call_${prompt.fields.promptId}_${toolCount}`,
             type: 'function',
             function: {
-                name: 'builtin__setting',
-                arguments: '{"action":"get","keys":["language"]}',
+                name: EXPECTED_TOOL_NAME,
+                arguments: JSON.stringify(EXPECTED_TOOL_ARGUMENTS),
             },
         };
         if (
@@ -248,10 +348,19 @@ export async function startPerfModelServer(options = {}) {
                 }
 
                 const model = typeof body.model === 'string' ? body.model : 'perf-model';
-                const toolCount = messages
-                    .slice(prompt.userIndex + 1)
-                    .filter((message) => message?.role === 'tool').length;
                 const rounds = Math.max(0, Number(prompt.fields.rounds) || 0);
+                const history = validateToolHistory(messages, prompt, rounds);
+                if (history.error) {
+                    appendJsonLine(state.logFile, {
+                        type: 'invalid-tool-history',
+                        at: Date.now(),
+                        promptId: prompt.fields.promptId ?? null,
+                        flow: prompt.fields.flow ?? null,
+                        error: history.error,
+                    });
+                    return c.json({ error: { message: history.error } }, 400);
+                }
+                const toolCount = history.count;
                 const id = `chatcmpl-perf-${createHash('sha256')
                     .update(`${prompt.fields.promptId}:${toolCount}`)
                     .digest('hex')
@@ -269,7 +378,7 @@ export async function startPerfModelServer(options = {}) {
                 });
 
                 Promise.resolve()
-                    .then(() => streamResponse(response, body, prompt, state))
+                    .then(() => streamResponse(response, prompt, state, toolCount))
                     .then((completed) => {
                         if (!completed) return;
                         appendJsonLine(state.logFile, {

@@ -50,6 +50,33 @@ function fixtureValidationError(run, fixtureManifest) {
     return null;
 }
 
+function memoryCoverageError({ run, label, samples, startAt, endAt, intervalMs }) {
+    const duration = endAt - startAt;
+    if (!Number.isFinite(duration) || duration <= 0) {
+        return `${run.flow} ${label} window is invalid`;
+    }
+    if (!Number.isInteger(intervalMs) || intervalMs <= 0) {
+        return `${run.flow} memory sampling interval is invalid`;
+    }
+    const observed = samples
+        .filter((sample) => sample.at >= startAt && sample.at <= endAt)
+        .sort((left, right) => left.at - right.at);
+    const nominalSampleCount = Math.floor(duration / intervalMs) + 1;
+    const minimumSampleCount = Math.max(1, Math.ceil(nominalSampleCount * 0.75));
+    if (observed.length < minimumSampleCount) {
+        return `${run.flow} memory coverage for ${label} is too sparse: ${observed.length}/${minimumSampleCount} samples`;
+    }
+    const maximumGapMs = Math.max(intervalMs * 5, 2000);
+    const timestamps = [startAt, ...observed.map((sample) => sample.at), endAt];
+    for (let index = 1; index < timestamps.length; index += 1) {
+        const gap = timestamps[index] - timestamps[index - 1];
+        if (gap > maximumGapMs) {
+            return `${run.flow} memory coverage for ${label} has a ${gap}ms gap`;
+        }
+    }
+    return null;
+}
+
 function sampleValidationError(run, events, memory, protocol) {
     const observed = events.filter((event) => event.runId === run.runId);
     if (observed.some((event) => event.arm !== run.arm)) return 'event arm identity mismatch';
@@ -92,6 +119,7 @@ function sampleValidationError(run, events, memory, protocol) {
     const samples = memory.filter(
         (sample) => sample.runId === run.runId && sample.type === 'memory'
     );
+    const intervalMs = Number(protocol.memoryIntervalMs ?? 250);
     const interval = samples.filter((sample) => sample.at >= times[0] && sample.at <= times.at(-1));
     if (
         samples.some((sample) => !positive(sample.at) || sample.arm !== run.arm) ||
@@ -110,6 +138,15 @@ function sampleValidationError(run, events, memory, protocol) {
         ) {
             return 'progress window is incomplete';
         }
+        const coverageError = memoryCoverageError({
+            run,
+            label: 'progress window',
+            samples,
+            startAt: times[0],
+            endAt: times.at(-1),
+            intervalMs,
+        });
+        if (coverageError) return coverageError;
     } else if (
         !positive(markers[2][0].domNodes) ||
         !nearestMemory(usable, times[0]) ||
@@ -117,6 +154,23 @@ function sampleValidationError(run, events, memory, protocol) {
         !nearestMemory(usable, times[5])
     ) {
         return 'long-session retained observations are missing or invalid';
+    } else {
+        const coverageWindows = [
+            ['long-session full window', times[0], times.at(-1)],
+            ['open plateau', times[1], times[2]],
+            ['stream', times[3], times[4]],
+        ];
+        for (const [label, startAt, endAt] of coverageWindows) {
+            const coverageError = memoryCoverageError({
+                run,
+                label,
+                samples,
+                startAt,
+                endAt,
+                intervalMs,
+            });
+            if (coverageError) return coverageError;
+        }
     }
     return null;
 }

@@ -131,12 +131,30 @@ describe('user runs the local performance model server', () => {
             expect(toolResponse.body).toContain('"finish_reason":"tool_calls"');
             expect(toolResponse.body).toContain('data: [DONE]');
 
+            const toolCallId = `perf_call_${promptId}_0`;
             const finalResponse = await postChat(running.port, {
                 model: 'perf-model',
                 messages: [
                     { role: 'user', content: marker },
-                    { role: 'assistant', content: '' },
-                    { role: 'tool', content: 'language=en-US' },
+                    {
+                        role: 'assistant',
+                        content: '',
+                        tool_calls: [
+                            {
+                                id: toolCallId,
+                                type: 'function',
+                                function: {
+                                    name: 'builtin__setting',
+                                    arguments: '{"action":"get","keys":["language"]}',
+                                },
+                            },
+                        ],
+                    },
+                    {
+                        role: 'tool',
+                        tool_call_id: toolCallId,
+                        content: '1. Language (language): en-US',
+                    },
                 ],
             });
             const doneToken = `TOUCHAI_PERF_DONE_${createHash('sha256')
@@ -159,6 +177,96 @@ describe('user runs the local performance model server', () => {
             await running.close();
         }
     });
+
+    it.each([
+        {
+            case: 'a mismatched call ID',
+            result: {
+                role: 'tool',
+                tool_call_id: 'perf_call_wrong_0',
+                content: '1. Language (language): en-US',
+            },
+        },
+        {
+            case: 'a mismatched tool name',
+            callName: 'builtin__bash',
+            result: {
+                role: 'tool',
+                content: '1. Language (language): en-US',
+            },
+        },
+        {
+            case: 'wrong setting arguments',
+            callArguments: '{"action":"set","keys":["language"],"value":"en-US"}',
+            result: {
+                role: 'tool',
+                content: '1. Language (language): en-US',
+            },
+        },
+        {
+            case: 'an unsuccessful result',
+            result: {
+                role: 'tool',
+                content: 'Tool unavailable',
+                isError: true,
+            },
+        },
+        {
+            case: 'an extra mismatched result before the expected result',
+            beforeResult: {
+                role: 'tool',
+                tool_call_id: 'perf_call_wrong_0',
+                content: '1. Language (language): en-US',
+            },
+            result: {
+                role: 'tool',
+                content: '1. Language (language): en-US',
+            },
+        },
+    ])(
+        'user gets no performance sentinel for $case',
+        async ({ callArguments, callName, beforeResult, result }) => {
+            const running = await startPerfModelServer({ port: 0 });
+            const promptId = 'invalid-tool-result';
+            const callId = `perf_call_${promptId}_0`;
+            const marker = `TOUCHAI_PERF|promptId=${promptId}|rounds=1|chunks=1|chunkBytes=8|flow=latency`;
+
+            try {
+                const response = await postChat(running.port, {
+                    model: 'perf-model',
+                    messages: [
+                        { role: 'user', content: marker },
+                        {
+                            role: 'assistant',
+                            content: '',
+                            tool_calls: [
+                                {
+                                    id: callId,
+                                    type: 'function',
+                                    function: {
+                                        name: callName ?? 'builtin__setting',
+                                        arguments:
+                                            callArguments ?? '{"action":"get","keys":["language"]}',
+                                    },
+                                },
+                            ],
+                        },
+                        ...(beforeResult ? [beforeResult] : []),
+                        {
+                            tool_call_id: callId,
+                            ...result,
+                        },
+                    ],
+                });
+
+                expect(response.status).toBe(400);
+                expect(response.body).toContain('Invalid performance tool history');
+                expect(response.body).not.toContain('TOUCHAI_PERF_DONE_');
+            } finally {
+                await running.close();
+            }
+        }
+    );
 
     it('user starts the local model server when its checkout path contains spaces', async () => {
         const desktopRoot = process.cwd();

@@ -115,23 +115,32 @@ function writeRunPlan(
 }
 
 function writeSyntheticRuns(root: string, runs: SyntheticRun[], plannedRuns = runs): void {
-    const records = runs.map((run) => ({
-        type: 'run',
-        runId: run.runId,
-        arm: run.arm,
-        flow: 'latency',
-        block: run.block,
-        sequenceIndex: run.sequenceIndex,
-        historyLevel: null,
-        exitCode: 0,
-        signal: null,
-        notificationFailures: run.notificationFailures ?? 0,
-        valid: run.valid ?? true,
-        invalidReasons: run.invalidReasons ?? [],
-        fixture: 'base',
-        fixtureSha256: 'base-fixture-sha',
-        binarySha256: `${run.arm}-binary-sha`,
-    }));
+    const records = runs.flatMap((run) => {
+        const identity = {
+            runId: run.runId,
+            arm: run.arm,
+            flow: 'latency',
+            block: run.block,
+            sequenceIndex: run.sequenceIndex,
+            historyLevel: null,
+            fixture: 'base',
+            fixtureSha256: 'base-fixture-sha',
+            binarySha256: `${run.arm}-binary-sha`,
+            attempt: 1,
+        };
+        return [
+            { type: 'run-launch', ...identity },
+            {
+                type: 'run',
+                ...identity,
+                exitCode: run.valid === false ? 1 : 0,
+                signal: null,
+                notificationFailures: run.notificationFailures ?? 0,
+                valid: run.valid ?? true,
+                invalidReasons: run.invalidReasons ?? [],
+            },
+        ];
+    });
     fs.writeFileSync(
         path.join(root, 'raw/formal/runs.jsonl'),
         records.map((record) => JSON.stringify(record)).join('\n') + '\n'
@@ -140,6 +149,13 @@ function writeSyntheticRuns(root: string, runs: SyntheticRun[], plannedRuns = ru
         path.join(root, 'raw/formal/events.jsonl'),
         runs
             .flatMap((run) => [
+                {
+                    type: 'run-start',
+                    runId: run.runId,
+                    arm: run.arm,
+                    flow: 'latency',
+                    block: run.block,
+                },
                 {
                     type: 'latency',
                     runId: run.runId,
@@ -166,6 +182,7 @@ function writeSyntheticLongSessionRuns(root: string): void {
                     flows: ['long-session'],
                     historyLevels: [100],
                     warmSamples: 0,
+                    memoryIntervalMs: 250,
                 },
             },
             null,
@@ -186,6 +203,19 @@ function writeSyntheticLongSessionRuns(root: string): void {
             const retainedPss = isBaseline ? 1_100_000 : 1_080_000;
             const settledPss = isBaseline ? 1_050_000 : 1_040_000;
             runs.push({
+                type: 'run-launch',
+                runId,
+                arm,
+                flow: 'long-session',
+                block,
+                sequenceIndex,
+                historyLevel: 100,
+                fixture: 'long-100',
+                fixtureSha256: 'long-fixture-sha',
+                binarySha256: `${arm}-binary-sha`,
+                attempt: 1,
+            });
+            runs.push({
                 type: 'run',
                 runId,
                 arm,
@@ -201,8 +231,16 @@ function writeSyntheticLongSessionRuns(root: string): void {
                 fixture: 'long-100',
                 fixtureSha256: 'long-fixture-sha',
                 binarySha256: `${arm}-binary-sha`,
+                attempt: 1,
             });
             events.push(
+                {
+                    type: 'run-start',
+                    runId,
+                    arm,
+                    flow: 'long-session',
+                    block,
+                },
                 {
                     type: 'long-phase',
                     runId,
@@ -257,12 +295,28 @@ function writeSyntheticLongSessionRuns(root: string): void {
                     at: at + 3_000,
                 }
             );
-            const memorySamples: Array<[number, number]> = [
-                [at + 100, baselinePss],
-                [at + 1_000, retainedPss],
-                [at + 2_900, settledPss],
-                [at + 3_001, 0],
-            ];
+            const memorySamples = new Map<number, number>();
+            for (let sampleAt = at + 100; sampleAt <= at + 3_000; sampleAt += 250) {
+                memorySamples.set(
+                    sampleAt,
+                    sampleAt >= at + 3_000
+                        ? settledPss
+                        : sampleAt >= at + 1_000
+                          ? retainedPss
+                          : baselinePss
+                );
+            }
+            for (const phaseAt of [at + 200, at + 1_000, at + 1_100, at + 2_000, at + 3_000]) {
+                memorySamples.set(
+                    phaseAt,
+                    phaseAt >= at + 3_000
+                        ? settledPss
+                        : phaseAt >= at + 1_000
+                          ? retainedPss
+                          : baselinePss
+                );
+            }
+            memorySamples.set(at + 3_001, 0);
             for (const [sampleAt, totalPssKb] of memorySamples) {
                 memory.push({
                     type: 'memory',
@@ -291,7 +345,7 @@ function writeSyntheticLongSessionRuns(root: string): void {
     );
     writeRunPlan(
         root,
-        runs.map((run) => ({ ...run, historyLevel: 100 }))
+        runs.filter((run) => run.type === 'run').map((run) => ({ ...run, historyLevel: 100 }))
     );
 }
 
@@ -327,6 +381,91 @@ function coldOnlyRuns(blocks = 4): SyntheticRun[] {
     ).flat();
 }
 
+function writeSyntheticProgressRuns(root: string): void {
+    fs.writeFileSync(
+        path.join(root, 'run-plan.json'),
+        `${JSON.stringify(
+            {
+                protocol: {
+                    comparison,
+                    flows: ['progress'],
+                    historyLevels: [],
+                    warmSamples: 0,
+                    progressTasks: 0,
+                    memoryIntervalMs: 250,
+                },
+            },
+            null,
+            4
+        )}\n`
+    );
+    const order = ['baseline', 'current', 'current', 'baseline'] as const;
+    const records = [];
+    const events = [];
+    const memory = [];
+    const plan = [];
+    for (let block = 1; block <= 3; block += 1) {
+        for (const [offset, arm] of order.entries()) {
+            const sequenceIndex = offset + 1;
+            const runId = `progress-b${block}-s${sequenceIndex}-${arm}`;
+            const startAt = block * 1_000_000 + sequenceIndex * 200_000;
+            const endAt = startAt + 120_000;
+            const identity = {
+                runId,
+                arm,
+                flow: 'progress',
+                block,
+                sequenceIndex,
+                historyLevel: 0,
+                fixture: 'base',
+                fixtureSha256: 'base-fixture-sha',
+                binarySha256: `${arm}-binary-sha`,
+                attempt: 1,
+            };
+            records.push(
+                { type: 'run-launch', ...identity },
+                {
+                    type: 'run',
+                    ...identity,
+                    exitCode: 0,
+                    signal: null,
+                    notificationFailures: 0,
+                    valid: true,
+                    invalidReasons: [],
+                }
+            );
+            events.push(
+                { type: 'run-start', ...identity },
+                { type: 'progress-window', runId, arm, phase: 'start', at: startAt },
+                { type: 'progress-window', runId, arm, phase: 'end', at: endAt }
+            );
+            memory.push({
+                type: 'memory',
+                at: startAt + (endAt - startAt) / 2,
+                runId,
+                arm,
+                flow: 'progress',
+                processes: [{ pid: 1, name: 'TouchAI', pssKb: 1_000_000 }],
+                totalPssKb: 1_000_000,
+            });
+            plan.push(identity);
+        }
+    }
+    fs.writeFileSync(
+        path.join(root, 'raw/formal/runs.jsonl'),
+        `${records.map((record) => JSON.stringify(record)).join('\n')}\n`
+    );
+    fs.writeFileSync(
+        path.join(root, 'raw/formal/events.jsonl'),
+        `${events.map((record) => JSON.stringify(record)).join('\n')}\n`
+    );
+    fs.writeFileSync(
+        path.join(root, 'raw/formal/pss.jsonl'),
+        `${memory.map((record) => JSON.stringify(record)).join('\n')}\n`
+    );
+    writeRunPlan(root, plan);
+}
+
 afterAll(() => {
     for (const root of cleanup) fs.rmSync(root, { recursive: true, force: true });
 });
@@ -337,9 +476,13 @@ describe('user reads the desktop performance statistics', () => {
         writeFixtureManifest(root);
         const runs = coldOnlyRuns(4);
         writeSyntheticRuns(root, runs);
-        const record = JSON.parse(
-            fs.readFileSync(path.join(root, 'raw/formal/runs.jsonl'), 'utf8').split('\n')[0]!
-        );
+        const record = fs
+            .readFileSync(path.join(root, 'raw/formal/runs.jsonl'), 'utf8')
+            .trim()
+            .split('\n')
+            .map((line) => JSON.parse(line))
+            .find((candidate) => candidate.type === 'run');
+        if (!record) throw new Error('Synthetic terminal run is missing.');
         record.runId = 'invalid-extra';
         record.valid = false;
         fs.appendFileSync(path.join(root, 'raw/formal/runs.jsonl'), `${JSON.stringify(record)}\n`);
@@ -349,6 +492,178 @@ describe('user reads the desktop performance statistics', () => {
         const summary = fs.readFileSync(path.join(root, 'summary.md'), 'utf8');
         expect(summary).toContain('Overall: **BLOCKED**');
         expect(summary).toContain('Invalid runs: 1');
+    });
+
+    it('user cannot pass with an unfinished launch beside an otherwise complete plan', () => {
+        const root = createEvidenceRoot();
+        writeFixtureManifest(root);
+        writeSyntheticRuns(root, coldOnlyRuns());
+        fs.appendFileSync(
+            path.join(root, 'raw/formal/runs.jsonl'),
+            `${JSON.stringify({
+                type: 'run-launch',
+                runId: 'unfinished-extra',
+                arm: 'baseline',
+                flow: 'latency',
+                block: 1,
+                sequenceIndex: 1,
+                historyLevel: 0,
+                attempt: 2,
+            })}\n`
+        );
+
+        runStats(root);
+        const stats = readStats(root);
+
+        expect(stats.overallStatus).toBe('BLOCKED');
+        expect(stats.rawCounts.lifecycleErrors).toBe(1);
+        expect(stats.lifecycleErrors[0]).toContain('unfinished-extra');
+    });
+
+    it('user cannot pass when two successful runs occupy the same planned slot', () => {
+        const root = createEvidenceRoot();
+        writeFixtureManifest(root);
+        const runs = coldOnlyRuns();
+        writeSyntheticRuns(root, [...runs, { ...runs[0]!, runId: 'duplicate-planned-slot' }], runs);
+
+        runStats(root);
+        const stats = readStats(root);
+
+        expect(stats.overallStatus).toBe('BLOCKED');
+        expect(stats.rawCounts.lifecycleErrors).toBeGreaterThan(0);
+        expect(stats.lifecycleErrors.join('\n')).toContain('duplicate-planned-slot');
+    });
+
+    it('user cannot pass when a successful run is outside the persisted plan', () => {
+        const root = createEvidenceRoot();
+        writeFixtureManifest(root);
+        const runs = coldOnlyRuns();
+        writeSyntheticRuns(
+            root,
+            [
+                ...runs,
+                {
+                    runId: 'outside-plan',
+                    arm: 'baseline',
+                    block: 99,
+                    sequenceIndex: 1,
+                    durationMs: 1000,
+                    firstTextMs: 400,
+                },
+            ],
+            runs
+        );
+
+        runStats(root);
+        const stats = readStats(root);
+
+        expect(stats.overallStatus).toBe('BLOCKED');
+        expect(stats.lifecycleErrors.join('\n')).toContain('outside-plan');
+    });
+
+    it('user cannot pass when a workload start has the wrong identity', () => {
+        const root = createEvidenceRoot();
+        writeFixtureManifest(root);
+        writeSyntheticRuns(root, coldOnlyRuns());
+        const file = path.join(root, 'raw/formal/events.jsonl');
+        const events = fs
+            .readFileSync(file, 'utf8')
+            .trim()
+            .split('\n')
+            .map((line) => JSON.parse(line));
+        const start = events.find((event) => event.type === 'run-start');
+        if (!start) throw new Error('Synthetic workload start is missing.');
+        start.arm = start.arm === 'baseline' ? 'current' : 'baseline';
+        fs.writeFileSync(file, `${events.map((event) => JSON.stringify(event)).join('\n')}\n`);
+
+        runStats(root);
+        const stats = readStats(root);
+
+        expect(stats.overallStatus).toBe('BLOCKED');
+        expect(stats.lifecycleErrors.join('\n')).toContain('mismatched identity');
+    });
+
+    it('user cannot pass with an extra allowed retry after a successful run', () => {
+        const root = createEvidenceRoot();
+        writeFixtureManifest(root);
+        writeSyntheticRuns(root, coldOnlyRuns());
+        const first = coldOnlyRuns()[0]!;
+        const identity = {
+            runId: 'retry-after-success',
+            arm: first.arm,
+            flow: 'latency',
+            block: first.block,
+            sequenceIndex: first.sequenceIndex,
+            historyLevel: null,
+            fixture: 'base',
+            fixtureSha256: 'base-fixture-sha',
+            binarySha256: `${first.arm}-binary-sha`,
+            attempt: 2,
+        };
+        fs.appendFileSync(
+            path.join(root, 'raw/formal/runs.jsonl'),
+            [
+                { type: 'run-launch', ...identity },
+                {
+                    type: 'run-attempt',
+                    ...identity,
+                    exitCode: 1,
+                    signal: null,
+                    notificationFailures: 0,
+                    valid: false,
+                    invalidReasons: ['display failed'],
+                    retryReason: 'display-startup-failure',
+                },
+            ]
+                .map((record) => JSON.stringify(record))
+                .join('\n') + '\n'
+        );
+
+        runStats(root);
+        const stats = readStats(root);
+
+        expect(stats.overallStatus).toBe('BLOCKED');
+        expect(stats.lifecycleErrors.join('\n')).toContain('continued after a successful run');
+    });
+
+    it('user cannot pass a successful run that skipped the approved startup retry', () => {
+        const root = createEvidenceRoot();
+        writeFixtureManifest(root);
+        const runs = coldOnlyRuns();
+        writeSyntheticRuns(root, runs);
+        const file = path.join(root, 'raw/formal/runs.jsonl');
+        const records = fs
+            .readFileSync(file, 'utf8')
+            .trim()
+            .split('\n')
+            .map((line) => JSON.parse(line));
+        for (const record of records) {
+            if (record.runId === runs[0]!.runId) record.attempt = 2;
+        }
+        fs.writeFileSync(file, `${records.map((record) => JSON.stringify(record)).join('\n')}\n`);
+
+        runStats(root);
+        const stats = readStats(root);
+
+        expect(stats.overallStatus).toBe('BLOCKED');
+        expect(stats.lifecycleErrors.join('\n')).toContain('unapproved attempt sequence');
+    });
+
+    it('user cannot pass a two-minute progress window with one memory sample', () => {
+        const root = createEvidenceRoot();
+        writeFixtureManifest(root);
+        writeSyntheticProgressRuns(root);
+
+        runStats(root);
+        const stats = readStats(root);
+
+        expect(stats.overallStatus).not.toBe('PASS');
+        expect(stats.rawCounts.invalidRuns).toBe(12);
+        expect(
+            stats.invalidRuns.every((run: { invalidReasons: string[] }) =>
+                run.invalidReasons.some((reason) => reason.includes('memory coverage'))
+            )
+        ).toBe(true);
     });
 
     it('user sees the selected baseline and candidate instead of a historical hardcoded commit', () => {
@@ -383,7 +698,9 @@ describe('user reads the desktop performance statistics', () => {
             .trim()
             .split('\n')
             .map((line) => JSON.parse(line));
-        events[0].durationMs = null;
+        const latency = events.find((event) => event.type === 'latency');
+        if (!latency) throw new Error('Synthetic latency event is missing.');
+        latency.durationMs = null;
         fs.writeFileSync(file, events.map((event) => JSON.stringify(event)).join('\n') + '\n');
 
         runStats(root);
@@ -447,7 +764,14 @@ describe('user reads the desktop performance statistics', () => {
             .trim()
             .split('\n')
             .map((line) => JSON.parse(line))
-            .filter((sample) => !(sample.runId === firstRunId && sample.at === retained.at));
+            .filter(
+                (sample) =>
+                    !(
+                        sample.runId === firstRunId &&
+                        sample.at >= retained.at - 1_000 &&
+                        sample.at <= streamStart.at
+                    )
+            );
         samples.push({
             type: 'memory',
             at: streamStart.at + 60,
@@ -569,7 +893,11 @@ describe('user reads the desktop performance statistics', () => {
                 .trim()
                 .split('\n')
                 .map((line) => JSON.parse(line));
-            records[0].fixtureSha256 = 'fixture-generated-by-current';
+            const baselineRun = records.find(
+                (record) => record.type === 'run' && record.arm === 'baseline'
+            );
+            if (!baselineRun) throw new Error('Synthetic baseline run is missing.');
+            baselineRun.fixtureSha256 = 'fixture-generated-by-current';
             fs.writeFileSync(
                 runsPath,
                 `${records.map((record) => JSON.stringify(record)).join('\n')}\n`

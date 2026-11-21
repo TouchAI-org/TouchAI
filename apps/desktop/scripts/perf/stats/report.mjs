@@ -38,7 +38,7 @@ export function writeSummaryMarkdown(stats) {
         '',
         `Overall: **${stats.overallStatus}**`,
         '',
-        `Invalid runs: ${stats.rawCounts?.invalidRuns ?? 'missing'}; missing planned runs: ${stats.rawCounts?.missingPlannedRuns ?? 'missing'}.`,
+        `Invalid runs: ${stats.rawCounts?.invalidRuns ?? 'missing'}; missing planned runs: ${stats.rawCounts?.missingPlannedRuns ?? 'missing'}; lifecycle errors: ${stats.rawCounts?.lifecycleErrors ?? 'missing'}.`,
         '',
         `Baseline: ${stats.baselineCommit ?? 'missing'}; candidate: ${stats.candidateCommit ?? 'missing'}.`,
         'This comparison measures the selected commits; it is not evidence for the historical pre-refactor RFC acceptance.',
