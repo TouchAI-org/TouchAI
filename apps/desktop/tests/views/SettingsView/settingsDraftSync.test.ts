@@ -8,6 +8,18 @@ import {
 } from '@/views/SettingsView/settingsDraftSync';
 
 describe('user edits browser settings while another window refreshes', () => {
+    it('user restores an optional default while retaining another window changes', () => {
+        const baseline: { enabled?: boolean; timeout: number } = { enabled: false, timeout: 100 };
+        const draft = { timeout: 100 };
+        const incoming = { enabled: false, timeout: 200 };
+
+        const merged = mergeSettingsDraft(baseline, draft, incoming);
+
+        expect(merged).toEqual({ timeout: 200 });
+        expect(Object.hasOwn(merged, 'enabled')).toBe(false);
+        expect(hasSettingsDraftChanges(merged, { timeout: 200 })).toBe(false);
+    });
+
     it('user treats equal domain lists as unchanged when another window refreshes settings', () => {
         const baseline = {
             allowedDomains: ['example.test', 'docs.test'],

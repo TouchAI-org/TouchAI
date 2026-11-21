@@ -7,9 +7,11 @@ import type {
     AppUpdateNotificationAction,
 } from '@/app/api/updates/contracts';
 import type { SearchKeybindingActionId } from '@/config/searchKeybindings';
+import type { WebSearchActivityEvent } from '@/modules/tools/public';
 
 export type { SessionStatusReminderKind } from '@/app/api/agent/history';
 export type { GeneralSettingKey, GeneralSettingValue } from '@/app/api/settings/preferences';
+export type { WebSearchActivityEvent } from '@/modules/tools/public';
 
 /**
  * 事件类型定义
@@ -24,6 +26,7 @@ export type { GeneralSettingKey, GeneralSettingValue } from '@/app/api/settings/
  * 使用这些常量而不是硬编码字符串
  */
 export enum AppEvent {
+    WEB_SEARCH_ACTIVITY = 'web-search:activity',
     // MCP 事件
     MCP_STATUS = 'mcp:status',
 
@@ -224,6 +227,7 @@ export interface SessionTaskUsageProgressEvent {
  * 事件注册表，将事件名称映射到其 payload 类型
  */
 export interface AppEventMap {
+    [AppEvent.WEB_SEARCH_ACTIVITY]: WebSearchActivityEvent;
     // MCP 事件
     [AppEvent.MCP_STATUS]: McpStatusChangeEvent;
 

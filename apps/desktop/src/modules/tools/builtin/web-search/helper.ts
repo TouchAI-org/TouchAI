@@ -1,6 +1,7 @@
 import { truncateText } from '@/utils/text';
 
 import { parseToolArguments } from '../../execution/schema';
+import { SEARCH_PROVIDER_IDS, type SearchProviderId, type SearchSource } from './configuration';
 import {
     DEFAULT_WEB_SEARCH_MAX_RESULTS,
     DEFAULT_WEB_SEARCH_TIMEOUT_MS,
@@ -14,13 +15,18 @@ export interface WebSearchRequest {
     query: string;
     provider: WebSearchProvider;
     intent: WebSearchIntent;
+    source?: SearchSource;
+    language: 'any' | 'zh' | 'en';
+    mode: 'fast' | 'balanced' | 'deep';
     domains: string[];
+    excludeDomains: string[];
     recencyDays?: number;
     maxResults: number;
     timeoutMs: number;
     description?: string;
-    /** 请求把正文一并返回（目前仅 DeepSeek 支持），可省掉一次 web_fetch 往返。 */
+    /** Include page content when the selected provider supports it. */
     includeContent?: boolean;
+    providerOptions?: Partial<Record<SearchProviderId, Record<string, unknown>>>;
 }
 
 export interface WebSearchResult {
@@ -38,20 +44,35 @@ export interface WebSearchResult {
     favicon?: string;
     /** 正文 Markdown（DeepSeek `need_content=true`）。 */
     content?: string;
+    provider?: SearchProviderId;
+    details?: Record<string, unknown>;
 }
 
 export function parseWebSearchRequest(args: Record<string, unknown>): WebSearchRequest {
     const parsed = parseToolArguments(WEB_SEARCH_TOOL_ID, webSearchArgsSchema, args);
+    const unknownOptionKeys = Object.keys(parsed.providerOptions ?? {}).filter(
+        (key) => !(SEARCH_PROVIDER_IDS as readonly string[]).includes(key)
+    );
+    if (unknownOptionKeys.length > 0) {
+        throw new Error(
+            `Unknown providerOptions key(s): ${unknownOptionKeys.join(', ')}. Use one of: ${SEARCH_PROVIDER_IDS.filter((id) => id !== 'auto').join(', ')}.`
+        );
+    }
     return {
         query: parsed.query,
         provider: parsed.provider ?? 'auto',
         intent: parsed.intent ?? 'general',
+        source: parsed.source,
+        language: parsed.language ?? 'any',
+        mode: parsed.mode ?? 'balanced',
         domains: parsed.domains ?? [],
+        excludeDomains: parsed.excludeDomains ?? [],
         recencyDays: parsed.recencyDays,
         maxResults: parsed.maxResults ?? DEFAULT_WEB_SEARCH_MAX_RESULTS,
         timeoutMs: parsed.timeoutMs ?? DEFAULT_WEB_SEARCH_TIMEOUT_MS,
         description: parsed.description,
         includeContent: parsed.includeContent,
+        providerOptions: parsed.providerOptions,
     };
 }
 
@@ -126,13 +147,34 @@ function appendResultLines(
     if (result.snippet) {
         lines.push(`   Snippet: ${result.snippet}`);
     }
-    if (result.content && contentBudget.remaining > 0) {
+    // details 与正文共享单条结果预算，避免同一条结果拿到两份 8000 字符。
+    const itemBudget = { remaining: WEB_SEARCH_EMBEDDED_CONTENT_MAX_CHARS };
+    if (result.details && Object.keys(result.details).length > 0) {
+        const details = JSON.stringify(result.details);
+        const allowance = Math.min(itemBudget.remaining, contentBudget.remaining);
+        if (allowance > 0) {
+            const truncated = truncateEmbeddedContent(details, allowance);
+            itemBudget.remaining -= truncated.content.length;
+            contentBudget.remaining -= truncated.content.length;
+            lines.push(
+                `   Details${truncated.truncated ? ' (truncated)' : ''}: ${truncated.content}`
+            );
+        } else {
+            lines.push('   Details omitted: response content budget reached.');
+        }
+    }
+    if (result.content && itemBudget.remaining > 0 && contentBudget.remaining > 0) {
         const truncated = truncateEmbeddedContent(
             result.content,
-            Math.min(WEB_SEARCH_EMBEDDED_CONTENT_MAX_CHARS, contentBudget.remaining)
+            Math.min(itemBudget.remaining, contentBudget.remaining)
         );
+        itemBudget.remaining -= truncated.content.length;
         contentBudget.remaining -= truncated.content.length;
         lines.push(`   Content${truncated.truncated ? ' (truncated)' : ''}: ${truncated.content}`);
+    } else if (result.content) {
+        lines.push(
+            '   Content omitted: content budget reached for this result; use web_fetch for this URL.'
+        );
     }
 }
 

@@ -2,6 +2,7 @@ import { createWebFetchToolsFixture } from '@tests/utils/webFetchTools';
 import { describe, expect, it, vi } from 'vitest';
 
 import { setLocale, tt } from '@/i18n';
+import { WEB_FETCH_TOOL_INPUT_SCHEMA } from '@/modules/tools/builtin/web-fetch/constants';
 import type { WebFetchRequest } from '@/modules/tools/builtin/web-fetch/operations';
 const {
     buildPageMarkdown,
@@ -132,6 +133,24 @@ describe('user gets an unsafe address refused before the assistant fetches it', 
         expect(request.mode).toBe('reader');
         expect(request.maxChars).toBe(5000);
         expect(request.url.toString()).toBe('https://example.com/article');
+    });
+
+    it('user is only offered the two distinct extraction modes', () => {
+        const mode = WEB_FETCH_TOOL_INPUT_SCHEMA.properties.mode as { enum: string[] };
+        expect(mode.enum).toEqual(['reader', 'page_text']);
+    });
+
+    it('user can request a specific fetch engine', () => {
+        setLocale('en-US');
+
+        const request = parseWebFetchRequest({
+            url: 'https://example.com/article',
+            mode: 'reader',
+            maxChars: 5000,
+            provider: 'exa',
+        });
+
+        expect(request.provider).toBe('exa');
     });
 
     it('user gets the optional limits kept when they were given', () => {

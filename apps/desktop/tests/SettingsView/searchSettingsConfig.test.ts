@@ -13,7 +13,8 @@ describe('user edits the search settings', () => {
 
         expect(DEFAULT_SEARCH_SETTINGS.version).toBe(1);
         expect(DEFAULT_SEARCH_SETTINGS.defaultProvider).toBe('anysearch');
-        expect(DEFAULT_SEARCH_SETTINGS.maxResults).toBe(6);
+        expect(DEFAULT_SEARCH_SETTINGS.maxResults).toBe(0);
+        expect(DEFAULT_SEARCH_SETTINGS.fetchStrategy).toBe('prefer');
         expect(DEFAULT_SEARCH_SETTINGS.timeoutMs).toBe(15000);
         expect(DEFAULT_SEARCH_SETTINGS.preferOfficialSources).toBe(true);
         expect(parseSearchSettingsConfig('{bad json')).toEqual(DEFAULT_SEARCH_SETTINGS);
@@ -24,6 +25,23 @@ describe('user edits the search settings', () => {
         expect(JSON.parse(serializeSearchSettingsConfig(DEFAULT_SEARCH_SETTINGS))).toMatchObject({
             version: 1,
         });
+    });
+
+    it('user migrates legacy routing strategies to the new model', async () => {
+        const { parseSearchSettingsConfig } = await import('@/app/api/settings/tools');
+
+        const parallel = parseSearchSettingsConfig(
+            JSON.stringify({ routingStrategy: 'parallel', parallelProviderCount: 9 })
+        );
+        expect(parallel.routingStrategy).toBe('priority');
+        expect(parallel.parallelProviders).toBe(true);
+        expect(parallel.parallelProviderCount).toBe(5);
+        expect(
+            parseSearchSettingsConfig(JSON.stringify({ routingStrategy: 'model' })).routingStrategy
+        ).toBe('capability');
+        expect(
+            parseSearchSettingsConfig(JSON.stringify({ routingStrategy: 'intent' })).routingStrategy
+        ).toBe('capability');
     });
 
     it('user trims provider keys and preserves intent routing', async () => {

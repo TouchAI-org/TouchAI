@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" id="ss-priority-9d4e26" viewBox="0 0 160 120" fill="none" aria-hidden="true" focusable="false" data-theme="light">
+  <metadata>Drag handle dots follow the Remix Icon linear style, Remix Icon v4.6.0, Copyright Remix Design, Apache-2.0.</metadata>
+  <style>
+    #ss-priority-9d4e26 {
+      color-scheme: only light;
+      --paper: #fff;
+      --stroke: rgba(47, 42, 34, 0.23);
+      --line: #e5e9ef;
+      --title: #cdd4de;
+      --icon: #a3abb7;
+      --accent: #3462ad;
+      --selection: #e6edf9;
+      --chip: #f1f3f6;
+    }
+  </style>
+  <rect x="10" y="10" width="140" height="100" rx="11" fill="var(--paper)" stroke="var(--stroke)"/>
+  <rect x="18" y="18" width="124" height="14" rx="4" fill="var(--chip)" stroke="var(--stroke)"/>
+  <rect x="24" y="23" width="30" height="4" rx="2" fill="var(--title)"/>
+  <path d="M120 22h14M120 25h10M120 28h12" stroke="var(--icon)" stroke-width="1" stroke-linecap="round"/>
+
+  <!-- Ordered queue: handles, rank, then the engine row. -->
+  <path d="M23 40v52" stroke="var(--stroke)"/>
+  <path d="m21 36 2-2 2 2" stroke="var(--icon)" stroke-width="1" stroke-linejoin="round"/>
+  <path d="m21 96 2 2 2-2" stroke="var(--icon)" stroke-width="1" stroke-linejoin="round"/>
+
+  <rect x="32" y="38" width="108" height="19" rx="4" fill="var(--selection)" stroke="var(--accent)"/>
+  <rect x="32" y="61" width="108" height="19" rx="4" fill="var(--paper)" stroke="var(--stroke)"/>
+  <rect x="32" y="84" width="108" height="19" rx="4" fill="var(--paper)" stroke="var(--stroke)"/>
+
+  <g fill="var(--icon)">
+    <circle cx="40" cy="44" r="1.2"/><circle cx="44" cy="44" r="1.2"/>
+    <circle cx="40" cy="48" r="1.2"/><circle cx="44" cy="48" r="1.2"/>
+    <circle cx="40" cy="52" r="1.2"/><circle cx="44" cy="52" r="1.2"/>
+    <circle cx="40" cy="67" r="1.2"/><circle cx="44" cy="67" r="1.2"/>
+    <circle cx="40" cy="71" r="1.2"/><circle cx="44" cy="71" r="1.2"/>
+    <circle cx="40" cy="75" r="1.2"/><circle cx="44" cy="75" r="1.2"/>
+    <circle cx="40" cy="90" r="1.2"/><circle cx="44" cy="90" r="1.2"/>
+    <circle cx="40" cy="94" r="1.2"/><circle cx="44" cy="94" r="1.2"/>
+    <circle cx="40" cy="98" r="1.2"/><circle cx="44" cy="98" r="1.2"/>
+  </g>
+
+  <circle cx="56" cy="47.5" r="6" fill="var(--accent)"/>
+  <path d="M53.5 47.5h5M56 45v5" stroke="var(--paper)" stroke-width="1" stroke-linecap="round"/>
+  <circle cx="56" cy="70.5" r="5.5" stroke="var(--icon)" stroke-width="1"/>
+  <circle cx="56" cy="93.5" r="5.5" stroke="var(--icon)" stroke-width="1"/>
+
+  <rect x="68" y="43" width="29" height="3.5" rx="1.75" fill="var(--accent)" opacity=".7"/>
+  <rect x="68" y="49" width="19" height="2.5" rx="1.25" fill="var(--accent)" opacity=".35"/>
+  <rect x="68" y="66.5" width="25" height="3.5" rx="1.75" fill="var(--line)"/>
+  <rect x="68" y="72" width="16" height="2.5" rx="1.25" fill="var(--line)"/>
+  <rect x="68" y="89.5" width="21" height="3.5" rx="1.75" fill="var(--line)"/>
+  <rect x="68" y="95" width="13" height="2.5" rx="1.25" fill="var(--line)"/>
+
+  <path d="M122 47.5h10M122 70.5h10M122 93.5h10" stroke="var(--icon)" stroke-width="1" stroke-linecap="round"/>
+</svg>

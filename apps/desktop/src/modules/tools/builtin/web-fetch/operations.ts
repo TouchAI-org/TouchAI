@@ -1,12 +1,13 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
-
 import { Readability } from '@mozilla/readability';
+import { getMarkdown } from 'markstream-vue';
 import TurndownService from 'turndown';
 
 import { normalizeOptionalString } from '@/utils/text';
 
 import type { ToolMessages } from '../../contracts/host';
 import { parseToolArguments } from '../../execution/schema';
+import type { SearchFetchProvider } from '../web-search/configuration';
 import {
     DEFAULT_MAX_RESPONSE_BYTES,
     DEFAULT_SOURCE_CHAR_LIMIT,
@@ -32,6 +33,7 @@ const SRCSET_ATTRIBUTES = ['srcset', 'data-srcset', 'data-lazy-srcset'];
 const MAX_IMAGE_CANDIDATES = 6;
 
 export interface WebFetchRequest {
+    provider?: SearchFetchProvider;
     url: URL;
     mode: WebFetchMode;
     maxChars: number;
@@ -63,6 +65,7 @@ interface FormattedFetchPayload extends WebFetchMetadata {
 export function createWebFetchOperations(messages: ToolMessages) {
     const { t, tt } = messages;
     const turndownService = createTurndownService();
+    let markdownParser: ReturnType<typeof getMarkdown> | undefined;
     function stripIpv6Brackets(hostname: string): string {
         return hostname.startsWith('[') && hostname.endsWith(']')
             ? hostname.slice(1, -1)
@@ -184,6 +187,7 @@ export function createWebFetchOperations(messages: ToolMessages) {
 
         return {
             url: parsedUrl,
+            provider: parsedArgs.provider,
             mode: parsedArgs.mode,
             maxChars: parsedArgs.maxChars,
             timeoutMs: parsedArgs.timeoutMs ?? DEFAULT_TIMEOUT_MS,
@@ -344,7 +348,11 @@ export function createWebFetchOperations(messages: ToolMessages) {
             .trim();
     }
 
-    function normalizeStructuredText(rawText: string, contentType: string): string {
+    function normalizeStructuredText(
+        rawText: string,
+        contentType: string,
+        mode?: WebFetchMode
+    ): string {
         if (isJsonContentType(contentType)) {
             try {
                 return JSON.stringify(JSON.parse(rawText), null, 2).trim();
@@ -354,6 +362,13 @@ export function createWebFetchOperations(messages: ToolMessages) {
         }
 
         if (isMarkdownContentType(contentType)) {
+            if (mode === 'page_text') {
+                markdownParser ??= getMarkdown('web-fetch-text', {
+                    enableContainers: false,
+                    markdownItOptions: { html: false, breaks: true },
+                });
+                return buildPageText(markdownParser.render(rawText));
+            }
             return normalizeMarkdown(rawText);
         }
 

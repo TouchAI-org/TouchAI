@@ -1,7 +1,14 @@
 import { normalizeOptionalString } from '@/utils/text';
 
 import type { WebSearchResult } from '../helper';
-import { readResultItems, resultLimit } from './common';
+import {
+    nativeSearchOptions,
+    readResultItems,
+    recencyStartDate,
+    resultDetails,
+    resultLimit,
+    setSearchParams,
+} from './common';
 import { createSearchProviderAdapter } from './define';
 
 export const semanticScholarAdapter = createSearchProviderAdapter({
@@ -9,8 +16,11 @@ export const semanticScholarAdapter = createSearchProviderAdapter({
     async search({ request, settings, signal, fetchJson }) {
         const url = new URL('https://api.semanticscholar.org/graph/v1/paper/search');
         url.searchParams.set('query', request.query);
-        url.searchParams.set('limit', String(resultLimit(request)));
+        url.searchParams.set('limit', String(resultLimit(request, 100)));
         url.searchParams.set('fields', 'title,url,abstract,year,authors');
+        const after = recencyStartDate(request.recencyDays);
+        if (after) url.searchParams.set('publicationDateOrYear', `${after.slice(0, 10)}:`);
+        setSearchParams(url, nativeSearchOptions(request, 'semantic_scholar'));
         const apiKey = settings.providers.semantic_scholar.apiKey.trim();
 
         const payload = await fetchJson(url, signal, {
@@ -36,6 +46,15 @@ export const semanticScholarAdapter = createSearchProviderAdapter({
                     url: urlValue,
                     snippet: `${year}${normalizeOptionalString(record.abstract) ?? ''}`.trim(),
                     source: 'Semantic Scholar',
+                    details: resultDetails(record, [
+                        'authors',
+                        'citationCount',
+                        'influentialCitationCount',
+                        'openAccessPdf',
+                        'fieldsOfStudy',
+                        'tldr',
+                        'externalIds',
+                    ]),
                 };
             })
             .filter((result): result is WebSearchResult => Boolean(result));

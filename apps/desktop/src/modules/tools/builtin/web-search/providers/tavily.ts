@@ -1,5 +1,14 @@
 import type { WebSearchResult } from '../helper';
-import { readResultItems, resultFromGenericItem, resultLimit } from './common';
+import {
+    nativeSearchOptions,
+    preserveSearchExtras,
+    providerEndpointUrl,
+    readResultItems,
+    recencyStartDate,
+    resultFromGenericItem,
+    resultLimit,
+    searchSource,
+} from './common';
 import { createSearchProviderAdapter } from './define';
 
 /**
@@ -14,28 +23,47 @@ export const tavilyAdapter = createSearchProviderAdapter({
         const apiKey = settings.providers.tavily.apiKey.trim();
         const body: Record<string, unknown> = {
             query: request.query,
-            topic: request.intent === 'news' ? 'news' : 'general',
-            search_depth: 'basic',
-            max_results: resultLimit(request),
+            topic: searchSource(request) === 'news' ? 'news' : 'general',
+            search_depth: request.mode === 'deep' ? 'advanced' : 'basic',
+            max_results: resultLimit(request, 20),
             include_answer: false,
-            include_raw_content: false,
+            include_raw_content: request.includeContent === true,
         };
         if (request.domains.length > 0) {
             body.include_domains = request.domains;
         }
+        if (request.excludeDomains.length > 0) {
+            body.exclude_domains = request.excludeDomains;
+        }
+        if (request.recencyDays !== undefined) {
+            if (searchSource(request) === 'news') body.days = request.recencyDays;
+            else body.start_date = recencyStartDate(request.recencyDays)?.slice(0, 10);
+        }
+        Object.assign(body, nativeSearchOptions(request, 'tavily'));
 
-        const payload = await fetchJson(new URL('https://api.tavily.com/search'), signal, {
-            method: 'POST',
-            headers: {
-                ...(apiKey
-                    ? { Authorization: `Bearer ${apiKey}` }
-                    : { 'x-tavily-access-mode': 'keyless' }),
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(body),
-        });
-        return readResultItems(payload)
-            .map((item) => resultFromGenericItem(item, 'Tavily'))
-            .filter((result): result is WebSearchResult => Boolean(result));
+        const payload = await fetchJson(
+            providerEndpointUrl(
+                settings.providers.tavily.endpoint,
+                'https://api.tavily.com',
+                '/search'
+            ),
+            signal,
+            {
+                method: 'POST',
+                headers: {
+                    ...(apiKey
+                        ? { Authorization: `Bearer ${apiKey}` }
+                        : { 'x-tavily-access-mode': 'keyless' }),
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(body),
+            }
+        );
+        return preserveSearchExtras(
+            readResultItems(payload)
+                .map((item) => resultFromGenericItem(item, 'Tavily'))
+                .filter((result): result is WebSearchResult => Boolean(result)),
+            payload
+        );
     },
 });

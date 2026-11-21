@@ -61,6 +61,7 @@ export type {
     UpgradeModelToolConfig,
 } from './builtin/upgrade-model/configuration';
 export { createUpgradeModelConfiguration } from './builtin/upgrade-model/configuration';
+export type { WebSearchActivityEvent } from './builtin/web-search/activity';
 export type {
     SearchProviderApiKeyRequirement,
     SearchProviderConfig,
@@ -69,6 +70,12 @@ export type {
     SearchProviderMetadata,
     SearchRouteIntent,
     SearchSettingsConfig,
+} from './builtin/web-search/configuration';
+export type {
+    SearchFetchProvider,
+    SearchRoutingStrategy,
+    SearchSource,
+    WebFetchStrategy,
 } from './builtin/web-search/configuration';
 export {
     DEFAULT_SEARCH_SETTINGS,
@@ -81,6 +88,15 @@ export {
     SEARCH_SETTINGS_KEY,
     SEARCH_SETTINGS_VERSION,
     serializeSearchSettingsConfig,
+} from './builtin/web-search/configuration';
+export {
+    isSearchProviderReady,
+    resolveSearchSourceProviders,
+    SEARCH_FETCH_PROVIDERS,
+    SEARCH_PARALLEL_MAX,
+    SEARCH_ROUTING_STRATEGIES,
+    SEARCH_SOURCES,
+    WEB_FETCH_STRATEGIES,
 } from './builtin/web-search/configuration';
 export type { WebSearchSource, WebSearchSourcesPayload } from './builtin/web-search/sources';
 export { webSearchHostname, webSearchSiteName } from './builtin/web-search/sources';

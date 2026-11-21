@@ -63,42 +63,23 @@ async function settleSave() {
 }
 
 describe('given search configuration belongs to the main tools owner', () => {
-    it('user sees dedicated controls and saves a result limit without exposing the saved credential', async () => {
+    it('user sees grouped cards and saves an unlimited result count without exposing credentials', async () => {
         const panel = await openPanel();
         expect(panel.get('[data-testid="search-settings-title"]').text()).toContain('Search');
-        expect(panel.findAll('[data-testid^="search-advanced-toggle-"]')).toHaveLength(3);
-        expect(panel.get('[data-testid="search-max-results-input"]').element).toMatchObject({
-            value: '8',
-        });
-        expect(panel.get('[data-testid="search-brave-api-key-input"]').element).toMatchObject({
-            value: 'brave-key',
-        });
+        expect(panel.findAll('[data-testid="search-provider-row"]')).toHaveLength(19);
+        expect(panel.findAll('[data-testid^="search-strategy-"]')).toHaveLength(3);
+        expect(
+            panel.get('[data-testid="search-max-results-input"]').attributes('placeholder')
+        ).toBe('Unlimited');
+        expect(panel.find('[data-testid="search-brave-api-key-input"]').exists()).toBe(false);
+        await panel.get('[data-testid="search-provider-edit-brave"]').trigger('click');
         expect(panel.get('[data-testid="search-brave-api-key-input"]').attributes('type')).toBe(
             'password'
         );
-        expect(
-            panel.findAll('[data-testid="search-provider-row"]').map((row) => row.text())
-        ).toEqual([
-            expect.stringContaining('AnySearch'),
-            expect.stringContaining('Wikipedia'),
-            expect.stringContaining('OpenAlex'),
-            expect.stringContaining('Semantic Scholar'),
-            expect.stringContaining('GitHub'),
-            expect.stringContaining('Brave Search'),
-            expect.stringContaining('Tavily'),
-            expect.stringContaining('Exa'),
-            expect.stringContaining('Firecrawl'),
-            expect.stringContaining('SearXNG'),
-            expect.stringContaining('DeepSeek'),
-        ]);
-        expect(panel.get('[data-testid="search-provider-quota-brave"]').text()).toContain('2k');
-        expect(
-            panel.get('[data-testid="search-provider-quota-semantic_scholar"]').text()
-        ).toContain('1 RPS');
-        expect(panel.find('[data-testid="search-save-button"]').exists()).toBe(false);
-        await panel.get('[data-testid="search-max-results-input"]').setValue('5');
+        await panel.get('[data-testid="search-provider-editor-back"]').trigger('click');
+        await panel.get('[data-testid="search-max-results-input"]').setValue('0');
         await settleSave();
-        expect(saved().maxResults).toBe(5);
+        expect(saved().maxResults).toBe(0);
         expect(JSON.stringify(fixture.client.settings.getSnapshot())).not.toContain('brave-key');
     });
 
@@ -124,15 +105,25 @@ describe('given search configuration belongs to the main tools owner', () => {
             ...incoming,
             maxResults: 9,
             defaultProvider: 'wikipedia',
+            timeoutMs: 30000,
         });
         await flushPromises();
         await settleSave();
-        expect(saved()).toMatchObject({ maxResults: 5, defaultProvider: 'wikipedia' });
+        await vi.advanceTimersByTimeAsync(1000);
+        await flushPromises();
+        expect(saved()).toMatchObject({
+            maxResults: 5,
+            defaultProvider: 'wikipedia',
+            timeoutMs: 30000,
+        });
+        expect(
+            panel.get('[data-settings-search-target="search-timeout"] input').element
+        ).toMatchObject({ value: '30000' });
     });
 
     it('user changes an advanced switch and sees its persisted value on the same control', async () => {
         const panel = await openPanel();
-        const toggle = panel.get('[data-testid="search-advanced-toggle-parallelProviders"]');
+        const toggle = panel.get('[data-testid="search-parallel-toggle"]');
         expect(toggle.attributes('role')).toBe('switch');
         expect(toggle.attributes('aria-checked')).toBe('false');
         await toggle.trigger('click');
@@ -143,11 +134,11 @@ describe('given search configuration belongs to the main tools owner', () => {
 
     it('user selects only enabled route providers and disabling one resets its saved routes', async () => {
         const panel = await openPanel();
-        const route = panel.findAll('[role="combobox"]')[1]!;
+        const route = panel.get('[data-testid="search-source-route-general"]');
         const options = await openSettingsSelect(route);
         const labels = options.map((option) => option.text());
         expect(labels).toEqual(
-            expect.arrayContaining(['Auto', 'Brave Search', 'Tavily', 'Exa', 'Firecrawl'])
+            expect.arrayContaining(['Brave Search', 'Tavily', 'Exa', 'Firecrawl'])
         );
         expect(labels).not.toContain('SearXNG');
         options
@@ -158,7 +149,7 @@ describe('given search configuration belongs to the main tools owner', () => {
         await settleSave();
         expect(saved()).toMatchObject({
             providers: { brave: { enabled: false } },
-            intentRoutes: { general: 'auto' },
+            sourceRoutes: { general: 'auto' },
         });
     });
 
@@ -170,9 +161,6 @@ describe('given search configuration belongs to the main tools owner', () => {
                     .get(`[data-testid="search-provider-toggle-${provider}"]`)
                     .attributes('aria-checked')
             ).toBe('true');
-            expect(
-                panel.get(`[data-testid="search-${provider}-api-key-input"]`).classes()
-            ).not.toContain('border-red-300');
         }
         await panel.get('[data-testid="search-provider-toggle-tavily"]').trigger('click');
         await settleSave();
@@ -184,43 +172,138 @@ describe('given search configuration belongs to the main tools owner', () => {
 
     it('user supplies a required credential before DeepSeek becomes enabled', async () => {
         const panel = await openPanel();
-        expect(
-            panel.get('[data-testid="search-deepseek-api-key-input"]').attributes('disabled')
-        ).toBeDefined();
         await panel.get('[data-testid="search-provider-toggle-deepseek"]').trigger('click');
-        await settleSave();
+        expect(panel.find('[data-testid="search-provider-editor"]').exists()).toBe(true);
         expect(saved().providers.deepseek.enabled).toBe(false);
-        expect(panel.get('[data-testid="search-deepseek-api-key-input"]').classes()).toContain(
-            'border-red-300'
-        );
-        expect(
-            panel.get('[data-testid="search-deepseek-api-key-input"]').attributes('disabled')
-        ).toBeUndefined();
         await panel.get('[data-testid="search-deepseek-api-key-input"]').setValue('ds-key');
-        await settleSave();
-        await panel.get('[data-testid="search-provider-toggle-deepseek"]').trigger('click');
+        await panel.get('[data-testid="search-provider-editor-save"]').trigger('click');
         await settleSave();
         expect(saved().providers.deepseek).toMatchObject({ enabled: true, apiKey: 'ds-key' });
-        expect(panel.find('[data-testid="search-deepseek-shared-credential-hint"]').exists()).toBe(
-            false
-        );
     });
 
-    it('user cannot edit credentials for providers that do not accept them', async () => {
+    it.each(['anysearch', 'deepseek', 'exa'] as const)(
+        'user excludes and re-enables %s for page reading through its existing card',
+        async (provider) => {
+            const panel = await openPanel();
+            await panel.get(`[data-testid="search-provider-edit-${provider}"]`).trigger('click');
+            const tabs = panel.get('[data-testid="search-provider-credential-tabs"]');
+            const buttons = tabs.findAll('button');
+            await buttons[buttons.length - 1]!.trigger('click');
+            await panel
+                .get(`[data-testid="search-provider-fetch-toggle-${provider}"]`)
+                .trigger('click');
+            await settleSave();
+            expect(saved().providers[provider].fetchEnabled).toBe(false);
+            await panel
+                .get(`[data-testid="search-provider-fetch-toggle-${provider}"]`)
+                .trigger('click');
+            await settleSave();
+            expect(saved().providers[provider].fetchEnabled).not.toBe(false);
+        }
+    );
+
+    it.each(['apiKey', 'endpoint'] as const)(
+        'user edits %s while retaining another window changes to the other credential field',
+        async (field) => {
+            const panel = await openPanel();
+            await panel.get('[data-testid="search-provider-edit-qianfan"]').trigger('click');
+            const other = field === 'apiKey' ? 'endpoint' : 'apiKey';
+            const incoming = fixture.window.toolSettings!.getSearchSettings();
+            await fixture.window.toolSettings!.updateSearchSettings({
+                ...incoming,
+                providers: {
+                    ...incoming.providers,
+                    qianfan: { ...incoming.providers.qianfan, [other]: 'https://incoming.test' },
+                },
+            });
+            await flushPromises();
+            if (field === 'endpoint') {
+                await panel
+                    .get('[data-testid="search-provider-credential-tabs"]')
+                    .findAll('button')[1]!
+                    .trigger('click');
+            }
+            const selector = field === 'apiKey' ? 'api-key' : 'base-url';
+            await panel
+                .get(`[data-testid="search-qianfan-${selector}-input"]`)
+                .setValue('https://local.test');
+            await panel.get('[data-testid="search-provider-editor-save"]').trigger('click');
+            await settleSave();
+            expect(saved().providers.qianfan).toMatchObject({
+                [field]: 'https://local.test',
+                [other]: 'https://incoming.test',
+            });
+        }
+    );
+
+    it('user keeps a local draft when another window updates both credential fields afterwards', async () => {
         const panel = await openPanel();
-        for (const provider of ['wikipedia', 'openalex', 'github', 'searxng']) {
-            expect(
-                panel.get(`[data-testid="search-${provider}-api-key-input"]`).attributes('disabled')
-            ).toBeDefined();
-        }
-        for (const provider of ['brave', 'semantic_scholar', 'anysearch']) {
-            expect(
-                panel.get(`[data-testid="search-${provider}-api-key-input"]`).attributes('disabled')
-            ).toBeUndefined();
-        }
-        expect(panel.get('[data-testid="search-searxng-api-key-input"]').attributes('type')).toBe(
-            'url'
-        );
+        await panel.get('[data-testid="search-provider-edit-qianfan"]').trigger('click');
+        await panel.get('[data-testid="search-qianfan-api-key-input"]').setValue('local-key');
+        const incoming = fixture.window.toolSettings!.getSearchSettings();
+        await fixture.window.toolSettings!.updateSearchSettings({
+            ...incoming,
+            providers: {
+                ...incoming.providers,
+                qianfan: {
+                    ...incoming.providers.qianfan,
+                    apiKey: 'incoming-key',
+                    endpoint: 'https://incoming.test',
+                },
+            },
+        });
+        await flushPromises();
+        await panel.get('[data-testid="search-provider-editor-save"]').trigger('click');
+        await settleSave();
+        expect(saved().providers.qianfan).toMatchObject({
+            apiKey: 'local-key',
+            endpoint: 'https://incoming.test',
+        });
+    });
+
+    it('user edits credentials in place, cancels drafts, and saves both key and gateway', async () => {
+        const panel = await openPanel();
+        const order = () =>
+            panel
+                .findAll('[data-testid="search-provider-row"]')
+                .map((row) => row.attributes('data-provider'));
+        const original = order();
+        await panel.get('[data-testid="search-provider-edit-brave"]').trigger('click');
+        await panel.get('[data-testid="search-brave-api-key-input"]').setValue('cancelled-key');
+        await panel.get('[data-testid="search-provider-editor-back"]').trigger('click');
+        await settleSave();
+        expect(saved().providers.brave.apiKey).not.toBe('cancelled-key');
+        expect(order()).toEqual(original);
+        await panel.get('[data-testid="search-provider-edit-qianfan"]').trigger('click');
+        await panel.get('[data-testid="search-qianfan-api-key-input"]').setValue('q-key');
+        await panel
+            .get('[data-testid="search-provider-credential-tabs"]')
+            .findAll('button')[1]!
+            .trigger('click');
+        await panel
+            .get('[data-testid="search-qianfan-base-url-input"]')
+            .setValue('https://gateway.test/v1');
+        await panel.get('[data-testid="search-provider-editor-save"]').trigger('click');
+        await settleSave();
+        expect(saved().providers.qianfan).toMatchObject({
+            apiKey: 'q-key',
+            endpoint: 'https://gateway.test/v1',
+        });
+        expect(order()).toEqual(original);
+    });
+
+    it('user prioritizes an engine and fixed mode disables parallel fusion', async () => {
+        const panel = await openPanel();
+        await panel.get('[data-testid="search-strategy-priority"]').trigger('click');
+        await panel.get('[data-testid="search-priority-top-tavily"]').trigger('click');
+        await panel.get('[data-testid="search-parallel-toggle"]').trigger('click');
+        await settleSave();
+        expect(saved().providerPriority[0]).toBe('tavily');
+        expect(saved().parallelProviders).toBe(true);
+        await panel.get('[data-testid="search-strategy-manual"]').trigger('click');
+        await settleSave();
+        expect(saved()).toMatchObject({ routingStrategy: 'manual', parallelProviders: false });
+        expect(panel.find('[data-testid="search-parallel-toggle"]').exists()).toBe(false);
     });
 
     it('user loses main administration and the unavailable tool switch cannot pretend to commit a choice', async () => {
