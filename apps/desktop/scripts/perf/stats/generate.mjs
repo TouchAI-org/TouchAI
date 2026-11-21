@@ -19,14 +19,9 @@ import {
 export async function generateStats() {
     const runPlanFile = path.join(evidenceRoot, 'run-plan.json');
     const runPlan = readJsonFile(runPlanFile) ?? {};
-    const protocol = runPlan.protocol ?? runPlan.options ?? {};
-    const configuredFlows = Array.isArray(protocol.flows)
-        ? protocol.flows
-        : typeof protocol.flows === 'string'
-          ? protocol.flows.split(',')
-          : ['latency', 'progress', 'long-session'];
+    const protocol = runPlan.protocol ?? {};
     const enabledFlows = ['latency', 'progress', 'long-session'].filter((flow) =>
-        configuredFlows.includes(flow)
+        protocol.flows?.includes(flow)
     );
     const expectedHistoryLevels = Array.isArray(protocol.historyLevels)
         ? protocol.historyLevels.filter((level) => Number.isFinite(Number(level)))

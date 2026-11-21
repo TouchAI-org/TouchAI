@@ -281,8 +281,7 @@ async function captureSentinelTimeout(doneToken, error) {
         process.env.TOUCHAI_PERF_RUN_LOG_DIR ||
         (eventsFile ? path.dirname(eventsFile) : process.cwd());
     fs.mkdirSync(evidenceDirectory, { recursive: true });
-    const artifactBase = path.join(evidenceDirectory, `${runId || 'perf'}-sentinel-timeout`);
-    const diagnosticPath = `${artifactBase}.json`;
+    const diagnosticPath = path.join(evidenceDirectory, `${runId || 'perf'}-sentinel-timeout.json`);
     fs.writeFileSync(diagnosticPath, `${JSON.stringify(diagnostic, null, 2)}\n`);
     appendEvent({
         type: 'renderer-sentinel-timeout',
@@ -395,7 +394,6 @@ async function domMetrics() {
     return await browser.execute(() => ({
         domNodes: document.querySelectorAll('*').length,
         messageCount: document.querySelectorAll('[data-message-role]').length,
-        assistantMessageCount: document.querySelectorAll("[data-message-role='assistant']").length,
         bodyTextChars: document.body.textContent?.length ?? 0,
     }));
 }
@@ -520,7 +518,5 @@ describe('user runs the native performance workload', () => {
         } else {
             throw new Error(`Unknown TOUCHAI_PERF_FLOW: ${flow}`);
         }
-
-        appendEvent({ type: 'run-end', ...(await domMetrics()) });
     });
 });

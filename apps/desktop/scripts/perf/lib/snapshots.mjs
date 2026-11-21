@@ -66,14 +66,12 @@ function writeSourceManifest(arm, snapshot, comparison) {
         generatedAt: nowIso(),
         snapshot,
         entries,
-        entryCount: entries.length,
     };
     const manifestPath = path.join(manifestsRoot, `${arm}-source-manifest.json`);
     writeJson(manifestPath, manifest);
     return {
         path: manifestPath,
         sha256: sha256File(manifestPath),
-        entryCount: entries.length,
     };
 }
 export function linkSnapshotDependencies(snapshot, checkout = repoRoot) {

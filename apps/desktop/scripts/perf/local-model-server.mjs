@@ -46,7 +46,6 @@ function parsePerfPrompt(messages) {
                 .filter(([key, value]) => key && value !== undefined)
         );
         return {
-            marker,
             fields,
             userIndex: index,
             doneToken: `TOUCHAI_PERF_DONE_${createHash('sha256')
