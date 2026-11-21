@@ -525,12 +525,14 @@
             measuredState?.clientHeight !== element.clientHeight;
         const positionChanged = measuredState?.scrollTop !== element.scrollTop;
         const scrolledDown = element.scrollTop > (measuredState?.scrollTop ?? element.scrollTop);
-        if (!programmaticScroll) {
+        // Returning to the live edge reads only the distance to the end, so growth
+        // in the same frame must not swallow it. Revoking still needs the guard
+        // below, because compensation moves the position down without user input.
+        const resuming = !following.value && scrolledDown;
+        if (!programmaticScroll && (resuming || (positionChanged && !layoutChanged))) {
             if (scrolledDown) {
-                // Resuming reads only the distance to the end, so growth in the
-                // same frame must not swallow a return to the live edge.
                 readState(true);
-            } else if (positionChanged && !layoutChanged) {
+            } else {
                 setFollowing(false);
             }
         }
