@@ -5,7 +5,7 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
 const TOOL_NAME = 'record_effect';
-const AWAITING_CATALOG = 'RFC710 awaiting native MCP catalog';
+const AWAITING_CATALOG = 'Awaiting native MCP catalog';
 const LOCK_WATCHDOG_MS = 45000;
 const MAX_EFFECTS = 16;
 
@@ -29,9 +29,9 @@ export async function createMcpFixture(fixture) {
             !path.isAbsolute(relativeDatabase),
         'The MCP fixture may lock only the isolated database inside the agent fixture appRoot'
     );
-    const directory = mkdtempSync(path.join(appRoot, 'rfc710-mcp-'));
+    const directory = mkdtempSync(path.join(appRoot, 'mcp-fixture-'));
     const ledgerPath = path.join(directory, 'effects.jsonl');
-    const serverName = `RFC710 ${path.basename(directory)}`;
+    const serverName = `MCP fixture ${path.basename(directory)}`;
     writeFileSync(ledgerPath, '');
 
     const errors = [];
@@ -51,7 +51,7 @@ export async function createMcpFixture(fixture) {
         resultSent: false,
         watchdogReleased: false,
     };
-    const resultFor = (marker) => `RFC710 effect recorded: ${marker}`;
+    const resultFor = (marker) => `MCP effect recorded: ${marker}`;
 
     function assertHealthy() {
         if (errors.length) throw new AggregateError([...errors], 'Local MCP fixture failed');
