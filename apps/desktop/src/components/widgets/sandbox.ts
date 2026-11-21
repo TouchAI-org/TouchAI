@@ -4,14 +4,33 @@ import { SHOW_WIDGET_ALLOWED_RESOURCE_HOSTS } from '@/app/api/tools/widgets';
 import scrollbarStyles from '@/styles/scrollbars.css?inline';
 import { installAutoHideScrollbars } from '@/utils/autoHideScrollbars';
 
+export interface WidgetMotionPolicy {
+    /** Effective app motion scale; empty falls back to the shared stylesheet default. */
+    durationScale: string;
+    reduced: boolean;
+}
+
 /** Runs in an opaque-origin frame. No application object is passed into this realm. */
-export function createWidgetSandboxDocument(scopeId: string, styles: string): string {
+export function createWidgetSandboxDocument(
+    scopeId: string,
+    styles: string,
+    motion: WidgetMotionPolicy = { durationScale: '', reduced: false }
+): string {
     const hosts = SHOW_WIDGET_ALLOWED_RESOURCE_HOSTS.map((host) => `https://${host}`).join(' ');
     const bootstrap = `
 (() => {
     const stopAutoHideScrollbars = (${installAutoHideScrollbars.toString()})(document);
     window.addEventListener('pagehide', stopAutoHideScrollbars, { once: true });
     const scopeId = ${JSON.stringify(scopeId)};
+    const applyMotion = (policy) => {
+        const html = document.documentElement;
+        if (!html) return;
+        if (typeof policy.durationScale === 'string' && policy.durationScale) {
+            html.style.setProperty('--motion-duration-scale', policy.durationScale);
+        }
+        if (typeof policy.reduced === 'boolean') html.toggleAttribute('data-reduced-motion', policy.reduced);
+    };
+    applyMotion(${JSON.stringify(motion)});
     const root = document.querySelector('[data-touchai-widget-root]');
     const post = (data) => parent.postMessage({ source: 'touchai-show-widget', scopeId, ...data }, '*');
     let version = 0;
@@ -36,11 +55,17 @@ export function createWidgetSandboxDocument(scopeId: string, styles: string): st
     }, true);
     window.addEventListener('message', async event => {
         const data = event.data;
-        if (event.source !== parent || !data || data.scopeId !== scopeId || data.type !== 'render') return;
+        if (event.source !== parent || !data || data.scopeId !== scopeId) return;
+        if (data.type === 'motion') { applyMotion(data); return; }
+        if (data.type !== 'render') return;
         if (data.phase === 'ready' && lastExecuted === data.signature) return;
         const current = ++version;
         const next = document.createElement('div');
         next.innerHTML = data.html;
+        // Scroll state belongs to the runtime: morphdom drops attributes the incoming
+        // markup lacks, so remember the scrollports before reconciling and restore the
+        // marker afterwards. The original idle timer still removes it on schedule.
+        const scrolling = [root, ...root.querySelectorAll('[data-scrollbar-scrolling]')];
         window.morphdom(root, next, {
             childrenOnly: true,
             getNodeKey: node => node.nodeType === 1 ? node.getAttribute('data-widget-key') || node.id : undefined,
@@ -51,6 +76,11 @@ export function createWidgetSandboxDocument(scopeId: string, styles: string): st
                 node.addEventListener('animationend', () => node.removeAttribute('data-touchai-widget-added'), { once: true });
             },
         });
+        for (const element of scrolling) {
+            if (element.isConnected && (element === root || root.contains(element))) {
+                element.setAttribute('data-scrollbar-scrolling', '');
+            }
+        }
         measure();
         if (data.phase !== 'ready') { lastExecuted = ''; return; }
         lastExecuted = data.signature;

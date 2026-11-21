@@ -95,3 +95,39 @@ describe('given native scrolling regions in an application window', () => {
         expect(inner.hasAttribute('data-scrollbar-scrolling')).toBe(false);
     });
 });
+
+describe('given a user holds a native thumb before it has ever scrolled', () => {
+    let dispose: () => void;
+    let scrollport: HTMLDivElement;
+
+    beforeEach(() => {
+        vi.useFakeTimers();
+        scrollport = document.createElement('div');
+        document.body.append(scrollport);
+        dispose = installAutoHideScrollbars(document);
+    });
+
+    afterEach(() => {
+        dispose();
+        scrollport.remove();
+        vi.useRealTimers();
+    });
+
+    it('user keeps the scrollbar visible while holding an idle thumb', () => {
+        scrollport.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+        scrollport.dispatchEvent(new Event('scroll'));
+        vi.advanceTimersByTime(800);
+        expect(scrollport.hasAttribute('data-scrollbar-scrolling')).toBe(true);
+
+        scrollport.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }));
+        vi.advanceTimersByTime(700);
+        expect(scrollport.hasAttribute('data-scrollbar-scrolling')).toBe(false);
+    });
+
+    it('user pressing elsewhere does not keep a scrolled region visible', () => {
+        scrollport.dispatchEvent(new Event('scroll'));
+        document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+        vi.advanceTimersByTime(700);
+        expect(scrollport.hasAttribute('data-scrollbar-scrolling')).toBe(false);
+    });
+});

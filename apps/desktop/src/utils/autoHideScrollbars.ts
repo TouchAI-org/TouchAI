@@ -70,7 +70,9 @@ export function installAutoHideScrollbars(root: Document): () => void {
 
     function onPointerDown(event: Event) {
         const element = event.target;
-        if (element instanceof Element && active.has(element)) pressed = element;
+        // Record every press: an idle thumb that is dragged must stay visible even when
+        // the user holds it still past the idle delay, before the first scroll fires.
+        if (element instanceof Element) pressed = element;
     }
 
     function releasePointer() {

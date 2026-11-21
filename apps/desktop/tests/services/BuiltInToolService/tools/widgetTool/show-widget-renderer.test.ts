@@ -973,3 +973,30 @@ describe('user clicks a link inside a widget', () => {
         renderer.destroy();
     });
 });
+
+describe('given the application changes its motion policy', () => {
+    it('user gets the same speed and reduced state inside the widget', async () => {
+        const root = document.documentElement;
+        root.style.setProperty('--motion-duration-scale', '0.65');
+        const host = mountHost();
+        const renderer = createWidgetRenderer(host);
+        try {
+            const frameRoot = widgetDocument(host).documentElement;
+            expect(frameRoot.style.getPropertyValue('--motion-duration-scale')).toBe('0.65');
+            expect(frameRoot.hasAttribute('data-reduced-motion')).toBe(false);
+
+            root.setAttribute('data-reduced-motion', '');
+            await waitForCondition(() =>
+                widgetDocument(host).documentElement.hasAttribute('data-reduced-motion')
+            );
+            root.removeAttribute('data-reduced-motion');
+            await waitForCondition(
+                () => !widgetDocument(host).documentElement.hasAttribute('data-reduced-motion')
+            );
+        } finally {
+            renderer.destroy();
+            root.removeAttribute('data-reduced-motion');
+            root.style.removeProperty('--motion-duration-scale');
+        }
+    });
+});
