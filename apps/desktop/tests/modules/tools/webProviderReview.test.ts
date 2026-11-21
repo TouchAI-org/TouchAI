@@ -538,8 +538,26 @@ describe('given an engine fetch endpoint is configured for search', () => {
 });
 
 describe('given provider content arrives in different formats', () => {
-    it('user keeps plain-text characters from Exa in page_text mode', async () => {
-        http.mockResolvedValueOnce(json({ results: [{ text: '2*3*4 = 24' }] }));
+    it('user keeps plain-text characters from Doubao content in page_text mode', async () => {
+        http.mockResolvedValueOnce(json({ Result: { Data: { ContentText: '2*3*4 = 24' } } }));
+        const result = await fetchPage(
+            {
+                fetchStrategy: 'prefer',
+                providerPriority: ['doubao'],
+                providers: { doubao: { enabled: true, apiKey: 'doubao-key' } },
+            },
+            { maxResponseBytes: 100000 }
+        );
+        expect(result.isError).toBe(false);
+        expect(result.result).toContain('2*3*4 = 24');
+    });
+
+    it('user converts Exa Markdown content to plain text', async () => {
+        http.mockResolvedValueOnce(
+            json({
+                results: [{ text: ['# Heading', '', '[Link](https://example.com)'].join('\n') }],
+            })
+        );
         const result = await fetchPage(
             {
                 fetchStrategy: 'prefer',
@@ -549,7 +567,24 @@ describe('given provider content arrives in different formats', () => {
             { maxResponseBytes: 100000 }
         );
         expect(result.isError).toBe(false);
-        expect(result.result).toContain('2*3*4 = 24');
+        expect(result.result).toContain('Heading');
+        expect(result.result).not.toContain('# Heading');
+        expect(result.result).not.toContain('[Link]');
+    });
+
+    it('user converts Keenable content Markdown to plain text', async () => {
+        http.mockResolvedValueOnce(json({ content: '## Section' }));
+        const result = await fetchPage(
+            {
+                fetchStrategy: 'prefer',
+                providerPriority: ['keenable'],
+                providers: { keenable: { enabled: true } },
+            },
+            { maxResponseBytes: 100000 }
+        );
+        expect(result.isError).toBe(false);
+        expect(result.result).toContain('Section');
+        expect(result.result).not.toContain('## Section');
     });
 
     it('user still converts DeepSeek Markdown content to plain text', async () => {

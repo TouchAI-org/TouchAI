@@ -172,8 +172,8 @@ export function createProviderFetches({
             finalUrl: normalizeOptionalString(first.url),
             publishedAt: normalizeOptionalString(first.publishedDate),
             content: normalizeOptionalString(first.text) ?? '',
-            // Exa's `text` contents are extracted plain text, not Markdown.
-            contentFormat: 'text/plain',
+            // Exa documents full-text `text` output as Markdown.
+            contentFormat: 'text/markdown',
         };
     }
 
@@ -260,14 +260,16 @@ export function createProviderFetches({
         });
         await requireOk(response, 'Keenable');
         const payload = await readJson(response, maxResponseBytes);
-        const markdown = normalizeOptionalString(payload.markdown);
-        const content = normalizeOptionalString(payload.content) ?? markdown ?? '';
         return {
             provider: 'keenable',
             title: normalizeOptionalString(payload.title),
             publishedAt: normalizeOptionalString(payload.published_at),
-            content,
-            contentFormat: markdown && content === markdown ? 'text/markdown' : 'text/plain',
+            content:
+                normalizeOptionalString(payload.content) ??
+                normalizeOptionalString(payload.markdown) ??
+                '',
+            // Keenable documents the default `content` field as Markdown.
+            contentFormat: 'text/markdown',
         };
     }
 
