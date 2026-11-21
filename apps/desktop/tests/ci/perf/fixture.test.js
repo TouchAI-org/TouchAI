@@ -5,6 +5,7 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { DEFAULT_PORT } from '../../../scripts/perf/lib/config.mjs';
 import { configureBaseFixture } from '../../../scripts/perf/lib/fixtures.mjs';
 
 const require = createRequire(import.meta.url);
@@ -20,8 +21,9 @@ describe('user prepares the current desktop performance workload', () => {
     it('user gets one local model and the real setting tool from the shared isolated database fixture', () => {
         root = fs.mkdtempSync(path.join(os.tmpdir(), 'touchai-perf-fixture-'));
         const file = path.join(root, 'data/touchai.db');
-        seedAgentDatabase(file, 'http://127.0.0.1:3426/v1');
-        configureBaseFixture(file, 'test');
+        const endpoint = `http://127.0.0.1:${DEFAULT_PORT}/v1`;
+        seedAgentDatabase(file, endpoint);
+        configureBaseFixture(file);
         const database = new DatabaseSync(file, { readOnly: true });
         try {
             expect(
@@ -36,7 +38,7 @@ describe('user prepares the current desktop performance workload', () => {
                 {
                     model_id: 'perf-model',
                     driver: 'openai-compatible',
-                    api_endpoint: 'http://127.0.0.1:3426/v1',
+                    api_endpoint: endpoint,
                 },
             ]);
             expect(

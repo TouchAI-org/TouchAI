@@ -1,5 +1,16 @@
 import { DatabaseSync } from 'node:sqlite';
 
+export function seededSessionMessageId(historyLevel) {
+    if (!Number.isInteger(historyLevel) || historyLevel < 1) return null;
+    const role = historyLevel % 2 === 1 ? 'user' : 'assistant';
+    return `${role}-${historyLevel}`;
+}
+
+export function isSeededSessionReady({ historyLevel, mountedMessageIds }) {
+    const expectedId = seededSessionMessageId(historyLevel);
+    return expectedId !== null && mountedMessageIds.includes(expectedId);
+}
+
 export async function waitForSessionSettled({ databasePath, prompt, timeoutMs = 120000 }) {
     // The rendered sentinel ends latency timing; only a committed turn validates the sample.
     const database = new DatabaseSync(databasePath, { readOnly: true });

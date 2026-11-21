@@ -15,7 +15,7 @@ on:
                 description: Baseline commit (default selected candidate's first parent; PR runs use the PR base SHA)
                 required: false
             candidate:
-                description: Candidate commit (default selected workflow ref; PR runs use the PR head SHA)
+                description: Candidate commit (default selected workflow ref; PR runs use the pull request merge commit)
                 required: false
             latency-blocks:
                 description: Latency blocks (4 app launches per block)
@@ -68,13 +68,13 @@ jobs:
             HISTORY_LEVELS: '100,500,1000'
             PERF_SCOPE: ${{ inputs['performance-scope'] || (github.event_name == 'schedule' && 'full') || 'cold-latency' }}
             PERF_BASELINE_REQUEST: ${{ github.event.pull_request.base.sha || inputs.baseline }}
-            PERF_CANDIDATE_REQUEST: ${{ github.event.pull_request.head.sha || inputs.candidate || github.sha }}
+            PERF_CANDIDATE_REQUEST: ${{ inputs.candidate || github.sha }}
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
                   fetch-depth: 0
                   persist-credentials: false
-                  ref: ${{ github.event.pull_request.head.sha || inputs.candidate || github.sha }}
+                  ref: ${{ inputs.candidate || github.sha }}
 
             # This measures the selected change, not the old pre-refactor RFC acceptance.
             # Both arms must have identical dependency and database artifacts.

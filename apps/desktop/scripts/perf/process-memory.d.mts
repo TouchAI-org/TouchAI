@@ -25,6 +25,13 @@ export interface ProcessRunIdentity {
 
 export function readRollup(pid: number): ProcessMemory | null;
 export function aggregateMemory(processes: ProcessMemory[]): ProcessMemoryTotals;
+export function readProcessSample(
+    candidate: { pid: number; name: string },
+    options?: {
+        readMemory?: (pid: number) => ProcessMemory | null;
+        processExists?: (pid: number) => boolean;
+    }
+): (ProcessMemory & { pid: number; name: string }) | null;
 export function processBelongsToRun(
     candidate: ProcessCandidate,
     identity: ProcessRunIdentity

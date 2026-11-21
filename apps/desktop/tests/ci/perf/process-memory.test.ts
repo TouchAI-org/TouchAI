@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
     aggregateMemory,
     processBelongsToRun,
+    readProcessSample,
     readRollup,
 } from '../../../scripts/perf/process-memory.mjs';
 
@@ -44,6 +45,41 @@ describe('user reads RFC 710 process memory samples', () => {
             rssKb: 12345,
             privateDirtyKb: null,
         });
+    });
+
+    it('user keeps a live unreadable process so memory totals stay unavailable', () => {
+        const sample = readProcessSample(
+            { pid: 42, name: 'WebKitWebProcess' },
+            {
+                readMemory: () => null,
+                processExists: () => true,
+            }
+        );
+
+        expect(sample).toEqual({
+            pid: 42,
+            name: 'WebKitWebProcess',
+            pssKb: null,
+            rssKb: null,
+            privateDirtyKb: null,
+        });
+        expect(aggregateMemory([sample!])).toEqual({
+            totalPssKb: null,
+            totalRssKb: null,
+            totalPrivateDirtyKb: null,
+        });
+    });
+
+    it('user drops a process that exits before its memory can be read', () => {
+        expect(
+            readProcessSample(
+                { pid: 42, name: 'WebKitWebProcess' },
+                {
+                    readMemory: () => null,
+                    processExists: () => false,
+                }
+            )
+        ).toBeNull();
     });
 
     it('user excludes a same-cgroup process that lacks the current run identity', () => {

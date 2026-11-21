@@ -407,7 +407,7 @@ export function nearestMemoryWithin(samples, at, startAt, endAt, maxDistanceMs =
 
 export function buildProgressStats(events, memory, runs, enabled, plannedItems) {
     if (!enabled) {
-        return { status: 'NOT_RUN', metrics: [], samples: [] };
+        return { status: 'NOT_RUN', metrics: [] };
     }
     const runById = new Map(runs.map((run) => [run.runId, run]));
     const memoryByRun = groupMemoryByRun(memory);
@@ -481,7 +481,7 @@ export function buildProgressStats(events, memory, runs, enabled, plannedItems) 
         plannedItems: scopedPlan,
     });
     const status = steady.status;
-    return { status, metrics: [steady, peak], samples: steadyRows };
+    return { status, metrics: [steady, peak] };
 }
 
 export function buildLongSessionStats(
@@ -658,7 +658,7 @@ export function buildLongSessionStats(
             : gates.some((metric) => metric.status === 'BLOCKED')
               ? 'BLOCKED'
               : 'PASS';
-        levelResults.push({ level, status, metrics, samples: levelRows });
+        levelResults.push({ level, status, metrics });
     }
     const status = levelResults.some((level) => level.status === 'FAIL')
         ? 'FAIL'

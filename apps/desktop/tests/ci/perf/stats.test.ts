@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
-const STATS_CLI = path.resolve(testDirectory, '../../../scripts/perf/stats.mjs');
+const RUN_CLI = path.resolve(testDirectory, '../../../scripts/perf/run.mjs');
 const cleanup: string[] = [];
 const comparison = {
     baselineCommit: 'a'.repeat(40),
@@ -302,7 +302,7 @@ function runStats(root: string) {
 }
 
 function spawnStats(root: string) {
-    return spawnSync(process.execPath, [STATS_CLI], {
+    return spawnSync(process.execPath, [RUN_CLI, 'stats'], {
         encoding: 'utf8',
         env: { ...process.env, TOUCHAI_PERF_EVIDENCE: root },
         timeout: 30000,

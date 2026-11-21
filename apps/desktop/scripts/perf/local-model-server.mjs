@@ -5,7 +5,8 @@ import { pathToFileURL } from 'node:url';
 
 import { createEmulator, defineEmulator } from 'emulate';
 
-const DEFAULT_PORT = Number(process.env.TOUCHAI_PERF_PORT) || 3426;
+import { DEFAULT_PORT } from './lib/config.mjs';
+
 const DEFAULT_CHUNK_DELAY_MS = 16;
 const encoder = new TextEncoder();
 
@@ -18,7 +19,7 @@ function appendJsonLine(file, value) {
     try {
         fs.appendFileSync(file, `${JSON.stringify(value)}\n`);
     } catch (error) {
-        console.error('PERF710 model server could not append its log:', error);
+        console.error('TOUCHAI_PERF model server could not append its log:', error);
     }
 }
 
@@ -34,7 +35,7 @@ function parsePerfPrompt(messages) {
         if (message?.role !== 'user') continue;
 
         const text = contentText(message.content);
-        const marker = text.match(/PERF710\|[^\n]+/)?.[0];
+        const marker = text.match(/TOUCHAI_PERF\|[^\n]+/)?.[0];
         if (!marker) continue;
 
         const fields = Object.fromEntries(
@@ -48,7 +49,7 @@ function parsePerfPrompt(messages) {
             marker,
             fields,
             userIndex: index,
-            doneToken: `PERF710_DONE_${createHash('sha256')
+            doneToken: `TOUCHAI_PERF_DONE_${createHash('sha256')
                 .update(fields.promptId ?? marker)
                 .digest('hex')
                 .slice(0, 16)}`,
@@ -241,7 +242,10 @@ export async function startPerfModelServer(options = {}) {
                 const messages = Array.isArray(body?.messages) ? body.messages : [];
                 const prompt = parsePerfPrompt(messages);
                 if (!prompt) {
-                    return c.json({ error: { message: 'Missing PERF710 prompt marker.' } }, 400);
+                    return c.json(
+                        { error: { message: 'Missing TOUCHAI_PERF prompt marker.' } },
+                        400
+                    );
                 }
 
                 const model = typeof body.model === 'string' ? body.model : 'perf-model';
@@ -312,15 +316,10 @@ export async function startPerfModelServer(options = {}) {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
     const portArgIndex = process.argv.indexOf('--port');
     const logArgIndex = process.argv.indexOf('--log');
-    const port =
-        portArgIndex >= 0
-            ? Number(process.argv[portArgIndex + 1])
-            : process.env.PERF710_PORT
-              ? Number(process.env.PERF710_PORT)
-              : undefined;
+    const port = portArgIndex >= 0 ? Number(process.argv[portArgIndex + 1]) : undefined;
     const logFile = logArgIndex >= 0 ? process.argv[logArgIndex + 1] : undefined;
     const running = await startPerfModelServer({ port, logFile });
-    console.log(`PERF710 model server listening on ${running.endpoint}`);
+    console.log(`TOUCHAI_PERF model server listening on ${running.endpoint}`);
     await new Promise((resolve) => {
         process.once('SIGINT', resolve);
         process.once('SIGTERM', resolve);

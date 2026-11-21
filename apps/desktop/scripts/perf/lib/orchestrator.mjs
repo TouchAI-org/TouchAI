@@ -68,14 +68,28 @@ export async function runMeasurements(options) {
     }
     const runsPath = path.join(rawRoot, 'runs.jsonl');
     const existingRuns = options.resume ? readJsonLines(runsPath) : [];
-    const failedRun = existingRuns.find((record) =>
-        record.type === 'run'
-            ? !isValidRun(record)
-            : record.type !== 'run-attempt' || record.retryReason !== 'display-startup-failure'
-    );
+    const failedRun = existingRuns.find((record) => {
+        if (record.type === 'run') return !isValidRun(record);
+        if (record.type === 'run-attempt') {
+            return isValidRun(record) || record.retryReason !== 'display-startup-failure';
+        }
+        return record.type !== 'run-launch';
+    });
     if (failedRun)
         throw new Error(
             `Cannot resume after a failed measurement: ${failedRun.runId}. Preserve its evidence.`
+        );
+    const terminalRunIds = new Set(
+        existingRuns
+            .filter((record) => record.type === 'run' || record.type === 'run-attempt')
+            .map((record) => record.runId)
+    );
+    const interruptedLaunch = existingRuns.find(
+        (record) => record.type === 'run-launch' && !terminalRunIds.has(record.runId)
+    );
+    if (interruptedLaunch)
+        throw new Error(
+            `Cannot resume an interrupted measurement: ${interruptedLaunch.runId}. Preserve its evidence.`
         );
     const existingSuccessfulRuns = existingRuns.filter((record) => record.type === 'run');
     const completedIds = new Set(existingSuccessfulRuns.map((record) => record.runId));

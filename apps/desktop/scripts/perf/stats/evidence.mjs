@@ -1,7 +1,7 @@
 import { MANIFEST_VERSION } from '../lib/config.mjs';
 import { isUsableMemory, nearestMemory, nearestMemoryWithin } from './statistics.mjs';
 
-export function fixtureValidationError(run, fixtureManifest) {
+function fixtureValidationError(run, fixtureManifest) {
     if (!fixtureManifest) return 'fixture manifest is missing';
     if (fixtureManifest.version !== MANIFEST_VERSION) {
         return `fixture manifest version mismatch: expected ${MANIFEST_VERSION}, got ${fixtureManifest.version ?? 'missing'}`;
@@ -50,7 +50,7 @@ export function fixtureValidationError(run, fixtureManifest) {
     return null;
 }
 
-export function sampleValidationError(run, events, memory, protocol) {
+function sampleValidationError(run, events, memory, protocol) {
     const observed = events.filter((event) => event.runId === run.runId);
     if (observed.some((event) => event.arm !== run.arm)) return 'event arm identity mismatch';
     const positive = (value) => typeof value === 'number' && Number.isFinite(value) && value > 0;

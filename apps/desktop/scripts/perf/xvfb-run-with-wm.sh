@@ -19,11 +19,7 @@ exec /usr/bin/xvfb-run -a -s "-screen 0 1280x1024x24 -nolisten tcp" \
         export XDG_RUNTIME_DIR="$runtime_dir"
 
         display_log_dir="${TOUCHAI_PERF_RUN_LOG_DIR:-$runtime_dir/display}"
-        created_display_log_dir=0
-        if [[ ! -d "$display_log_dir" ]]; then
-            mkdir -p "$display_log_dir"
-            created_display_log_dir=1
-        fi
+        mkdir -p "$display_log_dir"
 
         cleanup() {
             local status=$?
@@ -37,9 +33,6 @@ exec /usr/bin/xvfb-run -a -s "-screen 0 1280x1024x24 -nolisten tcp" \
                     wait "$pid" 2>/dev/null || true
                 fi
             done
-            if [[ "$created_display_log_dir" -eq 1 ]]; then
-                rm -rf "$display_log_dir"
-            fi
             rm -rf "$runtime_dir"
             exit "$status"
         }

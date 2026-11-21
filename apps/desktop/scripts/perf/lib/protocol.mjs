@@ -1,8 +1,34 @@
 import path from 'node:path';
 
-import { nonNegativeNumberArg, numberArg } from './cli.mjs';
 import { armOrder, DEFAULT_PORT, evidenceRoot, fixtureLevels, startupSettleMs } from './config.mjs';
 import { readJsonFile } from './io.mjs';
+
+export function parseArgs(argv) {
+    const values = {};
+    for (let index = 0; index < argv.length; index += 1) {
+        const token = argv[index];
+        if (!token.startsWith('--')) continue;
+        const key = token.slice(2);
+        const next = argv[index + 1];
+        if (next && !next.startsWith('--')) {
+            values[key] = next;
+            index += 1;
+        } else {
+            values[key] = 'true';
+        }
+    }
+    return values;
+}
+
+function numberArg(args, name, fallback) {
+    const value = Number(args[name]);
+    return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function nonNegativeNumberArg(args, name, fallback) {
+    const value = Number(args[name]);
+    return Number.isFinite(value) && value >= 0 ? value : fallback;
+}
 
 export function buildRunPlan(options) {
     const plan = [];
@@ -100,7 +126,7 @@ export function readOptions(args) {
     };
 }
 
-export function parseHistoryLevels(value) {
+function parseHistoryLevels(value) {
     const levels = String(value)
         .split(',')
         .map((part) => part.trim())

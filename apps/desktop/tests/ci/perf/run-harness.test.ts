@@ -434,6 +434,30 @@ describe('user previews and resumes the RFC 710 performance run', () => {
         expect(result.status).toBe(1);
         expect(result.stderr).toContain('interrupted-sample');
     });
+
+    it('user cannot repeat a workload whose launch record has no terminal result', () => {
+        const root = createEvidenceRoot();
+        fs.writeFileSync(
+            path.join(root, 'run-plan.json'),
+            JSON.stringify({ protocol: persistedProtocol(0) })
+        );
+        fs.writeFileSync(
+            path.join(root, 'raw/formal/runs.jsonl'),
+            JSON.stringify({ type: 'run-launch', runId: 'interrupted-launch' }) + '\n'
+        );
+        const result = runHarness(root, [
+            '--resume',
+            '--dry-run',
+            '--flows',
+            'latency',
+            '--latency-blocks',
+            '1',
+            '--warm-samples',
+            '0',
+        ]);
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain('interrupted-launch');
+    });
 });
 
 describe('user validates RFC 710 measurement evidence', () => {
@@ -480,5 +504,17 @@ describe('user validates RFC 710 measurement evidence', () => {
                 samplerFailure: 'stopped before WebDriver completed (exit 1 signal null)',
             })
         ).toEqual(['memory sampler stopped before WebDriver completed (exit 1 signal null)']);
+    });
+
+    it('user sees a launch failure as an invalid measurement', () => {
+        expect(
+            measurementInvalidReasons({
+                exitCode: null,
+                signal: null,
+                notificationFailures: 0,
+                samplerFailure: null,
+                launchError: new Error('spawn failed'),
+            })
+        ).toEqual(['measurement launch failed: spawn failed']);
     });
 });

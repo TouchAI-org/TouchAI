@@ -6,7 +6,7 @@ export function ensureDirectory(directory) {
     fs.mkdirSync(directory, { recursive: true });
 }
 
-export function assertManagedPath(candidate, parent) {
+function assertManagedPath(candidate, parent) {
     const resolvedCandidate = path.resolve(candidate);
     const resolvedParent = `${path.resolve(parent)}${path.sep}`;
     if (!resolvedCandidate.startsWith(resolvedParent)) {

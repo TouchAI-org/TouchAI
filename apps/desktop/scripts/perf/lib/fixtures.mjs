@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { verifyBuiltArms } from './build.mjs';
 import { readComparison } from './comparison.mjs';
 import {
+    arms,
     artifactsRoot,
     baselineSnapshot,
     binaryPathByArm,
@@ -13,7 +14,6 @@ import {
     DEFAULT_PORT,
     evidenceRoot,
     fixtureLevels,
-    fixtureNames,
     fixturePathByArm,
     fixturesRoot,
     logsRoot,
@@ -89,7 +89,7 @@ function runSqlite(database, sql, log) {
     });
 }
 
-export function configureBaseFixture(database, arm) {
+export function configureBaseFixture(database) {
     const sql = `
 BEGIN IMMEDIATE;
 DELETE FROM models;
@@ -114,7 +114,6 @@ COMMIT;
 PRAGMA wal_checkpoint(TRUNCATE);
 VACUUM;
 `;
-    const log = path.join(logsRoot, `fixture-configure-${arm}.log`);
     const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite');
     const connection = new DatabaseSync(database);
     try {
@@ -122,8 +121,6 @@ VACUUM;
     } finally {
         connection.close();
     }
-    ensureDirectory(path.dirname(log));
-    fs.writeFileSync(log, `configured base fixture for ${arm}\n`);
 }
 
 function createLongFixture(baseDatabase, level, destination) {
@@ -252,7 +249,6 @@ function businessOracleSha256(database, projection, log) {
 export async function prepareFixtures() {
     verifyBuiltArms();
     ensureDirectory(fixturesRoot);
-    const arms = ['baseline', 'current'];
     const baseContexts = {};
     const armManifests = {};
     for (const arm of arms) {
@@ -261,7 +257,7 @@ export async function prepareFixtures() {
         const { initialized, initRoot, migrationTags } = await initializeDatabaseFromArm(arm);
         const base = fixturePathByArm[arm].base;
         fs.copyFileSync(initialized, base);
-        configureBaseFixture(base, arm);
+        configureBaseFixture(base);
         baseContexts[arm] = {
             base,
             initRoot,
@@ -329,7 +325,7 @@ export async function prepareFixtures() {
         }
     }
     const businessOracles = Object.fromEntries(
-        fixtureNames.map((name) => [
+        Object.keys(armManifests.baseline.fixtures).map((name) => [
             name,
             {
                 baseline: armManifests.baseline.fixtures[name].businessOracleSha256,
