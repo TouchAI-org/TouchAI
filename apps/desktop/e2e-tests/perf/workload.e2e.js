@@ -521,7 +521,7 @@ async function runLongSession() {
     appendEvent({ type: 'long-phase', phase: 'settled', ...(await domMetrics()) });
 }
 
-describe('user runs the RFC 710 native performance workload', () => {
+describe('user runs the native performance workload', () => {
     it('user completes the configured release workload with observable metrics', async () => {
         await waitForMainWindow();
         appendEvent({ type: 'run-start' });
