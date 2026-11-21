@@ -9,6 +9,7 @@
 
     import {
         addPromptSnippet,
+        canWritePromptSnippetStorage,
         PROMPT_SNIPPET_BODY_MAX_LENGTH,
         PROMPT_SNIPPET_MAX_ITEMS,
         PROMPT_SNIPPET_TITLE_MAX_LENGTH,
@@ -55,10 +56,16 @@
         },
     ]);
     const isAtLimit = computed(() => snippets.value.length >= PROMPT_SNIPPET_MAX_ITEMS);
+    const isStorageReadOnly = computed(
+        () => !canWritePromptSnippetStorage(settings.value.promptSnippets.storageIssue)
+    );
     const storageIssueMessage = computed(() => {
         const issue = settings.value.promptSnippets.storageIssue;
         if (issue === 'invalid_json') {
-            return t('settings.general.promptSnippets.storageInvalid');
+            return t('settings.general.promptSnippets.storageReadOnly');
+        }
+        if (issue === 'unsupported_version') {
+            return t('settings.general.promptSnippets.storageUnsupported');
         }
         if (issue === 'invalid_items') {
             return t('settings.general.promptSnippets.itemsInvalid');
@@ -100,12 +107,18 @@
     }
 
     function beginCreate() {
+        if (isStorageReadOnly.value) {
+            return;
+        }
         editingId.value = null;
         resetDraft();
         isEditing.value = true;
     }
 
     function beginEdit(snippet: PromptSnippet) {
+        if (isStorageReadOnly.value) {
+            return;
+        }
         editingId.value = snippet.id;
         draft.title = snippet.title;
         draft.body = snippet.body;
@@ -125,7 +138,7 @@
     }
 
     async function saveSnippet() {
-        if (isSaving.value) {
+        if (isSaving.value || isStorageReadOnly.value) {
             return;
         }
         const current = toPromptSnippetStorage(settings.value.promptSnippets);
@@ -177,6 +190,9 @@
     }
 
     function requestDelete(snippetId: string) {
+        if (isStorageReadOnly.value) {
+            return;
+        }
         deleteCandidateId.value = snippetId;
     }
 
@@ -185,7 +201,7 @@
     }
 
     async function confirmDelete(snippetId: string) {
-        if (isSaving.value) {
+        if (isSaving.value || isStorageReadOnly.value) {
             return;
         }
         isSaving.value = true;
@@ -220,7 +236,7 @@
             <Button
                 variant="outline-neutral"
                 data-testid="prompt-snippet-add"
-                :disabled="isEditing || isAtLimit"
+                :disabled="isStorageReadOnly || isEditing || isAtLimit"
                 @click="beginCreate"
             >
                 {{ t('settings.general.promptSnippets.add') }}
@@ -231,7 +247,7 @@
             v-if="storageIssueMessage"
             data-testid="prompt-snippet-storage-error"
             class="rounded-control border border-border-warning bg-background-warning px-3 py-2 text-compact text-text-warning"
-            role="status"
+            role="alert"
         >
             {{ storageIssueMessage }}
         </div>
@@ -264,7 +280,7 @@
         </div>
 
         <form
-            v-if="isEditing"
+            v-if="isEditing && !isStorageReadOnly"
             class="space-y-3 rounded-control border border-border-subtle bg-surface-sunken p-4"
             data-testid="prompt-snippet-editor"
             @submit.prevent="saveSnippet"
@@ -355,7 +371,7 @@
         </form>
 
         <div
-            v-if="snippets.length === 0"
+            v-if="snippets.length === 0 && !isStorageReadOnly"
             class="rounded-control border border-dashed border-border-subtle px-4 py-8 text-center text-compact text-text-tertiary"
             data-testid="prompt-snippet-empty"
         >
@@ -389,12 +405,18 @@
                         </p>
                     </div>
                     <div class="flex shrink-0 gap-1">
-                        <Button variant="outline-neutral" @click="beginEdit(snippet)">
+                        <Button
+                            variant="outline-neutral"
+                            :data-testid="`prompt-snippet-edit-${snippet.id}`"
+                            :disabled="isStorageReadOnly || isSaving"
+                            @click="beginEdit(snippet)"
+                        >
                             {{ t('common.edit') }}
                         </Button>
                         <Button
                             variant="danger"
                             :data-testid="`prompt-snippet-delete-${snippet.id}`"
+                            :disabled="isStorageReadOnly || isSaving"
                             @click="requestDelete(snippet.id)"
                         >
                             {{ t('common.delete') }}
@@ -415,6 +437,7 @@
                     <Button
                         variant="danger"
                         :data-testid="`prompt-snippet-confirm-delete-${snippet.id}`"
+                        :disabled="isStorageReadOnly || isSaving"
                         @click="confirmDelete(snippet.id)"
                     >
                         {{ t('common.delete') }}

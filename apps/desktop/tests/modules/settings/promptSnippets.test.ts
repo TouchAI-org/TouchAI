@@ -114,6 +114,58 @@ describe('given prompt snippets use the approved settings storage contract', () 
         expect(parsed.storageIssue).toBe('invalid_json');
     });
 
+    it('user reopens storage written by a future version and sees an unsupported-version error', () => {
+        const parsed = parsePersistedPromptSnippets(
+            JSON.stringify({ schemaVersion: 2, items: [{ future: 'shape' }] })
+        );
+
+        expect(parsed.items).toEqual([]);
+        expect(parsed.storageIssue).toBe('unsupported_version');
+    });
+
+    it.each([
+        ['a primitive', 'null'],
+        ['an array', '[]'],
+    ])('user reopens storage with %s root and sees an invalid-json error', (_shape, raw) => {
+        const parsed = parsePersistedPromptSnippets(raw);
+
+        expect(parsed.items).toEqual([]);
+        expect(parsed.storageIssue).toBe('invalid_json');
+    });
+
+    it.each([
+        [
+            'future-version',
+            JSON.stringify({
+                schemaVersion: 2,
+                items: [{ futureField: 'must survive' }],
+                futureMetadata: true,
+            }),
+            'unsupported_version',
+        ],
+        ['malformed-json', '{not-json', 'invalid_json'],
+        ['non-object-root', '[]', 'invalid_json'],
+    ] as const)(
+        'user attempts to overwrite %s storage and sees the original value preserved',
+        async (_kind, raw, expectedIssue) => {
+            fixture = await createSettingsPanelFixture({
+                values: { prompt_snippets_v1: raw },
+            });
+
+            const result = await fixture.window.settings.mutate(
+                'prompt_snippets_v1',
+                createEmptyPromptSnippetStorage([snippet()])
+            );
+
+            expect(result.status).toBe('rejected');
+            expect(fixture.saved('prompt_snippets_v1')).toBe(raw);
+            expect(fixture.client.settings.getSnapshot().promptSnippets.storageIssue).toBe(
+                expectedIssue
+            );
+        },
+        15_000
+    );
+
     it('user reopens storage with one malformed item and keeps only valid snippets visible', () => {
         const parsed = parsePersistedPromptSnippets(
             JSON.stringify({

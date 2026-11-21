@@ -15,6 +15,7 @@ import {
     type GeneralScalarSettingKey,
 } from './general';
 import {
+    canWritePromptSnippetStorage,
     createEmptyPromptSnippetSettings,
     parsePersistedPromptSnippets,
     PROMPT_SNIPPET_SETTING_KEY,
@@ -94,6 +95,7 @@ export interface GeneralSettingDefinition {
     read(source: GeneralSettingsData): GeneralSettingFieldValue;
     serializeValue(value: GeneralSettingFieldValue): string;
     eventValue(value: GeneralSettingFieldValue): GeneralSettingValue;
+    canUpdate?(source: GeneralSettingsData): boolean;
     persistBeforeApply?: boolean;
     shouldRewritePersisted?(raw: string | null): boolean;
 }
@@ -290,6 +292,7 @@ const PROMPT_SNIPPETS_SETTING_DEFINITION: GeneralSettingDefinition = {
     serializeValue: (value) =>
         JSON.stringify(toPromptSnippetStorage(value as PromptSnippetSettings)),
     eventValue: (value) => clonePromptSnippetSettings(value as PromptSnippetSettings),
+    canUpdate: (source) => canWritePromptSnippetStorage(source.promptSnippets.storageIssue),
 };
 
 export const GENERAL_SETTING_DEFINITIONS: readonly GeneralSettingDefinition[] = [

@@ -5,6 +5,10 @@ import { usageMessagesEnUS, usageMessagesZhCN } from './usageMessages';
 const zhCNMessages = {
     ...skillsMessagesZhCN,
     ...usageMessagesZhCN,
+    'settings.general.promptSnippets.storageReadOnly':
+        '已保存的片段数据无法安全读取，因此暂不可编辑；原数据不会被覆盖。',
+    'settings.general.promptSnippets.storageUnsupported':
+        '已保存的片段数据来自更新版本的 TouchAI，因此暂不可编辑；原数据不会被覆盖。',
     'common.settings': '设置',
     'common.saved': '保存成功',
     'common.count': '{count} 项',
@@ -1357,6 +1361,10 @@ const zhCNMessages = {
 const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     ...skillsMessagesEnUS,
     ...usageMessagesEnUS,
+    'settings.general.promptSnippets.storageReadOnly':
+        'Saved prompt snippet data could not be read safely. Editing is disabled so the original data is not overwritten.',
+    'settings.general.promptSnippets.storageUnsupported':
+        'Saved prompt snippet data was created by a newer version of TouchAI. Editing is disabled so the original data is not overwritten.',
     'common.settings': 'Settings',
     'common.saved': 'Saved',
     'common.count': '{count} items',

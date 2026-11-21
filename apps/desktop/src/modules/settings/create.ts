@@ -82,6 +82,7 @@ interface SettingDefinition {
     read(source: GeneralSettingsData): unknown;
     serializeValue(value: unknown): string;
     eventValue(value: unknown): GeneralSettingValue;
+    canUpdate?(source: GeneralSettingsData): boolean;
     shouldRewritePersisted?(raw: string | null): boolean;
 }
 
@@ -822,6 +823,15 @@ export class SettingsService {
                 status: 'rejected',
                 key,
                 code: SettingsErrorCode.UnknownKey,
+                message: this.messages.mutationFailedMessage(),
+            };
+        }
+
+        if (definition.canUpdate && !definition.canUpdate(this.committed)) {
+            return {
+                status: 'rejected',
+                key,
+                code: SettingsErrorCode.InvalidValue,
                 message: this.messages.mutationFailedMessage(),
             };
         }

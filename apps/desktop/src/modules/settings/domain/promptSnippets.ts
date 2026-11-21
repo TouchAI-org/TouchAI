@@ -8,7 +8,12 @@ export const PROMPT_SNIPPET_TITLE_MAX_LENGTH = 80;
 export const PROMPT_SNIPPET_BODY_MAX_LENGTH = 10_000;
 
 export type PromptSnippetInsertionMode = 'paste_only' | 'paste_and_send';
-export type PromptSnippetStorageIssue = 'invalid_json' | 'invalid_items' | 'too_many_items' | null;
+export type PromptSnippetStorageIssue =
+    | 'invalid_json'
+    | 'unsupported_version'
+    | 'invalid_items'
+    | 'too_many_items'
+    | null;
 export type PromptSnippetValidationCode =
     | 'too_many_items'
     | 'not_found'
@@ -91,6 +96,10 @@ export function normalizePromptSnippetInsertionMode(value: unknown): PromptSnipp
     return value === 'paste_and_send' ? 'paste_and_send' : 'paste_only';
 }
 
+export function canWritePromptSnippetStorage(issue: PromptSnippetStorageIssue): boolean {
+    return issue !== 'invalid_json' && issue !== 'unsupported_version';
+}
+
 export function createEmptyPromptSnippetStorage(items: PromptSnippet[] = []): PromptSnippetStorage {
     return {
         schemaVersion: PROMPT_SNIPPET_SCHEMA_VERSION,
@@ -114,17 +123,16 @@ export function parsePersistedPromptSnippets(raw: string | null): PromptSnippetS
         !value ||
         typeof value !== 'object' ||
         Array.isArray(value) ||
-        !Object.prototype.hasOwnProperty.call(value, 'schemaVersion') ||
-        !Object.prototype.hasOwnProperty.call(value, 'items')
+        !Object.prototype.hasOwnProperty.call(value, 'schemaVersion')
     ) {
         return { ...createEmptyPromptSnippetSettings(), storageIssue: 'invalid_json' };
     }
 
     const candidate = value as Record<string, unknown>;
-    if (
-        candidate.schemaVersion !== PROMPT_SNIPPET_SCHEMA_VERSION ||
-        !Array.isArray(candidate.items)
-    ) {
+    if (candidate.schemaVersion !== PROMPT_SNIPPET_SCHEMA_VERSION) {
+        return { ...createEmptyPromptSnippetSettings(), storageIssue: 'unsupported_version' };
+    }
+    if (!Array.isArray(candidate.items)) {
         return { ...createEmptyPromptSnippetSettings(), storageIssue: 'invalid_json' };
     }
 
