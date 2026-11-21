@@ -170,6 +170,7 @@
         return indices.sort((left, right) => left - right).map(createRailItem);
     });
 
+    const sourceItemIds = computed(() => props.items.map((item) => item.id).join('\0'));
     const railItemIds = computed(() => railItems.value.map((item) => item.id).join('\0'));
 
     const displayedItemId = computed(
@@ -700,9 +701,9 @@
         if (id) addPinnedDismissListeners();
     });
 
-    // Sampling depends on item order and focus/pin protection, not just the
-    // props array identity. Re-measure whenever the rendered ticks change.
-    watch(railItemIds, handleResize, { flush: 'post' });
+    // Sampled ticks can hide an order change between two unsampled items.
+    // Observe the full source order as well as the rendered tick identity.
+    watch([sourceItemIds, railItemIds], handleResize, { flush: 'post' });
 
     watch(
         () => props.followOutput,
