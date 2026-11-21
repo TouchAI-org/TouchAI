@@ -1,7 +1,7 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -13,20 +13,132 @@ const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(testDirectory, '../../..');
 const workflowPath = path.resolve(repositoryRoot, '.github/workflows/perf-nightly.yml');
 const perfRunner = path.resolve(repositoryRoot, 'apps/desktop/scripts/perf/run.mjs');
+const comparison = {
+    baselineCommit: 'a'.repeat(40),
+    candidateCommit: 'b'.repeat(40),
+};
 
-function runGate(stats: unknown | null) {
+function spawnGate(root: string) {
+    return spawnSync(process.execPath, [perfRunner, 'gate'], {
+        encoding: 'utf8',
+        env: { ...process.env, TOUCHAI_PERF_EVIDENCE: root, TOUCHAI_PERF_ARTIFACTS: root },
+    });
+}
+
+function runGate(setup?: (root: string) => void) {
     const root = mkdtempSync(path.join(os.tmpdir(), 'touchai-perf-gate-'));
     try {
-        if (stats !== null) {
-            writeFileSync(path.join(root, 'stats.json'), JSON.stringify(stats));
-        }
-        return spawnSync(process.execPath, [perfRunner, 'gate'], {
-            encoding: 'utf8',
-            env: { ...process.env, TOUCHAI_PERF_EVIDENCE: root, TOUCHAI_PERF_ARTIFACTS: root },
-        });
+        setup?.(root);
+        return spawnGate(root);
     } finally {
         rmSync(root, { recursive: true, force: true });
     }
+}
+
+function writePassingEvidence(root: string): void {
+    mkdirSync(path.join(root, 'raw/formal'), { recursive: true });
+    writeFileSync(path.join(root, 'source-manifest.json'), JSON.stringify({ comparison }));
+    const order = ['baseline', 'current', 'current', 'baseline'] as const;
+    const runs = [];
+    const events = [];
+    const plan = [];
+    for (let block = 1; block <= 3; block += 1) {
+        for (const [offset, arm] of order.entries()) {
+            const sequenceIndex = offset + 1;
+            const runId = `latency-b${block}-s${sequenceIndex}-${arm}`;
+            const identity = {
+                runId,
+                arm,
+                flow: 'latency',
+                block,
+                sequenceIndex,
+                historyLevel: 0,
+                fixture: 'base',
+                fixtureSha256: 'base-fixture-sha',
+                binarySha256: `${arm}-binary-sha`,
+                attempt: 1,
+            };
+            runs.push(
+                { type: 'run-launch', ...identity },
+                {
+                    type: 'run',
+                    ...identity,
+                    exitCode: 0,
+                    signal: null,
+                    notificationFailures: 0,
+                    valid: true,
+                    invalidReasons: [],
+                }
+            );
+            events.push(
+                { type: 'run-start', ...identity },
+                {
+                    type: 'latency',
+                    runId,
+                    arm,
+                    flow: 'latency',
+                    block,
+                    sequenceIndex,
+                    mode: 'cold',
+                    durationMs: 1000,
+                    firstTextMs: 400,
+                }
+            );
+            plan.push(identity);
+        }
+    }
+    writeFileSync(
+        path.join(root, 'run-plan.json'),
+        JSON.stringify({
+            protocol: {
+                comparison,
+                flows: ['latency'],
+                latencyBlocks: 3,
+                progressBlocks: 3,
+                longBlocks: 6,
+                historyLevels: [],
+                warmSamples: 0,
+                progressWarmups: 4,
+                progressTasks: 8,
+                memoryIntervalMs: 250,
+            },
+            plan,
+        })
+    );
+    const fixtures = {
+        base: { sha256: 'base-fixture-sha', businessOracleSha256: 'base-oracle' },
+    };
+    writeFileSync(
+        path.join(root, 'fixture-manifest.json'),
+        JSON.stringify({
+            version: 1,
+            comparison,
+            arms: {
+                baseline: {
+                    sourceBinarySha256: 'baseline-binary-sha',
+                    migrationTags: [],
+                    fixtures,
+                },
+                current: {
+                    sourceBinarySha256: 'current-binary-sha',
+                    migrationTags: [],
+                    fixtures,
+                },
+            },
+            businessOracles: {
+                base: { baseline: 'base-oracle', current: 'base-oracle' },
+            },
+        })
+    );
+    writeFileSync(
+        path.join(root, 'raw/formal/runs.jsonl'),
+        `${runs.map((record) => JSON.stringify(record)).join('\n')}\n`
+    );
+    writeFileSync(
+        path.join(root, 'raw/formal/events.jsonl'),
+        `${events.map((record) => JSON.stringify(record)).join('\n')}\n`
+    );
+    writeFileSync(path.join(root, 'raw/formal/pss.jsonl'), '');
 }
 
 describe('user runs desktop performance on GitHub Actions', () => {
@@ -89,28 +201,60 @@ describe('user runs desktop performance on GitHub Actions', () => {
         expect(workflow).toContain("PROGRESS_BLOCKS: '3'");
     });
 
-    it('user sees the performance gate fail closed for every rejected report', () => {
-        const passing = runGate({ overallStatus: 'PASS', rawCounts: { invalidRuns: 0 } });
-        const invalid = runGate({ overallStatus: 'PASS', rawCounts: { invalidRuns: 1 } });
-        const blocked = runGate({ overallStatus: 'BLOCKED', rawCounts: { invalidRuns: 0 } });
-        const missing = runGate(null);
+    it('user sees the performance gate pass from complete current evidence', () => {
+        const result = runGate(writePassingEvidence);
 
-        expect(passing.status).toBe(0);
-        expect(invalid.status).toBe(1);
-        expect(invalid.stderr).toContain('1 invalid run');
-        expect(blocked.status).toBe(1);
-        expect(blocked.stderr).toContain('BLOCKED');
-        expect(missing.status).toBe(1);
-        expect(missing.stderr).toContain('missing stats.json');
+        expect(result.status).toBe(0);
+        expect(result.stdout).toContain('Desktop performance gate passed');
     });
 
-    it.each([
-        { overallStatus: 'PASS' },
-        { overallStatus: 'PASS', rawCounts: { invalidRuns: '0' } },
-    ])('user sees a malformed invalid-run count fail the gate: %o', (stats) => {
-        const result = runGate(stats);
+    it('user sees the performance gate fail when current evidence is missing', () => {
+        const result = runGate();
 
         expect(result.status).toBe(1);
-        expect(result.stderr).toContain('rawCounts.invalidRuns');
+        expect(result.stderr).toContain('BLOCKED');
+    });
+
+    it('user sees an old passing report rejected after raw evidence disappears', () => {
+        const root = mkdtempSync(path.join(os.tmpdir(), 'touchai-perf-gate-'));
+        try {
+            writePassingEvidence(root);
+            expect(spawnGate(root).status).toBe(0);
+            expect(
+                JSON.parse(readFileSync(path.join(root, 'stats.json'), 'utf8')).overallStatus
+            ).toBe('PASS');
+
+            rmSync(path.join(root, 'raw/formal/runs.jsonl'));
+            rmSync(path.join(root, 'raw/formal/events.jsonl'));
+
+            const result = spawnGate(root);
+            expect(result.status).toBe(1);
+            expect(result.stderr).toContain('BLOCKED');
+        } finally {
+            rmSync(root, { recursive: true, force: true });
+        }
+    });
+
+    it('user sees invalid current evidence fail instead of trusting a saved pass', () => {
+        const result = runGate((root) => {
+            writePassingEvidence(root);
+            const file = path.join(root, 'raw/formal/runs.jsonl');
+            const records = readFileSync(file, 'utf8')
+                .trim()
+                .split('\n')
+                .map((line) => JSON.parse(line));
+            const terminal = records.find((record) => record.type === 'run');
+            if (!terminal) throw new Error('Synthetic terminal run is missing.');
+            terminal.valid = false;
+            terminal.notificationFailures = 1;
+            writeFileSync(file, `${records.map((record) => JSON.stringify(record)).join('\n')}\n`);
+            writeFileSync(
+                path.join(root, 'stats.json'),
+                JSON.stringify({ overallStatus: 'PASS', rawCounts: { invalidRuns: 0 } })
+            );
+        });
+
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain('invalid run');
     });
 });

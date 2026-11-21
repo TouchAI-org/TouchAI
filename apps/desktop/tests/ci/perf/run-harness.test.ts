@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { resolveComparison } from '../../../scripts/perf/lib/comparison.mjs';
+import { performanceHarnessLockPath } from '../../../scripts/perf/lib/lock.mjs';
 import {
     createSamplerWatch,
     measurementInvalidReasons,
@@ -203,6 +204,30 @@ describe('user previews and resumes the desktop performance run', () => {
         expect(fs.readFileSync(runsFile, 'utf8')).toBe('previous-run\n');
     });
 
+    it('user cannot start another command while the evidence lock is held', () => {
+        const root = createEvidenceRoot();
+        const lockPath = performanceHarnessLockPath(root);
+        const statsFile = path.join(root, 'stats.json');
+        const summaryFile = path.join(root, 'summary.md');
+        fs.writeFileSync(statsFile, 'existing stats\n');
+        fs.writeFileSync(summaryFile, 'existing summary\n');
+        fs.writeFileSync(
+            lockPath,
+            `${JSON.stringify({ command: 'run', pid: process.pid, token: 'held' })}\n`
+        );
+
+        try {
+            const result = runCommand(root, ['stats']);
+
+            expect(result.status).toBe(1);
+            expect(result.stderr).toContain('Another performance harness command');
+            expect(fs.readFileSync(statsFile, 'utf8')).toBe('existing stats\n');
+            expect(fs.readFileSync(summaryFile, 'utf8')).toBe('existing summary\n');
+        } finally {
+            fs.rmSync(lockPath, { force: true });
+        }
+    });
+
     it.skipIf(process.platform === 'win32')(
         'user cannot read the previous comparison after snapshot preparation fails',
         () => {
@@ -371,27 +396,67 @@ describe('user previews and resumes the desktop performance run', () => {
             path.join(root, 'raw/formal/runs.jsonl'),
             [
                 {
-                    type: 'run',
+                    type: 'run-launch',
+                    runId: 'completed-baseline',
                     flow: 'latency',
                     block: 1,
                     sequenceIndex: 1,
                     arm: 'baseline',
-                    exitCode: 0,
-                    valid: true,
+                    historyLevel: null,
+                    fixture: 'base',
+                    attempt: 1,
                 },
                 {
-                    type: 'run-attempt',
+                    type: 'run',
+                    runId: 'completed-baseline',
+                    flow: 'latency',
+                    block: 1,
+                    sequenceIndex: 1,
+                    arm: 'baseline',
+                    historyLevel: null,
+                    fixture: 'base',
+                    exitCode: 0,
+                    valid: true,
+                    attempt: 1,
+                },
+                {
+                    type: 'run-launch',
+                    runId: 'retry-current',
                     flow: 'latency',
                     block: 1,
                     sequenceIndex: 2,
                     arm: 'current',
+                    historyLevel: null,
+                    fixture: 'base',
+                    attempt: 1,
+                },
+                {
+                    type: 'run-attempt',
+                    runId: 'retry-current',
+                    flow: 'latency',
+                    block: 1,
+                    sequenceIndex: 2,
+                    arm: 'current',
+                    historyLevel: null,
+                    fixture: 'base',
                     exitCode: 1,
                     valid: false,
                     retryReason: 'display-startup-failure',
+                    attempt: 1,
                 },
             ]
                 .map((record) => JSON.stringify(record))
                 .join('\n') + '\n'
+        );
+        fs.writeFileSync(
+            path.join(root, 'raw/formal/events.jsonl'),
+            `${JSON.stringify({
+                type: 'run-start',
+                runId: 'completed-baseline',
+                arm: 'baseline',
+                flow: 'latency',
+                block: 1,
+            })}\n`
         );
         const result = runHarness(root, [
             '--resume',

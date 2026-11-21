@@ -20,7 +20,7 @@ import {
 import { ensureDirectory, nowIso, readJsonFile, readJsonLines, writeJson } from './io.mjs';
 import { runOneMeasurement } from './measurement.mjs';
 import { buildRunPlan, protocolForOptions, protocolMismatches } from './protocol.mjs';
-import { isValidRun, measurementKey } from './records.mjs';
+import { measurementKey, validateRunHistory } from './records.mjs';
 
 function ensureEvidenceLayout(resume = false) {
     for (const directory of [
@@ -68,41 +68,17 @@ export async function runMeasurements(options) {
     }
     const runsPath = path.join(rawRoot, 'runs.jsonl');
     const existingRuns = options.resume ? readJsonLines(runsPath) : [];
-    const failedRun = existingRuns.find((record) => {
-        if (record.type === 'run') return !isValidRun(record);
-        if (record.type === 'run-attempt') {
-            return isValidRun(record) || record.retryReason !== 'display-startup-failure';
-        }
-        return record.type !== 'run-launch';
-    });
-    if (failedRun)
+    const existingEvents = options.resume ? readJsonLines(path.join(rawRoot, 'events.jsonl')) : [];
+    const history = validateRunHistory(existingRuns, existingEvents, plan);
+    if (history.errors.length > 0) {
         throw new Error(
-            `Cannot resume after a failed measurement: ${failedRun.runId}. Preserve its evidence.`
+            `Cannot resume from inconsistent performance evidence: ${history.errors
+                .slice(0, 3)
+                .join('; ')}. Preserve its evidence.`
         );
-    const terminalRunIds = new Set(
-        existingRuns
-            .filter((record) => record.type === 'run' || record.type === 'run-attempt')
-            .map((record) => record.runId)
-    );
-    const interruptedLaunch = existingRuns.find(
-        (record) => record.type === 'run-launch' && !terminalRunIds.has(record.runId)
-    );
-    if (interruptedLaunch)
-        throw new Error(
-            `Cannot resume an interrupted measurement: ${interruptedLaunch.runId}. Preserve its evidence.`
-        );
-    const existingSuccessfulRuns = existingRuns.filter((record) => record.type === 'run');
-    const completedIds = new Set(existingSuccessfulRuns.map((record) => record.runId));
-    const interruptedRun = (
-        options.resume ? readJsonLines(path.join(rawRoot, 'events.jsonl')) : []
-    ).find((record) => record.type === 'run-start' && !completedIds.has(record.runId));
-    if (interruptedRun)
-        throw new Error(
-            `Cannot resume an interrupted measurement: ${interruptedRun.runId}. Preserve its evidence.`
-        );
-    const completedKeys = new Set(existingSuccessfulRuns.map(measurementKey));
+    }
     const remainingPlan = options.resume
-        ? plan.filter((item) => !completedKeys.has(measurementKey(item)))
+        ? plan.filter((item) => !history.completedKeys.has(measurementKey(item)))
         : plan;
     if (options.dryRun) {
         console.log(JSON.stringify(remainingPlan, null, 2));
@@ -114,27 +90,24 @@ export async function runMeasurements(options) {
     if (JSON.stringify(fixtures?.comparison) !== JSON.stringify(comparison)) {
         throw new Error('Fixtures belong to a different baseline/candidate comparison.');
     }
-    ensureEvidenceLayout(options.resume);
-    writeJson(path.join(evidenceRoot, 'run-plan.json'), {
-        generatedAt: nowIso(),
-        protocol,
-        plan,
-    });
     const server = await startPerfModelServer({
         port: DEFAULT_PORT,
         logFile: path.join(rawRoot, 'model-server.jsonl'),
     });
     try {
+        ensureEvidenceLayout(options.resume);
+        writeJson(path.join(evidenceRoot, 'run-plan.json'), {
+            generatedAt: nowIso(),
+            protocol,
+            plan,
+        });
         for (const [index, item] of remainingPlan.entries()) {
             console.log(
                 `[${index + 1}/${remainingPlan.length}] ${item.flow} ${
                     item.historyLevel || ''
                 } block ${item.block} ${item.arm}`
             );
-            const startupAttempts = existingRuns.filter(
-                (record) =>
-                    record.type === 'run-attempt' && measurementKey(record) === measurementKey(item)
-            ).length;
+            const startupAttempts = history.attemptsByKey.get(measurementKey(item)) ?? 0;
             if (startupAttempts >= MAX_DISPLAY_STARTUP_ATTEMPTS) {
                 throw new Error(
                     `Display startup attempt limit reached for ${measurementKey(item)}.`

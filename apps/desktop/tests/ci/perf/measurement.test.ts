@@ -1,6 +1,8 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -85,6 +87,100 @@ describe('user runs one performance measurement', () => {
             invalidReasons: ['measurement launch failed: spawn failed'],
         });
     });
+
+    it('user keeps existing evidence when the model port is already occupied', async () => {
+        root = fs.mkdtempSync(path.join(os.tmpdir(), 'touchai-perf-measurement-'));
+        const evidenceRoot = path.join(root, 'evidence');
+        const artifactsRoot = path.join(root, 'artifacts');
+        const comparison = {
+            baselineCommit: 'a'.repeat(40),
+            candidateCommit: 'b'.repeat(40),
+        };
+        const binaries: Record<string, { binary: string; sha256: string }> = {};
+        for (const arm of ['baseline', 'current']) {
+            const binary = path.join(evidenceRoot, `binaries/${arm}/TouchAI`);
+            fs.mkdirSync(path.dirname(binary), { recursive: true });
+            fs.writeFileSync(binary, `${arm} binary`);
+            binaries[arm] = {
+                binary,
+                sha256: createHash('sha256').update(`${arm} binary`).digest('hex'),
+            };
+        }
+        fs.mkdirSync(path.join(evidenceRoot, 'raw/formal'), { recursive: true });
+        for (const arm of ['baseline', 'current']) {
+            const fixture = path.join(evidenceRoot, `fixtures/${arm}/fixture-base.db`);
+            fs.mkdirSync(path.dirname(fixture), { recursive: true });
+            fs.writeFileSync(fixture, `${arm} fixture`);
+        }
+        fs.writeFileSync(
+            path.join(evidenceRoot, 'source-manifest.json'),
+            JSON.stringify({ comparison })
+        );
+        fs.writeFileSync(
+            path.join(evidenceRoot, 'builds.json'),
+            JSON.stringify({
+                builds: ['baseline', 'current'].map((arm) => ({
+                    arm,
+                    comparison,
+                    binarySha256: binaries[arm].sha256,
+                })),
+            })
+        );
+        fs.writeFileSync(
+            path.join(evidenceRoot, 'fixture-manifest.json'),
+            JSON.stringify({ comparison })
+        );
+        const original = {
+            runs: 'existing runs\n',
+            events: 'existing events\n',
+            plan: 'existing plan\n',
+        };
+        fs.writeFileSync(path.join(evidenceRoot, 'raw/formal/runs.jsonl'), original.runs);
+        fs.writeFileSync(path.join(evidenceRoot, 'raw/formal/events.jsonl'), original.events);
+        fs.writeFileSync(path.join(evidenceRoot, 'run-plan.json'), original.plan);
+
+        const blocker = http.createServer();
+        await new Promise<void>((resolve) => blocker.listen(0, '127.0.0.1', resolve));
+        const address = blocker.address();
+        if (!address || typeof address === 'string') throw new Error('Missing blocker port.');
+        process.env.TOUCHAI_PERF_ARTIFACTS = artifactsRoot;
+        process.env.TOUCHAI_PERF_EVIDENCE = evidenceRoot;
+        process.env.TOUCHAI_PERF_PORT = String(address.port);
+        process.env.TOUCHAI_PERF_STARTUP_SETTLE_MS = '8000';
+
+        try {
+            const { runMeasurements } = await import('../../../scripts/perf/lib/orchestrator.mjs');
+            await expect(
+                runMeasurements({
+                    flows: ['latency'],
+                    latencyBlocks: 1,
+                    progressBlocks: 3,
+                    longBlocks: 6,
+                    historyLevels: [100],
+                    warmSamples: 0,
+                    progressWarmups: 0,
+                    progressTasks: 0,
+                    memoryIntervalMs: 250,
+                    dryRun: false,
+                    resume: false,
+                })
+            ).rejects.toThrow(/EADDRINUSE|address already in use/i);
+        } finally {
+            await new Promise<void>((resolve, reject) =>
+                blocker.close((error) => (error ? reject(error) : resolve()))
+            );
+        }
+
+        expect(fs.readFileSync(path.join(evidenceRoot, 'raw/formal/runs.jsonl'), 'utf8')).toBe(
+            original.runs
+        );
+        expect(fs.readFileSync(path.join(evidenceRoot, 'raw/formal/events.jsonl'), 'utf8')).toBe(
+            original.events
+        );
+        expect(fs.readFileSync(path.join(evidenceRoot, 'run-plan.json'), 'utf8')).toBe(
+            original.plan
+        );
+    }, 15000);
 });
 
 describe('user retries only a failed display startup', () => {
