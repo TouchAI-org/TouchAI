@@ -289,7 +289,7 @@ pub fn run() {
                 Some(tauri::utils::config::AppDirectoriesOverride::Root(app_root));
         }
     }
-    if let Some(browser_args) = core::system::runtime::e2e_webview_additional_browser_args() {
+    if let Some(browser_args) = core::system::runtime::webview_additional_browser_args() {
         for window in &mut context.config_mut().app.windows {
             window.additional_browser_args = Some(browser_args.clone());
         }

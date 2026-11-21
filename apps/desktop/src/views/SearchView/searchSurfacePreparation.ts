@@ -6,6 +6,7 @@ import type {
     SearchSurfacePhysicalViewport,
     SearchSurfacePreparation,
 } from '@/app/api/windows/contracts';
+import { isMacPlatform } from '@/utils/shortcuts';
 
 type Unlisten = () => void;
 type SearchSurfacePreparationIdentity = Pick<
@@ -31,7 +32,7 @@ export interface SearchSurfacePreparationControllerOptions {
     getRendererEpoch: () => Promise<number>;
     markRendererReady: (rendererEpoch: number) => Promise<SearchSurfacePreparation | null>;
     getViewport: () => Promise<SearchSurfaceViewportSnapshot>;
-    settle: () => Promise<void>;
+    settle: (waitForPaint: boolean) => Promise<void>;
     flush: (preparation: SearchSurfacePreparation) => Promise<boolean>;
     onShown: (payload: SearchSurfaceShownEvent) => void | Promise<void>;
     onHidden: (payload: SearchSurfaceHiddenEvent) => void | Promise<void>;
@@ -164,7 +165,7 @@ export function createSearchSurfacePreparationController(
             if (!isCurrent(preparation, capturedIntent, capturedAttempt)) return;
             if (!viewportMatchesPreparation(viewport, preparation)) return;
 
-            await options.settle();
+            await options.settle(!latestShownPreparation);
             if (!isCurrent(preparation, capturedIntent, capturedAttempt)) return;
 
             const settledViewport = await options.getViewport();
@@ -329,10 +330,35 @@ export function createSearchSurfacePreparationController(
     return { start, notifyViewportChanged, dispose };
 }
 
-export async function settleSearchSurfaceViewport(): Promise<void> {
+const MAC_PAINT_SETTLE_TIMEOUT_MS = 48;
+
+async function waitForMacPaint(): Promise<void> {
+    if (typeof requestAnimationFrame !== 'function') return;
+    await new Promise<void>((resolve) => {
+        let settled = false;
+        const finish = () => {
+            if (settled) return;
+            settled = true;
+            resolve();
+        };
+        // The parked macOS window keeps rAF running. Waiting for the second
+        // frame puts the prepared layout in the compositor before the native
+        // window turns opaque, so the reveal cannot flash the previous frame.
+        const timer = setTimeout(finish, MAC_PAINT_SETTLE_TIMEOUT_MS);
+        requestAnimationFrame(() =>
+            requestAnimationFrame(() => {
+                clearTimeout(timer);
+                finish();
+            })
+        );
+    });
+}
+
+export async function settleSearchSurfaceViewport(waitForPaint = true): Promise<void> {
     // Geometry reads flush layout after Vue commits. Native occlusion can throttle
     // frames and timers even while WebView2 reports document.visibilityState as visible.
     await nextTick();
+    if (waitForPaint && isMacPlatform()) await waitForMacPaint();
 }
 
 function viewportMatchesPreparation(

@@ -5,6 +5,7 @@
 pub mod bounds;
 pub mod protocol;
 pub mod surface;
+pub(crate) mod visibility;
 
 use tauri::{AppHandle, Manager, Runtime, WebviewWindow};
 
@@ -114,7 +115,7 @@ pub fn show_search_window_from_shortcut_on_main_thread<R: Runtime>(
     let window = app_handle
         .get_webview_window("main")
         .ok_or_else(|| "Failed to get main window".to_string())?;
-    let is_visible = window.is_visible().map_err(|e| e.to_string())?;
+    let is_visible = visibility::is_visible(&window);
     let is_app_focused = window.is_focused().map_err(|error| error.to_string())?;
     let action = app_handle
         .try_state::<surface::SearchWindowRuntime>()
@@ -192,8 +193,16 @@ pub(super) fn show_and_activate_search_window<R: Runtime>(
             }
         }
     }
+    // 长时间休眠或显示器切换后 DWM 可能丢失透明状态，先于第一帧重建。
+    if !visibility::is_visible(window) {
+        if let Err(error) =
+            crate::core::window::surface_recovery::restore_transparent_surface(window)
+        {
+            log::warn!("Failed to restore search window transparency: {error}");
+        }
+    }
     // Tao reapplies visibility when pinning. Its flags must agree with the HWND.
-    window.show().map_err(|error| error.to_string())?;
+    visibility::show(window)?;
     crate::core::window::rounded_corners::sync_window_corner_style(window)?;
     reactivate_search_window_input(window)
 }
@@ -201,7 +210,7 @@ pub(super) fn show_and_activate_search_window<R: Runtime>(
 pub(super) fn hide_search_window_without_animation<R: Runtime>(
     window: &WebviewWindow<R>,
 ) -> Result<(), String> {
-    window.hide().map_err(|error| error.to_string())
+    visibility::hide(window)
 }
 
 /// 让主搜索窗口重新成为键盘输入目标，并唤醒 WebView2 accelerator 管线。
@@ -337,6 +346,7 @@ pub(super) fn focus_search_webview_content<R: Runtime>(
                 let focus_target = select_search_webview_focus_hwnd(container_hwnd, content_hwnd);
                 let _ = SetFocus(Some(focus_target));
                 let _ = webview.controller().SetIsVisible(true);
+                let _ = webview.controller().NotifyParentWindowPositionChanged();
                 webview
                     .controller()
                     .MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC)

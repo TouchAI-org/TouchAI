@@ -2428,7 +2428,7 @@
                 log.error('[SearchView] Failed to animate session expand:', error);
             });
             if (expansion.signal.aborted) return;
-            await settleSearchSurfaceViewport();
+            await settleSearchSurfaceViewport(false);
             if (expansion.signal.aborted) return;
             // playSessionExpandAnimation already commits the measured target
             // height. A second synchronous native resize here used to move the

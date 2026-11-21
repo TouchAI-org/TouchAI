@@ -107,6 +107,47 @@ const DEFAULT_E2E_WEBVIEW_ADDITIONAL_BROWSER_ARGS: &str = concat!(
     "--disable-dev-shm-usage"
 );
 
+/// Browser arguments for every WebView2 window outside E2E mode.
+///
+/// Chromium throttles timers, renderers and occlusion for windows that are not
+/// focused or are covered. A launcher is covered most of its life, so those
+/// defaults make the first frame after a shortcut slow. Raycast keeps Chromium
+/// from throttling its WebView for the same reason; these are the equivalent
+/// WebView2 switches.
+///
+/// The first window creates the shared WebView2 environment, so every window
+/// creation path must pass an identical value. Providing arguments replaces
+/// wry's defaults, hence `msWebOOUI`, `msPdfOOUI` and `msSmartScreenProtection`
+/// are repeated here.
+#[cfg(target_os = "windows")]
+const DEFAULT_PRODUCTION_WEBVIEW_ADDITIONAL_BROWSER_ARGS: &str = concat!(
+    "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion ",
+    "--disable-background-timer-throttling ",
+    "--disable-backgrounding-occluded-windows ",
+    "--disable-renderer-backgrounding"
+);
+
+/// Browser arguments applied to the shared WebView2 environment.
+/// `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` still wins, matching wry's behavior.
+#[cfg(target_os = "windows")]
+pub fn webview_additional_browser_args() -> Option<String> {
+    if is_e2e_test_mode() {
+        return e2e_webview_additional_browser_args();
+    }
+    if let Ok(configured) = std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS") {
+        let trimmed = configured.trim();
+        if !trimmed.is_empty() {
+            return Some(trimmed.to_string());
+        }
+    }
+    Some(DEFAULT_PRODUCTION_WEBVIEW_ADDITIONAL_BROWSER_ARGS.to_string())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn webview_additional_browser_args() -> Option<String> {
+    None
+}
+
 pub fn should_enable_single_instance() -> bool {
     !is_e2e_test_mode()
         && !matches!(
@@ -131,8 +172,8 @@ mod tests {
     use super::{
         can_show_startup_failure_dialog, e2e_webview_additional_browser_args, has_linux_display,
         is_e2e_test_mode, is_ui_preview_mode, should_enable_single_instance,
-        DEFAULT_E2E_WEBVIEW_ADDITIONAL_BROWSER_ARGS, TOUCHAI_E2E_DISABLE_SINGLE_INSTANCE_ENV,
-        TOUCHAI_E2E_ENV, TOUCHAI_UI_PREVIEW_ENV,
+        webview_additional_browser_args, DEFAULT_E2E_WEBVIEW_ADDITIONAL_BROWSER_ARGS,
+        TOUCHAI_E2E_DISABLE_SINGLE_INSTANCE_ENV, TOUCHAI_E2E_ENV, TOUCHAI_UI_PREVIEW_ENV,
     };
     use std::sync::Mutex;
 
@@ -171,6 +212,23 @@ mod tests {
         assert!(has_linux_display(None, Some("wayland-0".into())));
         assert!(has_linux_display(Some("".into()), Some("wayland-0".into())));
         assert!(has_linux_display(Some(":99".into()), Some("".into())));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn user_keeps_wry_defaults_and_anti_throttling_in_production_mode() {
+        let _guard = ENV_LOCK.lock().expect("env lock");
+        std::env::remove_var(TOUCHAI_E2E_ENV);
+        std::env::remove_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS");
+
+        let args = webview_additional_browser_args().expect("production args");
+        assert!(args.contains("msWebOOUI"));
+        assert!(args.contains("msPdfOOUI"));
+        assert!(args.contains("msSmartScreenProtection"));
+        assert!(args.contains("CalculateNativeWinOcclusion"));
+        assert!(args.contains("--disable-background-timer-throttling"));
+        assert!(args.contains("--disable-backgrounding-occluded-windows"));
+        assert!(args.contains("--disable-renderer-backgrounding"));
     }
 
     #[test]

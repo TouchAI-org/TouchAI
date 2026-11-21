@@ -606,7 +606,7 @@ pub fn register_renderer_load_on_main_thread<R: Runtime>(
         state.active_preparation = None;
         state.protocol.page_load_started()
     };
-    window.hide().map_err(|error| error.to_string())?;
+    super::visibility::hide(&window)?;
     Ok(renderer_epoch)
 }
 
@@ -706,7 +706,7 @@ pub(crate) fn commit_prepared_region_on_main_thread<R: Runtime>(
     // show()/set_focus() in that path re-enters the window and steals focus
     // from an open overlay, which is rendered in this same WebView.
     let should_activate_native_window =
-        runtime.native_enabled && !window.is_visible().unwrap_or(false);
+        runtime.native_enabled && !super::visibility::is_visible(window);
     if should_activate_native_window {
         if let Err(error) = activate_main_window(runtime.inner(), window) {
             let mut state = runtime
@@ -716,7 +716,7 @@ pub(crate) fn commit_prepared_region_on_main_thread<R: Runtime>(
             state.protocol.activation_failed(activation);
             state.pending_preparation = None;
             state.active_preparation = None;
-            let _ = window.hide();
+            let _ = super::visibility::hide(window);
             return Err(error);
         }
     }
@@ -732,7 +732,7 @@ pub(crate) fn commit_prepared_region_on_main_thread<R: Runtime>(
             state.protocol.activation_failed(activation);
             state.pending_preparation = None;
             state.active_preparation = None;
-            let _ = window.hide();
+            let _ = super::visibility::hide(window);
             return Err(error);
         }
     }
@@ -744,7 +744,7 @@ pub(crate) fn commit_prepared_region_on_main_thread<R: Runtime>(
         if state.protocol.activation_succeeded(activation).is_none() {
             state.protocol.activation_failed(activation);
             state.pending_preparation = None;
-            let _ = window.hide();
+            let _ = super::visibility::hide(window);
             return Ok(None);
         }
         state.active_preparation = state.pending_preparation.take();
@@ -908,7 +908,7 @@ fn prepare_show_locked<R: Runtime>(
     // matching native region. A visible host refresh is different: hiding it
     // here turns every content resize into a visible re-entry animation.
     if hide_before_prepare {
-        window.hide().map_err(|error| error.to_string())?;
+        super::visibility::hide(window)?;
     }
     let host = prepare_host(runtime, window, target_frame)?;
     let payload = {
@@ -993,7 +993,7 @@ fn activate_main_window<R: Runtime>(
     window: &tauri::WebviewWindow<R>,
 ) -> Result<(), String> {
     // Host preparation may be deferred; count activation at the actual foreground transition.
-    if !window.is_visible().unwrap_or(false) || !window.is_focused().unwrap_or(false) {
+    if !super::visibility::is_visible(window) || !window.is_focused().unwrap_or(false) {
         if let Some(analytics) = window
             .app_handle()
             .try_state::<crate::core::analytics::AnalyticsRuntime>()
@@ -1004,7 +1004,7 @@ fn activate_main_window<R: Runtime>(
     if runtime.native_enabled {
         return super::show_and_activate_search_window(window);
     }
-    window.show().map_err(|error| error.to_string())?;
+    super::visibility::show(window)?;
     window.set_focus().map_err(|error| error.to_string())
 }
 
@@ -1045,7 +1045,7 @@ pub(crate) fn handle_focus_lost_on_main_thread<R: Runtime>(
     };
     let decision_input = FocusLostDecisionInput {
         hide_on_app_blur: runtime.should_hide_on_app_blur(),
-        main_visible: main_window.is_visible().unwrap_or(false),
+        main_visible: super::visibility::is_visible(&main_window),
         main_maximized: main_window.is_maximized().unwrap_or(false),
         app_focused: main_hwnd_family_is_foreground(&main_window),
     };
