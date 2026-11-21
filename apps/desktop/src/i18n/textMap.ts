@@ -120,7 +120,8 @@ export const zhToEnTextMap = {
     '设置已保存，但同步到其他窗口失败。':
         'The setting was saved, but syncing to other windows failed.',
     'TouchAI - 快捷键注册失败': 'TouchAI - Shortcut registration failed',
-    '写下你的需求...': 'Write your request...',
+    '写下你所想...使用 / 或 $ 搜索技能，@ 搜索文件':
+        "Write what you're thinking... Use / or $ to search skills, @ to search files",
     '搜索模型名称、ID 或供应商': 'Search model name, ID, or provider',
     搜索模型: 'Search models',
     没有找到匹配的模型: 'No matching models',

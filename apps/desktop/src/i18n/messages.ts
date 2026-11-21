@@ -1153,7 +1153,7 @@ const zhCNMessages = {
     'assistant.loadingTip.historyButton': '右上角历史按钮可查看和切换历史会话',
     'assistant.loadingTip.copy': '消息下方按钮可复制内容',
     'assistant.loadingTip.regenerate': '消息下方按钮可重新生成回复',
-    'search.placeholder': '写下你的需求...',
+    'search.placeholder': "写下你所想...使用 / 或 $ 搜索技能，{'@'} 搜索文件",
     'search.error.promptEmpty': '请输入请求内容',
     'search.error.queueFailed': '未能排队，请重试',
     'notification.search.emptyResponseTitle': 'TouchAI - 空回复',
@@ -2585,7 +2585,8 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
         'Use the history button in the top right to view and switch conversations',
     'assistant.loadingTip.copy': 'Buttons below a message can copy content',
     'assistant.loadingTip.regenerate': 'Buttons below a message can regenerate the reply',
-    'search.placeholder': 'Write your request...',
+    'search.placeholder':
+        "Write what you're thinking... Use / or $ to search skills, {'@'} to search files",
     'search.error.promptEmpty': 'Enter a request',
     'search.error.queueFailed': 'Message not queued. Try again.',
     'notification.search.emptyResponseTitle': 'TouchAI - Empty response',
