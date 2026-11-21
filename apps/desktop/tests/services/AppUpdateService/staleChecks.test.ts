@@ -63,7 +63,9 @@ function createFixture() {
     let storedLastCheckedAt: string | null = null;
     let clock = Date.parse('2026-11-10T10:00:00.000Z');
     let savesPaused = false;
+    let channelSavesPaused = false;
     const pendingSaves: Array<{ value: string | null; land: () => void }> = [];
+    const pendingChannelSaves: Array<{ land: () => void }> = [];
 
     const checkForUpdates = vi.fn((value: AppUpdateChannel) =>
         Promise.resolve(notAvailable(value))
@@ -80,8 +82,17 @@ function createFixture() {
             getChannel: () => channel,
             getAutoCheckEnabled: () => autoCheckEnabled,
             getLastCheckedAt: () => storedLastCheckedAt,
-            updateAppUpdateChannel: async (value) => {
-                channel = value;
+            updateAppUpdateChannel: (value) => {
+                if (!channelSavesPaused) {
+                    channel = value;
+                    return Promise.resolve();
+                }
+
+                const write = deferred<void>();
+                pendingChannelSaves.push({ land: () => write.resolve() });
+                return write.promise.then(() => {
+                    channel = value;
+                });
             },
             updateAppUpdateAutoCheck: async (value) => {
                 autoCheckEnabled = value;
@@ -107,6 +118,19 @@ function createFixture() {
         checkForUpdates,
         holdSaves() {
             savesPaused = true;
+        },
+        /** The channel save stays in the database until the test lands it. */
+        holdChannelWrites() {
+            channelSavesPaused = true;
+        },
+        async landChannelWrites() {
+            channelSavesPaused = false;
+            for (let attempt = 0; attempt < 8; attempt++) {
+                const write = pendingChannelSaves.shift();
+                if (!write) return;
+                write.land();
+                await flush();
+            }
         },
         /** The saved channel changes without this controller, for example from another window. */
         setSavedChannel(value: AppUpdateChannel) {
@@ -259,6 +283,63 @@ describe('given update checks that are no longer the current decision', () => {
 
         await expect(Promise.all([oldChecking, newChecking])).resolves.toEqual([false, true]);
         expect(controller.getState()).toMatchObject({ status: 'not_available' });
+    });
+});
+
+describe('given a channel switch that is still saving', () => {
+    it('user gets the chosen channel checked when checking while the switch is still saving', async () => {
+        const {
+            controller,
+            checkForUpdates,
+            holdChannelWrites,
+            landChannelWrites,
+            storedLastCheckedAt,
+        } = createFixture();
+        holdChannelWrites();
+        const switching = controller.setChannel('beta');
+        await flush();
+
+        const checking = controller.checkNow('manual');
+        await flush();
+        expect(checkForUpdates).not.toHaveBeenCalled();
+
+        await landChannelWrites();
+        await switching;
+        await expect(checking).resolves.toBe(true);
+
+        expect(checkForUpdates).toHaveBeenCalledTimes(1);
+        expect(checkForUpdates).toHaveBeenCalledWith('beta');
+        expect(controller.getState()).toMatchObject({
+            channel: 'beta',
+            status: 'not_available',
+            lastCheckedAt: '2026-11-10T10:00:00.000Z',
+        });
+        expect(storedLastCheckedAt()).toBe('2026-11-10T10:00:00.000Z');
+    });
+
+    it('user gets the saved channel checked when a check was requested before the switch landed', async () => {
+        const { controller, checkForUpdates, holdChannelWrites, landChannelWrites } =
+            createFixture();
+        const check = deferred<AppUpdateCheckResult>();
+        checkForUpdates.mockImplementation(() => check.promise);
+        holdChannelWrites();
+        const switching = controller.setChannel('beta');
+        await flush();
+        const firstChecking = controller.checkNow('manual');
+        await flush();
+
+        await landChannelWrites();
+        await switching;
+        const secondChecking = controller.checkNow('manual');
+        await flush();
+        check.resolve(notAvailable('beta'));
+
+        await expect(Promise.all([firstChecking, secondChecking])).resolves.toEqual([true, true]);
+        expect(checkForUpdates.mock.calls.map((call) => call[0])).toEqual(['beta']);
+        expect(controller.getState()).toMatchObject({
+            channel: 'beta',
+            status: 'not_available',
+        });
     });
 });
 

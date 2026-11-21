@@ -115,6 +115,7 @@ export class AppUpdateController<Operation extends UpdateOperation = UpdateOpera
     private readonly checkEvents: AppUpdateControllerDeps<Operation>['checkEvents'];
     private initialization: UpdateInitialization | null = null;
     private activeCheck: UpdateCheckAttempt | null = null;
+    private channelSwitch: Promise<void> | null = null;
     private checkSequence = 0;
     private checkPromise: Promise<boolean> | null = null;
     private preferenceWrites: Promise<void> = Promise.resolve();
@@ -245,16 +246,45 @@ export class AppUpdateController<Operation extends UpdateOperation = UpdateOpera
     async setChannel(channel: AppUpdateChannel): Promise<void> {
         await this.initialize();
         if (!this.initialization || !this.isInitializationActive(this.initialization)) return;
+        // Decisions apply in call order, so a switch that is still saving
+        // finishes before this one starts saving.
+        await this.settleChannelSwitch();
         // The switch is a new decision: the check that is still running belongs
         // to the previous channel and may no longer report or persist anything.
         this.supersedeCheck();
         this.lastCheckAttemptAt = null;
         this.consecutiveCheckFailures = 0;
-        await this.writePreference(() => this.settings.updateAppUpdateChannel(channel));
-        if (!this.isInitializationActive(this.initialization)) return;
-        await this.writePreference(() => this.settings.updateAppUpdateLastCheckedAt(null));
-        if (!this.isInitializationActive(this.initialization)) return;
-        this.commit({ type: 'channel-updated', channel });
+
+        // A check decided while this switch is saving belongs to the channel the
+        // user chose, so it waits for the switch instead of checking the old one.
+        let settleSwitch!: () => void;
+        const switching = new Promise<void>((resolve) => {
+            settleSwitch = resolve;
+        });
+        this.channelSwitch = switching;
+        try {
+            await this.writePreference(() => this.settings.updateAppUpdateChannel(channel));
+            if (!this.isInitializationActive(this.initialization)) return;
+            await this.writePreference(() => this.settings.updateAppUpdateLastCheckedAt(null));
+            if (!this.isInitializationActive(this.initialization)) return;
+            this.commit({ type: 'channel-updated', channel });
+        } finally {
+            if (this.channelSwitch === switching) {
+                this.channelSwitch = null;
+            }
+            settleSwitch();
+        }
+    }
+
+    /**
+     * Resolves once every channel switch already requested has been saved and
+     * committed. The signal never rejects, so a failed save cannot leave a
+     * caller waiting forever; the switch's own caller still sees the failure.
+     */
+    private async settleChannelSwitch(): Promise<void> {
+        while (this.channelSwitch) {
+            await this.channelSwitch;
+        }
     }
 
     private beginCheck(channel: AppUpdateChannel): UpdateCheckAttempt {
@@ -316,14 +346,24 @@ export class AppUpdateController<Operation extends UpdateOperation = UpdateOpera
     async checkNow(source: AppUpdateCheckSource = 'manual'): Promise<boolean> {
         await this.initialize();
         if (!this.initialization || !this.isInitializationActive(this.initialization)) return false;
+        // Wait for the saved channel to match the one the user picked, otherwise
+        // the check would run against the channel the switch is replacing.
+        await this.settleChannelSwitch();
+        if (!this.initialization || !this.isInitializationActive(this.initialization)) return false;
         this.syncSettings();
         const reportErrors =
             source === 'manual' ||
             (source === 'settings-open' && this.state.currentVersion === null);
 
-        // Only a check that still owns the decision is shared. A superseded
-        // check would swallow this request without checking the current channel.
-        if (this.checkPromise && this.activeCheck) {
+        // Only a check that still owns the decision for the selected channel is
+        // shared. A superseded check would swallow this request without checking
+        // the current channel.
+        if (
+            this.checkPromise &&
+            this.activeCheck &&
+            this.activeCheck.channel === this.state.channel &&
+            this.activeCheck.channel === this.settings.getChannel()
+        ) {
             this.reportCheckErrors ||= reportErrors;
             return this.checkPromise;
         }
