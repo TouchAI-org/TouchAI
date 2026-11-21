@@ -386,8 +386,10 @@ describe('user works in the settings window', () => {
                 (await original.getText()) === 'Contact robin@example.net and robin@example.net.' &&
                     (await masked.getText()) ===
                         'Contact {{EMAIL_0123456789abcdef}} and {{EMAIL_0123456789abcdef}}.' &&
-                    (await original.$$('[data-testid="privacy-protected-text"]')).length === 2 &&
-                    (await masked.$$('[data-testid="privacy-protected-text"]')).length === 2,
+                    (await original.$$('[data-testid="privacy-protection-value-original"]'))
+                        .length === 2 &&
+                    (await masked.$$('[data-testid="privacy-protection-value-masked"]')).length ===
+                        2,
                 'The two stages do not match the native context and exact replacement occurrences.'
             );
             assertVisible(
