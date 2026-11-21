@@ -499,6 +499,46 @@ describe('user navigates a long conversation', () => {
         );
     });
 
+    it('user sees the current tick follow an unsampled reorder with different heights', async () => {
+        const liveItems = reactive(
+            Array.from({ length: 1_000 }, (_, index) => ({
+                id: `reorder-${index}`,
+                label: `Message ${index + 1}`,
+            }))
+        );
+        const wrapper = mountScroller({ scrollerItems: liveItems });
+        const viewport = viewportOf(wrapper);
+        setScrollMetrics(viewport, {
+            scrollTop: 500,
+            scrollHeight: 100_900,
+            clientHeight: 400,
+        });
+        stubRect(viewport, { top: 0, height: 400 });
+        await wrapper.setProps({
+            itemRanges: (id: string) => {
+                let top = 0;
+                for (const item of liveItems) {
+                    const height = item.id === 'reorder-1' ? 1_000 : 100;
+                    if (item.id === id) return { top, bottom: top + height };
+                    top += height;
+                }
+                return null;
+            },
+        });
+        triggerResize();
+        await settleLayout();
+        expect(wrapper.get('button[aria-current="location"]').attributes('aria-label')).toBe(
+            'Message 1'
+        );
+
+        [liveItems[1], liveItems[12]] = [liveItems[12]!, liveItems[1]!];
+        await settleLayout();
+
+        expect(wrapper.get('button[aria-current="location"]').attributes('aria-label')).toBe(
+            'Message 12'
+        );
+    });
+
     it('user sees their reading position highlighted while viewing a long unsampled turn', async () => {
         const manyItems = Array.from({ length: 1000 }, (_, index) => ({
             id: `range-${index}`,
