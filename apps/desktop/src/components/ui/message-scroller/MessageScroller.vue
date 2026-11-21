@@ -525,10 +525,12 @@
             measuredState?.clientHeight !== element.clientHeight;
         const positionChanged = measuredState?.scrollTop !== element.scrollTop;
         const scrolledDown = element.scrollTop > (measuredState?.scrollTop ?? element.scrollTop);
-        if (!programmaticScroll && positionChanged && !layoutChanged) {
+        if (!programmaticScroll) {
             if (scrolledDown) {
+                // Resuming reads only the distance to the end, so growth in the
+                // same frame must not swallow a return to the live edge.
                 readState(true);
-            } else {
+            } else if (positionChanged && !layoutChanged) {
                 setFollowing(false);
             }
         }
