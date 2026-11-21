@@ -73,4 +73,8 @@ export const quickSearch = {
     getStatus(): Promise<QuickSearchStatus> {
         return invoke('quick_search_get_status');
     },
+
+    installEverything(): Promise<void> {
+        return invoke('quick_search_install_everything');
+    },
 } as const;

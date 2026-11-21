@@ -53,6 +53,7 @@
     import { hasSettingsDraftChanges, mergeSettingsDraft } from '../../settingsDraftSync';
     import SearchRoutingDiagram from './components/SearchRoutingDiagram.vue';
     import SearchStrategyChoices from './components/SearchStrategyChoices.vue';
+    import EverythingSetup from './EverythingSetup.vue';
     import SearchProviderCard from './SearchProviderCard.vue';
 
     defineOptions({ name: 'SettingsSearchSection' });
@@ -693,6 +694,7 @@
                                 :disabled="!toolEnabled"
                             />
                         </SettingsRow>
+                        <EverythingSetup />
                     </div>
                 </section>
 
