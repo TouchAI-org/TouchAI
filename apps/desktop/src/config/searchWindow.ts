@@ -25,6 +25,18 @@ export interface SearchWindowDefaultSize {
 
 export const DEFAULT_SEARCH_WINDOW_SIZE_PRESET: SearchWindowSizePreset = 'normal';
 
+export const SEARCH_WINDOW_AUTO_HIDE_DELAYS = ['immediate', '15s', '30s', '60s', 'manual'] as const;
+
+export type SearchWindowAutoHideDelay = (typeof SEARCH_WINDOW_AUTO_HIDE_DELAYS)[number];
+
+export const SEARCH_WINDOW_AUTO_HIDE_DELAY_MS = {
+    immediate: 0,
+    '15s': 15_000,
+    '30s': 30_000,
+    '60s': 60_000,
+    manual: null,
+} as const satisfies Record<SearchWindowAutoHideDelay, number | null>;
+
 /** Intrinsic conversation cap used by the window geometry owner. */
 export const SEARCH_CONVERSATION_AUTO_MAX_HEIGHT = 600;
 

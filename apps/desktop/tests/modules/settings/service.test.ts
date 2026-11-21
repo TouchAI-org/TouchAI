@@ -153,6 +153,50 @@ describe('user changes a setting through the single owner', () => {
         reopened.dispose();
     });
 
+    it('user keeps the chosen session window delay after restarting the app', async () => {
+        const owner = createOwner(createEffects());
+        await owner.initialize();
+        const settings = createClient('settings', createEffects());
+        await settings.initialize();
+
+        const result = await settings.mutate('search_window_auto_hide_delay', '30s');
+
+        expect(result.status).toBe('committed');
+        expect(owner.getSnapshot().searchWindowAutoHideDelay).toBe('30s');
+
+        settings.dispose();
+        owner.dispose();
+        const reopened = createOwner(createEffects());
+        await reopened.initialize();
+        expect(reopened.getSnapshot().searchWindowAutoHideDelay).toBe('30s');
+        reopened.dispose();
+    });
+
+    it('user gets immediate auto-hide when the saved delay is unrecognized', async () => {
+        storage.values.set('search_window_auto_hide_delay', 'old-value');
+        const owner = createOwner(createEffects());
+        await owner.initialize();
+
+        expect(owner.getSnapshot().searchWindowAutoHideDelay).toBe('immediate');
+        owner.dispose();
+    });
+
+    it('user keeps the previous auto-hide delay when a new choice cannot be saved', async () => {
+        storage.values.set('search_window_auto_hide_delay', '15s');
+        const owner = createOwner(createEffects());
+        await owner.initialize();
+        storage.failNextSet = true;
+
+        const result = await owner.mutate('search_window_auto_hide_delay', 'manual');
+
+        expect(result).toMatchObject({
+            status: 'restored',
+            code: SettingsErrorCode.PersistenceFailed,
+        });
+        expect(owner.getSnapshot().searchWindowAutoHideDelay).toBe('15s');
+        owner.dispose();
+    });
+
     describe('given a global shortcut is already used by a search action', () => {
         it('user cannot save the conflicting global shortcut', async () => {
             storage.values.set(

@@ -23,7 +23,8 @@ const {
     notifyMock,
     settingsStoreMock,
     useAlertMock,
-} = vi.hoisted(() => {
+} = await vi.hoisted(async () => {
+    const { reactive } = await import('vue');
     const handlers = new Map<string, (payload?: unknown) => unknown>();
 
     return {
@@ -62,10 +63,11 @@ const {
                 setSearchSurfaceHideOnAppBlur: vi.fn(),
             },
         },
-        settingsStoreMock: {
+        settingsStoreMock: reactive({
             initialize: vi.fn(),
             globalShortcut: 'Alt+Space',
-        },
+            searchWindowAutoHideDelay: 'immediate',
+        }),
         useAlertMock: vi.fn(),
     };
 });
@@ -249,6 +251,7 @@ describe('useSearchPageLifecycle', () => {
 
         settingsStoreMock.initialize.mockResolvedValue(undefined);
         settingsStoreMock.globalShortcut = 'Alt+Space';
+        settingsStoreMock.searchWindowAutoHideDelay = 'immediate';
         initNotificationPermissionMock.mockResolvedValue(undefined);
     });
 
@@ -280,7 +283,7 @@ describe('useSearchPageLifecycle', () => {
         );
 
         await flushLifecycle();
-        expect(nativeMock.window.setSearchSurfaceHideOnAppBlur).toHaveBeenCalledWith(true);
+        expect(nativeMock.window.setSearchSurfaceHideOnAppBlur).toHaveBeenCalledWith(true, 0);
 
         expect(settingsStoreMock.initialize).toHaveBeenCalledTimes(1);
         expect(nativeMock.shortcut.registerGlobalShortcut).toHaveBeenCalledWith('Alt+Space');
@@ -291,10 +294,77 @@ describe('useSearchPageLifecycle', () => {
         isPinned.value = true;
         await nextTick();
 
-        expect(nativeMock.window.setSearchSurfaceHideOnAppBlur).toHaveBeenLastCalledWith(false);
+        expect(nativeMock.window.setSearchSurfaceHideOnAppBlur).toHaveBeenLastCalledWith(false, 0);
 
         mounted.unmount();
     });
+
+    it.each([
+        { preset: '15s', enabled: true, ms: 15_000 },
+        { preset: '30s', enabled: true, ms: 30_000 },
+        { preset: '60s', enabled: true, ms: 60_000 },
+        { preset: 'manual', enabled: false, ms: 0 },
+    ])(
+        'user gets the $preset window policy after changing the auto-hide setting',
+        async ({ preset, enabled, ms }) => {
+            const mounted = await mountComposable(() =>
+                useSearchPageLifecycle({
+                    controller: createController() as never,
+                    viewReady: ref(true),
+                    isDragging: ref(false),
+                    isPinned: ref(false),
+                    interactionContext: createSearchInteractionContext(),
+                    syncWindowPinState: vi.fn().mockResolvedValue(false),
+                    clearSession: vi.fn(),
+                })
+            );
+
+            settingsStoreMock.searchWindowAutoHideDelay = preset;
+            await flushLifecycle();
+
+            expect(nativeMock.window.setSearchSurfaceHideOnAppBlur).toHaveBeenLastCalledWith(
+                enabled,
+                ms
+            );
+            mounted.unmount();
+        }
+    );
+
+    it.each([
+        {
+            name: 'selected delay',
+            autoHideEnabled: true,
+            delayMs: 15_000,
+            expectedShouldHide: true,
+            expectedDelayMs: 15_000,
+        },
+        {
+            name: 'manual-only policy',
+            autoHideEnabled: false,
+            delayMs: 0,
+            expectedShouldHide: false,
+            expectedDelayMs: 0,
+        },
+    ])(
+        'user gets the $name after unpinning',
+        async ({ autoHideEnabled, delayMs, expectedShouldHide, expectedDelayMs }) => {
+            const mounted = await mountComposable(() =>
+                useSearchWindowPin({
+                    shouldHideOnAppBlur: (pinned) => !pinned && autoHideEnabled,
+                    getAutoHideDelayMs: () => delayMs,
+                })
+            );
+            onTestFinished(mounted.unmount);
+
+            await mounted.result.setWindowPinned(true);
+            await mounted.result.setWindowPinned(false);
+
+            expect(nativeMock.window.setSearchSurfaceHideOnAppBlur).toHaveBeenLastCalledWith(
+                expectedShouldHide,
+                expectedDelayMs
+            );
+        }
+    );
 
     it('user keeps the window visible while pinned and restores blur-hide after unpinning despite stale readback', async () => {
         let hideOnAppBlur = true;
@@ -671,7 +741,7 @@ describe('useSearchPageLifecycle', () => {
 
         isDragging.value = true;
         await nextTick();
-        expect(nativeMock.window.setSearchSurfaceHideOnAppBlur).toHaveBeenLastCalledWith(false);
+        expect(nativeMock.window.setSearchSurfaceHideOnAppBlur).toHaveBeenLastCalledWith(false, 0);
         expect(nativeMock.window.hideSearchWindow).not.toHaveBeenCalled();
 
         window.dispatchEvent(new Event('blur'));
@@ -680,7 +750,7 @@ describe('useSearchPageLifecycle', () => {
         isDragging.value = false;
         await flushLifecycle();
 
-        expect(nativeMock.window.setSearchSurfaceHideOnAppBlur).toHaveBeenLastCalledWith(true);
+        expect(nativeMock.window.setSearchSurfaceHideOnAppBlur).toHaveBeenLastCalledWith(true, 0);
         expect(nativeMock.window.reconcileSearchWindowBlur).toHaveBeenCalledTimes(1);
         expect(nativeMock.window.hideSearchWindow).not.toHaveBeenCalled();
 
@@ -1391,11 +1461,13 @@ beforeEach(() => {
             return nativeMock.window.reconcileSearchWindowBlur?.();
         return nativeMock.window.hideSearchWindow();
     });
-    mockTauriCommand('set_search_surface_hide_on_app_blur', (payload) =>
-        nativeMock.window.setSearchSurfaceHideOnAppBlur(
-            (payload as { shouldHide: boolean }).shouldHide
-        )
-    );
+    mockTauriCommand('set_search_surface_hide_on_app_blur', (payload) => {
+        const { shouldHide, delayMs } = payload as {
+            shouldHide: boolean;
+            delayMs?: number;
+        };
+        return nativeMock.window.setSearchSurfaceHideOnAppBlur(shouldHide, delayMs);
+    });
     mockTauriCommand('set_tray_status_indicator', (payload) =>
         nativeMock.window.setTrayStatusIndicator((payload as { status: unknown }).status)
     );

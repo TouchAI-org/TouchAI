@@ -6,10 +6,11 @@ use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
     Mutex, MutexGuard, TryLockError,
 };
-#[cfg(target_os = "windows")]
 use std::time::Duration;
 
+use futures::future::{AbortHandle, AbortRegistration, Abortable};
 use tauri::{AppHandle, Emitter, Manager, Runtime};
+use tokio::time::Instant;
 
 use super::{
     bounds::{SearchWindowDefaults, SearchWindowState},
@@ -112,7 +113,7 @@ struct SearchSurfaceHiddenPayload {
 
 /// 搜索窗口组原生运行时状态。
 pub struct SearchWindowRuntime {
-    hide_on_app_blur: AtomicBool,
+    app_blur_hide: Mutex<AppBlurHide>,
     native_drag_active: AtomicBool,
     allow_height_override: AtomicBool,
     visibility_transaction: Mutex<()>,
@@ -120,6 +121,58 @@ pub struct SearchWindowRuntime {
     sequence: AtomicU64,
     window_state: SearchWindowState,
     native_enabled: bool,
+}
+
+struct AppBlurHide {
+    delay: Option<Duration>,
+    pending: Option<(Instant, AbortHandle)>,
+}
+
+enum AppBlurHideAction {
+    KeepVisible,
+    HideNow,
+    Wait {
+        deadline: Instant,
+        registration: AbortRegistration,
+    },
+}
+
+impl AppBlurHide {
+    fn set_delay(&mut self, delay: Option<Duration>) -> Option<Instant> {
+        if self.delay == delay {
+            return None;
+        }
+        self.delay = delay;
+        self.cancel()
+    }
+
+    fn cancel(&mut self) -> Option<Instant> {
+        let (blurred_at, abort) = self.pending.take()?;
+        abort.abort();
+        Some(blurred_at)
+    }
+
+    fn plan(&mut self, blurred_at: Instant, now: Instant) -> AppBlurHideAction {
+        let Some(delay) = self.delay.filter(|_| self.pending.is_none()) else {
+            return AppBlurHideAction::KeepVisible;
+        };
+        let deadline = blurred_at + delay;
+        if deadline <= now {
+            return AppBlurHideAction::HideNow;
+        }
+
+        let (abort, registration) = AbortHandle::new_pair();
+        self.pending = Some((blurred_at, abort));
+        AppBlurHideAction::Wait {
+            deadline,
+            registration,
+        }
+    }
+
+    fn finish(&mut self, abort: &AbortHandle) -> bool {
+        // The timer may already have posted its callback when focus returns.
+        !abort.is_aborted() && self.cancel().is_some()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -187,7 +240,10 @@ impl SearchWindowRuntime {
 
     fn with_native_enabled(native_enabled: bool) -> Self {
         Self {
-            hide_on_app_blur: AtomicBool::new(true),
+            app_blur_hide: Mutex::new(AppBlurHide {
+                delay: Some(Duration::ZERO),
+                pending: None,
+            }),
             native_drag_active: AtomicBool::new(false),
             allow_height_override: AtomicBool::new(false),
             visibility_transaction: Mutex::new(()),
@@ -207,15 +263,19 @@ impl SearchWindowRuntime {
         self.sequence.fetch_add(1, Ordering::Relaxed) + 1
     }
 
-    /// 设置应用失焦时是否自动隐藏搜索窗口组。
-    pub fn set_hide_on_app_blur(&self, should_hide: bool) {
-        self.hide_on_app_blur.store(should_hide, Ordering::Relaxed);
+    fn app_blur_hide(&self) -> MutexGuard<'_, AppBlurHide> {
+        self.app_blur_hide
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+    }
+
+    pub(crate) fn cancel_pending_app_blur_hide(&self) {
+        self.app_blur_hide().cancel();
     }
 
     /// 读取应用失焦自动隐藏策略。
     pub fn should_hide_on_app_blur(&self) -> bool {
-        self.hide_on_app_blur.load(Ordering::Relaxed)
-            && !self.native_drag_active.load(Ordering::Relaxed)
+        self.app_blur_hide().delay.is_some() && !self.native_drag_active.load(Ordering::Relaxed)
     }
 
     pub(super) fn with_native_drag<T>(
@@ -225,6 +285,7 @@ impl SearchWindowRuntime {
         if self.native_drag_active.swap(true, Ordering::Relaxed) {
             return Err("Search window drag is already active".to_string());
         }
+        self.cancel_pending_app_blur_hide();
         let result = operation();
         self.native_drag_active.store(false, Ordering::Relaxed);
         result
@@ -408,15 +469,18 @@ fn main_hwnd_family_is_foreground<R: Runtime>(main_window: &tauri::WebviewWindow
     main_window.is_focused().unwrap_or(false)
 }
 
-/// 设置搜索窗口组应用失焦隐藏策略。
+/// Update the existing app-blur policy and re-evaluate any pending deadline.
 pub fn set_hide_on_app_blur<R: Runtime>(
     app_handle: &AppHandle<R>,
-    should_hide: bool,
+    delay: Option<Duration>,
 ) -> Result<(), String> {
     let runtime = app_handle
         .try_state::<SearchWindowRuntime>()
         .ok_or_else(|| "Search window runtime is not initialized".to_string())?;
-    runtime.set_hide_on_app_blur(should_hide);
+    let blurred_at = runtime.app_blur_hide().set_delay(delay);
+    if let Some(blurred_at) = blurred_at {
+        schedule_app_blur_hide_on_main_thread(app_handle, &runtime, blurred_at)?;
+    }
     Ok(())
 }
 
@@ -450,6 +514,7 @@ pub fn show_surface_on_main_thread<R: Runtime>(
         .try_state::<SearchWindowRuntime>()
         .ok_or_else(|| "Search window runtime is not initialized".to_string())?;
 
+    runtime.cancel_pending_app_blur_hide();
     let _visibility_guard = runtime
         .visibility_transaction
         .lock()
@@ -540,6 +605,7 @@ pub fn hide_surface_on_main_thread<R: Runtime>(
     let window = app_handle
         .get_webview_window("main")
         .ok_or_else(|| "Failed to get main window".to_string())?;
+    runtime.cancel_pending_app_blur_hide();
     let _visibility_guard = runtime
         .visibility_transaction
         .lock()
@@ -593,6 +659,7 @@ pub fn register_renderer_load_on_main_thread<R: Runtime>(
     let window = app_handle
         .get_webview_window("main")
         .ok_or_else(|| "Failed to get main window".to_string())?;
+    runtime.cancel_pending_app_blur_hide();
     let _visibility_guard = runtime
         .visibility_transaction
         .lock()
@@ -1036,25 +1103,81 @@ pub(crate) fn handle_focus_lost_on_main_thread<R: Runtime>(
     let runtime = app_handle
         .try_state::<SearchWindowRuntime>()
         .ok_or_else(|| "Search window runtime is not initialized".to_string())?;
+    schedule_app_blur_hide_on_main_thread(app_handle, &runtime, Instant::now())
+}
+
+fn should_hide_unfocused_surface<R: Runtime>(
+    app_handle: &AppHandle<R>,
+    runtime: &SearchWindowRuntime,
+) -> bool {
     if !runtime.is_protocol_visible() {
-        return Ok(());
+        return false;
     }
 
     let Some(main_window) = app_handle.get_webview_window("main") else {
-        return Ok(());
+        return false;
     };
-    let decision_input = FocusLostDecisionInput {
+    should_hide_on_focus_lost(FocusLostDecisionInput {
         hide_on_app_blur: runtime.should_hide_on_app_blur(),
         main_visible: main_window.is_visible().unwrap_or(false),
         main_maximized: main_window.is_maximized().unwrap_or(false),
         app_focused: main_hwnd_family_is_foreground(&main_window),
-    };
-    let should_hide = should_hide_on_focus_lost(decision_input);
-    if !should_hide {
+    })
+}
+
+fn schedule_app_blur_hide_on_main_thread<R: Runtime>(
+    app_handle: &AppHandle<R>,
+    runtime: &SearchWindowRuntime,
+    blurred_at: Instant,
+) -> Result<(), String> {
+    if !should_hide_unfocused_surface(app_handle, runtime) {
         return Ok(());
     }
 
-    hide_surface_on_main_thread(app_handle, SearchSurfaceHideReason::AppBlurHide)
+    let action = runtime.app_blur_hide().plan(blurred_at, Instant::now());
+    match action {
+        AppBlurHideAction::KeepVisible => Ok(()),
+        AppBlurHideAction::HideNow => {
+            hide_surface_on_main_thread(app_handle, SearchSurfaceHideReason::AppBlurHide)
+        }
+        AppBlurHideAction::Wait {
+            deadline,
+            registration,
+        } => {
+            let app = app_handle.clone();
+            tauri::async_runtime::spawn(async move {
+                let abort = registration.handle();
+                if Abortable::new(tokio::time::sleep_until(deadline), registration)
+                    .await
+                    .is_err()
+                {
+                    return;
+                }
+                let callback_app = app.clone();
+                let callback_abort = abort.clone();
+                if let Err(error) = app.run_on_main_thread(move || {
+                    let Some(runtime) = callback_app.try_state::<SearchWindowRuntime>() else {
+                        return;
+                    };
+                    let expired = runtime.app_blur_hide().finish(&callback_abort);
+                    if expired && should_hide_unfocused_surface(&callback_app, &runtime) {
+                        if let Err(error) = hide_surface_on_main_thread(
+                            &callback_app,
+                            SearchSurfaceHideReason::AppBlurHide,
+                        ) {
+                            log::warn!("Failed to auto-hide the unfocused search window: {error}");
+                        }
+                    }
+                }) {
+                    if let Some(runtime) = app.try_state::<SearchWindowRuntime>() {
+                        runtime.app_blur_hide().finish(&abort);
+                    }
+                    log::warn!("Failed to dispatch search window auto-hide: {error}");
+                }
+            });
+            Ok(())
+        }
+    }
 }
 
 /// 处理搜索窗口组窗口失焦事件。
@@ -1101,6 +1224,113 @@ impl Default for SearchWindowRuntime {
     /// 创建默认搜索窗口组运行时。
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod app_blur_hide_tests {
+    use super::*;
+
+    #[test]
+    fn user_gets_immediate_hiding_on_focus_loss_with_default_settings() {
+        let runtime = SearchWindowRuntime::for_tests();
+        let now = Instant::now();
+
+        assert!(matches!(
+            runtime.app_blur_hide().plan(now, now),
+            AppBlurHideAction::HideNow
+        ));
+    }
+
+    #[test]
+    fn user_gets_one_deadline_when_native_and_webview_report_the_same_focus_loss() {
+        let runtime = SearchWindowRuntime::for_tests();
+        let mut policy = runtime.app_blur_hide();
+        let delay = Duration::from_secs(15);
+        policy.set_delay(Some(delay));
+        let now = Instant::now();
+
+        let AppBlurHideAction::Wait {
+            deadline,
+            registration,
+        } = policy.plan(now, now)
+        else {
+            panic!("The window should wait before hiding");
+        };
+        let fallback = now + Duration::from_millis(50);
+        assert!(matches!(
+            policy.plan(fallback, fallback),
+            AppBlurHideAction::KeepVisible
+        ));
+        assert_eq!(deadline, now + delay);
+        assert!(policy.finish(&registration.handle()));
+    }
+
+    #[test]
+    fn user_is_not_hidden_by_an_old_deadline_after_refocusing_and_switching_away_again() {
+        let runtime = SearchWindowRuntime::for_tests();
+        let mut policy = runtime.app_blur_hide();
+        policy.set_delay(Some(Duration::from_secs(30)));
+        let now = Instant::now();
+
+        let AppBlurHideAction::Wait {
+            registration: old, ..
+        } = policy.plan(now, now)
+        else {
+            panic!("The first focus loss should start a wait");
+        };
+        policy.cancel();
+        let second_blur = now + Duration::from_secs(5);
+        let AppBlurHideAction::Wait {
+            registration: current,
+            ..
+        } = policy.plan(second_blur, second_blur)
+        else {
+            panic!("The next focus loss should start a fresh wait");
+        };
+
+        assert!(!policy.finish(&old.handle()));
+        assert!(policy.finish(&current.handle()));
+    }
+
+    #[test]
+    fn user_gets_the_shorter_delay_measured_from_the_original_focus_loss() {
+        let runtime = SearchWindowRuntime::for_tests();
+        let mut policy = runtime.app_blur_hide();
+        policy.set_delay(Some(Duration::from_secs(60)));
+        let now = Instant::now();
+        let AppBlurHideAction::Wait { registration, .. } = policy.plan(now, now) else {
+            panic!("The longer delay should leave the window visible");
+        };
+
+        let blurred_at = policy
+            .set_delay(Some(Duration::from_secs(15)))
+            .expect("pending blur");
+
+        assert!(matches!(
+            policy.plan(blurred_at, now + Duration::from_secs(20)),
+            AppBlurHideAction::HideNow
+        ));
+        assert!(!policy.finish(&registration.handle()));
+    }
+
+    #[test]
+    fn user_keeps_the_window_visible_when_switching_a_pending_hide_to_manual_only() {
+        let runtime = SearchWindowRuntime::for_tests();
+        let mut policy = runtime.app_blur_hide();
+        policy.set_delay(Some(Duration::from_secs(60)));
+        let now = Instant::now();
+        let AppBlurHideAction::Wait { registration, .. } = policy.plan(now, now) else {
+            panic!("The first focus loss should start a wait");
+        };
+
+        let blurred_at = policy.set_delay(None).expect("pending blur");
+
+        assert!(matches!(
+            policy.plan(blurred_at, now),
+            AppBlurHideAction::KeepVisible
+        ));
+        assert!(!policy.finish(&registration.handle()));
     }
 }
 

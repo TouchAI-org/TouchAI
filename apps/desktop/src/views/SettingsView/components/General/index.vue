@@ -7,7 +7,11 @@
     import { computed, onMounted, ref, watch } from 'vue';
 
     import { log } from '@/app/api/diagnostics';
-    import { type SearchWindowSizePreset } from '@/config/searchWindow';
+    import {
+        SEARCH_WINDOW_AUTO_HIDE_DELAYS,
+        type SearchWindowAutoHideDelay,
+        type SearchWindowSizePreset,
+    } from '@/config/searchWindow';
     import { type AppLocale, LOCALE_LABELS, SUPPORTED_LOCALES, t } from '@/i18n';
     import { type OutputScrollBehavior, useSettingsStore } from '@/stores/settings';
     import { formatShortcutForDisplay, normalizeLocalShortcutString } from '@/utils/shortcuts';
@@ -74,6 +78,13 @@
             { value: 'normal', label: t('settings.general.size.normal') },
             { value: 'large', label: t('settings.general.size.large') },
         ]
+    );
+
+    const searchWindowAutoHideOptions = computed(() =>
+        SEARCH_WINDOW_AUTO_HIDE_DELAYS.map((value) => ({
+            value,
+            label: t(`settings.general.windowAutoHide.${value}`),
+        }))
     );
 
     const languageOptions: Array<{
@@ -183,6 +194,16 @@
         }
     };
 
+    async function saveSearchWindowAutoHideDelay(preset: SearchWindowAutoHideDelay) {
+        try {
+            await settingsStore.updateSearchWindowAutoHideDelay(preset);
+            alertMessage.value?.success(t('common.saved'), 2000);
+        } catch (error) {
+            log.error('Failed to save search window auto-hide delay:', error);
+            alertMessage.value?.error(t('settings.general.saveSettingsFailed'), 3000);
+        }
+    }
+
     const saveLanguage = async (language: AppLocale) => {
         try {
             await settingsStore.updateLanguage(language);
@@ -271,6 +292,23 @@
                             v-model="settings.searchWindowSizePreset"
                             :options="searchWindowSizeOptions"
                             @update:model-value="saveSearchWindowSizePreset"
+                        />
+                    </SettingsRow>
+                    <SettingsRow
+                        data-settings-search-target="window-auto-hide"
+                        control-width="220"
+                        label-as="label"
+                        label-for="settings-window-auto-hide"
+                        :label="t('settings.general.windowAutoHide.label')"
+                    >
+                        <CustomSelect
+                            id="settings-window-auto-hide"
+                            :model-value="settings.searchWindowAutoHideDelay"
+                            :options="searchWindowAutoHideOptions"
+                            trigger-test-id="settings-window-auto-hide-trigger"
+                            content-test-id="settings-window-auto-hide-content"
+                            option-test-id-prefix="settings-window-auto-hide-option-"
+                            @update:model-value="saveSearchWindowAutoHideDelay"
                         />
                     </SettingsRow>
                 </div>

@@ -85,8 +85,10 @@ describe('given ordinary preferences have public normalization and projection co
         const clone = cloneGeneralSettingsSnapshot(settings);
         clone.searchKeybindings['search.history.open'] = 'Mod+J';
         clone.searchWindowDefaultSize.width = 900;
+        clone.searchWindowAutoHideDelay = '60s';
         expect(settings.searchKeybindings['search.history.open']).not.toBe('Mod+J');
         expect(settings.searchWindowDefaultSize.width).toBe(750);
+        expect(settings.searchWindowAutoHideDelay).toBe('immediate');
     });
 
     it('user changes the projected shortcut and a computed control reflects that choice', () => {
@@ -113,6 +115,22 @@ describe('given ordinary preferences have public normalization and projection co
             outputScrollBehavior: 'stay_position',
             searchWindowDefaultSize: { width: 938 },
         });
+    });
+
+    it('user selects a delayed auto-hide policy and both stores expose the same preference', async () => {
+        fixture = await createSettingsPanelFixture();
+        const settings = ref(createDefaultGeneralSettings());
+        const controls = createGeneralSettingsComputedRefs(settings);
+        expect(controls.searchWindowAutoHideDelay.value).toBe('immediate');
+
+        settings.value.searchWindowAutoHideDelay = '30s';
+        expect(controls.searchWindowAutoHideDelay.value).toBe('30s');
+
+        await fixture.preferences.updateSearchWindowAutoHideDelay('15s');
+        expect(fixture.saved('search_window_auto_hide_delay')).toBe('15s');
+        expect(fixture.client.settings.getSnapshot().searchWindowAutoHideDelay).toBe('15s');
+        expect(fixture.window.settings.getSnapshot().searchWindowAutoHideDelay).toBe('15s');
+        expect(fixture.preferences.searchWindowAutoHideDelay).toBe('15s');
     });
 
     it('user changes language through a client and another window observes the committed preference', async () => {
