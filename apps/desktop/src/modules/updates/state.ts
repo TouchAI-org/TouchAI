@@ -140,6 +140,17 @@ export function reduceAppUpdateState(
                 error: null,
                 unsupportedReason: null,
             };
+        case 'check-reverted':
+            if (state.status !== 'checking') {
+                return state;
+            }
+
+            return {
+                ...state,
+                status: action.status,
+                error: action.error,
+                unsupportedReason: action.unsupportedReason,
+            };
         case 'download-started':
             return {
                 ...state,
