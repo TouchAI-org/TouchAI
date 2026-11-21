@@ -287,6 +287,9 @@ fn find_archive_entry(
                 "Failed to read Everything archive entry name at index {index}"
             ));
         };
+        let entry = entry.map_err(|error| {
+            format!("Failed to decode Everything archive entry name at index {index}: {error}")
+        })?;
         if entry.eq_ignore_ascii_case(archive_path) {
             return Ok(Some(index));
         }
