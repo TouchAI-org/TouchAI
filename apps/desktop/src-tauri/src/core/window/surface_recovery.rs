@@ -29,14 +29,7 @@ const PBT_APMRESUMECRITICAL: usize = 0x0006;
 const PBT_APMRESUMESUSPEND: usize = 0x0007;
 const PBT_APMRESUMEAUTOMATIC: usize = 0x0012;
 
-/// 系统恢复后需要立即唤醒 WebView2 的事件。
-fn should_prewarm_renderer(message: u32) -> bool {
-    matches!(
-        message,
-        WM_DISPLAYCHANGE | WM_DPICHANGED | WM_POWERBROADCAST
-    )
-}
-
+/// 需要同时重建 DWM 透明与 WebView2 背景的事件。
 fn should_restore_transparency(message: u32, wparam: usize) -> bool {
     match message {
         WM_POWERBROADCAST => matches!(
@@ -96,7 +89,6 @@ pub(crate) fn install(window: &WebviewWindow<tauri::Wry>) -> Result<(), String> 
         hwnd,
         window: window.clone(),
         pending: false,
-        prewarm: false,
     });
     let data_ptr = Box::into_raw(data);
 
@@ -138,7 +130,6 @@ struct SurfaceRecoveryData {
     hwnd: windows::Win32::Foundation::HWND,
     window: WebviewWindow<tauri::Wry>,
     pending: bool,
-    prewarm: bool,
 }
 
 #[cfg(target_os = "windows")]
@@ -177,24 +168,23 @@ unsafe extern "system" fn surface_recovery_subclass_proc(
     if message == WM_TIMER && wparam.0 == SURFACE_RECOVERY_TIMER_ID {
         // SAFETY: `ref_data` 在 WM_NCDESTROY 前一直有效；先取出需要的数据，
         // 避免在可能重入的 Win32 调用期间持有 `&mut`。
-        let (pending, prewarm, hwnd, window) = unsafe {
+        let (pending, hwnd, window) = unsafe {
             let data = &*((ref_data) as *const SurfaceRecoveryData);
-            (data.pending, data.prewarm, data.hwnd, data.window.clone())
+            (data.pending, data.hwnd, data.window.clone())
         };
         // SAFETY: 同上。先清除标志，重入的事件会重新置位并重设定时器。
         unsafe {
             let data = &mut *((ref_data) as *mut SurfaceRecoveryData);
             data.pending = false;
-            data.prewarm = false;
             let _ = KillTimer(Some(hwnd), SURFACE_RECOVERY_TIMER_ID);
         }
         if pending {
             if let Err(error) = unsafe { restore_transparency_for_hwnd(hwnd) } {
                 log::warn!("Failed to restore window transparency after a system change: {error}");
             }
-            if prewarm {
-                prewarm_renderer(&window);
-            }
+            // WebView2 维护自己的默认背景色，主题或 DWM 合成变化一样会把它重置成
+            // 不透明，所以每次恢复都要连 WebView2 一起重建，不能只跟显示器/唤醒事件走。
+            let _ = window.with_webview(restore_webview_surface);
         }
         return result;
     }
@@ -204,7 +194,6 @@ unsafe extern "system" fn surface_recovery_subclass_proc(
         unsafe {
             let data = &mut *((ref_data) as *mut SurfaceRecoveryData);
             data.pending = true;
-            data.prewarm |= should_prewarm_renderer(message);
             // 连续事件（显示器切换会连发多条消息）合并成一次恢复。
             // 同一 ID 的 SetTimer 会重置到期时间。
             let _ = SetTimer(
@@ -231,11 +220,6 @@ fn window_hwnd<R: Runtime>(window: &WebviewWindow<R>) -> Result<HWND, String> {
         RawWindowHandle::Win32(handle) => Ok(HWND(handle.hwnd.get() as _)),
         _ => Err("Not a Win32 window".to_string()),
     }
-}
-
-#[cfg(target_os = "windows")]
-fn prewarm_renderer(window: &WebviewWindow<tauri::Wry>) {
-    let _ = window.with_webview(restore_webview_surface);
 }
 
 /// 同时修复 DWM 之外的另一种透明丢失：WebView2 的默认背景色被恢复成不透明。
@@ -356,10 +340,10 @@ mod tests {
     }
 
     #[test]
-    fn user_gets_the_renderer_woken_before_pressing_the_shortcut_again() {
-        assert!(should_prewarm_renderer(WM_DISPLAYCHANGE));
-        assert!(should_prewarm_renderer(WM_DPICHANGED));
-        assert!(should_prewarm_renderer(WM_POWERBROADCAST));
-        assert!(!should_prewarm_renderer(WM_THEMECHANGED));
+    fn user_does_not_keep_an_opaque_webview_after_a_theme_change() {
+        // 主题与 DWM 合成变化同样会重置 WebView2 的默认背景色，因此恢复动作不能
+        // 只跟随唤醒显示器的事件，否则这两类事件之后仍然会露出黑色 gutter。
+        assert!(should_restore_transparency(WM_THEMECHANGED, 0));
+        assert!(should_restore_transparency(WM_DWMCOMPOSITIONCHANGED, 0));
     }
 }
