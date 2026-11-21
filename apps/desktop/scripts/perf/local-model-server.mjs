@@ -1,10 +1,12 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
-import http from 'node:http';
 import path from 'node:path';
+
+import { createEmulator, defineEmulator } from 'emulate';
 
 const DEFAULT_PORT = Number(process.env.TOUCHAI_PERF_PORT) || 3426;
 const DEFAULT_CHUNK_DELAY_MS = 16;
+const encoder = new TextEncoder();
 
 function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -89,57 +91,66 @@ function finalChunks({ prompt, chunks, chunkBytes, alternate }) {
     ]);
 }
 
-async function writeSse(res, payload, delayMs) {
-    if (delayMs > 0) await sleep(delayMs);
-    if (res.destroyed || res.writableEnded) return false;
-    res.write(`data: ${JSON.stringify(payload)}\n\n`);
-    return true;
-}
+function createCompletionStream({ id, model }) {
+    let controller;
+    let ended = false;
 
-async function streamResponse(res, requestBody, options) {
-    const prompt = parsePerfPrompt(Array.isArray(requestBody.messages) ? requestBody.messages : []);
-    if (!prompt) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: { message: 'Missing PERF710 prompt marker.' } }));
-        return;
+    function writeChunk(delta, finishReason = null) {
+        if (ended || !controller) return false;
+        try {
+            controller.enqueue(
+                encoder.encode(
+                    `data: ${JSON.stringify(chunkPayload({ id, model, delta, finishReason }))}\n\n`
+                )
+            );
+            return true;
+        } catch {
+            ended = true;
+            return false;
+        }
     }
 
+    const readable = new ReadableStream({
+        start(next) {
+            controller = next;
+            writeChunk({ role: 'assistant', content: '' });
+        },
+        cancel() {
+            ended = true;
+        },
+    });
+
+    async function write(delta, delayMs, finishReason = null) {
+        if (delayMs > 0) await sleep(delayMs);
+        return writeChunk(delta, finishReason);
+    }
+
+    async function finish(reason = 'stop', delayMs = 0) {
+        if (!(await write({}, delayMs, reason))) return false;
+        ended = true;
+        try {
+            controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+            controller.close();
+        } catch {
+            // The client already closed the stream.
+        }
+        return true;
+    }
+
+    return {
+        readable,
+        write,
+        finish,
+    };
+}
+
+async function streamResponse(stream, body, prompt, options) {
     const rounds = Math.max(0, Number(prompt.fields.rounds) || 0);
-    const toolCount = requestBody.messages
+    const toolCount = body.messages
         .slice(prompt.userIndex + 1)
         .filter((message) => message?.role === 'tool').length;
-    const model = typeof requestBody.model === 'string' ? requestBody.model : 'perf-model';
     const alternate = prompt.fields.alternate === '1';
-    const id = `chatcmpl-perf-${createHash('sha256')
-        .update(`${prompt.fields.promptId}:${toolCount}`)
-        .digest('hex')
-        .slice(0, 12)}`;
     const chunkDelayMs = Number(prompt.fields.chunkDelayMs) || options.chunkDelayMs;
-
-    res.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache, no-transform',
-        Connection: 'keep-alive',
-        'X-Accel-Buffering': 'no',
-    });
-    res.flushHeaders?.();
-
-    appendJsonLine(options.logFile, {
-        type: 'request',
-        at: Date.now(),
-        promptId: prompt.fields.promptId ?? null,
-        flow: prompt.fields.flow ?? null,
-        toolCount,
-        rounds,
-        alternate,
-    });
-
-    const roleWritten = await writeSse(
-        res,
-        chunkPayload({ id, model, delta: { role: 'assistant', content: '' } }),
-        0
-    );
-    if (!roleWritten) return;
 
     if (toolCount < rounds) {
         const toolCall = {
@@ -151,26 +162,18 @@ async function streamResponse(res, requestBody, options) {
                 arguments: '{"action":"get","keys":["language"]}',
             },
         };
-        const wroteTool = await writeSse(
-            res,
-            chunkPayload({
-                id,
-                model,
-                delta: { tool_calls: [toolCall] },
-            }),
-            chunkDelayMs
-        );
-        if (!wroteTool) return;
-        await writeSse(
-            res,
-            chunkPayload({ id, model, delta: {}, finishReason: 'tool_calls' }),
-            chunkDelayMs
-        );
-        if (!res.destroyed && !res.writableEnded) {
-            res.write('data: [DONE]\n\n');
-            res.end();
+        if (
+            !(await stream.write(
+                {
+                    tool_calls: [toolCall],
+                },
+                chunkDelayMs
+            ))
+        ) {
+            return false;
         }
-        return;
+        await stream.finish('tool_calls', chunkDelayMs);
+        return false;
     }
 
     const finalDeltas = finalChunks({
@@ -180,41 +183,32 @@ async function streamResponse(res, requestBody, options) {
         alternate,
     });
     for (const delta of finalDeltas) {
-        const wrote = await writeSse(res, chunkPayload({ id, model, delta }), chunkDelayMs);
-        if (!wrote) return;
+        if (!(await stream.write(delta, chunkDelayMs))) return false;
     }
 
-    await writeSse(res, chunkPayload({ id, model, delta: {}, finishReason: 'stop' }), chunkDelayMs);
-    if (!res.destroyed && !res.writableEnded) {
-        res.write('data: [DONE]\n\n');
-        res.end();
-        appendJsonLine(options.logFile, {
-            type: 'complete',
-            at: Date.now(),
-            promptId: prompt.fields.promptId ?? null,
-            flow: prompt.fields.flow ?? null,
-        });
-    }
+    return await stream.finish('stop', chunkDelayMs);
 }
 
 export async function startPerfModelServer(options = {}) {
-    const port = Number(options.port) || DEFAULT_PORT;
+    const requestedPort = options.port ?? DEFAULT_PORT;
+    if (!Number.isInteger(requestedPort) || requestedPort < 0 || requestedPort > 65535) {
+        throw new Error(`Invalid performance model port: ${requestedPort}`);
+    }
     const logFile = options.logFile ?? null;
     if (logFile) {
         fs.mkdirSync(path.dirname(logFile), { recursive: true });
     }
     const state = {
-        port,
         chunkDelayMs: Number(options.chunkDelayMs) || DEFAULT_CHUNK_DELAY_MS,
         logFile,
     };
 
-    const server = http.createServer((req, res) => {
-        const url = new URL(req.url ?? '/', `http://${req.headers.host ?? '127.0.0.1'}`);
-        if (req.method === 'GET' && (url.pathname === '/v1/models' || url.pathname === '/models')) {
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(
-                JSON.stringify({
+    const definition = defineEmulator({
+        name: 'touchai-perf-model',
+        state: () => ({}),
+        setup({ app }) {
+            const models = (c) =>
+                c.json({
                     object: 'list',
                     data: [
                         {
@@ -228,60 +222,89 @@ export async function startPerfModelServer(options = {}) {
                             reasoning: true,
                         },
                     ],
-                })
-            );
-            return;
-        }
-
-        if (req.method === 'GET' && url.pathname === '/health') {
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ ok: true }));
-            return;
-        }
-
-        if (req.method !== 'POST' || url.pathname !== '/v1/chat/completions') {
-            res.writeHead(404, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: 'Not found' } }));
-            return;
-        }
-
-        const bodyChunks = [];
-        req.on('data', (chunk) => bodyChunks.push(chunk));
-        req.on('end', () => {
-            let body;
-            try {
-                body = JSON.parse(Buffer.concat(bodyChunks).toString('utf8'));
-            } catch {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: { message: 'Invalid JSON body.' } }));
-                return;
-            }
-            void streamResponse(res, body, state).catch((error) => {
-                appendJsonLine(state.logFile, {
-                    type: 'error',
-                    at: Date.now(),
-                    error: String(error),
                 });
-                if (!res.headersSent) {
-                    res.writeHead(500, { 'Content-Type': 'application/json' });
+
+            app.get('/v1/models', models);
+            app.get('/models', models);
+
+            app.get('/health', (c) => c.json({ ok: true }));
+
+            app.post('/v1/chat/completions', async (c) => {
+                let body;
+                try {
+                    body = await c.req.json();
+                } catch {
+                    return c.json({ error: { message: 'Invalid JSON body.' } }, 400);
                 }
-                if (!res.writableEnded) res.end();
+
+                const messages = Array.isArray(body?.messages) ? body.messages : [];
+                const prompt = parsePerfPrompt(messages);
+                if (!prompt) {
+                    return c.json({ error: { message: 'Missing PERF710 prompt marker.' } }, 400);
+                }
+
+                const model = typeof body.model === 'string' ? body.model : 'perf-model';
+                const toolCount = messages
+                    .slice(prompt.userIndex + 1)
+                    .filter((message) => message?.role === 'tool').length;
+                const rounds = Math.max(0, Number(prompt.fields.rounds) || 0);
+                const id = `chatcmpl-perf-${createHash('sha256')
+                    .update(`${prompt.fields.promptId}:${toolCount}`)
+                    .digest('hex')
+                    .slice(0, 12)}`;
+                const response = createCompletionStream({ id, model });
+
+                appendJsonLine(state.logFile, {
+                    type: 'request',
+                    at: Date.now(),
+                    promptId: prompt.fields.promptId ?? null,
+                    flow: prompt.fields.flow ?? null,
+                    toolCount,
+                    rounds,
+                    alternate: prompt.fields.alternate === '1',
+                });
+
+                Promise.resolve()
+                    .then(() => streamResponse(response, body, prompt, state))
+                    .then((completed) => {
+                        if (!completed) return;
+                        appendJsonLine(state.logFile, {
+                            type: 'complete',
+                            at: Date.now(),
+                            promptId: prompt.fields.promptId ?? null,
+                            flow: prompt.fields.flow ?? null,
+                        });
+                    })
+                    .catch((error) => {
+                        appendJsonLine(state.logFile, {
+                            type: 'error',
+                            at: Date.now(),
+                            error: String(error),
+                        });
+                        void response.finish('stop');
+                    });
+
+                return c.body(response.readable, 200, {
+                    'Content-Type': 'text/event-stream',
+                    'Cache-Control': 'no-cache, no-transform',
+                    Connection: 'keep-alive',
+                    'X-Accel-Buffering': 'no',
+                });
             });
-        });
+        },
     });
 
-    await new Promise((resolve, reject) => {
-        server.once('error', reject);
-        server.listen(port, '127.0.0.1', resolve);
+    const emulator = await createEmulator({
+        service: definition,
+        port: requestedPort,
+        hostname: '127.0.0.1',
     });
+    const port = Number(new URL(emulator.url).port);
 
     return {
-        server,
+        endpoint: `${emulator.url}/v1`,
         port,
-        close: () =>
-            new Promise((resolve) => {
-                server.close(() => resolve());
-            }),
+        close: () => emulator.close(),
     };
 }
 
@@ -291,10 +314,12 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     const port =
         portArgIndex >= 0
             ? Number(process.argv[portArgIndex + 1])
-            : Number(process.env.PERF710_PORT);
+            : process.env.PERF710_PORT
+              ? Number(process.env.PERF710_PORT)
+              : undefined;
     const logFile = logArgIndex >= 0 ? process.argv[logArgIndex + 1] : undefined;
     const running = await startPerfModelServer({ port, logFile });
-    console.log(`PERF710 model server listening on ${running.port}`);
+    console.log(`PERF710 model server listening on ${running.endpoint}`);
     await new Promise((resolve) => {
         process.once('SIGINT', resolve);
         process.once('SIGTERM', resolve);

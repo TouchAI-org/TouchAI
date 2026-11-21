@@ -1,5 +1,3 @@
-import type { Server } from 'node:http';
-
 export type PerfModelServerOptions = {
     port?: number;
     chunkDelayMs?: number;
@@ -7,7 +5,7 @@ export type PerfModelServerOptions = {
 };
 
 export type PerfModelServer = {
-    server: Server;
+    endpoint: string;
     port: number;
     close: () => Promise<void>;
 };
