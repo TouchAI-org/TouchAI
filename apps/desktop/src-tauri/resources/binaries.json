@@ -45,6 +45,36 @@
             }
         }
     },
+    "everything": {
+        "version": "1.4.1.1032",
+        "files": [
+            {
+                "filename": "Everything.exe",
+                "size": 2272424,
+                "sha256": "f191f756996a14a11e5445fa7103d302efd510cf2fbf920e6c0c8ed51d512e36",
+                "archive_path": "everything.exe",
+                "mirrors": [
+                    "https://gh-proxy.com/https://raw.githubusercontent.com/dbt64/webtools-rs/34483cf5096a3782e75ca42c237ecf50cdcc1f5b/resources/everything/Everything.exe",
+                    "https://ghfast.top/https://raw.githubusercontent.com/dbt64/webtools-rs/34483cf5096a3782e75ca42c237ecf50cdcc1f5b/resources/everything/Everything.exe"
+                ]
+            },
+            {
+                "filename": "Everything.lng",
+                "size": 1033107,
+                "sha256": "84e0ae09a9e268424ce85a85135c704c534ff60f92e150413b9df05a88979be7",
+                "archive_path": "Everything.lng",
+                "mirrors": [
+                    "https://gh-proxy.com/https://raw.githubusercontent.com/dbt64/webtools-rs/34483cf5096a3782e75ca42c237ecf50cdcc1f5b/resources/everything/Everything.lng",
+                    "https://ghfast.top/https://raw.githubusercontent.com/dbt64/webtools-rs/34483cf5096a3782e75ca42c237ecf50cdcc1f5b/resources/everything/Everything.lng"
+                ]
+            }
+        ],
+        "fallback": {
+            "url": "https://www.voidtools.com/Everything-1.4.1.1032.x64.zip",
+            "size": 1906504,
+            "sha256": "698df475ec44e638f66f1b6a32d28fea613cec78d3b6310e6abe53431eeb940c"
+        }
+    },
     "cua-driver": {
         "version": "0.38.0",
         "mirrors": [

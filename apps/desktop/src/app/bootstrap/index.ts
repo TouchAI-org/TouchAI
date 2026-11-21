@@ -15,6 +15,7 @@ import { type ModelMetadataApi, modelMetadataApiKey } from '@/app/api/models/met
 import { searchApiKey } from '@/app/api/search/queries';
 import { startupNoticesApiKey } from '@/app/api/search/startup';
 import { dataManagementApiKey } from '@/app/api/settings/dataManagement';
+import { everythingSetupApi, everythingSetupApiKey } from '@/app/api/settings/everything';
 import { settingsApiKey } from '@/app/api/settings/preferences';
 import { toolSettingsApiKey } from '@/app/api/settings/tools';
 import { toolsAdministrationApiKey } from '@/app/api/tools/administration';
@@ -244,6 +245,7 @@ export async function initializeApp() {
     app.provide(productAnalyticsApiKey, agentWindow.productAnalytics);
     if (agentWindow.analyticsPreferences)
         app.provide(analyticsPreferencesApiKey, agentWindow.analyticsPreferences);
+    app.provide(everythingSetupApiKey, everythingSetupApi);
     app.provide(settingsApiKey, agentWindow.settings);
     if (getCurrentWindowLabel() === 'settings' && agentWindow.toolSettings) {
         app.provide(modelAdministrationApiKey, agentWindow.modelAdministration!);

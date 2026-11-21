@@ -10,6 +10,8 @@ use std::collections::HashMap;
 use tauri::async_runtime;
 
 mod directory;
+#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+mod everything_install;
 mod types;
 pub use types::{QuickSearchFileItem, QuickSearchResult, QuickSearchStatus, QuickShortcutItem};
 
@@ -257,6 +259,11 @@ pub fn quick_search_prepare_index(force: Option<bool>) -> Result<(), String> {
 #[cfg(target_os = "windows")]
 pub fn quick_search_get_status() -> QuickSearchStatus {
     manager::get_status()
+}
+
+/// Install and start the managed Everything portable build.
+pub async fn quick_search_install_everything() -> Result<(), String> {
+    everything_install::install().await
 }
 
 /// 获取快速搜索当前运行状态（非 Windows 平台降级实现）。

@@ -84,3 +84,9 @@ pub fn quick_search_prepare_index(force: Option<bool>) -> Result<(), String> {
 pub fn quick_search_get_status() -> QuickSearchStatus {
     search::quick_search_get_status()
 }
+
+/// Install and start the managed Everything build used by Windows file search.
+#[tauri::command]
+pub async fn quick_search_install_everything() -> Result<(), String> {
+    search::quick_search_install_everything().await
+}

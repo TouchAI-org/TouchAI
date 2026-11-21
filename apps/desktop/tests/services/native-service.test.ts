@@ -882,6 +882,15 @@ describe('user searches files and shortcuts', () => {
         );
     });
 
+    it('user installs managed Everything through one native command', async () => {
+        mockTauriCommand('quick_search_install_everything', undefined);
+
+        await callAndExpectInvoke(
+            () => quickSearch.installEverything(),
+            'quick_search_install_everything'
+        );
+    });
+
     it('user sees an indexing failure instead of a silent success', async () => {
         const backendError = new Error('indexing failed');
         interceptTauriInvoke((call, next) => {

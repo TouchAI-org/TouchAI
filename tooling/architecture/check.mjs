@@ -64,6 +64,9 @@ const API_PLATFORM_BINDINGS = {
     'app/api/settings/events.ts': {
         'platform/windows/events.ts': ['createWindowEvents'],
     },
+    'app/api/settings/everything.ts': {
+        'platform/native/quickSearch.ts': ['quickSearch', 'QuickSearchStatus'],
+    },
     'app/api/tools/computerDirectory.ts': {
         'platform/windows/dialog.ts': ['pickDirectory'],
     },
