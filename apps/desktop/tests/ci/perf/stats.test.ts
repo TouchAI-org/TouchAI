@@ -331,7 +331,7 @@ afterAll(() => {
     for (const root of cleanup) fs.rmSync(root, { recursive: true, force: true });
 });
 
-describe('user reads the RFC 710 performance statistics', () => {
+describe('user reads the desktop performance statistics', () => {
     it('user cannot pass when an extra invalid launch exists beside enough complete blocks', () => {
         const root = createEvidenceRoot();
         writeFixtureManifest(root);

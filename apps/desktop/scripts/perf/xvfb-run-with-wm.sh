@@ -3,7 +3,7 @@ set -euo pipefail
 
 for command in dbus-run-session dbus-send dunst openbox wmctrl xvfb-run; do
     if ! command -v "$command" >/dev/null 2>&1; then
-        echo "$command is required for the RFC 710 performance display." >&2
+        echo "$command is required for the desktop performance display." >&2
         exit 1
     fi
 done

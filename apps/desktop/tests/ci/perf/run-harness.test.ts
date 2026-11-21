@@ -87,7 +87,7 @@ afterAll(() => {
     for (const root of cleanup) fs.rmSync(root, { recursive: true, force: true });
 });
 
-describe('user previews and resumes the RFC 710 performance run', () => {
+describe('user previews and resumes the desktop performance run', () => {
     it('user must choose a baseline instead of silently comparing an obsolete release', () => {
         expect(() => resolveComparison(comparisonRepository(), undefined, 'HEAD')).toThrow(
             '--baseline'
@@ -460,7 +460,7 @@ describe('user previews and resumes the RFC 710 performance run', () => {
     });
 });
 
-describe('user validates RFC 710 measurement evidence', () => {
+describe('user validates desktop performance measurement evidence', () => {
     it('user keeps an early sampler exit even after WebDriver finishes', () => {
         const sampler = createSamplerWatch();
         sampler.noteExit(1, null);

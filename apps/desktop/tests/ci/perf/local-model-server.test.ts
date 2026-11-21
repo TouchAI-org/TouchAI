@@ -95,7 +95,7 @@ afterAll(() => {
     for (const root of cleanup) fs.rmSync(root, { recursive: true, force: true });
 });
 
-describe('user runs the RFC 710 local model server', () => {
+describe('user runs the local performance model server', () => {
     it('user sees a generic error without parser diagnostics for an invalid JSON body', async () => {
         const running = await startPerfModelServer({ port: 0 });
 

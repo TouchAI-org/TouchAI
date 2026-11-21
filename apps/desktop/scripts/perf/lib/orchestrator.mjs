@@ -57,12 +57,12 @@ export async function runMeasurements(options) {
         : null;
     if (options.resume) {
         if (!previousPlan?.protocol) {
-            throw new Error('Cannot resume without a persisted RFC 710 run protocol.');
+            throw new Error('Cannot resume without a persisted performance run protocol.');
         }
         const mismatches = protocolMismatches(previousPlan.protocol, protocol);
         if (mismatches.length > 0) {
             throw new Error(
-                `Cannot resume with a different RFC 710 protocol: ${mismatches.join(', ')}.`
+                `Cannot resume with a different performance protocol: ${mismatches.join(', ')}.`
             );
         }
     }

@@ -15,7 +15,7 @@ afterEach(() => {
     vi.restoreAllMocks();
 });
 
-describe('user reads RFC 710 process memory samples', () => {
+describe('user reads desktop performance process memory samples', () => {
     it('user sees unavailable PSS kept unavailable instead of being treated as zero', () => {
         expect(
             aggregateMemory([

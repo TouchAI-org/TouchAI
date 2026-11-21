@@ -11,15 +11,15 @@ import { prepareSnapshots } from './lib/snapshots.mjs';
 import { generateStats } from './stats/generate.mjs';
 
 function performanceGateError(stats) {
-    if (!stats) return 'RFC 710 performance evidence is missing stats.json.';
+    if (!stats) return 'Desktop performance evidence is missing stats.json.';
     if (!Number.isInteger(stats.rawCounts?.invalidRuns)) {
-        return 'RFC 710 performance evidence is missing a valid rawCounts.invalidRuns.';
+        return 'Desktop performance evidence is missing a valid rawCounts.invalidRuns.';
     }
     if (stats.rawCounts.invalidRuns !== 0) {
-        return `RFC 710 performance protocol recorded ${stats.rawCounts.invalidRuns} invalid run(s).`;
+        return `Desktop performance protocol recorded ${stats.rawCounts.invalidRuns} invalid run(s).`;
     }
     if (stats.overallStatus !== 'PASS') {
-        return `RFC 710 performance gate is ${stats.overallStatus ?? 'missing'}.`;
+        return `Desktop performance gate is ${stats.overallStatus ?? 'missing'}.`;
     }
     return null;
 }
@@ -72,7 +72,7 @@ async function main() {
         const stats = readJsonFile(path.join(evidenceRoot, 'stats.json'));
         const error = performanceGateError(stats);
         if (error) throw new Error(error);
-        console.log('RFC 710 performance gate passed.');
+        console.log('Desktop performance gate passed.');
         return;
     }
     if (command === 'all') {

@@ -20,7 +20,7 @@ let exitRequested = false;
 
 function requireEnv(name) {
     const value = process.env[name];
-    if (!value) throw new Error(`${name} is required for the RFC 710 performance run.`);
+    if (!value) throw new Error(`${name} is required for the desktop performance run.`);
     return value;
 }
 

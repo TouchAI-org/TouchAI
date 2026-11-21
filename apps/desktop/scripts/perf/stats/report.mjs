@@ -32,7 +32,7 @@ function metricMarkdownRows(metrics) {
 
 export function writeSummaryMarkdown(stats) {
     const lines = [
-        '# RFC #710 performance bootstrap report',
+        '# Desktop performance bootstrap report',
         '',
         `Generated: ${stats.generatedAt}`,
         '',
