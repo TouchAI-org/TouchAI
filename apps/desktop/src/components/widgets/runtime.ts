@@ -12,7 +12,7 @@ import {
     SHOW_WIDGET_MAX_WIDTH_PX,
     SHOW_WIDGET_THEME_FALLBACKS,
 } from './runtimeConstants';
-import { createWidgetSandboxDocument } from './sandbox';
+import { createWidgetSandboxDocument, type WidgetMotionPolicy } from './sandbox';
 
 /** Generated code runs only inside an opaque-origin sandboxed frame. */
 
@@ -802,6 +802,16 @@ function sendShowWidgetPrompt(prompt: string): void {
     window.sendPrompt(prompt);
 }
 
+/** The shared motion policy lives on the app root; the sandbox cannot read it. */
+function readWidgetMotionPolicy(): WidgetMotionPolicy {
+    return {
+        durationScale: getComputedStyle(document.documentElement)
+            .getPropertyValue('--motion-duration-scale')
+            .trim(),
+        reduced: document.documentElement.hasAttribute('data-reduced-motion'),
+    };
+}
+
 function clearApplyTimer(state: ShowWidgetRendererState): void {
     if (state.applyTimer !== null) {
         window.clearTimeout(state.applyTimer);
@@ -821,6 +831,25 @@ export function createWidgetRenderer(hostElement: HTMLElement): WidgetRenderer {
     };
     let frameReady = false;
     let lastPayload: ShowWidgetRenderPayload | null = null;
+    let lastMotionKey = '';
+    let motionObserver: MutationObserver | null = null;
+
+    function postMotionPolicy(): void {
+        if (state.destroyed || !frameReady) return;
+        const motion = readWidgetMotionPolicy();
+        const key = `${motion.durationScale}|${motion.reduced}`;
+        if (key === lastMotionKey) return;
+        lastMotionKey = key;
+        frame.contentWindow?.postMessage({ type: 'motion', scopeId, ...motion }, '*');
+    }
+
+    if (typeof MutationObserver !== 'undefined') {
+        motionObserver = new MutationObserver(postMotionPolicy);
+        motionObserver.observe(document.documentElement, {
+            attributes: true,
+            attributeFilter: ['style', 'data-reduced-motion'],
+        });
+    }
     const frame = document.createElement('iframe');
     frame.setAttribute('sandbox', 'allow-scripts');
     frame.setAttribute('referrerpolicy', 'no-referrer');
@@ -837,9 +866,11 @@ export function createWidgetRenderer(hostElement: HTMLElement): WidgetRenderer {
     const theme = Object.keys(SHOW_WIDGET_THEME_FALLBACKS)
         .map((name) => `${name}: ${hostElement.style.getPropertyValue(name)};`)
         .join('');
+    const initialMotion = readWidgetMotionPolicy();
     frame.srcdoc = createWidgetSandboxDocument(
         scopeId,
-        `:root{${theme}}${createShowWidgetBaseStyles(hostSelector)}`
+        `:root{${theme}}${createShowWidgetBaseStyles(hostSelector)}`,
+        initialMotion
     );
     hostElement.replaceChildren(frame);
     applyShowWidgetLayoutGuards(hostElement, frame);
@@ -884,6 +915,8 @@ export function createWidgetRenderer(hostElement: HTMLElement): WidgetRenderer {
     function handleLoad() {
         if (state.destroyed) return;
         frameReady = true;
+        lastMotionKey = '';
+        postMotionPolicy();
         state.pendingPayload = lastPayload;
         clearApplyTimer(state);
         flushPendingPayload();
@@ -952,6 +985,8 @@ export function createWidgetRenderer(hostElement: HTMLElement): WidgetRenderer {
             clearApplyTimer(state);
             frame.removeEventListener('load', handleLoad);
             window.removeEventListener('message', handleMessage);
+            motionObserver?.disconnect();
+            motionObserver = null;
             // Removing the iframe also tears down timers, frames, observers, and
             // listeners created by generated code in its isolated realm.
             hostElement.replaceChildren();

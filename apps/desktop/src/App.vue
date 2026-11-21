@@ -2,11 +2,18 @@
     import AppUpdateRequiredGate from '@components/AppUpdateRequiredGate.vue';
     import { MotionConfig } from 'motion-v';
     import { storeToRefs } from 'pinia';
-    import { computed } from 'vue';
+    import { computed, onMounted, onUnmounted } from 'vue';
 
     import { getWindowLabel } from '@/app/api/windows/runtime';
     import { provideMotionPreferences } from '@/composables/useMotion';
     import { useSettingsStore } from '@/stores/settings';
+    import { installAutoHideScrollbars } from '@/utils/autoHideScrollbars';
+
+    let stopAutoHideScrollbars: (() => void) | undefined;
+    onMounted(() => {
+        stopAutoHideScrollbars = installAutoHideScrollbars(document);
+    });
+    onUnmounted(() => stopAutoHideScrollbars?.());
 
     const { animationSpeed, automaticallyReduceMotion, initialized } =
         storeToRefs(useSettingsStore());

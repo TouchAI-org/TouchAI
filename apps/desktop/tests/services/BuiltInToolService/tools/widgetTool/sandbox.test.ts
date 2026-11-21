@@ -7,8 +7,8 @@ import { createWidgetSandboxDocument } from '@/components/widgets/sandbox';
 const { JSDOM, VirtualConsole } = createRequire(import.meta.url)('jsdom') as typeof import('jsdom');
 const frames: InstanceType<typeof JSDOM>[] = [];
 
-function createFrame() {
-    const frame = new JSDOM(createWidgetSandboxDocument('test-scope', ''), {
+function createFrame(motion?: { durationScale: string; reduced: boolean }) {
+    const frame = new JSDOM(createWidgetSandboxDocument('test-scope', '', motion), {
         runScripts: 'dangerously',
         pretendToBeVisual: true,
         virtualConsole: new VirtualConsole(),
@@ -45,6 +45,59 @@ function render(
 afterEach(() => frames.splice(0).forEach((frame) => frame.window.close()));
 
 describe('given a generated widget is updated in its isolated execution frame', () => {
+    it('user keeps scrolling an updated widget and its scrollbar remains visible', () => {
+        const frame = createFrame();
+        render(frame, 'first', []);
+        const content = frame.window.document.getElementById('answer')!;
+        content.dispatchEvent(new frame.window.Event('scroll'));
+        expect(content.hasAttribute('data-scrollbar-scrolling')).toBe(true);
+        render(frame, 'second', []);
+        expect(frame.window.document.getElementById('answer')).toBe(content);
+        content.dispatchEvent(new frame.window.Event('scroll'));
+        expect(content.hasAttribute('data-scrollbar-scrolling')).toBe(true);
+    });
+
+    it('user scrollbar survives an update that arrives before the idle delay ends', () => {
+        const frame = createFrame();
+        render(frame, 'first', []);
+        const content = frame.window.document.getElementById('answer')!;
+        content.dispatchEvent(new frame.window.Event('scroll'));
+        render(frame, 'updated', []);
+        // No further scroll: the runtime-owned marker must outlive the reconciliation.
+        expect(content.hasAttribute('data-scrollbar-scrolling')).toBe(true);
+        frame.window.dispatchEvent(new frame.window.Event('pagehide'));
+        expect(content.hasAttribute('data-scrollbar-scrolling')).toBe(false);
+    });
+
+    it('user gets the application motion policy applied inside the widget', () => {
+        const frame = createFrame({ durationScale: '0.65', reduced: true });
+        const html = frame.window.document.documentElement;
+        expect(html.style.getPropertyValue('--motion-duration-scale')).toBe('0.65');
+        expect(html.hasAttribute('data-reduced-motion')).toBe(true);
+
+        frame.window.dispatchEvent(
+            new frame.window.MessageEvent('message', {
+                source: frame.window as unknown as Window,
+                data: { type: 'motion', scopeId: 'test-scope', durationScale: '1', reduced: false },
+            })
+        );
+        expect(html.style.getPropertyValue('--motion-duration-scale')).toBe('1');
+        expect(html.hasAttribute('data-reduced-motion')).toBe(false);
+    });
+
+    it('user scrolling an isolated widget gets the same idle scrollbar behavior as the application', () => {
+        const frame = createFrame();
+        render(frame, 'scrollable', []);
+        const content = frame.window.document.getElementById('answer')!;
+        expect(content.hasAttribute('data-scrollbar-scrolling')).toBe(false);
+        content.dispatchEvent(new frame.window.Event('scroll'));
+        expect(content.hasAttribute('data-scrollbar-scrolling')).toBe(true);
+        frame.window.dispatchEvent(new frame.window.Event('pagehide'));
+        expect(content.hasAttribute('data-scrollbar-scrolling')).toBe(false);
+        content.dispatchEvent(new frame.window.Event('scroll'));
+        expect(content.hasAttribute('data-scrollbar-scrolling')).toBe(false);
+    });
+
     it('user gets newly initialized behavior when updated scripts reuse lexical names', () => {
         const frame = createFrame();
         render(frame, 'one', [
