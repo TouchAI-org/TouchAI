@@ -88,7 +88,7 @@ process.on('SIGTERM', closeTauriDriver);
 export const config = {
     host: '127.0.0.1',
     port: DRIVER_PORT,
-    specs: [[path.join(__dirname, 'perf/rfc710.e2e.js')]],
+    specs: [[path.join(__dirname, 'perf/workload.e2e.js')]],
     bail: 1,
     maxInstances: 1,
     waitforTimeout: 30000,
