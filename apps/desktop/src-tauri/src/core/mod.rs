@@ -12,6 +12,7 @@ pub mod database;
 pub mod download;
 pub mod mcp;
 pub mod observability;
+pub mod privacy_filter;
 pub mod product_config;
 pub mod search;
 pub mod setup;

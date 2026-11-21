@@ -79,6 +79,9 @@ rmcp = { version = "3.0", features = [
     "transport-streamable-http-client-reqwest",
 ] }
 reqwest = { version = "0.13", features = ["json", "stream", "blocking"] }
+# Inference only: esaxx_fast's training library forces a conflicting MSVC CRT.
+tokenizers = { version = "0.22", default-features = false, features = ["onig"] }
+ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "download-binaries", "tls-native", "api-24"] }
 futures = "0.3"
 tokio-tungstenite = "0.29"
 clipboard-rs = "0.3.4"
@@ -102,6 +105,10 @@ incremental = true
 inherits = "dev"
 debug = 1
 codegen-units = 256
+
+# Model downloads and loading verify gigabytes of weights, including in debug builds.
+[profile.dev.package.sha2]
+opt-level = 3
 
 [profile.release]
 # 本地 release：极致体积

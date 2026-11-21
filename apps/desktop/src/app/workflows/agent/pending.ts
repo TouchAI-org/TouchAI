@@ -168,7 +168,14 @@ export function createPendingMessageDelivery(input: {
                 if (!sources) return { messages: [] };
                 for (const [index, message] of prepared.entries()) {
                     const source = sources.get(message.id);
-                    if (source) messages[index]!.origin = adapter.toCoreSource(source);
+                    if (source) {
+                        messages[index]!.origin = adapter.toCoreSource(source);
+                        adapter.bindUserMessageSource(
+                            adapter.toDesktopContent(messages[index]!.content),
+                            source
+                        );
+                        message.sourceMessageId = source.id;
+                    }
                     settled.add(message.id);
                 }
                 queue.delivered(prepared);

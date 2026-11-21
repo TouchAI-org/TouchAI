@@ -183,7 +183,7 @@ describe('user reads live task statuses in their own language', () => {
                 finalStatus: 'completed',
                 builtinConversationSemantic: {
                     action: 'search',
-                    target: 'OpenClaw 项目信息 · GitHub',
+                    target: 'OpenClaw 项目信息 (GitHub)',
                 },
             },
         });
@@ -193,10 +193,10 @@ describe('user reads live task statuses in their own language', () => {
             status: 'completed',
             builtinConversationSemantic: {
                 action: 'search',
-                target: 'OpenClaw 项目信息 · GitHub',
+                target: 'OpenClaw 项目信息 (GitHub)',
             },
             builtinPresentation: {
-                content: 'OpenClaw 项目信息 · GitHub',
+                content: 'OpenClaw 项目信息 (GitHub)',
             },
         });
     });

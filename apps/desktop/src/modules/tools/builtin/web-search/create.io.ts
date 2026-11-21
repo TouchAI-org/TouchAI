@@ -91,12 +91,11 @@ export function createWebSearchTools(input: {
     ): BuiltInToolConversationSemantic {
         // 后缀展示的是「用哪个搜索引擎搜的」，而不是命中的站点列表。
         const target = buildSearchSemanticTarget(args);
+        const suffix = ` (${SEARCH_PROVIDER_METADATA[provider].sourceName})`;
+        const budget = 100 - suffix.length;
         return {
             action: 'search',
-            target: truncateText(
-                `${target} · ${SEARCH_PROVIDER_METADATA[provider].sourceName}`,
-                100
-            ),
+            target: `${target.length > budget ? truncateText(target, budget - 3) : target}${suffix}`,
         };
     }
 

@@ -90,6 +90,7 @@
      * measured. Collapsing them into fewer steps is a visual decision, not a
      * cleanup: it belongs in its own change with before/after screenshots.
      */
+    --color-annotation-100: #f2efec;
     --color-ui-50: #f8f8f8;
     --color-ui-100: #f7f7f6;
     --color-ui-200: #f4f4f2;
@@ -107,6 +108,10 @@
     --color-chrome-gray-600: #52525b;
     --shadow-control-soft: 0 6px 18px rgb(15 23 42 / 0.08);
     --shadow-control-warm: 0 6px 18px rgb(107 95 84 / 0.12);
+    --shadow-preview-soft:
+        0 12px 28px -10px rgb(74 64 57 / 0.26), 0 2px 8px -2px rgb(74 64 57 / 0.16),
+        0 0 0 1px rgb(150 139 125 / 0.22);
+    --shadow-preview-outlined: 0 2px 8px rgb(74 64 57 / 0.07);
 
     /*
      * A translucent neutral stroke keeps the window edge subtle against both
@@ -119,6 +124,7 @@
      * WINDOW_SHADOW_GUTTER in src-tauri/src/core/window/mod.rs.
      */
     --spacing-window-gutter: 24px;
+    --stroke-hairline: 0.5px;
 
     /* ── Radius ──────────────────────────────────────────────────────────── */
     /*

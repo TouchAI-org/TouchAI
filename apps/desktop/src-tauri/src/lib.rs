@@ -89,6 +89,17 @@ fn handle_single_instance_activation<R: tauri::Runtime>(app: &tauri::AppHandle<R
     }
 }
 
+fn create_privacy_filter_runtime() -> core::privacy_filter::PrivacyFilterRuntime {
+    let records = match core::privacy_filter::records::PrivacyProtectionRecords::default_path() {
+        Ok(path) => core::privacy_filter::records::PrivacyProtectionRecords::new(Some(path)),
+        Err(error) => {
+            warn!("Privacy protection records will not survive a restart: {error}");
+            core::privacy_filter::records::PrivacyProtectionRecords::default()
+        }
+    };
+    core::privacy_filter::PrivacyFilterRuntime::with_records(records)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     core::analytics::mark_process_start(std::time::Instant::now());
@@ -138,6 +149,7 @@ pub fn run() {
         .manage(core::browser::BrowserRuntime::new())
         .manage(McpClientManager::new())
         .manage(core::updater::AppUpdaterState::default())
+        .manage(create_privacy_filter_runtime())
         .manage(core::updater::notification::AppUpdateNotificationRuntime::default())
         .on_page_load(|webview, payload| {
             if webview.label() == "main"
@@ -308,6 +320,9 @@ pub fn run() {
 
     app.run(|app_handle, event| {
         if matches!(event, tauri::RunEvent::Exit) {
+            app_handle
+                .state::<core::privacy_filter::PrivacyFilterRuntime>()
+                .stop_child();
             core::computer_use::cua_driver::cancel_all();
             core::computer_use::agent_desktop::cancel_all();
             let result = tauri::async_runtime::block_on(async {

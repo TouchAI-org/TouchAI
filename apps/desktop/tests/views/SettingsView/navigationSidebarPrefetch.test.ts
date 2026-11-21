@@ -5,6 +5,10 @@ import { describe, expect, it } from 'vitest';
 
 import NavigationSidebar from '@/views/SettingsView/components/NavigationSidebar.vue';
 
+import { useTestPrivacyApi } from '../../utils/privacyApi';
+
+useTestPrivacyApi();
+
 describe('when the user points at a settings section', () => {
     it('user gets that section warmed up on hover without navigating to it', async () => {
         const wrapper = mount(NavigationSidebar, {

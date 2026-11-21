@@ -24,7 +24,7 @@ export function summarizeUpdateReleaseNotes(notes: string | null | undefined): s
             .replace(/^\s*>\s?/gm, '')
             .replace(/^\s*(?:[-*+]\s+|\d+[.)]\s+)/gm, '')
             .replace(/[*_~]/g, '')
-            .replace(/\r?\n+/g, ' · ')
+            .replace(/\r?\n+/g, ' ')
     );
 
     return summary ? truncateText(summary, MAX_NOTIFICATION_NOTES_LENGTH) : null;

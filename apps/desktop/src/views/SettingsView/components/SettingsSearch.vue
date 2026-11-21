@@ -4,6 +4,7 @@
     import { computed, nextTick, ref, useId, watch } from 'vue';
 
     import { t } from '@/i18n';
+    import { usePrivacyStore } from '@/stores/privacy';
 
     import { searchSettings, type SettingsSearchResult } from '../settingsSearch';
 
@@ -18,7 +19,10 @@
     // ui/Input 通过 defineExpose 暴露 focus()，不是原生 HTMLInputElement
     const inputRef = ref<{ focus: () => void } | null>(null);
     const resultsRef = ref<HTMLElement | null>(null);
-    const results = computed(() => searchSettings(query.value));
+    const privacy = usePrivacyStore();
+    const results = computed(() =>
+        searchSettings(query.value, privacy.privacyFilterSettings.useLocalModel)
+    );
     const searching = computed(() => query.value.trim().length > 0);
     const listId = useId();
 

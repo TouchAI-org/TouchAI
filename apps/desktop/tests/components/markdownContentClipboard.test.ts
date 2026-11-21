@@ -1,5 +1,5 @@
 import { mount } from '@vue/test-utils';
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /*
  * What the user copies out of an answer is what they paste into their editor, so the shape of
@@ -31,24 +31,19 @@ vi.mock('markstream-vue', () => ({
 vi.mock('@/app/api/windows/notifications', () => ({ notify: vi.fn() }));
 
 /**
- * The component pulls in the markdown renderer, so it is imported once in `beforeAll` and only
+ * The component pulls in the markdown renderer, so it is imported once during collection and only
  * mounted per test. Importing it inside a test would spend that test's whole timeout on module
  * setup whenever the suite runs in parallel with other files.
  */
-let MarkdownContent: Awaited<typeof import('@components/MarkdownContent.vue')>['default'] | null =
-    null;
-
-beforeAll(async () => {
-    const { setLocale } = await import('@/i18n');
-    setLocale('en-US');
-    MarkdownContent = (await import('@components/MarkdownContent.vue')).default;
-});
+const { setLocale } = await import('@/i18n');
+const MarkdownContent = (await import('@components/MarkdownContent.vue')).default;
+beforeEach(() => setLocale('en-US'));
 
 async function mountContent(content = 'answer'): Promise<{
     element: HTMLElement;
     unmount: () => void;
 }> {
-    const wrapper = mount(MarkdownContent!, { props: { content }, attachTo: document.body });
+    const wrapper = mount(MarkdownContent, { props: { content }, attachTo: document.body });
     return { element: wrapper.element as HTMLElement, unmount: () => wrapper.unmount() };
 }
 

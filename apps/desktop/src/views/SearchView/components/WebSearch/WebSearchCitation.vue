@@ -40,7 +40,10 @@
                         target="_blank"
                         rel="noreferrer"
                         tabindex="-1"
-                        class="web-search-citation__card"
+                        :class="[
+                            'web-search-citation__card',
+                            previewCardVariants({ variant: 'reference' }),
+                        ]"
                     >
                         <span class="web-search-citation__card-head">
                             <SourceFavicon :source="source" :size="18" />
@@ -58,6 +61,7 @@
 </template>
 
 <script setup lang="ts">
+    import { previewCardVariants } from '@components/ui/preview-card';
     import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
     import {
@@ -411,21 +415,9 @@
 
     :global(.web-search-citation__card) {
         display: block;
-        padding: 12px;
-        border-radius: 16px;
-        background: #ffffff;
         color: inherit;
         text-align: left;
         text-decoration: none;
-        /*
-         * 两层阴影，缺一不可：
-         * - 亮一层只带 12px 下偏移，左右两侧几乎看不到收边，卡片边缘会显得是"被切掉"的；
-         * - 补一层小范围、小偏移的环境阴影，让四条边都浮起来。
-         */
-        box-shadow:
-            0 12px 28px -10px rgba(74, 64, 57, 0.26),
-            0 2px 8px -2px rgba(74, 64, 57, 0.16),
-            0 0 0 1px var(--ws-ring);
         /* 窗口很矮时由 max-height 收窄，内容可滚动而不是被切掉。 */
         max-height: inherit;
         overflow-y: auto;

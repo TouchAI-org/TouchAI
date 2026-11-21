@@ -1171,6 +1171,20 @@ export function createSearchKeydownHandler(
         }
 
         if (event.isComposing || event.keyCode === 229) return;
+        const privacyTrigger =
+            event.target instanceof HTMLElement &&
+            event.target.closest('[data-privacy-protection="trigger"]') !== null;
+        const privacyActivation =
+            privacyTrigger &&
+            !event.ctrlKey &&
+            !event.metaKey &&
+            !event.altKey &&
+            ['Enter', ' ', 'Escape', 'Esc'].includes(event.key);
+        const privacyDismissal =
+            ['Escape', 'Esc'].includes(event.key) &&
+            document.querySelector('[data-privacy-protection="tooltip"]') !== null;
+        // Window capture must yield before the inline tooltip receives its keys.
+        if (privacyActivation || privacyDismissal) return;
         if (
             !pendingToolApproval.value &&
             !getActiveOverlaySurface() &&
