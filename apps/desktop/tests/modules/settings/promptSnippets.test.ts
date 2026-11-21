@@ -1,6 +1,7 @@
 import { createSettingsPanelFixture } from '@tests/utils/settingsPanel';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import type { PromptSnippet } from '@/app/api/settings/preferences';
 import {
     addPromptSnippet,
     applyPersistedGeneralSettingValue,
@@ -25,7 +26,7 @@ function snippet(overrides: Partial<ReturnType<typeof createSnippet>> = {}) {
     };
 }
 
-function createSnippet() {
+function createSnippet(): PromptSnippet {
     return {
         id: 'snippet-a',
         title: 'Summarize',
