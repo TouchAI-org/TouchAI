@@ -914,6 +914,61 @@ describe('user follows streamed output', () => {
         }
     );
 
+    it('user resumes following when returning to the live edge in the same frame output grows', async () => {
+        const wrapper = mountScroller({ followOutput: true });
+        const viewport = viewportOf(wrapper);
+        const scroller = wrapper.vm as unknown as MessageScrollerHandle;
+        setScrollMetrics(viewport, {
+            scrollTop: 600,
+            scrollHeight: 1_000,
+            clientHeight: 400,
+        });
+        stubScrollTo(viewport);
+        await settleLayout();
+
+        viewport.scrollTop = 500;
+        viewport.dispatchEvent(new Event('scroll'));
+        await settleLayout();
+        expect(scroller.getState().following).toBe(false);
+
+        // Streaming output keeps changing the layout, so a return to the bottom
+        // usually shares its scroll event with growth.
+        setScrollHeight(viewport, 1_200);
+        viewport.scrollTop = 800;
+        viewport.dispatchEvent(new Event('scroll'));
+        await settleLayout();
+        expect(scroller.getState().following).toBe(true);
+
+        setScrollHeight(viewport, 1_400);
+        triggerResize();
+        await settleLayout();
+
+        expect(viewport.scrollTop).toBe(1_000);
+    });
+
+    it('user keeps following when growth moves the position down in the same frame', async () => {
+        const wrapper = mountScroller({ followOutput: true });
+        const viewport = viewportOf(wrapper);
+        setScrollMetrics(viewport, {
+            scrollTop: 600,
+            scrollHeight: 1_000,
+            clientHeight: 400,
+        });
+        stubScrollTo(viewport);
+        await settleLayout();
+
+        // Virtualization compensation moves the position down while content grows.
+        setScrollHeight(viewport, 1_400);
+        viewport.scrollTop = 660;
+        viewport.dispatchEvent(new Event('scroll'));
+        triggerResize();
+        await settleLayout();
+
+        const scroller = wrapper.vm as unknown as MessageScrollerHandle;
+        expect(scroller.getState().following).toBe(true);
+        expect(viewport.scrollTop).toBe(1_000);
+    });
+
     it('user resumes following after returning to the live edge', async () => {
         const wrapper = mountScroller({ followOutput: true });
         const viewport = viewportOf(wrapper);
