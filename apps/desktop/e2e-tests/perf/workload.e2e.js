@@ -5,7 +5,11 @@ import path from 'node:path';
 import { startupSettleMs } from '../../scripts/perf/lib/config.mjs';
 import { focusMain } from '../test/support/agent-ui.js';
 import { fillSearchDraft, pressEditorKey } from '../test/support/conversation-queue.js';
-import { callE2eBridge, waitForE2eBridge } from '../test/support/desktop.js';
+import {
+    callE2eBridge,
+    callE2eBridgeWithResult,
+    waitForE2eBridge,
+} from '../test/support/desktop.js';
 import {
     isSeededSessionReady,
     seededSessionMessageId,
@@ -58,152 +62,7 @@ async function waitForMainWindow() {
 }
 
 async function armRendererMeasurement(doneToken) {
-    await browser.execute((token) => {
-        const existingAssistants = new Set(
-            [...document.querySelectorAll("[data-message-role='assistant']")].map((element) =>
-                element.getAttribute('data-message-id')
-            )
-        );
-        const state = {
-            token,
-            armedAt: null,
-            keydownAt: null,
-            lastKeydown: null,
-            startAt: null,
-            startedEpochMs: null,
-            firstTextAt: null,
-            finalAt: null,
-            result: null,
-            observer: null,
-            onKeydown: null,
-            checkCount: 0,
-            sentinelSeenAt: null,
-            sentinelSource: null,
-            lastError: null,
-            lastAssistantTextChars: 0,
-            lastAssistantTextTail: '',
-        };
-
-        const cleanup = () => {
-            state.observer?.disconnect();
-            document.removeEventListener('keydown', state.onKeydown, true);
-        };
-
-        const assistantMessages = () => [
-            ...document.querySelectorAll("[data-message-role='assistant']"),
-        ];
-
-        const firstText = () => {
-            const messages = assistantMessages();
-            const latestMessage = messages.at(-1);
-            if (
-                !latestMessage ||
-                existingAssistants.has(latestMessage.getAttribute('data-message-id'))
-            )
-                return '';
-            const parts = [
-                ...latestMessage.querySelectorAll(
-                    '.assistant-message-parts > .assistant-message-part'
-                ),
-            ];
-            return parts
-                .filter(
-                    (element) =>
-                        !element.querySelector('.reasoning-section') &&
-                        !element.querySelector('.tool-call-log-wrapper')
-                )
-                .map((element) => (element.innerText ?? '').trim())
-                .join('');
-        };
-
-        const sentinelSource = () => {
-            const messages = assistantMessages();
-            for (let index = messages.length - 1; index >= 0; index -= 1) {
-                if ((messages[index].innerText ?? '').includes(token)) {
-                    return `assistant-innerText:${index}`;
-                }
-            }
-            return null;
-        };
-
-        const finish = () => {
-            if (state.result !== null) return;
-            state.finalAt = state.sentinelSeenAt ?? performance.now();
-            state.result = {
-                startAt: state.startAt,
-                armedAt: state.armedAt,
-                keydownAt: state.keydownAt,
-                lastKeydown: state.lastKeydown,
-                startedEpochMs: state.startedEpochMs,
-                firstTextAt: state.firstTextAt,
-                finalAt: state.finalAt,
-                durationMs: state.finalAt - state.startAt,
-                firstTextMs: state.firstTextAt === null ? null : state.firstTextAt - state.startAt,
-                domNodes: document.querySelectorAll('*').length,
-                messageCount: document.querySelectorAll('[data-message-role]').length,
-                bodyTextChars: document.body.textContent?.length ?? 0,
-                sentinelSource: state.sentinelSource,
-                sentinelSeenAt: state.sentinelSeenAt,
-            };
-            cleanup();
-        };
-
-        const check = () => {
-            if (state.startAt === null) return;
-            try {
-                state.checkCount += 1;
-                const messages = assistantMessages();
-                const latestMessage = messages.at(-1);
-                const latestText = latestMessage?.textContent ?? '';
-                state.lastAssistantTextChars = latestText.length;
-                state.lastAssistantTextTail = latestText.slice(-192);
-                if (state.firstTextAt === null && firstText().length > 0) {
-                    state.firstTextAt = performance.now();
-                }
-                if (state.result !== null || state.sentinelSeenAt !== null) return;
-                const source = sentinelSource();
-                if (source) {
-                    state.sentinelSource = source;
-                    state.sentinelSeenAt = performance.now();
-                    setTimeout(() => {
-                        if (state.result === null) finish();
-                    }, 0);
-                }
-            } catch (error) {
-                state.lastError = String(error);
-            }
-        };
-
-        state.onKeydown = (event) => {
-            if (event.key !== 'Enter') return;
-            const at = performance.now();
-            state.lastKeydown = {
-                at,
-                isComposing: event.isComposing,
-                shiftKey: event.shiftKey,
-                targetTag: event.target?.tagName ?? null,
-                targetClass: event.target?.className ?? null,
-            };
-            if (!event.shiftKey && state.keydownAt === null) {
-                state.keydownAt = at;
-                state.startAt = state.keydownAt;
-                state.startedEpochMs = performance.timeOrigin + state.startAt;
-            }
-        };
-
-        state.cleanup = cleanup;
-        state.checkNow = check;
-        state.armedAt = performance.now();
-        document.addEventListener('keydown', state.onKeydown, true);
-        state.observer = new MutationObserver(check);
-        state.observer.observe(document.body, {
-            childList: true,
-            subtree: true,
-            characterData: true,
-        });
-        window.__TOUCHAI_PERF_STATE__ = state;
-        check();
-    }, doneToken);
+    await callE2eBridge('armPerformanceMeasurement', doneToken);
 }
 
 async function withTimeout(operation, milliseconds, message) {
@@ -223,9 +82,13 @@ async function withTimeout(operation, milliseconds, message) {
 async function captureSentinelTimeout(doneToken, error) {
     let diagnostic;
     try {
-        diagnostic = await withTimeout(
+        const state = await withTimeout(
+            callE2eBridgeWithResult('getPerformanceMeasurement'),
+            30000,
+            'Timed out while collecting renderer measurement state.'
+        );
+        const domDiagnostic = await withTimeout(
             browser.execute((token) => {
-                const state = window.__TOUCHAI_PERF_STATE__ ?? null;
                 const assistantMessages = [
                     ...document.querySelectorAll("[data-message-role='assistant']"),
                 ];
@@ -241,24 +104,6 @@ async function captureSentinelTimeout(doneToken, error) {
                 const bodyText = document.body.textContent ?? '';
                 const bodyInnerText = document.body.innerText ?? '';
                 return {
-                    state: state
-                        ? {
-                              token: state.token,
-                              armedAt: state.armedAt,
-                              keydownAt: state.keydownAt,
-                              startAt: state.startAt,
-                              startedEpochMs: state.startedEpochMs,
-                              firstTextAt: state.firstTextAt,
-                              finalAt: state.finalAt,
-                              result: state.result,
-                              checkCount: state.checkCount,
-                              sentinelSeenAt: state.sentinelSeenAt,
-                              sentinelSource: state.sentinelSource,
-                              lastError: state.lastError,
-                              lastAssistantTextChars: state.lastAssistantTextChars,
-                              lastAssistantTextTail: state.lastAssistantTextTail,
-                          }
-                        : null,
                     assistants,
                     bodyTextHasToken: bodyText.includes(token),
                     bodyInnerTextHasToken: bodyInnerText.includes(token),
@@ -271,6 +116,7 @@ async function captureSentinelTimeout(doneToken, error) {
             30000,
             'Timed out while collecting renderer sentinel diagnostics.'
         );
+        diagnostic = { state, ...domDiagnostic };
     } catch (diagnosticError) {
         diagnostic = {
             diagnosticError: String(diagnosticError),
@@ -295,12 +141,10 @@ async function waitRendererMeasurement(doneToken, timeoutMs = 180000) {
     try {
         await withTimeout(
             browser.waitUntil(
-                async () =>
-                    await browser.execute(() => {
-                        const state = window.__TOUCHAI_PERF_STATE__;
-                        state?.checkNow?.();
-                        return Boolean(state?.result);
-                    }),
+                async () => {
+                    const state = await callE2eBridgeWithResult('getPerformanceMeasurement');
+                    return Boolean(state?.result);
+                },
                 {
                     timeout: timeoutMs,
                     timeoutMsg: 'The renderer did not reach the performance sentinel.',
@@ -316,12 +160,12 @@ async function waitRendererMeasurement(doneToken, timeoutMs = 180000) {
             { cause: error }
         );
     }
-    const result = await browser.execute(() => {
-        const value = window.__TOUCHAI_PERF_STATE__?.result ?? null;
-        window.__TOUCHAI_PERF_STATE__?.cleanup();
-        delete window.__TOUCHAI_PERF_STATE__;
-        return value;
-    });
+    let result;
+    try {
+        result = (await callE2eBridgeWithResult('getPerformanceMeasurement'))?.result ?? null;
+    } finally {
+        await callE2eBridge('clearPerformanceMeasurement').catch(() => undefined);
+    }
     if (
         !result ||
         result.keydownAt === null ||

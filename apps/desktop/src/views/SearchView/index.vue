@@ -47,6 +47,7 @@
     const { publishPrivacyReview, clearPrivacyReview } = privacyApi;
     import { type AppLocale, t } from '@/i18n';
     const searchWindow = useSearchWindowApi();
+    const e2ePerfMeasurement = createE2ePerfMeasurement();
     const clipboardService = useClipboardDraftApi();
     import {
         createInputHistorySnapshot,
@@ -102,6 +103,7 @@
     import { useSearchPanelResizing } from './composables/useSearchPanelResizing';
     import { useSearchRequestFlow } from './composables/useSearchRequest';
     import { useSearchWindowResize } from './composables/useSearchWindowResize';
+    import { createE2ePerfMeasurement, type E2ePerfMeasurementSnapshot } from './e2ePerformance';
     import {
         createSearchSurfacePreparationController,
         settleSearchSurfaceViewport,
@@ -414,6 +416,9 @@
             refreshE2eModel: () => Promise<void>;
             cancelSearchRequest: () => Promise<void>;
             clearPendingSearchMessages: () => Promise<void>;
+            armPerformanceMeasurement: (token: string) => void;
+            getPerformanceMeasurement: () => E2ePerfMeasurementSnapshot | null;
+            clearPerformanceMeasurement: () => void;
             getQuickSearchFallbackResults?: (query: string) => QuickShortcutItem[];
             resetDraft?: () => void;
             clearSessionToIdle?: () => Promise<void>;
@@ -2745,6 +2750,15 @@
                 cancelPendingRequest();
                 await nextTick();
             },
+            armPerformanceMeasurement(token: string) {
+                e2ePerfMeasurement.arm(token);
+            },
+            getPerformanceMeasurement() {
+                return e2ePerfMeasurement.snapshot();
+            },
+            clearPerformanceMeasurement() {
+                e2ePerfMeasurement.dispose();
+            },
             async clearSessionToIdle() {
                 await clearSessionToIdle();
             },
@@ -3086,6 +3100,7 @@
             delete widgetBridgeWindow.openLink;
         }
 
+        e2ePerfMeasurement.dispose();
         if (widgetBridgeWindow.__TOUCHAI_E2E__) {
             delete widgetBridgeWindow.__TOUCHAI_E2E__;
         }

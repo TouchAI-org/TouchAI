@@ -97,24 +97,25 @@ export async function waitForE2eBridge(timeoutMs = DEFAULT_TIMEOUT_MS) {
     }
 }
 
-export async function callE2eBridge(methodName, ...args) {
+async function invokeE2eBridge(methodName, args, returnValue) {
     // WebdriverIO 10 removed executeAsync; execute now awaits async scripts.
     const result = await browser.execute(
-        async (name, bridgeArgs) => {
+        async (name, bridgeArgs, readValue) => {
             const bridge = window.__TOUCHAI_E2E__;
             if (!bridge || typeof bridge[name] !== 'function') {
                 return { ok: false, error: `E2E bridge method "${name}" is not available.` };
             }
 
             try {
-                await bridge[name](...bridgeArgs);
-                return { ok: true };
+                const value = await bridge[name](...bridgeArgs);
+                return readValue ? { ok: true, value } : { ok: true };
             } catch (error) {
                 return { ok: false, error: String(error) };
             }
         },
         methodName,
-        args
+        args,
+        returnValue
     );
 
     if (!result?.ok) {
@@ -122,6 +123,15 @@ export async function callE2eBridge(methodName, ...args) {
             `E2E bridge call "${methodName}" failed: ${result?.error ?? 'unknown error'}`
         );
     }
+    return returnValue ? result.value : undefined;
+}
+
+export async function callE2eBridge(methodName, ...args) {
+    await invokeE2eBridge(methodName, args, false);
+}
+
+export async function callE2eBridgeWithResult(methodName, ...args) {
+    return await invokeE2eBridge(methodName, args, true);
 }
 
 export async function useIsolatedGlobalShortcut(appRoot) {

@@ -329,6 +329,7 @@ export async function runOneMeasurement({
         fixtureSha256,
         binary,
         binarySha256,
+        attempt,
         exitCode: result.exitCode,
         signal: result.signal,
         elapsedMs: launchError ? Date.now() - launchStartedAt : result.elapsedMs,
