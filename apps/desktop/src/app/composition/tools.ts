@@ -101,9 +101,9 @@ export function assembleMainTools(input: {
             },
         }),
     ];
-    const builtins = createBuiltinRegistrations(descriptors);
+    const builtins = createBuiltinRegistrations(descriptors, externalAgents.builtinRegistrations);
     const tools = createTools({
-        registrations: [...builtins.registrations, ...externalAgents.registrations],
+        registrations: builtins.registrations,
         mcp,
         formatError: createToolFormatting(messages).formatError,
     });

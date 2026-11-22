@@ -15,6 +15,15 @@ import { isLoopbackExternalAgentUrl, parseExternalAgentUrl } from './urlPolicy';
 const LIST_TOOL_NAME = 'builtin__list_external_agents';
 const DELEGATE_TOOL_NAME = 'builtin__delegate_to_agent';
 
+const MODEL_DESCRIPTIONS = Object.freeze({
+    list: 'List registered external A2A agents.',
+    delegate:
+        'Delegate one text message to a registered external A2A agent. The user must approve every call.',
+    agentId: 'Local ID of the external agent.',
+    message: 'Visible text to send to the external agent.',
+    mode: 'Synchronous, streaming, asynchronous, or automatic invocation.',
+});
+
 const ERROR_MESSAGE_KEYS = {
     agent_unavailable: 'externalAgents.error.agentUnavailable',
     auth_required: 'externalAgents.error.authRequired',
@@ -104,7 +113,7 @@ export function createExternalAgents(options: CreateExternalAgentsOptions) {
             return {
                 declaration: {
                     name: LIST_TOOL_NAME,
-                    description: t('externalAgents.tool.listDescription'),
+                    description: MODEL_DESCRIPTIONS.list,
                     input_schema: {
                         type: 'object',
                         properties: {},
@@ -128,26 +137,26 @@ export function createExternalAgents(options: CreateExternalAgentsOptions) {
             return {
                 declaration: {
                     name: DELEGATE_TOOL_NAME,
-                    description: t('externalAgents.tool.delegateDescription'),
+                    description: MODEL_DESCRIPTIONS.delegate,
                     input_schema: {
                         type: 'object',
                         properties: {
                             agent_id: {
                                 type: 'integer',
                                 minimum: 1,
-                                description: t('externalAgents.tool.agentIdDescription'),
+                                description: MODEL_DESCRIPTIONS.agentId,
                             },
                             message: {
                                 type: 'string',
                                 minLength: 1,
                                 maxLength: 262_144,
-                                description: t('externalAgents.tool.messageDescription'),
+                                description: MODEL_DESCRIPTIONS.message,
                             },
                             mode: {
                                 type: 'string',
                                 enum: ['auto', 'sync', 'stream', 'async'],
                                 default: 'auto',
-                                description: t('externalAgents.tool.modeDescription'),
+                                description: MODEL_DESCRIPTIONS.mode,
                             },
                         },
                         required: ['agent_id', 'message'],
@@ -240,6 +249,24 @@ export function createExternalAgents(options: CreateExternalAgentsOptions) {
 
     return Object.freeze({
         administration,
+        builtinRegistrations: Object.freeze([
+            {
+                id: 'list_external_agents',
+                displayName: 'External agents',
+                description: MODEL_DESCRIPTIONS.list,
+                riskLevel: 'low',
+                defaultConfig: null,
+                registration: listRegistration,
+            },
+            {
+                id: 'delegate_to_agent',
+                displayName: 'Delegate to external agent',
+                description: MODEL_DESCRIPTIONS.delegate,
+                riskLevel: 'high',
+                defaultConfig: null,
+                registration: delegateRegistration,
+            },
+        ] as const),
         cache,
         registrations: Object.freeze([listRegistration, delegateRegistration] as const),
         dispose() {

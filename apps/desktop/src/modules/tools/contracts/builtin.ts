@@ -12,6 +12,7 @@ import type {
     ToolDeclaration,
     ToolInvocationScope,
     ToolPreparationScope,
+    ToolRegistration,
 } from './index';
 
 export type BuiltInToolId =
@@ -179,4 +180,13 @@ export interface ResolvedBuiltInToolCall<
     tool: BuiltInTool<TConfig, TContext>;
     config: TConfig;
     namespacedName: string;
+}
+
+export interface AdditionalBuiltInRegistration {
+    id: string;
+    displayName: string;
+    description: string;
+    riskLevel: 'low' | 'medium' | 'high';
+    defaultConfig?: unknown;
+    registration: ToolRegistration;
 }
