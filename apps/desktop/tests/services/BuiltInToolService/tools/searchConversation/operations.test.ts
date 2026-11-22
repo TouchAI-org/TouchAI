@@ -66,6 +66,22 @@ describe('given conversation search keeps transcript context bounded', () => {
         expect((JSON.parse(payloadText) as { candidates: unknown[] }).candidates).toHaveLength(100);
     });
 
+    it('user keeps the fifty kibibyte cap when every metadata field needs UTF-8 or JSON escaping', () => {
+        const candidates = Array.from({ length: 100 }, (_, index) => ({
+            ...candidate(index, []),
+            session_id: '会话🙂'.repeat(200),
+            title: '"\\\n'.repeat(200),
+            model: '모델'.repeat(200),
+        }));
+
+        const { userContent } = buildRankingPrompt('large metadata', candidates);
+        const marker = 'UNTRUSTED_RANKING_DATA_JSON\n';
+        const payloadText = userContent.slice(userContent.indexOf(marker) + marker.length);
+
+        expect(new TextEncoder().encode(payloadText).byteLength).toBeLessThanOrEqual(50 * 1024);
+        expect((JSON.parse(payloadText) as { candidates: unknown[] }).candidates).toHaveLength(100);
+    });
+
     it('user strips embedded system reminders from untrusted transcript text', () => {
         const { userContent } = buildRankingPrompt('safe', [
             candidate(0, [

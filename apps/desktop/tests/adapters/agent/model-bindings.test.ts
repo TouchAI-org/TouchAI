@@ -36,7 +36,15 @@ function fixture() {
         fetch: async (input, init) => {
             requests.push(String(input));
             if (String(input).endsWith('/chat/completions')) {
-                completionRequests.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+                const requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+                completionRequests.push(requestBody);
+                const messages = requestBody.messages as
+                    | Array<{ role?: string; content?: string }>
+                    | undefined;
+                const content =
+                    messages?.find((message) => message.role === 'user')?.content === 'left'
+                        ? '{"relevant_indices":[1]}'
+                        : '{"relevant_indices":[0]}';
                 return new Response(
                     `data: ${JSON.stringify({
                         id: 'fixture',
@@ -45,7 +53,7 @@ function fixture() {
                         choices: [
                             {
                                 index: 0,
-                                delta: { content: '{"relevant_indices":[0]}' },
+                                delta: { content },
                                 finish_reason: 'stop',
                             },
                         ],
@@ -203,6 +211,44 @@ describe('given Desktop binds model references and connection leases to each Cor
                 name: 'AiError',
                 code: 'REQUEST_CANCELLED',
             });
+        } finally {
+            bindings.dispose();
+            connections.dispose();
+        }
+    });
+
+    it('user keeps concurrent current-task completions isolated across task scopes', async () => {
+        const { bindings, completionRequests, connections } = fixture();
+        try {
+            const left = await bindings.start('left');
+            const right = await bindings.start('right');
+
+            const [leftResult, rightResult] = await Promise.all([
+                bindings.complete('left', left, {
+                    systemPrompt: 'system',
+                    userContent: 'left',
+                    maxOutputTokens: 128,
+                }),
+                bindings.complete('right', right, {
+                    systemPrompt: 'system',
+                    userContent: 'right',
+                    maxOutputTokens: 128,
+                }),
+            ]);
+
+            expect(leftResult.content).toBe('{"relevant_indices":[1]}');
+            expect(rightResult.content).toBe('{"relevant_indices":[0]}');
+            expect(completionRequests).toHaveLength(2);
+            expect(completionRequests.map((request) => request.messages)).toEqual([
+                [
+                    { role: 'system', content: 'system' },
+                    { role: 'user', content: 'left' },
+                ],
+                [
+                    { role: 'system', content: 'system' },
+                    { role: 'user', content: 'right' },
+                ],
+            ]);
         } finally {
             bindings.dispose();
             connections.dispose();

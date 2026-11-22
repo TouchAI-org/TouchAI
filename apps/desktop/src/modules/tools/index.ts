@@ -75,10 +75,10 @@ export {
     SEARCH_CONVERSATION_TOOL_NAME,
 } from './builtin/search-conversation/constants';
 export {
-    createSearchConversationTools,
     type SearchConversationCandidate,
     type SearchConversationHistory,
 } from './builtin/search-conversation/create';
+export { createSearchConversationTools } from './builtin/search-conversation/create.io';
 export { createSettingTools } from './builtin/settings/create';
 export type { ToolSettingsCapabilities } from './builtin/settings/host';
 export {

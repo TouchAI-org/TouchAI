@@ -59,22 +59,24 @@ function fixture(
         candidates?: Candidate[];
         messages?: StoredMessage[];
         completion?: ToolModelCapabilities['complete'];
+        loadCandidates?: SearchConversationHistory['listCandidates'];
     } = {}
 ) {
-    const listCandidates = vi.fn<SearchConversationHistory['listCandidates']>(async (options) =>
-        (input.candidates ?? []).slice(0, options.limit).map((entry) => ({
-            ...entry,
-        }))
+    const listCandidates = vi.fn<SearchConversationHistory['listCandidates']>(
+        input.loadCandidates ??
+            (async (options) =>
+                (input.candidates ?? []).slice(0, options.limit).map((entry) => ({
+                    ...entry,
+                })))
     );
-    const findMessages = vi.fn<SearchConversationHistory['findMessages']>(
-        async (sessionIds, roles) =>
-            (input.messages ?? [])
-                .filter(
-                    (message) =>
-                        sessionIds.includes(message.session_id) &&
-                        roles.includes(message.role as 'user' | 'assistant')
-                )
-                .map(({ session_id, ...message }) => ({ ...message, session_id }))
+    const findMessages = vi.fn<SearchConversationHistory['findMessages']>(async (sessionIds) =>
+        (input.messages ?? [])
+            .filter((message) => sessionIds.includes(message.session_id))
+            .map(({ session_id, ...message }) => ({
+                ...message,
+                role: message.role as 'user' | 'assistant',
+                session_id,
+            }))
     );
     const complete = vi.fn<ToolModelCapabilities['complete']>(
         input.completion ?? (async () => ({ content: '{"relevant_indices":[0]}' }))
@@ -90,7 +92,7 @@ function fixture(
     };
     const [descriptor] = createSearchConversationTools({
         messages: {
-            t: (key) => key,
+            t: (key, params) => (params ? `${key} ${Object.values(params).join(' ')}` : key),
             tt: (text) => text,
         },
         models,
@@ -184,6 +186,7 @@ describe('given the conversation search builtin performs a bounded two-stage sea
             toDate: undefined,
             model: undefined,
             roles: ['user', 'assistant'],
+            textContentOnly: true,
         });
         expect(findMessages).toHaveBeenCalledWith([1, 2, 3], ['user', 'assistant']);
         expect(complete).toHaveBeenCalledWith(
@@ -250,7 +253,30 @@ describe('given the conversation search builtin performs a bounded two-stage sea
             toDate: '2026-01-31',
             model: 'MODEL-A',
             roles: ['assistant'],
+            textContentOnly: true,
         });
+    });
+
+    it('user gets a readable validation error before ranking when the date range is invalid', async () => {
+        const { execute, complete } = fixture({
+            loadCandidates: async () => {
+                throw new Error('from_date must not be later than to_date');
+            },
+        });
+
+        const result = await execute({
+            query: 'release',
+            from_date: '2026-02-01',
+            to_date: '2026-01-01',
+        });
+
+        expect(result).toMatchObject({
+            isError: true,
+            status: 'error',
+            errorMessage: 'from_date must not be later than to_date',
+        });
+        expect(result.result).toContain('from_date must not be later than to_date');
+        expect(complete).not.toHaveBeenCalled();
     });
 
     it('user gets a keyword fallback for every invalid model response without partial reranking', async () => {

@@ -137,16 +137,39 @@ function truncateUtf8Middle(value: string, byteLimit: number): string {
     return truncateMiddleCodePoints(value, low);
 }
 
+function shrinkMetadata(payload: RankingPayload): void {
+    const passes = [
+        { sessionIdBytes: 32, titleBytes: 64, modelBytes: 16, clearActivity: false },
+        { sessionIdBytes: 0, titleBytes: 32, modelBytes: 0, clearActivity: true },
+        { sessionIdBytes: 0, titleBytes: 16, modelBytes: 0, clearActivity: true },
+        { sessionIdBytes: 0, titleBytes: 8, modelBytes: 0, clearActivity: true },
+    ] as const;
+    for (const pass of passes) {
+        for (const entry of payload.candidates) {
+            entry.session_id = truncateUtf8Middle(entry.session_id, pass.sessionIdBytes);
+            entry.title = truncateUtf8Middle(entry.title, pass.titleBytes);
+            entry.model = truncateUtf8Middle(entry.model, pass.modelBytes);
+            if (pass.clearActivity) {
+                entry.created_at = '';
+                entry.last_message_at = null;
+            }
+        }
+        if (payloadBytes(payload) <= CONVERSATION_SEARCH_MAX_BATCH_BYTES) return;
+    }
+}
+
 function fitPayloadToBudget(payload: RankingPayload): void {
     if (payload.candidates.length === 0) return;
     const transcripts = payload.candidates.map((entry) => entry.transcript);
     for (const entry of payload.candidates) entry.transcript = '';
     const metadataBytes = payloadBytes(payload);
+    if (metadataBytes > CONVERSATION_SEARCH_MAX_BATCH_BYTES) shrinkMetadata(payload);
+    const fittedMetadataBytes = payloadBytes(payload);
     const reservedForJson = payload.candidates.length * 8;
     const perTranscriptBytes = Math.max(
         0,
         Math.floor(
-            (CONVERSATION_SEARCH_MAX_BATCH_BYTES - metadataBytes - reservedForJson) /
+            (CONVERSATION_SEARCH_MAX_BATCH_BYTES - fittedMetadataBytes - reservedForJson) /
                 payload.candidates.length
         )
     );
@@ -169,9 +192,9 @@ export function buildRankingPrompt(
             .slice(0, CONVERSATION_SEARCH_CANDIDATE_LIMIT)
             .map((entry, index) => ({
                 index,
-                session_id: truncateCodePoints(entry.session_id, 160),
-                title: truncateCodePoints(entry.title, 160),
-                model: truncateCodePoints(entry.model, 80),
+                session_id: truncateUtf8Middle(entry.session_id, 64),
+                title: truncateUtf8Middle(entry.title, 128),
+                model: truncateUtf8Middle(entry.model, 32),
                 created_at: entry.created_at,
                 last_message_at: entry.last_message_at,
                 message_count: entry.message_count,

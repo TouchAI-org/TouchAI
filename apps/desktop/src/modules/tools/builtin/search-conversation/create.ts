@@ -1,10 +1,4 @@
 import {
-    type ConversationSearchMessage,
-    findConversationSearchMessagesBySessionIds,
-} from '@/database/queries/messages';
-import { listSessions, type ListSessionsOptions } from '@/database/queries/sessions';
-
-import {
     type BaseBuiltInToolExecutionContext,
     BuiltInTool,
     type BuiltInToolConversationSemantic,
@@ -53,6 +47,7 @@ export interface SearchConversationHistory {
         toDate?: string;
         model?: string;
         roles: readonly ('user' | 'assistant')[];
+        textContentOnly: true;
     }): Promise<SearchConversationCandidate[]>;
     findMessages(
         sessionIds: readonly number[],
@@ -81,38 +76,6 @@ interface PreparedSearch {
 }
 
 type CompletionResult = { timedOut: true } | { timedOut: false; content: string };
-
-const defaultHistory: SearchConversationHistory = Object.freeze({
-    async listCandidates(options: Parameters<SearchConversationHistory['listCandidates']>[0]) {
-        const sessions = await listSessions({
-            query: options.query,
-            limit: options.limit,
-            fromDate: options.fromDate,
-            toDate: options.toDate,
-            model: options.model,
-            roles: options.roles,
-        } satisfies ListSessionsOptions);
-        return sessions.map((session) => ({
-            id: session.id,
-            session_id: session.session_id,
-            title: session.title,
-            model: session.model,
-            created_at: session.created_at,
-            last_message_at: session.last_message_at,
-            message_count: session.message_count,
-            archived_at: session.archived_at,
-        }));
-    },
-    async findMessages(
-        sessionIds: Parameters<SearchConversationHistory['findMessages']>[0],
-        roles: Parameters<SearchConversationHistory['findMessages']>[1]
-    ) {
-        return (await findConversationSearchMessagesBySessionIds(
-            sessionIds,
-            roles
-        )) satisfies ConversationSearchMessage[];
-    },
-});
 
 function isSearchRole(value: string): value is 'user' | 'assistant' {
     return value === 'user' || value === 'assistant';
@@ -254,9 +217,9 @@ function completeWithDeadline(input: {
 export function createSearchConversationTools(input: {
     messages: ToolMessages;
     models: ToolModelCapabilities;
-    history?: SearchConversationHistory;
+    history: SearchConversationHistory;
 }): BuiltInToolGroup {
-    const history = input.history ?? defaultHistory;
+    const { history } = input;
 
     class SearchConversationTool extends BuiltInTool<SearchConversationToolConfig> {
         readonly id = 'search_conversation' as const;
@@ -322,6 +285,7 @@ export function createSearchConversationTools(input: {
                         toDate: parsed.to_date,
                         model: parsed.model,
                         roles: parsed.roles,
+                        textContentOnly: true,
                     })
                 ).slice(0, CONVERSATION_SEARCH_CANDIDATE_LIMIT);
                 context.signal?.throwIfAborted();
@@ -339,7 +303,9 @@ export function createSearchConversationTools(input: {
                         sessions.map((session) => session.id),
                         parsed.roles
                     )
-                ).filter((message) => isSearchRole(message.role));
+                ).filter(
+                    (message) => isSearchRole(message.role) && parsed.roles.includes(message.role)
+                );
                 context.signal?.throwIfAborted();
 
                 const sessionIds = new Set(sessions.map((session) => session.id));
