@@ -79,52 +79,72 @@ export async function findConversationSearchMessagesBySessionIds(
     );
     if (uniqueSessionIds.length === 0 || uniqueRoles.length === 0) return [];
 
-    const sessionValues = sql.join(
-        uniqueSessionIds.map((sessionId) => sql`${sessionId}`),
-        sql`, `
-    );
     const roleValues = sql.join(
         uniqueRoles.map((role) => sql`${role}`),
         sql`, `
     );
 
     const rows = await database.all<[number, number, 'user' | 'assistant', string]>(sql`
-        WITH ranked_messages AS (
+        WITH candidate_sessions(session_id) AS (
+            SELECT value
+            FROM json_each(${JSON.stringify(uniqueSessionIds)})
+        ),
+        selected_message_ids(session_id, message_id) AS (
             SELECT
-                messages.id AS id,
-                messages.session_id AS session_id,
-                messages.role AS role,
-                coalesce((
-                    SELECT group_concat(parts.content, '')
-                    FROM (
-                        SELECT content
-                        FROM message_parts
-                        WHERE message_id = messages.id
-                          AND type = 'text'
-                        ORDER BY sort_order, id
-                    ) AS parts
-                ), '') AS content,
-                row_number() OVER (
-                    PARTITION BY messages.session_id
-                    ORDER BY messages.id
-                ) AS first_rank,
-                row_number() OVER (
-                    PARTITION BY messages.session_id
-                    ORDER BY messages.id DESC
-                ) AS last_rank
-            FROM messages
-            WHERE messages.session_id IN (${sessionValues})
-              AND messages.role IN (${roleValues})
+                candidate_sessions.session_id AS session_id,
+                first_messages.value AS message_id
+            FROM candidate_sessions,
+                 json_each((
+                     SELECT json_group_array(id)
+                     FROM (
+                         SELECT messages.id
+                         FROM messages
+                         WHERE messages.session_id = candidate_sessions.session_id
+                           AND messages.role IN (${roleValues})
+                         ORDER BY messages.id
+                         LIMIT 50
+                     )
+                 )) AS first_messages
+            UNION
+            SELECT
+                candidate_sessions.session_id AS session_id,
+                last_messages.value AS message_id
+            FROM candidate_sessions,
+                 json_each((
+                     SELECT json_group_array(id)
+                     FROM (
+                         SELECT messages.id
+                         FROM messages
+                         WHERE messages.session_id = candidate_sessions.session_id
+                           AND messages.role IN (${roleValues})
+                         ORDER BY messages.id DESC
+                         LIMIT 50
+                     )
+                 )) AS last_messages
         )
         SELECT
-            ranked_messages.id AS id,
-            ranked_messages.session_id AS session_id,
-            ranked_messages.role AS role,
-            ranked_messages.content AS content
-        FROM ranked_messages
-        WHERE ranked_messages.first_rank <= 50
-           OR ranked_messages.last_rank <= 50
-        ORDER BY ranked_messages.session_id, ranked_messages.id
+            messages.id AS id,
+            messages.session_id AS session_id,
+            messages.role AS role,
+            coalesce((
+                SELECT group_concat(parts.content, '')
+                FROM (
+                    SELECT content
+                    FROM message_parts
+                    WHERE message_id = messages.id
+                      AND type = 'text'
+                    ORDER BY sort_order, id
+                ) AS parts
+            ), '') AS content
+        FROM selected_message_ids
+        INNER JOIN messages
+            ON messages.id = selected_message_ids.message_id
+        WHERE messages.session_id IN (${sql.join(
+            uniqueSessionIds.map((sessionId) => sql`${sessionId}`),
+            sql`, `
+        )})
+          AND messages.role IN (${roleValues})
+        ORDER BY messages.session_id, messages.id
     `);
     return rows.map(([id, sessionId, role, content]) => ({
         id,

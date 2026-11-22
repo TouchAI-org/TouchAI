@@ -179,7 +179,21 @@ export const mergeMessagePartData = async (
  * tool_call 片段的正文即工具输出（保存在 data.output），因此这里同时读取
  * text 片段与 tool_call 输出，保证会话搜索与预览仍能命中工具结果。
  */
-export function messageText(messageId: AnySQLiteColumn) {
+export function messageText(
+    messageId: AnySQLiteColumn,
+    options: { includeToolOutput?: boolean } = {}
+) {
+    if (options.includeToolOutput === false) {
+        return sql<string>`coalesce((
+            SELECT group_concat(content, '') FROM (
+                SELECT content
+                FROM message_parts
+                WHERE message_id = ${messageId} AND type = 'text'
+                ORDER BY sort_order, id
+            )
+        ), '')`;
+    }
+
     return sql<string>`coalesce((
         SELECT group_concat(content, '') FROM (
             SELECT CASE

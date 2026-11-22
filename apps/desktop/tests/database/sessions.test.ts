@@ -109,6 +109,18 @@ function seedMessage(
         .run(input.id, input.content);
 }
 
+function sqliteUtc(date: Date): string {
+    return date.toISOString().slice(0, 19).replace('T', ' ');
+}
+
+function localDayStart(dateOnly: string): Date {
+    const [year, month, day] = dateOnly.split('-').map(Number);
+    const value = new Date(0);
+    value.setHours(0, 0, 0, 0);
+    value.setFullYear(year!, month! - 1, day!);
+    return value;
+}
+
 describe('given conversation search needs structured candidate filters', () => {
     it('user keeps a title match when a role filter excludes every message', async () => {
         const database = openMigratedDatabase();
@@ -176,6 +188,42 @@ describe('given conversation search needs structured candidate filters', () => {
         expect(userMatches.map((session) => session.id)).toEqual([1]);
     });
 
+    it('user searches only user and assistant text while tool output keeps its existing session-search behavior', async () => {
+        const database = openMigratedDatabase();
+        routeQueriesTo(database);
+        seedSession(database, {
+            id: 1,
+            title: 'Assistant answer',
+            model: 'model-a',
+            createdAt: '2026-01-03 00:00:00',
+        });
+        seedMessage(database, {
+            id: 1,
+            sessionId: 1,
+            role: 'assistant',
+            content: 'A visible assistant answer',
+        });
+        database
+            .prepare(
+                `INSERT INTO message_parts (message_id, type, content, data, sort_order)
+                 VALUES (1, 'tool_call', '', '{"output":"secret tool output"}', 1)`
+            )
+            .run();
+
+        const existingSearch = await listSessions({
+            query: 'secret',
+            roles: ['assistant'],
+        });
+        const conversationSearch = await listSessions({
+            query: 'secret',
+            roles: ['assistant'],
+            textContentOnly: true,
+        });
+
+        expect(existingSearch.map((session) => session.id)).toEqual([1]);
+        expect(conversationSearch).toEqual([]);
+    });
+
     it('user includes archived sessions and filters by model and created date boundaries', async () => {
         const database = openMigratedDatabase();
         routeQueriesTo(database);
@@ -208,6 +256,71 @@ describe('given conversation search needs structured candidate filters', () => {
         });
 
         expect(sessions.map((session) => session.id)).toEqual([1]);
+    });
+
+    it('user includes both local calendar-day boundaries when filtering date-only ranges', async () => {
+        const database = openMigratedDatabase();
+        routeQueriesTo(database);
+        const dayStart = localDayStart('2026-03-01');
+        const nextDayStart = localDayStart('2026-03-02');
+        seedSession(database, {
+            id: 1,
+            title: 'Boundary before',
+            model: 'model-a',
+            createdAt: sqliteUtc(new Date(dayStart.getTime() - 1_000)),
+        });
+        seedSession(database, {
+            id: 2,
+            title: 'Boundary start',
+            model: 'model-a',
+            createdAt: sqliteUtc(dayStart),
+        });
+        seedSession(database, {
+            id: 3,
+            title: 'Boundary end',
+            model: 'model-a',
+            createdAt: sqliteUtc(new Date(nextDayStart.getTime() - 1_000)),
+        });
+        seedSession(database, {
+            id: 4,
+            title: 'Boundary after',
+            model: 'model-a',
+            createdAt: sqliteUtc(nextDayStart),
+        });
+
+        const sessions = await listSessions({
+            query: 'boundary',
+            fromDate: '2026-03-01',
+            toDate: '2026-03-01',
+        });
+
+        expect(sessions.map((session) => session.id).sort()).toEqual([2, 3]);
+    });
+
+    it('user can combine a same-day timestamp lower bound with an inclusive date-only upper bound', async () => {
+        const database = openMigratedDatabase();
+        routeQueriesTo(database);
+        const dayStart = localDayStart('2026-03-01');
+        seedSession(database, {
+            id: 1,
+            title: 'Outside lower bound',
+            model: 'model-a',
+            createdAt: sqliteUtc(new Date(dayStart.getTime() + 1_000)),
+        });
+        seedSession(database, {
+            id: 2,
+            title: 'Inside lower bound',
+            model: 'model-a',
+            createdAt: sqliteUtc(new Date(dayStart.getTime() + 13 * 60 * 60 * 1_000)),
+        });
+
+        const sessions = await listSessions({
+            query: 'lower bound',
+            fromDate: new Date(dayStart.getTime() + 12 * 60 * 60 * 1_000).toISOString(),
+            toDate: '2026-03-01',
+        });
+
+        expect(sessions.map((session) => session.id)).toEqual([2]);
     });
 
     it('user sees actionable date errors before a malformed range reaches the database', async () => {

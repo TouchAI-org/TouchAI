@@ -16,6 +16,8 @@ export interface ListSessionsOptions {
     toDate?: string;
     model?: string;
     roles?: readonly SessionSearchRole[];
+    /** Excludes tool output parts while preserving the shared session-search default. */
+    textContentOnly?: boolean;
 }
 
 type SessionSearchRole = 'user' | 'assistant' | 'tool_call';
@@ -38,7 +40,6 @@ function escapeLikePattern(value: string): string {
 
 interface DateBound {
     value: string;
-    comparisonValue: string;
     exclusive: boolean;
 }
 
@@ -69,13 +70,12 @@ function parseDateBound(raw: string | undefined, label: 'from_date' | 'to_date')
         }
 
         if (label === 'to_date') {
-            const comparisonValue = formatSqliteUtc(date);
             date.setDate(date.getDate() + 1);
-            return { value: formatSqliteUtc(date), comparisonValue, exclusive: true };
+            return { value: formatSqliteUtc(date), exclusive: true };
         }
 
         const sqliteValue = formatSqliteUtc(date);
-        return { value: sqliteValue, comparisonValue: sqliteValue, exclusive: false };
+        return { value: sqliteValue, exclusive: false };
     }
 
     if (!/(?:Z|[+-]\d{2}:\d{2})$/i.test(value)) {
@@ -88,7 +88,7 @@ function parseDateBound(raw: string | undefined, label: 'from_date' | 'to_date')
     }
 
     const sqliteValue = formatSqliteUtc(timestamp);
-    return { value: sqliteValue, comparisonValue: sqliteValue, exclusive: false };
+    return { value: sqliteValue, exclusive: false };
 }
 
 function isTerminalTurnStatus(
@@ -175,7 +175,11 @@ export const listSessions = async (options: ListSessionsOptions = {}): Promise<S
     const limit = normalizeSessionLimit(options.limit);
     const fromDate = parseDateBound(options.fromDate, 'from_date');
     const toDate = parseDateBound(options.toDate, 'to_date');
-    if (fromDate && toDate && fromDate.comparisonValue > toDate.comparisonValue) {
+    const emptyRange =
+        fromDate &&
+        toDate &&
+        (toDate.exclusive ? fromDate.value >= toDate.value : fromDate.value > toDate.value);
+    if (emptyRange) {
         throw new Error('from_date must not be later than to_date');
     }
     const model = options.model?.trim() ?? '';
@@ -227,7 +231,9 @@ export const listSessions = async (options: ListSessionsOptions = {}): Promise<S
                     and(
                         inArray(searchableMessages.role, roles),
                         indexedCandidates,
-                        sql`lower(${messageText(searchableMessages.id)}) LIKE ${pattern} ESCAPE '\\'`
+                        sql`lower(${messageText(searchableMessages.id, {
+                            includeToolOutput: !options.textContentOnly,
+                        })}) LIKE ${pattern} ESCAPE '\\'`
                     )
                 )
         );

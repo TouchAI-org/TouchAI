@@ -133,4 +133,34 @@ describe('given conversation search needs bounded transcript messages for many s
             },
         ]);
     });
+
+    it('user receives only text parts when an eligible message also contains tool output', async () => {
+        const database = openMigratedDatabase();
+        routeQueriesTo(database);
+        seedSession(database, 1);
+        seedMessage(database, {
+            id: 1,
+            sessionId: 1,
+            role: 'assistant',
+            content: 'visible answer',
+        });
+        database
+            .prepare(
+                `INSERT INTO message_parts (message_id, type, content, data, sort_order)
+                 VALUES (1, 'tool_call', '', '{"output":"hidden tool output"}', 1)`
+            )
+            .run();
+
+        const rows = await findConversationSearchMessagesBySessionIds([1], ['assistant']);
+
+        expect(rows).toEqual([
+            {
+                id: 1,
+                session_id: 1,
+                role: 'assistant',
+                content: 'visible answer',
+            },
+        ]);
+        expect(JSON.stringify(rows)).not.toContain('hidden tool output');
+    });
 });
