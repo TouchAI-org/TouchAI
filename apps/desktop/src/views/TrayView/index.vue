@@ -42,12 +42,13 @@
     ];
     const tray = useTrayWindowApi();
     let disposed = false;
+    let pointerInsideMenu = false;
     let unlistenBlur: (() => void) | null = null;
 
     onMounted(async () => {
         try {
             const stop = await tray.onBlur(() => {
-                void closeTrayMenu();
+                if (!pointerInsideMenu) void closeTrayMenu();
             });
             if (disposed) stop();
             else unlistenBlur = stop;
@@ -110,11 +111,22 @@
             log.error('Failed to close tray menu:', error);
         }
     }
+
+    function handlePointerEnter() {
+        pointerInsideMenu = true;
+    }
+
+    function handlePointerLeave() {
+        pointerInsideMenu = false;
+        if (!document.hasFocus()) void closeTrayMenu();
+    }
 </script>
 
 <template>
     <div
         class="tray-menu-container flex h-full w-full flex-col rounded-window border border-window-border bg-white/95 shadow-lg backdrop-blur-sm"
+        @pointerenter="handlePointerEnter"
+        @pointerleave="handlePointerLeave"
     >
         <div
             v-for="(item, index) in menuItems"
