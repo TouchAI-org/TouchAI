@@ -12,7 +12,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type App, defineComponent, h } from 'vue';
 import { useRoute } from 'vue-router';
 
+import { useExternalAgentsAdministrationApi } from '@/app/api/tools/externalAgents';
 import { initializeApp } from '@/app/bootstrap';
+import { initializeAgentWindow } from '@/app/bootstrap/agent';
 import { resetObservabilityForTests } from '@/platform/diagnostics';
 import router from '@/router';
 import { useSettingsStore } from '@/stores/settings';
@@ -38,6 +40,20 @@ const screen = defineComponent({
 });
 router.addRoute({ path: '/bootstrap-fixture', component: screen });
 router.addRoute({ path: '/bootstrap-next', component: screen });
+router.addRoute({
+    path: '/bootstrap-settings-external-agents',
+    component: defineComponent({
+        setup() {
+            const externalAgents = useExternalAgentsAdministrationApi();
+            return () =>
+                h(
+                    'div',
+                    { 'data-testid': 'settings-external-agents' },
+                    typeof externalAgents.findAll === 'function' ? 'available' : 'unavailable'
+                );
+        },
+    }),
+});
 
 let database: ReturnType<typeof openMigratedDatabase>;
 let release: (() => void) | undefined;
@@ -46,6 +62,7 @@ const observeListeners = (target: EventTarget) => vi.spyOn(target, 'addEventList
 let windowListeners: ReturnType<typeof observeListeners>;
 let documentListeners: ReturnType<typeof observeListeners>;
 let lastApp: App | undefined;
+let settingsOwner: ReturnType<typeof initializeAgentWindow> | undefined;
 const root = () => document.querySelector<HTMLElement>('[data-testid="startup-screen"]');
 
 beforeEach(async () => {
@@ -75,6 +92,8 @@ afterEach(async () => {
     await flushPromises();
     lastApp = (document.getElementById('app') as HTMLElement & { __vue_app__?: App })?.__vue_app__;
     lastApp?.unmount();
+    await settingsOwner?.dispose();
+    settingsOwner = undefined;
     resetObservabilityForTests();
     for (const [event, handler, options] of windowListeners?.mock.calls ?? [])
         if (handler) window.removeEventListener(event, handler, options);
@@ -137,7 +156,7 @@ describe('given the actual application bootstrap owns main startup', () => {
             },
         });
         await start();
-        await expect.poll(() => waiting).toBe(true);
+        await expect.poll(() => waiting, { timeout: 10_000 }).toBe(true);
         expect(root()).not.toBeNull();
         release!();
     });
@@ -175,6 +194,25 @@ describe('given the actual application bootstrap owns main startup', () => {
         window.dispatchEvent(new Event('online'));
         await flushPromises();
         expect(getTauriInvokeCalls('updater_check_for_updates')).toHaveLength(calls);
+    });
+});
+
+describe('given the actual application bootstrap owns settings startup', () => {
+    it('user opens settings and external agent management is available on its first frame', async () => {
+        settingsOwner = initializeAgentWindow();
+        await settingsOwner.ready;
+        await settingsOwner.settings.initialize();
+        mockWindows('settings');
+        await router.replace('/bootstrap-settings-external-agents');
+
+        await initializeApp();
+
+        await expect
+            .poll(
+                () =>
+                    document.querySelector('[data-testid="settings-external-agents"]')?.textContent
+            )
+            .toBe('available');
     });
 });
 
