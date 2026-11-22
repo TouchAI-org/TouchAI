@@ -7,6 +7,7 @@ import {
     openMigratedDatabase,
     routeQueriesTo,
 } from '@tests/database/sqliteHarness';
+import { mockTauriCommand } from '@tests/utils/tauri';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { createTaskPersistence } from '@/app/workflows/agent/persistence';
@@ -424,6 +425,16 @@ describe('user waits through a retry of the same turn', () => {
 });
 
 describe('user sends attachments with the prompt and through tools', () => {
+    beforeEach(() => {
+        // The stored attachment already has its cache copy; persisting it must not rebuild it.
+        mockTauriCommand('get_app_directory_path', 'D:/cache');
+        mockTauriCommand('plugin:path|join', (payload: unknown) =>
+            (payload as { paths: string[] }).paths.join('/')
+        );
+        mockTauriCommand('plugin:fs|mkdir', undefined);
+        mockTauriCommand('plugin:fs|exists', true);
+    });
+
     function storedAttachment(): AttachmentReference {
         database.exec(`INSERT INTO attachments (id, hash, type, original_name, origin_path, mime_type, size)
             VALUES (7, 'hash-7', 'file', 'seven.txt', 'D:/origin/seven.txt', 'text/plain', 5);`);

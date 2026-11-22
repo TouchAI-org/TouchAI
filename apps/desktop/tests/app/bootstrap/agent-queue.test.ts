@@ -35,6 +35,19 @@ afterEach(async () => {
 });
 const marker = 'PRIVATE_STEER_SKILL_BODY';
 
+/**
+ * An attachment row already has its cache copy on disk: persistence may reuse it as-is.
+ * Tests that need the copy gone override the file commands themselves.
+ */
+function installAttachmentCacheCommands() {
+    mockTauriCommand('get_app_directory_path', '/test/cache');
+    mockTauriCommand('plugin:path|join', (payload: unknown) =>
+        (payload as { paths: string[] }).paths.join('/')
+    );
+    mockTauriCommand('plugin:fs|mkdir', undefined);
+    mockTauriCommand('plugin:fs|exists', true);
+}
+
 async function running(
     options: Parameters<typeof createAgentWindowFixture>[2] = {},
     configure?: (fixture: ReturnType<typeof createAgentWindowFixture>) => void,
@@ -300,6 +313,7 @@ describe('user queues and steers through the production bootstrap', () => {
                         mimeType: 'text/plain',
                     },
                 ];
+                installAttachmentCacheCommands();
                 mockTauriCommand('plugin:fs|open', block);
             }
             const pending = await steer(fixture, input);
@@ -550,6 +564,7 @@ describe('user queues and steers through the production bootstrap', () => {
                         mimeType: type === 'image' ? 'image/png' : 'text/plain',
                     },
                 ];
+                installAttachmentCacheCommands();
                 if (reason === 'unreadable file')
                     mockTauriCommand('plugin:fs|open', () => {
                         throw new Error('attachment unavailable');
@@ -840,6 +855,7 @@ describe('user queues and steers through the production bootstrap', () => {
                 mimeType: 'application/pdf',
             },
         ];
+        installAttachmentCacheCommands();
         await steer(fixture, {
             prompt: 'Use the reference',
             attachments,
