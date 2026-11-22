@@ -352,6 +352,130 @@ describe('user saves a completed answer', () => {
         expect(result.warnings).not.toContain('online-resources');
     });
 
+    it('user keeps a completed full HTML widget head and inlines its available resources', async () => {
+        const fetchResource = vi.fn((url: string) => {
+            if (url.endsWith('/missing.css')) {
+                return Promise.resolve(new Response('not found', { status: 404 }));
+            }
+            if (url.endsWith('/available.css')) {
+                return Promise.resolve(
+                    new Response('.from-cdn{color:green}</STYLE><div>breakout</div>')
+                );
+            }
+            return Promise.resolve(new Response('window.ready = true;'));
+        });
+        const result = await buildResultExportDocument({
+            message: createResultExportMessage({
+                parts: [{ id: 'widget-part-1', type: 'widget', widgetId: 'internal-widget-id' }],
+                widgets: [
+                    createReadyResultWidget(
+                        [
+                            '<!doctype html><html><head>',
+                            '<!-- complete head -->',
+                            '<style>.inline{color:blue}</style>',
+                            '<link rel="stylesheet" media="print" href="https://cdn.jsdelivr.net/missing.css">',
+                            '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/available.css">',
+                            '<script src="https://unpkg.com/chart.js"></script>',
+                            '</head><body><p>Full widget</p></body></html>',
+                        ].join('')
+                    ),
+                ],
+            }),
+            presentation: RESULT_EXPORT_TEST_PRESENTATION,
+            fetchResource,
+        });
+        const document = parseResult(result.html);
+        const srcdoc = document.querySelector('iframe')?.getAttribute('srcdoc') ?? '';
+
+        expect(srcdoc).toContain('Full widget');
+        expect(srcdoc).toContain('.inline{color:blue}');
+        expect(srcdoc).toContain('.from-cdn{color:green}');
+        expect(srcdoc).toContain('<\\/style>');
+        expect(srcdoc).toContain('href="https://cdn.jsdelivr.net/missing.css"');
+        expect(srcdoc).toContain('media="print"');
+        expect(srcdoc).not.toContain('https://cdnjs.cloudflare.com/available.css');
+        expect(srcdoc).toContain('data:text/javascript;base64,');
+        expect(result.warnings).toContain('online-resources');
+    });
+
+    it('user sees a link title and escaped characters as readable text', async () => {
+        const result = await buildResultExportDocument({
+            message: createResultExportMessage({
+                parts: [
+                    {
+                        id: 'text-1',
+                        type: 'text',
+                        content:
+                            'Read [A & B](https://example.com/result?a=1&b=2 "A < B & \\"quoted\\"") for details.',
+                    },
+                ],
+            }),
+            presentation: RESULT_EXPORT_TEST_PRESENTATION,
+        });
+        const document = parseResult(result.html);
+        const link = document.querySelector('a');
+
+        expect(link?.textContent).toBe('A & B');
+        expect(link?.getAttribute('href')).toBe('https://example.com/result?a=1&b=2');
+        expect(link?.getAttribute('title')).toBe('A < B & "quoted"');
+    });
+
+    it('user does not load a remote Markdown image but keeps an embedded image', async () => {
+        const result = await buildResultExportDocument({
+            message: createResultExportMessage({
+                parts: [
+                    {
+                        id: 'text-1',
+                        type: 'text',
+                        content: [
+                            '![remote](https://example.com/pixel.png)',
+                            '',
+                            '![embedded](data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==)',
+                        ].join('\n'),
+                    },
+                ],
+            }),
+            presentation: RESULT_EXPORT_TEST_PRESENTATION,
+        });
+        const document = parseResult(result.html);
+        const images = [...document.querySelectorAll('img')];
+
+        expect(images).toHaveLength(1);
+        expect(images[0]?.getAttribute('src')).toMatch(/^data:image\/gif;base64,/);
+        expect(result.html).not.toContain('https://example.com/pixel.png');
+    });
+
+    it('user sees a fallback when a widget reference has no id', async () => {
+        const result = await buildResultExportDocument({
+            message: createResultExportMessage({
+                parts: [{ id: 'widget-part-1', type: 'widget' }],
+            }),
+            presentation: RESULT_EXPORT_TEST_PRESENTATION,
+        });
+        const document = parseResult(result.html);
+        const fallback = document.querySelector('[data-widget-fallback]');
+
+        expect(document.querySelector('iframe')).toBeNull();
+        expect(fallback?.textContent).toContain('Widget');
+        expect(fallback?.textContent).toContain('visualization could not be reconstructed');
+    });
+
+    it('user still saves legacy message content when there are no visible text or widget parts', async () => {
+        const result = await buildResultExportDocument({
+            message: createResultExportMessage({
+                content: 'Legacy visible result',
+                parts: [{ id: 'reasoning-1', type: 'reasoning', content: 'Hidden reasoning' }],
+            }),
+            presentation: RESULT_EXPORT_TEST_PRESENTATION,
+        });
+        const document = parseResult(result.html);
+
+        expect(document.querySelector('[data-result-part="text"]')?.textContent).toBe(
+            'Legacy visible result'
+        );
+        expect(result.html).not.toContain('Hidden reasoning');
+    });
+
     it('user gets predictable build latency for a two MiB text result', async () => {
         const content = 'a'.repeat(2 * 1024 * 1024);
         const samples: number[] = [];
