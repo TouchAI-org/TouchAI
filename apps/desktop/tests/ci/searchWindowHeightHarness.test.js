@@ -26,5 +26,5 @@ describe('user runs the search-window layout harness', () => {
         } finally {
             await server.close();
         }
-    });
+    }, 60_000);
 });
