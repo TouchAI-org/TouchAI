@@ -119,14 +119,10 @@
     --shadow-block-soft: 0 1px 2px rgb(74 64 57 / 0.05), 0 2px 6px -2px rgb(74 64 57 / 0.09);
 
     /*
-     * A translucent warm stroke keeps the window edge subtle against both light
-     * surfaces and darker content, and reads as the same brown ink used inside.
-     * `--color-window-rim-highlight` is the second, lighter hairline drawn just
-     * inside it: one dark edge plus one light rim is what separates a floating
-     * surface from whatever desktop sits behind it.
+     * A translucent neutral stroke keeps the window edge subtle against both
+     * light surfaces and darker content.
      */
-    --color-window-stroke: rgb(74 64 57 / 0.28);
-    --color-window-rim-highlight: rgb(255 252 247 / 0.85);
+    --color-window-stroke: rgb(117 117 117 / 0.3);
 
     /*
      * The transparent room around a floating window. Keep this in sync with
@@ -159,20 +155,17 @@
     --radius-panel: 1rem;
 
     /*
-     * Window elevation follows Fluent 2's shadow16 geometry (a contact layer
-     * plus a mid and a far layer) in the warm ink the rest of the interface
-     * uses, so a floating window casts a brown shadow instead of a blue one.
-     * Windows outlines a window with a hairline stroke instead of a key shadow,
-     * so the edge is the 1px ring above and the layers below only carry the
-     * falloff. The 8px offset plus 16px blur ends exactly at the 24px
+     * Window shadow follows Fluent 2's shadow16 (`0 0 2px 12%` plus
+     * `0 8px 16px 14%`), the Windows 11 elevation for floating surfaces. Windows
+     * outlines a window with a hairline stroke instead of a key shadow, so the
+     * rim becomes a 1px ring and the contact/mid layers keep the falloff
+     * smooth. The 8px offset plus 16px blur ends exactly at the 24px
      * transparent gutter, so no layer is cut off by the native window edge.
      */
-    --shadow-window-ring:
-        inset 0 0 0 1px var(--color-window-stroke),
-        inset 0 0 0 2px var(--color-window-rim-highlight);
-    --shadow-window-halo: 0 1px 2px rgb(74 64 57 / 0.06);
-    --shadow-window-mid: 0 4px 8px -1px rgb(74 64 57 / 0.08);
-    --shadow-window-far: 0 8px 16px rgb(74 64 57 / 0.12);
+    --shadow-window-ring: inset 0 0 0 1px var(--color-window-stroke);
+    --shadow-window-halo: 0 1px 2px rgb(15 23 42 / 0.05);
+    --shadow-window-mid: 0 4px 8px -1px rgb(15 23 42 / 0.06);
+    --shadow-window-far: 0 8px 16px rgb(15 23 42 / 0.12);
 
     /* ── Brand ramp (warm brown) ─────────────────────────────────────────── */
 

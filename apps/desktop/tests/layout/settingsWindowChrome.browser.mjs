@@ -35,39 +35,6 @@ const css = output
     .filter((file) => file.type === 'asset' && file.fileName.endsWith('.css'))
     .map((file) => file.source)
     .join('\n');
-/**
- * The stroke and rim values come from the stylesheet, not from a copy in this
- * script: changing a token must move this check, never silently pass it.
- */
-function colorToken(name) {
-    const declared = new RegExp(`--${name}:\\s*([^;]+);`).exec(css)?.[1]?.trim();
-    assert.ok(declared, `Missing colour token --${name} in the built stylesheet`);
-
-    // The production build folds `rgb(74 64 57 / 0.28)` into `#4a403947`.
-    const hex = /^#([0-9a-f]{6})([0-9a-f]{2})?$/i.exec(declared);
-    if (hex) {
-        const value = hex[1];
-        return {
-            rgb: [0, 2, 4].map((offset) => parseInt(value.slice(offset, offset + 2), 16)),
-            alpha: hex[2] ? parseInt(hex[2], 16) / 255 : 1,
-        };
-    }
-
-    const rgbPattern = /^rgb\(\s*(\d+)\s+(\d+)\s+(\d+)\s*(?:\/\s*([\d.]+))?\s*\)$/;
-    const rgb = rgbPattern.exec(declared);
-    assert.ok(rgb, `Unsupported colour token --${name}: ${declared}`);
-    return { rgb: rgb.slice(1, 4).map(Number), alpha: rgb[4] ? Number(rgb[4]) : 1 };
-}
-
-const strokeToken = colorToken('color-window-stroke');
-const rimToken = colorToken('color-window-rim-highlight');
-
-function blend(layer, content) {
-    return layer.rgb.map((value, index) =>
-        Math.round(value * layer.alpha + content[index] * (1 - layer.alpha))
-    );
-}
-
 const browser = await chromium.launch({
     channel: process.platform === 'win32' ? 'msedge' : undefined,
     headless: true,
@@ -106,32 +73,24 @@ try {
             ['default', 1168, 748],
             ['minimum', 968, 608],
         ]) {
-            await test(`user sees one warm stroke with a light rim when Settings opens at ${size} size with ${surface} content`, async () => {
+            await test(`user sees one subtle gray border when Settings opens at ${size} size with ${surface} content`, async () => {
                 const page = await browser.newPage({ viewport: { width, height } });
                 try {
                     await page.setContent(`<style>${css}</style>
                     <div class="${frameClass}"><div class="${shellClass}" data-shell style="background:${background}">
                         <button aria-label="Content" style="display:block;width:100%;height:100%;border:0;background:${background};outline:none"></button>
                     </div></div>`);
-                    const [gutter, edge, rim, content] = await pixels(page, [
+                    const [gutter, edge, content] = await pixels(page, [
                         [0, Math.floor(height / 2)],
                         [Math.floor(width / 2), 24],
-                        [Math.floor(width / 2), 25],
                         [Math.floor(width / 2), 26],
                     ]);
                     assert.equal(gutter[3], 0, 'The shadow gutter must have no surface border');
-                    // 描边是半透明的，光边在它下面 1px 处透出来，所以边缘像素是
-                    // 「描边叠在光边上」，光边本身在它内侧一行。
-                    const expectedEdge = blend(strokeToken, blend(rimToken, content));
-                    const expectedRim = blend(rimToken, content);
                     for (const channel of [0, 1, 2]) {
+                        const expected = Math.round(117 * 0.3 + content[channel] * 0.7);
                         assert.ok(
-                            Math.abs(edge[channel] - expectedEdge[channel]) <= 1,
-                            `The warm stroke must blend once over opaque content: ${edge} vs ${expectedEdge}`
-                        );
-                        assert.ok(
-                            Math.abs(rim[channel] - expectedRim[channel]) <= 1,
-                            `The light rim must be drawn once inside the stroke: ${rim} vs ${expectedRim}`
+                            Math.abs(edge[channel] - expected) <= 1,
+                            `The translucent border must blend once over opaque content: ${edge} vs ${content}`
                         );
                     }
                     if (process.env.TOUCHAI_LAYOUT_OUTPUT) {
@@ -149,12 +108,8 @@ try {
                     await page.evaluate(() => {
                         document.querySelector('button').style.background = 'transparent';
                     });
-                    const [uncoveredEdge, uncoveredRim] = await pixels(page, [
-                        [Math.floor(width / 2), 24],
-                        [Math.floor(width / 2), 25],
-                    ]);
+                    const [uncoveredEdge] = await pixels(page, [[Math.floor(width / 2), 24]]);
                     assert.deepEqual(uncoveredEdge, edge, 'The border must not be painted twice');
-                    assert.deepEqual(uncoveredRim, rim, 'The rim must not be painted twice');
                     await page.evaluate(() => {
                         document.documentElement.dataset.windowMaximized = 'true';
                     });
@@ -174,7 +129,7 @@ try {
                 }
             });
         }
-        await test(`user sees the same warm stroke when opaque ${surface} content fills the search card`, async () => {
+        await test(`user sees the same subtle border when opaque ${surface} content fills the search card`, async () => {
             const page = await browser.newPage({ viewport: { width: 1168, height: 748 } });
             try {
                 await page.setContent(`<style>${css}</style>
@@ -185,11 +140,11 @@ try {
                     [584, 24],
                     [584, 26],
                 ]);
-                const expectedEdge = blend(strokeToken, content);
                 for (const channel of [0, 1, 2]) {
                     assert.ok(
-                        Math.abs(edge[channel] - expectedEdge[channel]) <= 1,
-                        `The search border must blend once over opaque content: ${edge} vs ${expectedEdge}`
+                        Math.abs(edge[channel] - Math.round(117 * 0.3 + content[channel] * 0.7)) <=
+                            1,
+                        `The search border must blend once over opaque content: ${edge} vs ${content}`
                     );
                 }
                 const stroke = await page.locator('.search-view-surface-card').evaluate((card) => ({

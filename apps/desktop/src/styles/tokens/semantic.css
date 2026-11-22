@@ -187,11 +187,7 @@
     --color-scrollbar-thumb-hover: var(--color-chrome-scrollbar-hover);
     --color-overlay-fade: rgba(255, 255, 255, 0.95);
 
-    /*
-     * Floating windows use the control radius rather than the smallest step:
-     * one softer corner across the launcher, conversation and settings shells.
-     */
-    --radius-window: var(--radius-md);
+    --radius-window: var(--radius-sm);
 
     --shadow-window-stroke: var(--shadow-window-ring);
     --shadow-window-ambient:
