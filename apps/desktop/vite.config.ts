@@ -1,11 +1,10 @@
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import tailwindcss from '@tailwindcss/vite'
-import vue from '@vitejs/plugin-vue'
-import Icons from 'unplugin-icons/vite'
 import { defineConfig } from 'vite'
 import monacoEditorEsmPlugin from 'vite-plugin-monaco-editor-esm'
+
+import { createDesktopVitePlugins } from './vite.shared-plugins.mjs'
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
 const host = process.env.TAURI_DEV_HOST
@@ -103,11 +102,7 @@ export default defineConfig({
         },
       ],
     }),
-    Icons({
-      compiler: 'vue3',
-    }),
-    tailwindcss(),
-    vue(),
+    ...createDesktopVitePlugins(__dirname),
   ],
   resolve: {
     dedupe: ['vue'],
