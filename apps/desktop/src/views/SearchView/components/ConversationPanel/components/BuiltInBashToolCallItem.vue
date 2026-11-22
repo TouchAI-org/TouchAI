@@ -9,10 +9,19 @@
             @click="toggleExpanded"
         >
             <span class="tool-call-log-line">
-                <span class="tool-call-log-verb">{{ verbText }}</span>
+                <span class="mr-1 inline-flex items-center">
+                    <AppIcon name="terminal" class="h-3.5 w-3.5" aria-hidden="true" />
+                </span>
+                <span
+                    class="tool-call-log-verb"
+                    :class="{ 't-text-shimmer': isAutoExpandedStatus }"
+                >
+                    {{ verbText }}
+                </span>
                 <span
                     v-if="summaryText"
                     class="tool-call-log-content"
+                    :class="{ 't-text-shimmer': isAutoExpandedStatus }"
                     data-no-i18n="true"
                     translate="no"
                 >

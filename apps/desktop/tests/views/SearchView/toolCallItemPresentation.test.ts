@@ -2,6 +2,7 @@ import { mount } from '@vue/test-utils';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { ToolCallInfo } from '@/app/api/agent/history';
+import AppIcon from '@/components/AppIcon.vue';
 import ToolCallItem from '@/views/SearchView/components/ConversationPanel/components/ToolCallItem.vue';
 
 vi.mock('@components/MotionCollapse.vue', () => ({
@@ -148,7 +149,21 @@ describe('user reads what state the tool call is in', () => {
     it('user sees a running state while the tool is executing', () => {
         const wrapper = mountItem({ status: 'executing' });
 
-        expect(wrapper.html()).toBeTruthy();
+        expect(wrapper.get('.tool-call-label').classes()).toContain('t-text-shimmer');
+
+        wrapper.unmount();
+    });
+
+    it('user sees the built-in tool verb shimmer while the tool runs', () => {
+        const wrapper = mountItem({
+            name: 'web_fetch',
+            namespacedName: 'builtin__web_fetch',
+            source: 'builtin',
+            sourceLabel: '内置工具',
+            status: 'executing',
+        });
+
+        expect(wrapper.get('.tool-call-log-verb').classes()).toContain('t-text-shimmer');
 
         wrapper.unmount();
     });
@@ -194,7 +209,17 @@ describe('user reads what state the tool call is in', () => {
     it('user sees a completed state when the tool finished', () => {
         const wrapper = mountItem({ status: 'completed', result: 'ok' });
 
-        expect(wrapper.html()).toBeTruthy();
+        expect(wrapper.get('.tool-call-label').classes()).not.toContain('t-text-shimmer');
+
+        wrapper.unmount();
+    });
+});
+
+describe('user scans the activity icons', () => {
+    it('user sees the tool icon beside a generic tool call', () => {
+        const wrapper = mountItem({ status: 'completed' });
+
+        expect(wrapper.findComponent(AppIcon).props('name')).toBe('wrench');
 
         wrapper.unmount();
     });

@@ -12,10 +12,16 @@
             @click="toggle"
         >
             <span class="tool-call-log-line">
-                <span class="tool-call-log-verb">{{ verbText }}</span>
+                <span class="mr-1 inline-flex items-center">
+                    <AppIcon name="search" class="h-3.5 w-3.5" aria-hidden="true" />
+                </span>
+                <span class="tool-call-log-verb" :class="{ 't-text-shimmer': searching }">
+                    {{ verbText }}
+                </span>
                 <span
                     v-if="displaySummary"
                     class="tool-call-log-content"
+                    :class="{ 't-text-shimmer': searching }"
                     :data-no-i18n="isSummaryPayload ? 'true' : undefined"
                     :translate="isSummaryPayload ? 'no' : undefined"
                 >
@@ -134,6 +140,7 @@
 </template>
 
 <script setup lang="ts">
+    import AppIcon from '@components/AppIcon.vue';
     import MotionCollapse from '@components/MotionCollapse.vue';
     import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 

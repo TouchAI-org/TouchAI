@@ -177,7 +177,7 @@ describe('when the built-in tool is the browser tool', () => {
         wrapper.unmount();
     });
 
-    it('user sees a verb instead of the icon for a non-browser built-in tool', () => {
+    it('user sees the tool icon beside a non-browser built-in verb', () => {
         const wrapper = mountItem({
             source: 'builtin',
             sourceLabel: '内置工具',
@@ -187,7 +187,7 @@ describe('when the built-in tool is the browser tool', () => {
         });
 
         expect(wrapper.find('.tool-call-log-verb').exists()).toBe(true);
-        expect(wrapper.find('.tool-call-log-icon').exists()).toBe(false);
+        expect(wrapper.find('.tool-call-log-icon').exists()).toBe(true);
 
         wrapper.unmount();
     });

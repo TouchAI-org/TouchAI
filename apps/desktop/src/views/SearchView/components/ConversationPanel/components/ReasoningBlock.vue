@@ -1,6 +1,7 @@
 <!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
+    import AppIcon from '@components/AppIcon.vue';
     import MarkdownContent from '@components/MarkdownContent.vue';
     import { useMotion } from '@composables/useMotion';
     import { computed, nextTick, onMounted, onUnmounted, ref, useId, watch } from 'vue';
@@ -186,6 +187,11 @@
             @click="toggleExpanded"
         >
             <span class="reasoning-heading">
+                <AppIcon
+                    name="brain"
+                    class="h-3.5 w-3.5 shrink-0 text-text-tertiary"
+                    aria-hidden="true"
+                />
                 <span class="reasoning-label">
                     <span
                         class="reasoning-label-content"
