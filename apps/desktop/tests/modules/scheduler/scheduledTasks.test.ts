@@ -99,6 +99,16 @@ class BlockingActiveRunRepository extends MemorySchedulerRepository {
     }
 }
 
+class FailFirstUpdateRepository extends MemorySchedulerRepository {
+    private updateCount = 0;
+
+    async updateTask(task: ScheduledTask): Promise<void> {
+        this.updateCount += 1;
+        if (this.updateCount === 1) throw new Error('schedule write failed');
+        return super.updateTask(task);
+    }
+}
+
 async function finishAll(executions: ReturnType<typeof createHarness>['executions']) {
     for (const [index, execution] of executions.entries()) {
         execution.finish({
@@ -164,6 +174,23 @@ describe('user restarts the desktop app with saved schedules', () => {
             reason: expect.stringContaining('interrupted'),
         });
         expect(harness.executions).toHaveLength(0);
+    });
+});
+
+describe('user saves a schedule from Vue form state', () => {
+    it('user saves a cron schedule whose trigger came from a reactive proxy', async () => {
+        const harness = createHarness();
+        const trigger = new Proxy({ type: 'cron' as const, expression: '0 9 * * *' }, {});
+
+        const saved = await harness.scheduler.addTask({
+            name: 'Reactive form',
+            prompt: 'Summarize',
+            trigger,
+            timezone: 'UTC',
+        });
+
+        expect(saved.trigger).toEqual({ type: 'cron', expression: '0 9 * * *' });
+        harness.scheduler.dispose();
     });
 });
 
@@ -409,6 +436,30 @@ describe('user changes a schedule while its task is running', () => {
         });
         expect(harness.executions).toHaveLength(0);
     });
+
+    it('user keeps the original schedule when an edit cannot be persisted', async () => {
+        const repository = new FailFirstUpdateRepository();
+        const harness = createHarness({ repository });
+        const saved = await harness.scheduler.addTask({
+            name: 'Check',
+            prompt: 'Original prompt',
+            trigger: { type: 'cron', expression: '0 9 * * *' },
+            timezone: 'UTC',
+        });
+
+        await expect(
+            harness.scheduler.updateTask(saved.id, { prompt: 'Rejected prompt' })
+        ).rejects.toThrow('schedule write failed');
+
+        expect(harness.scheduler.getTask(saved.id)).toMatchObject({
+            prompt: 'Original prompt',
+            version: 1,
+        });
+        expect(repository.tasks.get(saved.id)).toMatchObject({
+            prompt: 'Original prompt',
+            version: 1,
+        });
+    });
 });
 
 describe('user reviews failed scheduled runs', () => {
@@ -447,6 +498,28 @@ describe('user reviews failed scheduled runs', () => {
             reason: 'Provider rejected the request again',
         });
         expect(harness.notifications).toEqual(['Fragile check']);
+    });
+
+    it('user sees a cancelled background run without a failure notification', async () => {
+        const harness = createHarness();
+        await harness.scheduler.addTask({
+            name: 'Cancelable check',
+            prompt: 'Run',
+            trigger: { type: 'cron', expression: '* * * * *' },
+            timezone: 'UTC',
+        });
+
+        await vi.advanceTimersByTimeAsync(60_000);
+        await vi.waitFor(() => expect(harness.executions).toHaveLength(1));
+        const cancellation = new Error('Stopped by user');
+        cancellation.name = 'AbortError';
+        harness.executions[0]!.reject(cancellation);
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(
+            (await harness.scheduler.getRuns(harness.scheduler.getAllTasks()[0]!.id))[0]
+        ).toMatchObject({ outcome: 'cancelled' });
+        expect(harness.notifications).toEqual([]);
     });
 });
 

@@ -304,7 +304,8 @@ export class SqliteSchedulerRepository {
                 desc(scheduledTaskRuns.created_at),
                 desc(scheduledTaskRuns.id)
             )
-            .limit(-1)
+            // SQLite requires a LIMIT whenever OFFSET is used; -1 is omitted by Drizzle.
+            .limit(Number.MAX_SAFE_INTEGER)
             .offset(HISTORY_LIMIT)
             .all();
         if (overflow.length === 0) return;
