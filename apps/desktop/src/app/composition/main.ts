@@ -194,6 +194,7 @@ export function assembleDesktopMainAgent(input: {
         toolsAdministration: tools.administration,
         mcpAdministration: tools.mcpAdministration,
         mcpCatalog: tools.mcpCatalog,
+        externalAgentsAdministration: tools.externalAgentsAdministration,
         computerAdministration: Object.freeze({
             isEnabled: tools.computer.isEnabled,
             setEnabled: tools.computer.setEnabled,

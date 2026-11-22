@@ -680,6 +680,28 @@ export const mcpTools = sqliteTable('mcp_tools', {
 });
 
 /**
+ * External A2A agent registry.
+ */
+export const externalAgents = sqliteTable('external_agents', {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    name: text('name').notNull(),
+    url: text('url').notNull().unique(),
+    protocol: text('protocol', { enum: ['a2a'] })
+        .notNull()
+        .default('a2a'),
+    agent_card_json: text('agent_card_json').notNull(),
+    enabled: integer('enabled').notNull().default(1),
+    last_discovered_at: text('last_discovered_at'),
+    last_error: text('last_error'),
+    created_at: text('created_at')
+        .notNull()
+        .default(sql`(datetime('now'))`),
+    updated_at: text('updated_at')
+        .notNull()
+        .default(sql`(datetime('now'))`),
+});
+
+/**
  * 内置工具表
  */
 export const builtInTools = sqliteTable('built_in_tools', {
@@ -797,6 +819,10 @@ export type McpServerUpdate = Partial<NewMcpServer>;
 export type McpTool = typeof mcpTools.$inferSelect;
 export type NewMcpTool = typeof mcpTools.$inferInsert;
 export type McpToolUpdate = Partial<NewMcpTool>;
+
+export type ExternalAgent = typeof externalAgents.$inferSelect;
+export type NewExternalAgent = typeof externalAgents.$inferInsert;
+export type ExternalAgentUpdate = Partial<NewExternalAgent>;
 
 export type BuiltInTool = typeof builtInTools.$inferSelect;
 export type NewBuiltInTool = typeof builtInTools.$inferInsert;

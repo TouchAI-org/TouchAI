@@ -163,6 +163,13 @@ export function initializeAgentWindow(input: { capabilities?: StartupCapabilitie
     const tools = createToolsAdministrationWindow({
         label,
         signal: lifetime.signal,
+        externalAgents: main
+            ? async (signal) => {
+                  await awaitAbortable(() => ready, signal);
+                  await awaitAbortable(() => capabilities.waitForAgent(), signal);
+                  return requireOwner().externalAgentsAdministration;
+              }
+            : undefined,
         mcpQueries: main
             ? async (signal) => {
                   await awaitAbortable(() => ready, signal);
@@ -289,6 +296,7 @@ export function initializeAgentWindow(input: { capabilities?: StartupCapabilitie
         metadata: metadata.api,
         mcp: mcp.api,
         mcpAdministration: label === 'settings' ? tools.mcpApi : undefined,
+        externalAgentsAdministration: label === 'settings' ? tools.externalAgentsApi : undefined,
         tools: tools.api,
         computer: computer.api,
         settings: preferences.api,

@@ -7,12 +7,12 @@ import { normalizeOptionalString } from '@/utils/text';
 
 import type { ToolMessages } from '../../contracts/host';
 import { parseToolArguments } from '../../execution/schema';
+import { inspectPublicUrl } from '../../security/publicUrl';
 import type { SearchFetchProvider } from '../web-search/configuration';
 import {
     DEFAULT_MAX_RESPONSE_BYTES,
     DEFAULT_SOURCE_CHAR_LIMIT,
     DEFAULT_TIMEOUT_MS,
-    SUPPORTED_PROTOCOLS,
     WEB_FETCH_TOOL_NAME,
     webFetchArgsSchema,
     type WebFetchMode,
@@ -66,102 +66,18 @@ export function createWebFetchOperations(messages: ToolMessages) {
     const { t, tt } = messages;
     const turndownService = createTurndownService();
     let markdownParser: ReturnType<typeof getMarkdown> | undefined;
-    function stripIpv6Brackets(hostname: string): string {
-        return hostname.startsWith('[') && hostname.endsWith(']')
-            ? hostname.slice(1, -1)
-            : hostname;
-    }
-
-    function isPrivateIpv4(hostname: string): boolean {
-        const octets = hostname.split('.').map((segment) => Number(segment));
-        if (octets.length !== 4 || octets.some((segment) => !Number.isInteger(segment))) {
-            return false;
-        }
-
-        const [first = 0, second = 0] = octets;
-        if (octets.some((segment) => segment < 0 || segment > 255)) {
-            return false;
-        }
-
-        return (
-            first === 0 ||
-            first === 10 ||
-            first === 127 ||
-            (first === 169 && second === 254) ||
-            (first === 172 && second >= 16 && second <= 31) ||
-            (first === 192 && second === 168)
-        );
-    }
-
-    function ipv4FromMappedIpv6(hostname: string): string | null {
-        const normalized = stripIpv6Brackets(hostname).toLowerCase();
-        const dottedMatch = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(normalized);
-        if (dottedMatch) {
-            return dottedMatch[1] ?? null;
-        }
-
-        const hexMatch = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(normalized);
-        if (!hexMatch) {
-            return null;
-        }
-
-        const high = Number.parseInt(hexMatch[1]!, 16);
-        const low = Number.parseInt(hexMatch[2]!, 16);
-        return [(high >> 8) & 255, high & 255, (low >> 8) & 255, low & 255].join('.');
-    }
-
-    function isPrivateIpv6(hostname: string): boolean {
-        const normalized = stripIpv6Brackets(hostname).toLowerCase();
-        const mappedIpv4 = ipv4FromMappedIpv6(normalized);
-        if (mappedIpv4) {
-            return isPrivateIpv4(mappedIpv4);
-        }
-
-        return (
-            normalized === '::1' ||
-            normalized.startsWith('fc') ||
-            normalized.startsWith('fd') ||
-            normalized.startsWith('fe8') ||
-            normalized.startsWith('fe9') ||
-            normalized.startsWith('fea') ||
-            normalized.startsWith('feb')
-        );
-    }
-
-    function isDisallowedHostname(hostname: string): boolean {
-        const normalized = stripIpv6Brackets(hostname).toLowerCase();
-
-        if (
-            normalized === 'localhost' ||
-            normalized.endsWith('.localhost') ||
-            normalized.endsWith('.local') ||
-            normalized.endsWith('.localdomain')
-        ) {
-            return true;
-        }
-
-        if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(normalized)) {
-            return isPrivateIpv4(normalized);
-        }
-
-        if (normalized.includes(':')) {
-            return isPrivateIpv6(normalized);
-        }
-
-        // 单标签主机名通常来自内网或本地解析环境，这里直接拒绝。
-        return !normalized.includes('.');
-    }
-
     function validateWebFetchUrl(url: URL): void {
-        if (!SUPPORTED_PROTOCOLS.has(url.protocol)) {
+        const issue = inspectPublicUrl(url, {
+            allowLoopback: false,
+            requireHttpsOutsideLoopback: false,
+        });
+        if (issue === 'scheme') {
             throw new Error(t('builtInTools.webFetch.error.unsupportedProtocol'));
         }
-
-        if (url.username || url.password) {
+        if (issue === 'credentials') {
             throw new Error(t('builtInTools.webFetch.error.embeddedCredentials'));
         }
-
-        if (isDisallowedHostname(url.hostname)) {
+        if (issue === 'host') {
             throw new Error(t('builtInTools.webFetch.error.blockedHost'));
         }
     }

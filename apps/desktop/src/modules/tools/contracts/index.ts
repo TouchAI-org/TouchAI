@@ -68,7 +68,7 @@ export interface ToolOutcome extends ToolResult {
 
 export interface PreparedTool {
     declaration: ToolDeclaration;
-    authorize(scope: ToolInvocationScope): Promise<boolean>;
+    authorize(scope: ToolInvocationScope, args: Record<string, unknown>): Promise<boolean>;
     approval?(
         args: Record<string, unknown>,
         scope: ToolInvocationScope

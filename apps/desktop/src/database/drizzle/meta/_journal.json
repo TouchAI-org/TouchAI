@@ -50,6 +50,13 @@
       "when": 1794745758480,
       "tag": "0006_blue_solo",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1795334962130,
+      "tag": "0007_lush_azazel",
+      "breakpoints": true
     }
   ]
 }
