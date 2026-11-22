@@ -131,11 +131,16 @@ describe('user checks for an app update', () => {
     it('user keeps one update operation when download and install are requested while check persistence is pending', async () => {
         const telemetry = installProductAnalytics();
         const persistence = deferred<void>();
+        const persistStarted = deferred<void>();
         const { controller, downloadUpdate, installUpdate } = createController({
-            persistCheckedAt: () => persistence.promise,
+            persistCheckedAt: () => {
+                persistStarted.resolve();
+                return persistence.promise;
+            },
         });
         const checking = controller.checkNow('manual');
-        await vi.waitFor(() => expect(controller.getState().status).toBe('available'));
+        await persistStarted.promise;
+        expect(controller.getState().status).toBe('checking');
 
         await expect(controller.download()).resolves.toBe(false);
         await expect(controller.install()).resolves.toBe(false);

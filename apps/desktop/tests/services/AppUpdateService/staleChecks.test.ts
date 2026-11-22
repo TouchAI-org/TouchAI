@@ -7,6 +7,10 @@ import type {
     AppUpdateInfo,
 } from '@/modules/updates/types';
 
+// The automatic-check window reads the local hour, so a fixed UTC instant must
+// stay inside it on every developer machine.
+process.env.TZ = 'UTC';
+
 const availableUpdate: AppUpdateInfo = {
     version: '0.2.0',
     fileName: 'TouchAI-0.2.0-full.nupkg',
@@ -64,6 +68,8 @@ function createFixture() {
     let clock = Date.parse('2026-11-10T10:00:00.000Z');
     let savesPaused = false;
     let channelSavesPaused = false;
+    let timestampSaveError: Error | null = null;
+    let channelSaveError: Error | null = null;
     const pendingSaves: Array<{ value: string | null; land: () => void }> = [];
     const pendingChannelSaves: Array<{ land: () => void }> = [];
 
@@ -83,6 +89,9 @@ function createFixture() {
             getAutoCheckEnabled: () => autoCheckEnabled,
             getLastCheckedAt: () => storedLastCheckedAt,
             updateAppUpdateChannel: (value) => {
+                if (channelSaveError) {
+                    return Promise.reject(channelSaveError);
+                }
                 if (!channelSavesPaused) {
                     channel = value;
                     return Promise.resolve();
@@ -98,6 +107,9 @@ function createFixture() {
                 autoCheckEnabled = value;
             },
             updateAppUpdateLastCheckedAt: (value) => {
+                if (timestampSaveError) {
+                    return Promise.reject(timestampSaveError);
+                }
                 if (!savesPaused) {
                     storedLastCheckedAt = value;
                     return Promise.resolve();
@@ -123,6 +135,13 @@ function createFixture() {
         holdChannelWrites() {
             channelSavesPaused = true;
         },
+        failChannelWrites(message: string) {
+            channelSaveError = new Error(message);
+        },
+        failTimestampWrites(message: string) {
+            timestampSaveError = new Error(message);
+        },
+        pendingTimestampWrites: () => pendingSaves.length,
         async landChannelWrites() {
             channelSavesPaused = false;
             for (let attempt = 0; attempt < 8; attempt++) {
@@ -135,6 +154,10 @@ function createFixture() {
         /** The saved channel changes without this controller, for example from another window. */
         setSavedChannel(value: AppUpdateChannel) {
             channel = value;
+        },
+        /** A saved preference changes without this controller, for example from another window. */
+        setSavedAutoCheck(value: boolean) {
+            autoCheckEnabled = value;
         },
         advance(milliseconds: number) {
             clock += milliseconds;
@@ -160,6 +183,7 @@ describe('given update checks that are no longer the current decision', () => {
             holdSaves,
             storedLastCheckedAt,
             settleWritesNewestFirst,
+            pendingTimestampWrites,
         } = createFixture();
         holdSaves();
         const oldCheck = deferred<AppUpdateCheckResult>();
@@ -171,7 +195,7 @@ describe('given update checks that are no longer the current decision', () => {
         // The old channel's check returns while it is still the current one,
         // so its checked time is queued for saving.
         oldCheck.resolve(available('stable'));
-        await vi.waitFor(() => expect(controller.getState().status).toBe('available'));
+        await vi.waitFor(() => expect(pendingTimestampWrites()).toBe(1));
 
         // The user switches channel while that save is still in the database.
         const switching = controller.setChannel('beta');
@@ -366,6 +390,45 @@ describe('given a channel switch that is still saving', () => {
             status: 'not_available',
         });
     });
+
+    it('user is not left stuck checking when the channel save fails and the channel stays the same', async () => {
+        const { controller, checkForUpdates, failChannelWrites } = createFixture();
+        const running = deferred<AppUpdateCheckResult>();
+        checkForUpdates.mockReturnValueOnce(running.promise);
+
+        const checking = controller.checkNow('manual');
+        await vi.waitFor(() => expect(checkForUpdates).toHaveBeenCalledTimes(1));
+        expect(controller.getState().status).toBe('checking');
+
+        failChannelWrites('channel save failed');
+        await expect(controller.setChannel('beta')).rejects.toThrow('channel save failed');
+
+        expect(controller.getState()).toMatchObject({ status: 'idle', channel: 'stable' });
+
+        running.resolve(notAvailable('stable'));
+        await expect(checking).resolves.toBe(false);
+        expect(controller.getState().status).toBe('idle');
+    });
+
+    it('user checks the channel a settings listener switches to during the same request', async () => {
+        const { controller, checkForUpdates, setSavedAutoCheck } = createFixture();
+        await controller.initialize();
+
+        let switched = false;
+        controller.subscribe((state) => {
+            if (switched || state.autoCheckEnabled) return;
+            switched = true;
+            void controller.setChannel('beta');
+        });
+        // The settings sync inside the check request sees this change and
+        // notifies the listener, which starts the switch in the same turn.
+        setSavedAutoCheck(false);
+
+        await expect(controller.checkNow('manual')).resolves.toBe(true);
+
+        expect(checkForUpdates.mock.calls.map(([value]) => value)).toEqual(['beta']);
+        expect(controller.getState()).toMatchObject({ channel: 'beta' });
+    });
 });
 
 describe('given the current update check', () => {
@@ -386,16 +449,36 @@ describe('given the current update check', () => {
     });
 
     it('user gets the chosen channel checked right after switching without an old time delaying it', async () => {
-        const { controller, checkForUpdates } = createFixture();
+        const { controller, checkForUpdates, advance, storedLastCheckedAt } = createFixture();
+
+        // A completed check leaves a saved time behind; switching must clear it
+        // or the automatic interval keeps the new channel from being checked.
+        await expect(controller.checkNow('manual')).resolves.toBe(true);
+        expect(storedLastCheckedAt()).toBe('2026-11-10T10:00:00.000Z');
+        advance(10 * 60_000);
 
         await controller.setChannel('beta');
+        expect(storedLastCheckedAt()).toBeNull();
 
         await expect(controller.checkNow('automatic')).resolves.toBe(true);
         expect(checkForUpdates).toHaveBeenCalledWith('beta');
         expect(controller.getState()).toMatchObject({
             status: 'not_available',
             channel: 'beta',
-            lastCheckedAt: '2026-11-10T10:00:00.000Z',
+            lastCheckedAt: '2026-11-10T10:10:00.000Z',
+        });
+    });
+
+    it('user keeps the previous status when the checked time cannot be saved', async () => {
+        const { controller, failTimestampWrites } = createFixture();
+        failTimestampWrites('checked time save failed');
+
+        await expect(controller.checkNow('automatic')).resolves.toBe(false);
+
+        expect(controller.getState()).toMatchObject({
+            status: 'idle',
+            error: null,
+            lastCheckedAt: null,
         });
     });
 });
