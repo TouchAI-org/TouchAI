@@ -177,6 +177,7 @@
                     'search.input.focus',
                     'search.model.toggle',
                     'search.quickSearch.toggleView',
+                    'search.snippet.open',
                 ],
             },
             {

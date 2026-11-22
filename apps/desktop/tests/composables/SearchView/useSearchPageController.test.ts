@@ -562,6 +562,7 @@ describe('when the user clicks around the search window', () => {
                     'search.session.reopenLastClosed': null,
                     'search.model.toggle': null,
                     'search.quickSearch.toggleView': null,
+                    'search.snippet.open': null,
                     'search.window.pin': null,
                     'search.window.maximize': null,
                     'search.settings.open': null,

@@ -15,6 +15,7 @@ export const SEARCH_KEYBINDING_ACTION_IDS = [
     'search.session.reopenLastClosed',
     'search.model.toggle',
     'search.quickSearch.toggleView',
+    'search.snippet.open',
     'search.window.pin',
     'search.window.maximize',
     'search.settings.open',
@@ -41,6 +42,7 @@ type SearchKeybindingName =
     | 'reopenLastClosedSession'
     | 'modelToggle'
     | 'quickSearchToggleView'
+    | 'promptSnippets'
     | 'windowPin'
     | 'windowMaximize'
     | 'openSettings';
@@ -104,6 +106,13 @@ export const SEARCH_KEYBINDING_DEFINITIONS: SearchKeybindingDefinition[] = [
         labelKey: 'settings.general.searchActions.quickSearchToggleView',
         descriptionKey: 'settings.general.searchActionDescriptions.quickSearchToggleView',
         defaultShortcut: 'Mod+G',
+        allowModifierlessFunctionShortcut: true,
+    },
+    {
+        id: 'search.snippet.open',
+        labelKey: 'settings.general.searchActions.promptSnippets',
+        descriptionKey: 'settings.general.searchActionDescriptions.promptSnippets',
+        defaultShortcut: 'Mod+Shift+P',
         allowModifierlessFunctionShortcut: true,
     },
     {

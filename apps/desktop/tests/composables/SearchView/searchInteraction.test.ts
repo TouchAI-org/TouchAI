@@ -402,7 +402,9 @@ describe('useQuickSearchCoordinator', () => {
             providerId: null,
         });
         const modelDropdownState = ref({ isOpen: false });
-        const activeOverlay = ref<'none' | 'model-dropdown' | 'session-history'>('none');
+        const activeOverlay = ref<
+            'none' | 'model-dropdown' | 'session-history' | 'prompt-snippets'
+        >('none');
         const quickSearchOpen = ref(false);
 
         const mounted = await mountComposable(() =>
@@ -694,6 +696,36 @@ describe('createSearchKeyboardRouter', () => {
         expect(callbacks.onForwardToOverlay).toHaveBeenCalledWith('ArrowDown');
     });
 
+    it.each(['1', '5', '9', 'ArrowUp', 'ArrowDown', 'Enter'] as const)(
+        'user selects and navigates prompt snippets when pressing %s',
+        (key) => {
+            const { router, callbacks } = createKeyboardRouter({
+                getActiveSurface: () => 'prompt-snippets-surface',
+            });
+
+            expect(router.route({ key })).toBe(true);
+            expect(callbacks.onForwardToOverlay).toHaveBeenCalledWith(key);
+        }
+    );
+
+    it('user typing an index into a model filter does not select a prompt snippet behind it', () => {
+        const { router, callbacks } = createKeyboardRouter({
+            getActiveSurface: () => 'model-dropdown-surface',
+        });
+
+        expect(router.route({ key: '1', inlineOverlayInput: true })).toBe(false);
+        expect(callbacks.onForwardToOverlay).not.toHaveBeenCalled();
+    });
+
+    it('user holding Enter on the prompt picker does not forward a second selection', () => {
+        const { router, callbacks } = createKeyboardRouter({
+            getActiveSurface: () => 'prompt-snippets-surface',
+        });
+
+        expect(router.route({ key: 'Enter', repeat: true })).toBe(true);
+        expect(callbacks.onForwardToOverlay).not.toHaveBeenCalled();
+    });
+
     it('clears the draft before model/session/window dismissal on escape', () => {
         const { router, callbacks } = createKeyboardRouter({
             getQueryText: () => 'hello',
@@ -853,7 +885,11 @@ describe('createSearchKeyboardRouter', () => {
         expect(callbacks.onClearDraft).not.toHaveBeenCalled();
     });
 
-    it.each(['model-dropdown-surface', 'session-history-surface'] as const)(
+    it.each([
+        'model-dropdown-surface',
+        'session-history-surface',
+        'prompt-snippets-surface',
+    ] as const)(
         'dismisses %s before the highlighted QuickSearch beneath it on escape',
         async (surface) => {
             const { router, callbacks } = createKeyboardRouter({
