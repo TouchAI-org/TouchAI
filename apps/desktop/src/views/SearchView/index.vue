@@ -2293,13 +2293,22 @@
         await updateSessionSearchQuery(value);
     }
 
+    async function resetBoundsToIdle(isCurrent = () => !searchViewListenersDisposed) {
+        try {
+            return (await resetSearchWindowBounds()) && isCurrent();
+        } catch (error) {
+            log.error('[SearchView] Failed to restore compact bounds:', error);
+            return false;
+        }
+    }
+
     async function collapseBeforeClearing(isCurrent = () => !searchViewListenersDisposed) {
         if (effectiveWindowMaximized.value) return true;
         try {
             const collapsed = await collapseSessionToIdle();
             if (!isCurrent()) return false;
             if (collapsed) return true;
-            return (await resetSearchWindowBounds()) && isCurrent();
+            return resetBoundsToIdle(isCurrent);
         } catch (error) {
             log.error('[SearchView] Failed to restore compact bounds:', error);
             return false;
@@ -2309,7 +2318,14 @@
     async function clearSessionToIdle() {
         cancelSessionExpansion();
         suppressQuickSearchAutoOpenOnce.value = true;
-        if (!(await collapseBeforeClearing())) return;
+        // A conversation owns the full-bleed surface while it is maximized. Exiting it
+        // leaves that mode too, so the compact bar keeps its elevation and radius
+        // instead of leaving an empty sheet behind.
+        if (effectiveWindowMaximized.value) {
+            if (!(await resetBoundsToIdle())) return;
+        } else if (!(await collapseBeforeClearing())) {
+            return;
+        }
         clearSession();
         await nextTick();
         await controller.focusSearchInput();
