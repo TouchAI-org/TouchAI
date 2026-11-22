@@ -118,13 +118,31 @@ function getAttachmentBucket(type: AttachmentIndex['type']): 'images' | 'files' 
  * @param hash 附件内容哈希。
  * @returns 缓存副本的绝对路径。
  */
-async function buildAttachmentStoragePath(
+async function attachmentShardDirectory(
     type: AttachmentIndex['type'],
     hash: string
 ): Promise<string> {
     const cacheDir = await ensureCacheDirectory();
     const bucketDir = await join(cacheDir, getAttachmentBucket(type));
-    const shardDir = await join(bucketDir, hash.slice(0, 3));
+    return join(bucketDir, hash.slice(0, 3));
+}
+
+/**
+ * 推导缓存副本的绝对路径，但不创建目录：存在性检查不该顺手落盘。
+ *
+ * @param type 附件类型。
+ * @param hash 附件内容哈希。
+ * @returns 缓存副本的绝对路径。
+ */
+async function attachmentCachePath(type: AttachmentIndex['type'], hash: string): Promise<string> {
+    return join(await attachmentShardDirectory(type, hash), hash);
+}
+
+async function buildAttachmentStoragePath(
+    type: AttachmentIndex['type'],
+    hash: string
+): Promise<string> {
+    const shardDir = await attachmentShardDirectory(type, hash);
     await mkdir(shardDir, { recursive: true });
     return join(shardDir, hash);
 }
@@ -185,6 +203,32 @@ async function prepareAttachment(
     await copyFile(path, targetPath);
 
     return { hash, name, mimeType: mimeType ?? null, size };
+}
+
+/**
+ * 已持久化附件只有在缓存副本仍在时才能直接复用身份。
+ *
+ * 缓存目录会被系统或清理工具删除，而数据库行仍指向那条派生路径；
+ * 只看行会让草稿带着一个不存在的路径继续往前走。
+ */
+async function canReusePersistedAttachment(attachment: AttachmentIndex): Promise<boolean> {
+    if (attachment.attachmentId === undefined || !attachment.hash) {
+        return false;
+    }
+
+    // 目录记录直接引用原始路径，没有派生缓存副本。
+    if (attachment.mimeType === DIRECTORY_MIME_TYPE) {
+        return true;
+    }
+
+    return exists(await attachmentCachePath(attachment.type, attachment.hash));
+}
+
+/** 缓存副本缺失时只能回到原始文件：草稿的 path 已经指向那条缺失的派生路径。 */
+function persistenceSourcePath(attachment: AttachmentIndex): string {
+    return attachment.attachmentId !== undefined && attachment.hash
+        ? attachment.originPath
+        : attachment.path;
 }
 
 async function ensureAttachmentRecord(
@@ -434,11 +478,14 @@ export async function ensurePersistedAttachmentIndex(
  * 调用方在开启写事务前先跑这一步，事务内就只剩几条 SQL。
  */
 export async function prepareAttachmentForPersistence(attachment: AttachmentIndex): Promise<void> {
-    if (attachment.attachmentId && attachment.hash) {
+    if (await canReusePersistedAttachment(attachment)) {
         return;
     }
 
-    preparedAttachments.set(attachment, await prepareAttachment(attachment.type, attachment.path));
+    preparedAttachments.set(
+        attachment,
+        await prepareAttachment(attachment.type, persistenceSourcePath(attachment))
+    );
 }
 
 /** 事务外预计算结果，按附件实例缓存。 */
@@ -459,10 +506,16 @@ export async function persistPreparedAttachmentWithWriter(
     attachment: AttachmentIndex,
     writer: AttachmentRecordWriter
 ): Promise<AttachmentEntity> {
-    if (attachment.attachmentId && attachment.hash) {
+    const existingId = attachment.attachmentId;
+    const existingHash = attachment.hash;
+    if (
+        existingId !== undefined &&
+        existingHash &&
+        (await canReusePersistedAttachment(attachment))
+    ) {
         return {
-            id: attachment.attachmentId,
-            hash: attachment.hash,
+            id: existingId,
+            hash: existingHash,
             type: attachment.type,
             original_name: attachment.name,
             origin_path: attachment.originPath,
@@ -474,7 +527,7 @@ export async function persistPreparedAttachmentWithWriter(
 
     const persisted = await ensureAttachmentRecord(
         attachment.type,
-        attachment.path,
+        persistenceSourcePath(attachment),
         attachment.originPath,
         writer,
         preparedAttachments.get(attachment)
