@@ -317,6 +317,31 @@ describe('given a channel switch that is still saving', () => {
         expect(storedLastCheckedAt()).toBe('2026-11-10T10:00:00.000Z');
     });
 
+    it('user gets the chosen channel checked when the check arrives before the switch has saved', async () => {
+        const { controller, checkForUpdates, holdChannelWrites, landChannelWrites } =
+            createFixture();
+        holdChannelWrites();
+        const switching = controller.setChannel('beta');
+        // The settings window asks for a check in the same turn, before the
+        // switch has reached its saves.
+        const checking = controller.checkNow('manual');
+
+        await flush();
+        expect(checkForUpdates).not.toHaveBeenCalled();
+
+        await landChannelWrites();
+        await switching;
+        await expect(checking).resolves.toBe(true);
+
+        expect(checkForUpdates).toHaveBeenCalledTimes(1);
+        expect(checkForUpdates).toHaveBeenCalledWith('beta');
+        expect(controller.getState()).toMatchObject({
+            channel: 'beta',
+            status: 'not_available',
+            lastCheckedAt: '2026-11-10T10:00:00.000Z',
+        });
+    });
+
     it('user gets the saved channel checked when a check was requested before the switch landed', async () => {
         const { controller, checkForUpdates, holdChannelWrites, landChannelWrites } =
             createFixture();
