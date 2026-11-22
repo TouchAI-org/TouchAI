@@ -16,6 +16,7 @@ export type PromptSnippetStorageIssue =
     | null;
 export type PromptSnippetValidationCode =
     | 'too_many_items'
+    | 'invalid_storage'
     | 'not_found'
     | 'empty_title'
     | 'title_too_long'
@@ -242,6 +243,26 @@ export function toPromptSnippetStorage(
         schemaVersion: PROMPT_SNIPPET_SCHEMA_VERSION,
         items: sortPromptSnippets(value.items).map(clonePromptSnippet),
     };
+}
+
+export function validatePromptSnippetStorageUpdate(
+    value: PromptSnippetStorage | PromptSnippetSettings
+): PromptSnippetStorage {
+    if (value.schemaVersion !== PROMPT_SNIPPET_SCHEMA_VERSION || !Array.isArray(value.items)) {
+        throw new PromptSnippetValidationError('invalid_storage');
+    }
+    if (value.items.length > PROMPT_SNIPPET_MAX_ITEMS) {
+        throw new PromptSnippetValidationError('too_many_items');
+    }
+    const ids = new Set<string>();
+    for (const item of value.items) {
+        const parsed = promptSnippetItemSchema.safeParse(item);
+        if (!parsed.success || ids.has(parsed.data.id)) {
+            throw new PromptSnippetValidationError('invalid_storage');
+        }
+        ids.add(parsed.data.id);
+    }
+    return toPromptSnippetStorage(value);
 }
 
 function normalizeDraft(

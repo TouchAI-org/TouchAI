@@ -34,6 +34,7 @@
 
     const isEditing = ref(false);
     const editingId = ref<string | null>(null);
+    let editorSession = 0;
     const isSaving = ref(false);
     const validationCode = ref<PromptSnippetValidationCode | null>(null);
     const operationFailed = ref(false);
@@ -85,6 +86,7 @@
             too_many_items: t('settings.general.promptSnippets.limitReached', {
                 count: PROMPT_SNIPPET_MAX_ITEMS,
             }),
+            invalid_storage: t('settings.general.promptSnippets.operationFailed'),
             not_found: t('settings.general.promptSnippets.notFound'),
             empty_title: t('settings.general.promptSnippets.titleRequired'),
             title_too_long: t('settings.general.promptSnippets.titleTooLong', {
@@ -110,6 +112,7 @@
         if (isStorageReadOnly.value) {
             return;
         }
+        editorSession += 1;
         editingId.value = null;
         resetDraft();
         isEditing.value = true;
@@ -119,6 +122,7 @@
         if (isStorageReadOnly.value) {
             return;
         }
+        editorSession += 1;
         editingId.value = snippet.id;
         draft.title = snippet.title;
         draft.body = snippet.body;
@@ -128,6 +132,7 @@
     }
 
     function cancelEdit() {
+        editorSession += 1;
         isEditing.value = false;
         editingId.value = null;
         resetDraft();
@@ -142,6 +147,7 @@
             return;
         }
         const current = toPromptSnippetStorage(settings.value.promptSnippets);
+        const saveSession = editorSession;
         try {
             const next =
                 editingId.value === null
@@ -167,7 +173,9 @@
             isSaving.value = true;
             operationFailed.value = false;
             await settingsStore.updatePromptSnippets(next);
-            cancelEdit();
+            if (editorSession === saveSession) {
+                cancelEdit();
+            }
         } catch (error) {
             if (error instanceof PromptSnippetValidationError) {
                 validationCode.value = error.code;

@@ -258,6 +258,29 @@ describe('given prompt snippets use the approved settings storage contract', () 
         ).toThrow(expect.objectContaining({ code: 'body_too_long' }));
     });
 
+    it('user attempts to save a twenty-first snippet through the settings updater and sees it rejected', async () => {
+        fixture = await createSettingsPanelFixture();
+        const items = Array.from({ length: 21 }, (_, index) =>
+            snippet({
+                id: `snippet-${index}`,
+                title: `Snippet ${index}`,
+                body: `Body ${index}`,
+                sortOrder: index,
+            })
+        );
+        const savedBefore = fixture.saved('prompt_snippets_v1');
+
+        expect(() =>
+            fixture?.preferences.updatePromptSnippets({
+                schemaVersion: 1,
+                items,
+            })
+        ).toThrow('too_many_items');
+
+        expect(fixture.saved('prompt_snippets_v1')).toBe(savedBefore);
+        expect(fixture.window.settings.getSnapshot().promptSnippets.items).toEqual([]);
+    });
+
     it('user changes insertion mode and another window sees the committed preference', async () => {
         fixture = await createSettingsPanelFixture();
 

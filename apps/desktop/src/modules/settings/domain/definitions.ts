@@ -23,6 +23,7 @@ import {
     type PromptSnippetSettings,
     type PromptSnippetStorage,
     toPromptSnippetStorage,
+    validatePromptSnippetStorageUpdate,
 } from './promptSnippets';
 
 export type OutputScrollBehavior = 'follow_output' | 'stay_position' | 'jump_to_top';
@@ -282,7 +283,7 @@ const PROMPT_SNIPPETS_SETTING_DEFINITION: GeneralSettingDefinition = {
     key: PROMPT_SNIPPET_SETTING_KEY,
     parsePersisted: parsePersistedPromptSnippets,
     parseUpdate: (value) => ({
-        ...toPromptSnippetStorage(value as PromptSnippetStorage),
+        ...validatePromptSnippetStorageUpdate(value as PromptSnippetStorage),
         storageIssue: null,
     }),
     apply: (target, value) => {
@@ -318,7 +319,7 @@ export const GENERAL_SETTING_UPDATER_BINDINGS: readonly GeneralSettingUpdaterBin
     {
         exposedName: 'updatePromptSnippets',
         key: PROMPT_SNIPPET_SETTING_KEY,
-        normalize: (value) => toPromptSnippetStorage(value as PromptSnippetStorage),
+        normalize: (value) => validatePromptSnippetStorageUpdate(value as PromptSnippetStorage),
     },
 ];
 

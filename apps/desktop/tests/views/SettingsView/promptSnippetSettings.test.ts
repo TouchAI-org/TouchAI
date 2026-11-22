@@ -134,7 +134,7 @@ describe('given the user manages lightweight prompt snippets', () => {
         wrapper.unmount();
     });
 
-    it('user loses persistence and sees a save error that can be retried', async () => {
+    it('user retries after a failed save and sees the retained draft saved', async () => {
         settingsStoreMock.updatePromptSnippets.mockRejectedValueOnce(
             new Error('disk is read-only')
         );
@@ -152,6 +152,55 @@ describe('given the user manages lightweight prompt snippets', () => {
             'Could not save prompt snippets'
         );
         expect(wrapper.find('[data-testid="prompt-snippet-editor"]').exists()).toBe(true);
+
+        await wrapper.get('[data-testid="prompt-snippet-editor"]').trigger('submit');
+        await flushPromises();
+
+        expect(settingsStoreMock.updatePromptSnippets).toHaveBeenCalledTimes(2);
+        expect(settingsStoreMock.updatePromptSnippets).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+                items: expect.arrayContaining([
+                    expect.objectContaining({
+                        title: 'Review',
+                        body: 'Review this change carefully.',
+                    }),
+                ]),
+            })
+        );
+        expect(wrapper.find('[data-testid="prompt-snippet-editor"]').exists()).toBe(false);
+    });
+
+    it('user starts a new draft while an earlier save is pending and keeps the newer draft', async () => {
+        let resolveSave: (() => void) | undefined;
+        settingsStoreMock.updatePromptSnippets.mockImplementationOnce(
+            () =>
+                new Promise<void>((resolve) => {
+                    resolveSave = resolve;
+                })
+        );
+        const wrapper = mount(PromptSnippetSettings);
+
+        await wrapper.get('[data-testid="prompt-snippet-add"]').trigger('click');
+        await wrapper.get('[data-testid="prompt-snippet-title"]').setValue('Earlier');
+        await wrapper.get('[data-testid="prompt-snippet-body"]').setValue('Earlier pending body.');
+        await wrapper.get('[data-testid="prompt-snippet-editor"]').trigger('submit');
+
+        await wrapper.findAll('[data-testid="prompt-snippet-editor"] button')[1]!.trigger('click');
+        await wrapper.get('[data-testid="prompt-snippet-add"]').trigger('click');
+        await wrapper.get('[data-testid="prompt-snippet-title"]').setValue('Newer');
+        await wrapper.get('[data-testid="prompt-snippet-body"]').setValue('Newer draft body.');
+
+        resolveSave?.();
+        await flushPromises();
+
+        expect(wrapper.find('[data-testid="prompt-snippet-editor"]').exists()).toBe(true);
+        expect(
+            (wrapper.get('[data-testid="prompt-snippet-title"]').element as HTMLInputElement).value
+        ).toBe('Newer');
+        expect(
+            (wrapper.get('[data-testid="prompt-snippet-body"]').element as HTMLTextAreaElement)
+                .value
+        ).toBe('Newer draft body.');
     });
 
     it('user deletes a snippet only after confirming the destructive action', async () => {
