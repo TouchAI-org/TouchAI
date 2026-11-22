@@ -1,5 +1,6 @@
 import { parseDbDateTimestamp } from '@/utils/date';
 import { normalizeString } from '@/utils/text';
+import { z } from '@/utils/zod';
 
 import { readContextSummary } from '../contracts/context';
 import { readStoredText as getMessageText } from '../contracts/contextRead';
@@ -34,6 +35,18 @@ import {
     type WidgetTarget,
     type WidgetTargetLookups,
 } from './widgets';
+
+/** Matches the ShowWidget tool's persisted artifact limit. */
+const MAX_PERSISTED_WIDGET_HTML_CHARS = 120_000;
+
+const persistedShowWidgetSnapshotSchema = z.object({
+    kind: z.literal('show_widget_snapshot'),
+    widgetId: z.string().trim().min(1),
+    title: z.string(),
+    description: z.string(),
+    html: z.string().max(MAX_PERSISTED_WIDGET_HTML_CHARS),
+    mode: z.enum(['render', 'remove']),
+});
 
 /** Reconstruct committed history without importing another business module or an I/O owner. */
 export function createSessionHistory(host: SessionHistoryHost) {
@@ -123,7 +136,16 @@ export function createSessionHistory(host: SessionHistoryHost) {
 
         try {
             const parsed = JSON.parse(raw) as ToolEventStructuredPayload;
-            if (!parsed || parsed.kind !== 'web_search_sources' || !Array.isArray(parsed.sources)) {
+            if (!parsed || typeof parsed !== 'object') {
+                return undefined;
+            }
+
+            if (parsed.kind === 'show_widget_snapshot') {
+                const snapshot = persistedShowWidgetSnapshotSchema.safeParse(parsed);
+                return snapshot.success ? snapshot.data : undefined;
+            }
+
+            if (parsed.kind !== 'web_search_sources' || !Array.isArray(parsed.sources)) {
                 return undefined;
             }
 
@@ -238,18 +260,30 @@ export function createSessionHistory(host: SessionHistoryHost) {
             return null;
         }
 
-        const mode = toolCall.arguments.mode === 'remove' ? 'remove' : 'render';
+        const snapshot =
+            toolCall.structuredPayload?.kind === 'show_widget_snapshot'
+                ? toolCall.structuredPayload
+                : undefined;
+        const mode = snapshot?.mode ?? (toolCall.arguments.mode === 'remove' ? 'remove' : 'render');
         const widgetId =
-            normalizeString(toolCall.arguments.widgetId) || (mode === 'render' ? toolCall.id : '');
+            snapshot?.widgetId ||
+            normalizeString(toolCall.arguments.widgetId) ||
+            (mode === 'render' ? toolCall.id : '');
         if (!widgetId) {
             return null;
         }
 
-        const title = normalizeString(toolCall.arguments.title) || widgetId || 'ShowWidget';
+        const title =
+            snapshot?.title ||
+            normalizeString(toolCall.arguments.title) ||
+            widgetId ||
+            'ShowWidget';
         const description =
+            snapshot?.description ||
             normalizeString(toolCall.arguments.description) ||
             'Inline generative artifact rendered in the answer.';
         const html =
+            snapshot?.html ||
             normalizeString(toolCall.arguments.widget_code) ||
             normalizeString(toolCall.arguments.html);
 

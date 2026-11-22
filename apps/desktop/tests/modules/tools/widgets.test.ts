@@ -105,6 +105,50 @@ describe('given widget processing and the DOM inspection boundary have separate 
         }
     });
 
+    it('user receives the complete widget snapshot when its html exceeds the audit input limit', async () => {
+        const { tools, task } = await fixture();
+        const chartUrl = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js';
+        const html = [
+            '<section>',
+            `<img src="${chartUrl}" alt="Chart source">`,
+            `<p>${'x'.repeat(9000)}</p>`,
+            '<button id="action" type="button">Run</button>',
+            '<script>document.querySelector("#action").dataset.ready = "true";</script>',
+            '</section>',
+        ].join('');
+        try {
+            const outcome = await (
+                await tools.snapshot()
+            ).execute(
+                {
+                    id: 'widget',
+                    name: 'builtin__show_widget',
+                    arguments: JSON.stringify({
+                        is_read_widget_skill: true,
+                        widget_code: html,
+                        title: 'Fixture',
+                    }),
+                },
+                { iteration: 0, task }
+            );
+            const snapshot = outcome.structuredPayload;
+
+            expect(snapshot).toMatchObject({
+                kind: 'show_widget_snapshot',
+                widgetId: 'widget',
+                title: 'Fixture',
+                html,
+                mode: 'render',
+            });
+            if (snapshot?.kind !== 'show_widget_snapshot') {
+                throw new Error('Expected a ShowWidget snapshot');
+            }
+            expect(snapshot.html).toContain(chartUrl);
+        } finally {
+            tools.dispose();
+        }
+    });
+
     it.each([
         { is_read_widget_skill: false, widget_code: '<section>Hidden</section>' },
         {

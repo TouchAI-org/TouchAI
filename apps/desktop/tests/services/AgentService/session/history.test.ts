@@ -8,11 +8,13 @@ import {
 } from '@tests/database/sqliteHarness';
 import { createMessagePart, createMessageRow } from '@tests/utils/messages';
 import { buildSessionHistory } from '@tests/utils/sessionHistory';
+import { createWidgetRenderer, widgetDocument } from '@tests/utils/widgetFrame';
 import { describe, expect, it } from 'vitest';
-import { afterEach, beforeEach } from 'vitest';
+import { afterEach, beforeEach, vi } from 'vitest';
 
 import { selectToolCalls } from '@/app/api/agent/history';
 import { readMcpServerNames } from '@/modules/tools';
+import { serializeAuditPayload } from '@/platform/diagnostics/redact';
 import { parseDbDateTimestamp } from '@/utils/date';
 let database: ReturnType<typeof openMigratedDatabase>;
 beforeEach(() => {
@@ -488,6 +490,118 @@ describe('user reopens a conversation that generated a widget', () => {
         ]);
 
         expect(history[1]?.widgets ?? []).toHaveLength(0);
+    });
+});
+
+describe('user reopens a conversation whose widget outgrew the stored audit input', () => {
+    const CHART_URL = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js';
+
+    function widgetHtml(): string {
+        return [
+            '<section>',
+            `<img id="source" src="${CHART_URL}" alt="Chart source">`,
+            '<p id="status">waiting</p>',
+            `<div>${'x'.repeat(9000)}</div>`,
+            '<button id="widget-action" type="button">Run</button>',
+            '<script>',
+            'document.getElementById("widget-action").addEventListener("click", () => {',
+            'document.getElementById("status").textContent = "ready";',
+            '});',
+            '</script>',
+            '</section>',
+        ].join('');
+    }
+
+    function widgetRowWithSnapshot(
+        id: number,
+        input: Record<string, unknown>,
+        structuredPayload?: Record<string, unknown>
+    ): MessageRow {
+        return toolCallRow(id, [
+            builtinToolPart({
+                id: id * 10,
+                sortOrder: 0,
+                toolId: 'show_widget',
+                callId: 'call-1',
+                input,
+                output: null,
+                structuredPayload,
+            }),
+        ]);
+    }
+
+    it('user sees the complete widget rendered and interactive after reopening it', async () => {
+        const html = widgetHtml();
+        const args = {
+            widgetId: 'w1',
+            title: 'Sales',
+            description: 'by region',
+            widget_code: html,
+        };
+        const auditInput = JSON.parse(serializeAuditPayload(args)) as Record<string, unknown>;
+        expect(auditInput.widget_code).not.toBe(html);
+        expect(String(auditInput.widget_code)).not.toContain('chart.umd.js');
+
+        const history = await build([
+            userRow(1, 'draw a chart'),
+            widgetRowWithSnapshot(2, auditInput, {
+                kind: 'show_widget_snapshot',
+                widgetId: 'w1',
+                title: 'Sales',
+                description: 'by region',
+                html,
+                mode: 'render',
+            }),
+        ]);
+        const widget = history[1]?.widgets?.[0];
+        expect(widget).toMatchObject({
+            widgetId: 'w1',
+            title: 'Sales',
+            description: 'by region',
+            html,
+            phase: 'ready',
+        });
+        expect(widget?.html).toContain(CHART_URL);
+
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+        const renderer = createWidgetRenderer(host);
+        try {
+            renderer.render(widget!);
+            await vi.waitFor(() => {
+                expect(widgetDocument(host).querySelector('#widget-action')).not.toBeNull();
+            });
+
+            expect(
+                widgetDocument(host).querySelector<HTMLImageElement>('#source')?.getAttribute('src')
+            ).toBe(CHART_URL);
+
+            widgetDocument(host).querySelector<HTMLButtonElement>('#widget-action')!.click();
+            await vi.waitFor(() => {
+                expect(widgetDocument(host).querySelector('#status')?.textContent).toBe('ready');
+            });
+        } finally {
+            renderer.destroy();
+            document.body.replaceChildren();
+        }
+    });
+
+    it('user still sees a widget restored from arguments when an older row has no snapshot', async () => {
+        const history = await build([
+            userRow(1, 'draw a chart'),
+            widgetRowWithSnapshot(2, {
+                widgetId: 'w1',
+                title: 'Sales',
+                widget_code: '<section>older widget</section>',
+            }),
+        ]);
+
+        expect(history[1]?.widgets?.[0]).toMatchObject({
+            widgetId: 'w1',
+            title: 'Sales',
+            html: '<section>older widget</section>',
+            phase: 'ready',
+        });
     });
 });
 
