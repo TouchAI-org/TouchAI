@@ -69,7 +69,9 @@
     const activeSection = computed(() => props.activeSection);
     const repositoryLinks = APP_PRODUCT_CONFIG.repository;
     const usesSecondaryPanel = computed(() =>
-        ['ai-services', 'built-in-tools', 'mcp-tools'].includes(activeSection.value)
+        ['ai-services', 'built-in-tools', 'mcp-tools', 'scheduled-tasks'].includes(
+            activeSection.value
+        )
     );
 
     const readElementWidth = (selector: string): number | undefined => {

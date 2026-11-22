@@ -80,6 +80,7 @@ describe('user navigates the settings sections', () => {
             'Computer control',
             'Skills',
             'MCP tools',
+            'Scheduled tasks',
             'Privacy protection',
             'Data & privacy',
         ]);
