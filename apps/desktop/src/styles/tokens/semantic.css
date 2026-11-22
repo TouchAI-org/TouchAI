@@ -114,6 +114,21 @@
     --color-markdown-surface-soft: rgba(251, 249, 245, 0.98);
     --color-markdown-surface-border: rgba(230, 224, 214, 0.9);
 
+    /*
+     * ── Conversation content blocks ───────────────────────────────────────
+     *
+     * Tool runs and code blocks are cards on the cream conversation canvas.
+     * They used to be neutral white (rgba(255,255,255,.96)) or cool grey, which
+     * reads as brighter or greyer than the page instead of as a block inside
+     * it. One warm tint, one warm border and one warm elevation now cover both
+     * surfaces, so a run of consecutive blocks stays separated without adding a
+     * second visual language.
+     */
+    --color-content-block-surface: var(--color-annotation-100);
+    --color-content-block-surface-hover: var(--color-primary-100);
+    --color-content-block-border: var(--color-primary-200);
+    --shadow-content-block: var(--shadow-block-soft);
+
     /* Conversation roles preserve the original message and action palette. */
     --color-message-foreground: var(--color-gray-900);
     --color-message-detail: var(--color-gray-700);
@@ -172,7 +187,11 @@
     --color-scrollbar-thumb-hover: var(--color-chrome-scrollbar-hover);
     --color-overlay-fade: rgba(255, 255, 255, 0.95);
 
-    --radius-window: var(--radius-sm);
+    /*
+     * Floating windows use the control radius rather than the smallest step:
+     * one softer corner across the launcher, conversation and settings shells.
+     */
+    --radius-window: var(--radius-md);
 
     --shadow-window-stroke: var(--shadow-window-ring);
     --shadow-window-ambient:

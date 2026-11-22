@@ -133,6 +133,23 @@ describe('Search overlay direct component contracts', () => {
         historyWrapper.unmount();
     });
 
+    it('user sees the floating list scrollbar inset from the panel rim', () => {
+        const modelWrapper = mount(ModelDropdownPopup, { props: { data: modelData } });
+        const historyWrapper = mount(SessionHistoryPopover, { props: { data: historyData } });
+
+        // 列表是唯一的滚动容器；它自己不贴面板内缘，滚动条才不会压在边上。
+        for (const list of [
+            modelWrapper.get('.custom-scrollbar-thin'),
+            historyWrapper.get('.custom-scrollbar-thin'),
+        ]) {
+            expect(list.classes()).toContain('overflow-y-auto');
+            expect(list.classes()).toContain('me-1.5');
+        }
+
+        modelWrapper.unmount();
+        historyWrapper.unmount();
+    });
+
     it('focuses model filtering and handles Arrow/Enter through direct callbacks', async () => {
         const onSearchQueryChange = vi.fn();
         const onModelSelect = vi.fn().mockResolvedValue(undefined);

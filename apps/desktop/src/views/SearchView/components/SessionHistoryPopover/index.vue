@@ -27,7 +27,7 @@
 
         <div
             ref="historyListRef"
-            class="history-list custom-scrollbar-thin max-h-[20rem] min-h-0 overflow-y-auto px-2 py-2"
+            class="history-list custom-scrollbar-thin me-1.5 max-h-[20rem] min-h-0 overflow-y-auto px-2 py-2"
         >
             <div
                 v-if="isWaitingForSearchResults"

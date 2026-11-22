@@ -362,7 +362,7 @@ describe('desktop window shell', () => {
         );
     });
 
-    it('user sees a subtle translucent gray ring when a floating window paints', () => {
+    it('user sees a warm stroke with its own light rim when a floating window paints', () => {
         const resolve = resolveToken(primitiveCss, semanticCss);
         const shadow = [
             '--shadow-window-ring',
@@ -373,12 +373,15 @@ describe('desktop window shell', () => {
             .map((token) => resolve(token))
             .join(', ');
 
-        // One translucent gray stroke, a 2px contact, and an
-        // 8px/16px ambient layer.
-        expect(shadow).toContain('inset 0 0 0 1px');
-        expect(resolve('--color-window-border')).toBe('rgb(117 117 117 / 0.3)');
-        expect(tokenValue(primitiveCss, '--shadow-window-ring')).toBe(
+        // One warm stroke with a light rim inside it, a 2px contact, and an
+        // 8px/16px ambient layer, all in the same warm ink.
+        expect(resolve('--color-window-border')).toBe('rgb(74 64 57 / 0.28)');
+        expect(resolve('--color-window-rim-highlight')).toBe('rgb(255 252 247 / 0.85)');
+        expect(tokenValue(primitiveCss, '--shadow-window-ring')).toContain(
             'inset 0 0 0 1px var(--color-window-stroke)'
+        );
+        expect(tokenValue(primitiveCss, '--shadow-window-ring')).toContain(
+            'inset 0 0 0 2px var(--color-window-rim-highlight)'
         );
         expect(tokenValue(semanticCss, '--shadow-window-stroke')).toBe('var(--shadow-window-ring)');
         expect(tokenValue(semanticCss, '--shadow-window-ambient')).toBe(
@@ -387,14 +390,20 @@ describe('desktop window shell', () => {
         expect(shadow).toContain('0 1px 2px');
         expect(shadow).toContain('0 4px 8px -1px');
         expect(shadow).toContain('0 8px 16px');
-        expect(shadow).toContain('rgb(15 23 42 / 0.12)');
+        expect(shadow).toContain('rgb(74 64 57 / 0.12)');
+        expect(shadow).not.toContain('rgb(15 23 42');
     });
 
-    it('user gets neutral search borders with the shared ambient shadow', () => {
+    it('user gets one softer corner radius on every floating window', () => {
+        expect(tokenValue(semanticCss, '--radius-window')).toBe('var(--radius-md)');
+        expect(tokenValue(primitiveCss, '--radius-md')).toBe('0.625rem');
+    });
+
+    it('user gets warm search borders with the shared ambient shadow', () => {
         const searchShadow = tailwindCss.match(/--search-surface-shadow:\s*([^;]+);/s)?.[1] ?? '';
         expect(
             resolveToken(tailwindCss, semanticCss, primitiveCss)('--search-surface-border')
-        ).toBe('rgb(117 117 117 / 0.3)');
+        ).toBe('rgb(74 64 57 / 0.28)');
 
         expect(searchShadow).toContain('var(--shadow-window-halo)');
         expect(searchShadow).toContain('var(--shadow-window-mid)');
