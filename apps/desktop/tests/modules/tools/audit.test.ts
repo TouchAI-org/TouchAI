@@ -78,7 +78,79 @@ function write(): ToolRegistration {
     };
 }
 
+function renderWidget(): ToolRegistration {
+    return {
+        name: 'builtin__show_widget',
+        source: 'builtin',
+        prepare: async () => ({
+            declaration: {
+                name: 'builtin__show_widget',
+                description: 'render a widget',
+                input_schema: { type: 'object', properties: {} },
+            },
+            authorize: async () => true,
+            execute: async (args) => ({
+                result: 'widget rendered',
+                isError: false,
+                structuredPayload: {
+                    kind: 'show_widget_snapshot',
+                    widgetId: 'w1',
+                    title: 'Sales',
+                    description: 'by region',
+                    html: typeof args.widget_code === 'string' ? args.widget_code : '',
+                    mode: 'render',
+                },
+            }),
+        }),
+    };
+}
+
 describe('given the controlled pipeline writes through the existing atomic SQLite tool writer', () => {
+    it('user keeps the whole widget beside the truncated and redacted audit copy of its arguments', async () => {
+        const { database, audit, scope } = fixture();
+        const tools = createTools({
+            registrations: [renderWidget()],
+            formatError: (code) => code,
+            beginAudit: audit.begin,
+        });
+        const html = `<section><img src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"><p>${'x'.repeat(9000)}</p></section>`;
+        try {
+            await (
+                await tools.snapshot()
+            ).execute(
+                {
+                    id: 'call',
+                    name: 'builtin__show_widget',
+                    arguments: JSON.stringify({ widget_code: html }),
+                },
+                scope
+            );
+            const stored = JSON.parse(
+                String(
+                    database
+                        .prepare("SELECT data FROM message_parts WHERE type = 'tool_call'")
+                        .get()?.data
+                )
+            );
+
+            expect(JSON.parse(stored.structured_payload_json)).toEqual({
+                kind: 'show_widget_snapshot',
+                widgetId: 'w1',
+                title: 'Sales',
+                description: 'by region',
+                html,
+                mode: 'render',
+            });
+            expect(stored.input).toContain('cdn.jsdelivr.net/[redacted-path]');
+            expect(stored.input).not.toContain('chart.umd.js');
+            expect(stored.input).toContain('…');
+            expect(stored.input.length).toBeLessThan(html.length);
+        } finally {
+            tools.dispose();
+            audit.dispose();
+        }
+    });
+
     it('user receives a committed redacted audit receipt without losing the tool presentation payload', async () => {
         const { database, events, audit, scope } = fixture();
         const tools = createTools({
