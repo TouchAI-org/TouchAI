@@ -17,6 +17,7 @@ import {
 import {
     ensureDirectory,
     nowIso,
+    readJsonFile,
     removeManagedDirectory,
     sha256File,
     sha256Text,
@@ -55,6 +56,51 @@ function listSnapshotEntries(root) {
     };
     walk(root);
     return entries;
+}
+
+export function verifyPreparedSnapshot(arm, snapshot, preparedRoot = evidenceRoot) {
+    const prepared = readJsonFile(path.join(preparedRoot, 'source-manifest.json'));
+    const reference = prepared?.[arm];
+    if (
+        prepared?.version !== MANIFEST_VERSION ||
+        !reference ||
+        typeof reference.path !== 'string' ||
+        typeof reference.sha256 !== 'string' ||
+        !fs.existsSync(reference.path)
+    ) {
+        throw new Error(`Prepared ${arm} snapshot manifest is missing or invalid.`);
+    }
+    if (sha256File(reference.path) !== reference.sha256) {
+        throw new Error(`Prepared ${arm} snapshot manifest changed after prepare.`);
+    }
+    const manifest = readJsonFile(reference.path);
+    if (
+        manifest?.version !== MANIFEST_VERSION ||
+        manifest.arm !== arm ||
+        path.resolve(manifest.snapshot) !== path.resolve(snapshot) ||
+        JSON.stringify(manifest.comparison) !== JSON.stringify(prepared.comparison) ||
+        !Array.isArray(manifest.entries)
+    ) {
+        throw new Error(`Prepared ${arm} snapshot manifest does not describe this comparison.`);
+    }
+    for (const entry of manifest.entries) {
+        const file = path.join(snapshot, entry.path);
+        let stat;
+        try {
+            stat = fs.lstatSync(file);
+        } catch {
+            throw new Error(`Prepared ${arm} snapshot is missing ${entry.path}; prepare again.`);
+        }
+        const matches =
+            entry.type === 'symlink'
+                ? stat.isSymbolicLink() && fs.readlinkSync(file) === entry.target
+                : entry.type === 'file' && stat.isFile() && sha256File(file) === entry.sha256;
+        if (!matches) {
+            throw new Error(
+                `Prepared ${arm} snapshot changed ${entry.path} after prepare; prepare again.`
+            );
+        }
+    }
 }
 
 function writeSourceManifest(arm, snapshot, comparison) {

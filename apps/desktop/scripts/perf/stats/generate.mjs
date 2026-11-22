@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import { evidenceRoot, rawRoot } from '../lib/config.mjs';
 import { readJsonFile, readJsonLines } from '../lib/io.mjs';
+import { validatePersistedPlan } from '../lib/protocol.mjs';
 import { isValidRun, measurementKey, validateRunHistory } from '../lib/records.mjs';
 import { applyEvidenceValidation } from './evidence.mjs';
 import { writeSamplesCsv, writeSummaryMarkdown } from './report.mjs';
@@ -37,6 +38,8 @@ export async function generateStats() {
     const recordedRuns = records.filter((record) => record.type === 'run');
     const plannedRuns = Array.isArray(runPlan.plan) ? runPlan.plan : [];
     const history = validateRunHistory(records, events, plannedRuns);
+    const planError = validatePersistedPlan(protocol, plannedRuns);
+    const lifecycleErrors = [...(planError ? [planError] : []), ...history.errors];
     const comparison = readJsonFile(path.join(evidenceRoot, 'source-manifest.json'))?.comparison;
     const evidenceError =
         !comparison ||
@@ -89,7 +92,7 @@ export async function generateStats() {
               : statuses.includes('BLOCKED') ||
                   missingPlannedRuns.length > 0 ||
                   invalidRuns.length > 0 ||
-                  history.errors.length > 0 ||
+                  lifecycleErrors.length > 0 ||
                   plannedRuns.length === 0
                 ? 'BLOCKED'
                 : 'PASS';
@@ -116,7 +119,7 @@ export async function generateStats() {
             validRuns: validRuns.length,
             invalidRuns: invalidRuns.length,
             missingPlannedRuns: missingPlannedRuns.length,
-            lifecycleErrors: history.errors.length,
+            lifecycleErrors: lifecycleErrors.length,
         },
         fixtureManifest: {
             present: fixtureManifest !== null,
@@ -133,7 +136,7 @@ export async function generateStats() {
                   )
                 : null,
         },
-        lifecycleErrors: history.errors,
+        lifecycleErrors,
         invalidRuns: invalidRuns.map((run) => ({
             runId: run.runId,
             flow: run.flow,

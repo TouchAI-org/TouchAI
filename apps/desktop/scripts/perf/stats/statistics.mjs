@@ -413,6 +413,14 @@ export function nearestMemory(samples, at, maxDistanceMs = 3000) {
     return bestDistance <= maxDistanceMs ? best : null;
 }
 
+export function nearestMemoryBefore(samples, at, maxDistanceMs = 3000) {
+    return nearestMemory(
+        samples.filter((sample) => sample.at <= at),
+        at,
+        maxDistanceMs
+    );
+}
+
 export function nearestMemoryWithin(samples, at, startAt, endAt, maxDistanceMs = 3000) {
     return nearestMemory(
         samples.filter((sample) => sample.at >= startAt && sample.at <= endAt),
@@ -544,7 +552,7 @@ export function buildLongSessionStats(
             const samples = memoryByRun.get(run.runId) ?? [];
             if (!baselineEvent || !openStart || !retained || !streamStart || !terminal || !settled)
                 continue;
-            const baselineMemory = nearestMemory(samples, baselineEvent.at);
+            const baselineMemory = nearestMemoryBefore(samples, openStart.at);
             const retainedMemory = nearestMemoryWithin(
                 samples,
                 retained.at,

@@ -1,10 +1,18 @@
-import { MANIFEST_VERSION, MAX_RAIL_TICKS } from '../lib/config.mjs';
-import { isUsableMemory, nearestMemory, nearestMemoryWithin } from './statistics.mjs';
+import { MANIFEST_VERSION, MAX_RAIL_TICKS, modelEndpoint } from '../lib/config.mjs';
+import {
+    isUsableMemory,
+    nearestMemory,
+    nearestMemoryBefore,
+    nearestMemoryWithin,
+} from './statistics.mjs';
 
 function fixtureValidationError(run, fixtureManifest) {
     if (!fixtureManifest) return 'fixture manifest is missing';
     if (fixtureManifest.version !== MANIFEST_VERSION) {
         return `fixture manifest version mismatch: expected ${MANIFEST_VERSION}, got ${fixtureManifest.version ?? 'missing'}`;
+    }
+    if (fixtureManifest.modelEndpoint !== modelEndpoint) {
+        return `fixture manifest endpoint mismatch: expected ${modelEndpoint}, got ${fixtureManifest.modelEndpoint ?? 'missing'}`;
     }
     const arm = fixtureManifest.arms?.[run.arm];
     if (!arm) return `fixture manifest is missing arm ${run.arm ?? 'unknown'}`;
@@ -245,7 +253,7 @@ function sampleValidationError(run, events, memory, protocol) {
     } else {
         if (
             !positive(markers[2][0].domNodes) ||
-            !nearestMemory(usable, times[0]) ||
+            !nearestMemoryBefore(usable, times[1]) ||
             !nearestMemoryWithin(usable, times[2], times[1], times[3]) ||
             !nearestMemory(usable, times[5])
         ) {

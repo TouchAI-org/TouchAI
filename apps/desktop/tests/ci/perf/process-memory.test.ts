@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
     aggregateMemory,
+    nextMemorySampleDelay,
     processBelongsToRun,
     readProcessSample,
     readRollup,
@@ -16,6 +17,11 @@ afterEach(() => {
 });
 
 describe('user reads desktop performance process memory samples', () => {
+    it('user keeps the configured cadence after a slow sample scan', () => {
+        expect(nextMemorySampleDelay(1_250, 1_040)).toBe(210);
+        expect(nextMemorySampleDelay(1_250, 1_400)).toBe(0);
+    });
+
     it('user sees unavailable PSS kept unavailable instead of being treated as zero', () => {
         expect(
             aggregateMemory([

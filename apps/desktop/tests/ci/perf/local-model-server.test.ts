@@ -166,6 +166,7 @@ describe('user runs the local performance model server', () => {
             expect(finalResponse.body).toContain('"finish_reason":"stop"');
             expect(finalResponse.body).toContain('data: [DONE]');
 
+            await running.flush();
             const records = fs
                 .readFileSync(logFile, 'utf8')
                 .trim()

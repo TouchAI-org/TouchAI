@@ -16,13 +16,22 @@ function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function appendJsonLine(file, value) {
-    if (!file) return;
-    try {
-        fs.appendFileSync(file, `${JSON.stringify(value)}\n`);
-    } catch (error) {
-        console.error('TOUCHAI_PERF model server could not append its log:', error);
-    }
+function createJsonLineSink(file) {
+    let pending = Promise.resolve();
+    return {
+        write(value) {
+            if (!file) return;
+            const line = `${JSON.stringify(value)}\n`;
+            pending = pending
+                .then(() => fs.promises.appendFile(file, line))
+                .catch((error) => {
+                    console.error('TOUCHAI_PERF model server could not append its log:', error);
+                });
+        },
+        flush() {
+            return pending;
+        },
+    };
 }
 
 function contentText(content) {
@@ -301,7 +310,7 @@ export async function startPerfModelServer(options = {}) {
     }
     const state = {
         chunkDelayMs: Number(options.chunkDelayMs) || DEFAULT_CHUNK_DELAY_MS,
-        logFile,
+        log: createJsonLineSink(logFile),
     };
 
     const definition = defineEmulator({
@@ -351,7 +360,7 @@ export async function startPerfModelServer(options = {}) {
                 const rounds = Math.max(0, Number(prompt.fields.rounds) || 0);
                 const history = validateToolHistory(messages, prompt, rounds);
                 if (history.error) {
-                    appendJsonLine(state.logFile, {
+                    state.log.write({
                         type: 'invalid-tool-history',
                         at: Date.now(),
                         promptId: prompt.fields.promptId ?? null,
@@ -367,7 +376,7 @@ export async function startPerfModelServer(options = {}) {
                     .slice(0, 12)}`;
                 const response = createCompletionStream({ id, model });
 
-                appendJsonLine(state.logFile, {
+                state.log.write({
                     type: 'request',
                     at: Date.now(),
                     promptId: prompt.fields.promptId ?? null,
@@ -381,7 +390,7 @@ export async function startPerfModelServer(options = {}) {
                     .then(() => streamResponse(response, prompt, state, toolCount))
                     .then((completed) => {
                         if (!completed) return;
-                        appendJsonLine(state.logFile, {
+                        state.log.write({
                             type: 'complete',
                             at: Date.now(),
                             promptId: prompt.fields.promptId ?? null,
@@ -389,7 +398,7 @@ export async function startPerfModelServer(options = {}) {
                         });
                     })
                     .catch((error) => {
-                        appendJsonLine(state.logFile, {
+                        state.log.write({
                             type: 'error',
                             at: Date.now(),
                             error: String(error),
@@ -417,7 +426,11 @@ export async function startPerfModelServer(options = {}) {
     return {
         endpoint: `${emulator.url}/v1`,
         port,
-        close: () => emulator.close(),
+        flush: () => state.log.flush(),
+        close: async () => {
+            await emulator.close();
+            await state.log.flush();
+        },
     };
 }
 

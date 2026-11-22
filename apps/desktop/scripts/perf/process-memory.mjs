@@ -5,6 +5,19 @@ import { pathToFileURL } from 'node:url';
 const DEFAULT_INTERVAL_MS = 250;
 const INCLUDED_PROCESS = /^(TouchAI|WebKit(?!WebDriver$)(Web|Network|Storage|GPU|Cache).*)$/;
 
+function readInterval(value) {
+    if (value === undefined) return DEFAULT_INTERVAL_MS;
+    const interval = Number(value);
+    if (!Number.isSafeInteger(interval) || interval <= 0) {
+        throw new Error(`Invalid --interval-ms: ${value}`);
+    }
+    return interval;
+}
+
+export function nextMemorySampleDelay(scheduledAt, now) {
+    return Math.max(0, scheduledAt - now);
+}
+
 function readArgs() {
     const args = process.argv.slice(2);
     const value = (name) => {
@@ -14,7 +27,7 @@ function readArgs() {
     return {
         appRoot: path.resolve(value('--app-root') ?? ''),
         out: path.resolve(value('--out') ?? ''),
-        intervalMs: Number(value('--interval-ms')) || DEFAULT_INTERVAL_MS,
+        intervalMs: readInterval(value('--interval-ms')),
         runId: value('--run-id') ?? '',
         arm: value('--arm') ?? '',
         flow: value('--flow') ?? '',
@@ -197,6 +210,7 @@ function main() {
     process.once('SIGINT', stop);
     process.once('SIGTERM', stop);
 
+    let nextAt = Date.now();
     const sample = () => {
         if (!running) return;
         const processes = processesForRoot(args.appRoot, args.runToken);
@@ -211,7 +225,8 @@ function main() {
             ...aggregateMemory(processes),
         };
         fs.appendFileSync(args.out, `${JSON.stringify(record)}\n`);
-        timer = setTimeout(sample, args.intervalMs);
+        nextAt += args.intervalMs;
+        timer = setTimeout(sample, nextMemorySampleDelay(nextAt, Date.now()));
     };
 
     sample();

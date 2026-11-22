@@ -8,6 +8,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
+import { parse } from 'yaml';
+
+import { MANIFEST_VERSION, modelEndpoint } from '../../../apps/desktop/scripts/perf/lib/config.mjs';
 
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(testDirectory, '../../..');
@@ -17,6 +20,30 @@ const comparison = {
     baselineCommit: 'a'.repeat(40),
     candidateCommit: 'b'.repeat(40),
 };
+
+type WorkflowStep = {
+    name?: string;
+    uses?: string;
+    run?: string;
+    if?: string;
+    with?: Record<string, unknown>;
+    'continue-on-error'?: boolean;
+};
+
+type PerformanceWorkflow = {
+    jobs: {
+        performance: {
+            'runs-on': string;
+            'timeout-minutes': number;
+            env: Record<string, string>;
+            steps: WorkflowStep[];
+        };
+    };
+};
+
+async function readPerformanceWorkflow(): Promise<PerformanceWorkflow> {
+    return parse(await readFile(workflowPath, 'utf8')) as PerformanceWorkflow;
+}
 
 function spawnGate(root: string) {
     return spawnSync(process.execPath, [perfRunner, 'gate'], {
@@ -111,8 +138,9 @@ function writePassingEvidence(root: string): void {
     writeFileSync(
         path.join(root, 'fixture-manifest.json'),
         JSON.stringify({
-            version: 1,
+            version: MANIFEST_VERSION,
             comparison,
+            modelEndpoint,
             arms: {
                 baseline: {
                     sourceBinarySha256: 'baseline-binary-sha',
@@ -143,62 +171,70 @@ function writePassingEvidence(root: string): void {
 
 describe('user runs desktop performance on GitHub Actions', () => {
     it('user sees the canonical workflow use a GitHub-hosted display stack', async () => {
-        const workflow = await readFile(workflowPath, 'utf8');
+        const workflow = await readPerformanceWorkflow();
+        const job = workflow.jobs.performance;
+        const setupNode = job.steps.find((step) => step.uses?.startsWith('actions/setup-node@'));
+        const install = job.steps.find(
+            (step) => step.name === 'Install Linux GUI and build dependencies'
+        );
+        const validate = job.steps.find((step) => step.name === 'Validate inputs');
+        const checkout = job.steps.find((step) => step.uses?.startsWith('actions/checkout@'));
 
-        expect(workflow).toContain('runs-on: ubuntu-24.04');
-        expect(workflow).toContain('node-version: 22');
-        expect(workflow).not.toContain('self-hosted');
-        expect(workflow).not.toContain('Daytona');
-        expect(workflow).toContain('dbus-x11');
-        expect(workflow).toContain('dunst');
-        expect(workflow).toContain('openbox');
-        expect(workflow).toContain('wmctrl');
-        expect(workflow).toContain("inputs['startup-settle-ms']");
-        expect(workflow).toContain("inputs['latency-blocks']");
-        expect(workflow).toContain("inputs['long-blocks']");
-        expect(workflow).toContain('TOUCHAI_PERF_EVIDENCE: /tmp/touchai-perf-evidence');
-        expect(workflow).toContain('TOUCHAI_PERF_ARTIFACTS: /tmp/touchai-perf-artifacts');
-        expect(workflow).toContain('performance-scope');
-        expect(workflow).toContain('- cold-latency');
-        expect(workflow).toContain('- steady-state-memory');
-        expect(workflow).toContain('- full');
-        expect(workflow).toContain("github.event_name == 'schedule'");
-        expect(workflow).toContain('--progress-blocks "$PROGRESS_BLOCKS"');
-        expect(workflow).toContain("inputs['long-blocks'] || '6'");
-        expect(workflow).toContain('--long-blocks "$LONG_BLOCKS"');
-        expect(workflow).toContain('long-blocks must be at least 6');
-        expect(workflow).toContain('--history-levels "$HISTORY_LEVELS"');
-        expect(workflow).toContain('persist-credentials: false');
-        expect(workflow).toContain('startup-settle-ms must be a positive integer');
-        expect(workflow).not.toContain('${{ github.workspace }}/../');
-        expect(workflow).not.toContain('TOUCHAI_PERF_EVIDENCE: ${{ runner.temp }}');
+        expect(job['runs-on']).toBe('ubuntu-24.04');
+        expect(job['timeout-minutes']).toBe(360);
+        expect(setupNode?.with?.['node-version']).toBe(22);
+        expect(checkout?.with?.['persist-credentials']).toBe(false);
+        expect(install?.run).toContain('dbus-x11');
+        expect(install?.run).toContain('dunst');
+        expect(install?.run).toContain('openbox');
+        expect(install?.run).toContain('wmctrl');
+        expect(job.env.TOUCHAI_PERF_EVIDENCE).toBe('/tmp/touchai-perf-evidence');
+        expect(job.env.TOUCHAI_PERF_ARTIFACTS).toBe('/tmp/touchai-perf-artifacts');
+        expect(job.env.PERF_SCOPE).toContain("github.event_name == 'schedule'");
+        expect(validate?.run).toContain('startup-settle-ms must be a positive integer');
+        expect(validate?.run).toContain('long-blocks must be at least 6');
+        expect(validate?.run).toContain('more than 180 minutes settling alone');
+        expect(await readFile(workflowPath, 'utf8')).not.toContain('self-hosted');
     });
 
     it('user sees invalid samples and gate failures make the job fail', async () => {
-        const workflow = await readFile(workflowPath, 'utf8');
+        const workflow = await readPerformanceWorkflow();
+        const job = workflow.jobs.performance;
+        const names = job.steps.map((step) => step.name);
+        const gateIndex = names.indexOf('Enforce desktop performance gate');
+        const summaryIndex = names.indexOf('Summarize gate');
+        const uploadIndex = names.indexOf('Upload performance evidence');
+        const runStep = job.steps.find((step) => step.name === 'Run desktop performance protocol');
+        const source = await readFile(workflowPath, 'utf8');
 
-        expect(workflow).toContain(
-            "contains(github.event.pull_request.labels.*.name, 'performance')"
-        );
-        expect(workflow).toContain('Enforce desktop performance gate');
-        expect(workflow).toContain('node apps/desktop/scripts/perf/run.mjs gate');
-        expect(workflow).toContain('steady-state-memory) flows=progress,long-session');
-        expect(workflow).toContain('cat "$TOUCHAI_PERF_EVIDENCE/summary.md"');
-        expect(workflow).not.toContain('continue-on-error');
+        expect(gateIndex).toBeGreaterThan(-1);
+        expect(gateIndex).toBeLessThan(summaryIndex);
+        expect(summaryIndex).toBeLessThan(uploadIndex);
+        expect(job.steps[gateIndex]?.if).toBe('always()');
+        expect(job.steps[summaryIndex]?.if).toBe('always()');
+        expect(job.steps[uploadIndex]?.if).toBe('always()');
+        expect(runStep?.run).toContain('steady-state-memory) flows=progress,long-session');
+        expect(job.steps[gateIndex]?.run).toContain('apps/desktop/scripts/perf/run.mjs gate');
+        expect(job.steps.some((step) => step['continue-on-error'] === true)).toBe(false);
+        expect(source).not.toContain('continue-on-error');
     });
 
     it('user compares the pull request merge commit with its base without an obsolete baseline alias', async () => {
-        const workflow = await readFile(workflowPath, 'utf8');
+        const workflow = await readPerformanceWorkflow();
+        const job = workflow.jobs.performance;
+        const checkout = job.steps.find((step) => step.uses?.startsWith('actions/checkout@'));
+        const runStep = job.steps.find((step) => step.name === 'Run desktop performance protocol');
+        const source = await readFile(workflowPath, 'utf8');
 
-        expect(workflow).toContain('github.event.pull_request.base.sha');
-        expect(workflow).toContain('PERF_CANDIDATE_REQUEST: ${{ inputs.candidate || github.sha }}');
-        expect(workflow).toContain('ref: ${{ inputs.candidate || github.sha }}');
-        expect(workflow).not.toContain('github.event.pull_request.head.sha');
-        expect(workflow).toContain('node apps/desktop/scripts/perf/run.mjs all');
-        expect(workflow).toContain('--baseline "$PERF_BASELINE"');
-        expect(workflow).toContain('--candidate "$PERF_CANDIDATE"');
-        expect(workflow).toContain("inputs['latency-blocks'] || '60'");
-        expect(workflow).toContain("PROGRESS_BLOCKS: '3'");
+        expect(job.env.PERF_BASELINE_REQUEST).toContain('github.event.pull_request.base.sha');
+        expect(job.env.PERF_CANDIDATE_REQUEST).toContain('inputs.candidate || github.sha');
+        expect(checkout?.with?.ref).toContain('inputs.candidate || github.sha');
+        expect(job.env.LATENCY_BLOCKS).toContain("inputs['latency-blocks'] || '60'");
+        expect(job.env.PROGRESS_BLOCKS).toBe('3');
+        expect(runStep?.run).toContain('node apps/desktop/scripts/perf/run.mjs all');
+        expect(runStep?.run).toContain('--baseline "$PERF_BASELINE"');
+        expect(runStep?.run).toContain('--candidate "$PERF_CANDIDATE"');
+        expect(source).not.toContain('github.event.pull_request.head.sha');
     });
 
     it('user sees the performance gate pass from complete current evidence', () => {

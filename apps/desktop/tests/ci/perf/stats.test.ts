@@ -8,6 +8,9 @@ import { fileURLToPath } from 'node:url';
 
 import { afterAll, describe, expect, it } from 'vitest';
 
+import { MANIFEST_VERSION, modelEndpoint } from '../../../scripts/perf/lib/config.mjs';
+import { nearestMemoryBefore } from '../../../scripts/perf/stats/statistics.mjs';
+
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const RUN_CLI = path.resolve(testDirectory, '../../../scripts/perf/run.mjs');
 const cleanup: string[] = [];
@@ -41,6 +44,7 @@ function createEvidenceRoot(): string {
                     comparison,
                     flows: ['latency'],
                     historyLevels: [],
+                    latencyBlocks: 4,
                     warmSamples: 0,
                 },
             },
@@ -65,8 +69,9 @@ function writeFixtureManifest(root: string, historyLevels = [100]): void {
         path.join(root, 'fixture-manifest.json'),
         `${JSON.stringify(
             {
-                version: 1,
+                version: MANIFEST_VERSION,
                 comparison,
+                modelEndpoint,
                 arms: {
                     baseline: {
                         sourceBinarySha256: 'baseline-binary-sha',
@@ -108,6 +113,7 @@ function writeRunPlan(
         flow?: string;
         block: number;
         sequenceIndex: number;
+        fixture?: string;
         historyLevel?: number | null;
     }>
 ): void {
@@ -118,9 +124,33 @@ function writeRunPlan(
         flow: run.flow ?? 'latency',
         block: run.block,
         sequenceIndex: run.sequenceIndex,
-        fixture: 'base',
+        fixture: run.fixture ?? 'base',
         historyLevel: run.historyLevel ?? 0,
     }));
+    const planItems = plan.plan as Array<{
+        arm: 'baseline' | 'current';
+        flow: string;
+        block: number;
+        sequenceIndex: number;
+        fixture: string;
+        historyLevel: number;
+    }>;
+    plan.protocol.flows = [...new Set(planItems.map((item) => item.flow))];
+    for (const [flow, key] of [
+        ['latency', 'latencyBlocks'],
+        ['progress', 'progressBlocks'],
+        ['long-session', 'longBlocks'],
+    ] as const) {
+        const blocks = planItems.filter((item) => item.flow === flow).map((item) => item.block);
+        if (blocks.length > 0) plan.protocol[key] = Math.max(...blocks);
+    }
+    plan.protocol.historyLevels = [
+        ...new Set(
+            planItems
+                .filter((item) => item.flow === 'long-session')
+                .map((item) => item.historyLevel)
+        ),
+    ];
     fs.writeFileSync(planFile, `${JSON.stringify(plan, null, 4)}\n`);
 }
 
@@ -387,16 +417,11 @@ function writeSyntheticLongSessionRuns(root: string, historyLevel = 100): void {
                           : baselinePss
                 );
             }
-            for (const phaseAt of [at + 200, at + 1_000, at + 1_100, at + 2_000, at + 3_000]) {
-                memorySamples.set(
-                    phaseAt,
-                    phaseAt >= at + 3_000
-                        ? settledPss
-                        : phaseAt >= at + 1_000
-                          ? retainedPss
-                          : baselinePss
-                );
+            for (const phaseAt of [at + 200, at + 1_000, at + 1_100, at + 2_000]) {
+                memorySamples.set(phaseAt, phaseAt >= at + 1_000 ? retainedPss : baselinePss);
             }
+            memorySamples.delete(at + 3_000);
+            memorySamples.set(at + 2_900, settledPss);
             memorySamples.set(at + 3_001, 0);
             for (const [sampleAt, totalPssKb] of memorySamples) {
                 memory.push({
@@ -552,6 +577,34 @@ afterAll(() => {
 });
 
 describe('user reads the desktop performance statistics', () => {
+    it('user keeps the idle baseline from before history opening starts', () => {
+        const samples = [
+            { at: 800, totalPssKb: 900_000 },
+            { at: 1_040, totalPssKb: 1_000_000 },
+        ];
+
+        expect(nearestMemoryBefore(samples, 1_000)?.totalPssKb).toBe(900_000);
+    });
+
+    it('user cannot pass fixtures generated for a different model endpoint', () => {
+        const root = createEvidenceRoot();
+        writeFixtureManifest(root);
+        writeSyntheticRuns(root, coldOnlyRuns());
+        const manifestPath = path.join(root, 'fixture-manifest.json');
+        const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+        manifest.modelEndpoint = 'http://127.0.0.1:9999/v1';
+        fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 4)}\n`);
+
+        runStats(root);
+        const stats = readStats(root);
+
+        expect(stats.overallStatus).toBe('BLOCKED');
+        expect(stats.rawCounts.validRuns).toBe(0);
+        expect(stats.invalidRuns[0].invalidReasons[0]).toContain(
+            'fixture manifest endpoint mismatch'
+        );
+    });
+
     it('user cannot pass when an extra invalid launch exists beside enough complete blocks', () => {
         const root = createEvidenceRoot();
         writeFixtureManifest(root);
@@ -1054,6 +1107,7 @@ describe('user reads the desktop performance statistics', () => {
 
             expect(result.status).toBe(0);
             expect(stats.longSession.status).toBe('PASS');
+            expect(stats.rawCounts.lifecycleErrors).toBe(0);
             expect(settled.status).toBe('AUX');
             expect(settled.armStats.current.median).toBe(1_040_000);
             expect(settled.armStats.baseline.median).toBe(1_050_000);
@@ -1221,6 +1275,22 @@ describe('user reads the desktop performance statistics', () => {
             expect(stats.rawCounts.missingPlannedRuns).toBe(8);
             expect(stats.latency.metrics[0].excludedClusterCount).toBe(2);
             expect(stats.overallStatus).toBe('BLOCKED');
+        });
+    });
+
+    describe('given a plan that omits required A/B/B/A slots', () => {
+        it('user sees the declared protocol reject the incomplete saved plan', () => {
+            const root = createEvidenceRoot();
+            writeFixtureManifest(root);
+            const truncated = coldOnlyRuns(3).filter((run) => run.sequenceIndex <= 2);
+            writeSyntheticRuns(root, truncated, truncated);
+
+            const result = runStats(root);
+            const stats = readStats(root);
+
+            expect(result.status).toBe(0);
+            expect(stats.overallStatus).toBe('BLOCKED');
+            expect(stats.lifecycleErrors.join('\n')).toContain('declared protocol requires 12');
         });
     });
 

@@ -128,10 +128,6 @@ describe('user runs one performance measurement', () => {
                 })),
             })
         );
-        fs.writeFileSync(
-            path.join(evidenceRoot, 'fixture-manifest.json'),
-            JSON.stringify({ comparison })
-        );
         const original = {
             runs: 'existing runs\n',
             events: 'existing events\n',
@@ -149,6 +145,12 @@ describe('user runs one performance measurement', () => {
         process.env.TOUCHAI_PERF_EVIDENCE = evidenceRoot;
         process.env.TOUCHAI_PERF_PORT = String(address.port);
         process.env.TOUCHAI_PERF_STARTUP_SETTLE_MS = '8000';
+        const { MANIFEST_VERSION, modelEndpoint } =
+            await import('../../../scripts/perf/lib/config.mjs');
+        fs.writeFileSync(
+            path.join(evidenceRoot, 'fixture-manifest.json'),
+            JSON.stringify({ version: MANIFEST_VERSION, comparison, modelEndpoint })
+        );
 
         try {
             const { runMeasurements } = await import('../../../scripts/perf/lib/orchestrator.mjs');

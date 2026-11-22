@@ -7,6 +7,7 @@ export type PerfModelServerOptions = {
 export type PerfModelServer = {
     endpoint: string;
     port: number;
+    flush: () => Promise<void>;
     close: () => Promise<void>;
 };
 

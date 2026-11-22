@@ -21,6 +21,7 @@ import {
     writeJson,
 } from './io.mjs';
 import { runInCgroup } from './process.mjs';
+import { verifyPreparedSnapshot } from './snapshots.mjs';
 
 export function verifyBuiltArms() {
     const comparison = readComparison();
@@ -40,6 +41,7 @@ export function verifyBuiltArms() {
 
 async function buildArm(arm) {
     const snapshot = arm === 'baseline' ? baselineSnapshot : currentSnapshot;
+    verifyPreparedSnapshot(arm, snapshot);
     const tauriBinary = path.join(snapshot, 'apps/desktop/node_modules/.bin/tauri');
     if (!fs.existsSync(tauriBinary)) {
         throw new Error(`Tauri CLI is missing from ${snapshot}.`);

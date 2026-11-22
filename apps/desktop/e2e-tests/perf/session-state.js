@@ -14,6 +14,7 @@ export function isSeededSessionReady({ historyLevel, mountedMessageIds }) {
 export async function waitForSessionSettled({ databasePath, prompt, timeoutMs = 120000 }) {
     // The rendered sentinel ends latency timing; only a committed turn validates the sample.
     const database = new DatabaseSync(databasePath, { readOnly: true });
+    const observed = { status: null, error: null };
     try {
         database.exec('PRAGMA busy_timeout=1000');
         const query = database.prepare(`
@@ -24,17 +25,21 @@ export async function waitForSessionSettled({ databasePath, prompt, timeoutMs = 
         await browser.waitUntil(
             () => {
                 const turns = query.all(prompt);
-                if (turns.length > 1) throw new Error('The measured prompt owns multiple turns');
-                const status = turns[0]?.status;
-                if (status === 'failed' || status === 'cancelled') {
-                    throw new Error(`The measured turn was durably ${status}`);
+                if (turns.length > 1) {
+                    observed.error = 'The measured prompt owns multiple turns';
+                    return true;
                 }
-                return status === 'completed';
+                observed.status = turns[0]?.status ?? null;
+                return ['completed', 'failed', 'cancelled'].includes(observed.status);
             },
             { timeout: timeoutMs, timeoutMsg: 'The measured turn did not durably complete' }
         );
     } finally {
         database.close();
+    }
+    if (observed.error) throw new Error(observed.error);
+    if (observed.status !== 'completed') {
+        throw new Error(`The measured turn was durably ${observed.status ?? 'missing'}`);
     }
     await $('[data-testid="conversation-panel-host"] [role="log"][aria-busy="false"]').waitForExist(
         { timeout: timeoutMs }

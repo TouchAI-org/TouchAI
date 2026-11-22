@@ -11,13 +11,13 @@ import {
     baselineSnapshot,
     binaryPathByArm,
     currentSnapshot,
-    DEFAULT_PORT,
     evidenceRoot,
     fixtureLevels,
     fixturePathByArm,
     fixturesRoot,
     logsRoot,
     MANIFEST_VERSION,
+    modelEndpoint,
     repoRoot,
 } from './config.mjs';
 import {
@@ -70,7 +70,7 @@ async function initializeDatabaseFromArm(arm) {
         pathToFileURL(path.join(snapshot, 'apps/desktop/e2e-tests/test/support/agent-fixture.js'))
             .href
     );
-    seedAgentDatabase(initialized, `http://127.0.0.1:${DEFAULT_PORT}/v1`);
+    seedAgentDatabase(initialized, modelEndpoint);
     const migrationTags = runSync('sqlite3', [
         initialized,
         'SELECT hash FROM migrations ORDER BY id;',
@@ -95,7 +95,7 @@ BEGIN IMMEDIATE;
 DELETE FROM models;
 UPDATE providers SET enabled = 0;
 INSERT INTO providers (name, driver, api_endpoint, api_key, logo, enabled, is_builtin)
-VALUES ('Performance fixture', 'openai-compatible', 'http://127.0.0.1:${DEFAULT_PORT}/v1', 'perf-only', 'test', 1, 0);
+VALUES ('Performance fixture', 'openai-compatible', '${modelEndpoint}', 'perf-only', 'test', 1, 0);
 UPDATE built_in_tools SET enabled = CASE WHEN tool_id = 'setting' THEN 1 ELSE 0 END;
 INSERT INTO models (
     provider_id, name, model_id, is_default, last_used_at,
@@ -249,6 +249,10 @@ function businessOracleSha256(database, projection, log) {
 export async function prepareFixtures() {
     verifyBuiltArms();
     ensureDirectory(fixturesRoot);
+    // Fixtures and their manifest are one generation. Make the old manifest
+    // unreadable before replacing any database so a partial regeneration cannot
+    // be mistaken for the previous complete generation.
+    fs.rmSync(path.join(evidenceRoot, 'fixture-manifest.json'), { force: true });
     const baseContexts = {};
     const armManifests = {};
     for (const arm of arms) {
@@ -342,6 +346,7 @@ export async function prepareFixtures() {
         version: MANIFEST_VERSION,
         generatedAt: nowIso(),
         comparison: readComparison(),
+        modelEndpoint,
         arms: armManifests,
         businessOracles,
     };

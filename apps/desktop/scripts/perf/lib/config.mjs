@@ -29,11 +29,12 @@ export const wdioBinary = path.join(desktopRoot, 'node_modules/.bin/wdio');
 export const currentSnapshot = path.join(snapshotsRoot, 'current');
 export const baselineSnapshot = path.join(snapshotsRoot, 'baseline');
 
-export const MANIFEST_VERSION = 1;
+export const MANIFEST_VERSION = 2;
 export const MAX_DISPLAY_STARTUP_ATTEMPTS = 2;
 // Keep native evidence aligned with MessageScroller's rendering bound.
 export const MAX_RAIL_TICKS = 96;
 export const DEFAULT_PORT = readPort(process.env.TOUCHAI_PERF_PORT ?? 3426);
+export const modelEndpoint = `http://127.0.0.1:${DEFAULT_PORT}/v1`;
 export const startupSettleMs = readPositiveInteger(
     process.env.TOUCHAI_PERF_STARTUP_SETTLE_MS ?? 8000,
     'TOUCHAI_PERF_STARTUP_SETTLE_MS'

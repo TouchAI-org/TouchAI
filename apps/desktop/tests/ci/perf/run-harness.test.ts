@@ -1,6 +1,7 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -9,17 +10,25 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { resolveComparison } from '../../../scripts/perf/lib/comparison.mjs';
+import { MANIFEST_VERSION } from '../../../scripts/perf/lib/config.mjs';
 import { performanceHarnessLockPath } from '../../../scripts/perf/lib/lock.mjs';
 import {
     createSamplerWatch,
     measurementInvalidReasons,
     samplerFailureReason,
 } from '../../../scripts/perf/lib/measurement.mjs';
-import { linkSnapshotDependencies } from '../../../scripts/perf/lib/snapshots.mjs';
+import {
+    linkSnapshotDependencies,
+    verifyPreparedSnapshot,
+} from '../../../scripts/perf/lib/snapshots.mjs';
 
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const RUN_CLI = path.resolve(testDirectory, '../../../scripts/perf/run.mjs');
 const cleanup: string[] = [];
+
+function sha256File(file: string): string {
+    return createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+}
 
 function comparisonRepository(): string {
     const root = createEvidenceRoot();
@@ -31,6 +40,7 @@ function comparisonRepository(): string {
     git('init', '-q');
     git('config', 'user.name', 'Fixture');
     git('config', 'user.email', 'fixture@example.invalid');
+    git('config', 'commit.gpgSign', 'false');
     fs.mkdirSync(path.join(root, 'apps/desktop/src/database'), { recursive: true });
     fs.writeFileSync(path.join(root, 'apps/desktop/src/database/seed.sql'), 'fixture');
     fs.writeFileSync(path.join(root, 'pnpm-lock.yaml'), 'fixture');
@@ -242,7 +252,11 @@ describe('user previews and resumes the desktop performance run', () => {
                 }).stdout.trim();
                 fs.symlinkSync(executable, path.join(bin, command));
             }
-            fs.writeFileSync(path.join(bin, 'pnpm'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+            fs.writeFileSync(
+                path.join(bin, 'pnpm'),
+                '#!/bin/sh\necho injected-pnpm-failure >&2\nexit 1\n',
+                { mode: 0o755 }
+            );
 
             const result = spawnSync(
                 process.execPath,
@@ -260,9 +274,57 @@ describe('user previews and resumes the desktop performance run', () => {
             );
 
             expect(result.status).toBe(1);
+            expect(result.stderr).toContain('injected-pnpm-failure');
             expect(fs.existsSync(manifest)).toBe(false);
         }
     );
+
+    it('user cannot build a snapshot modified after preparation', () => {
+        const root = createEvidenceRoot();
+        const snapshot = path.join(root, 'snapshots/current');
+        const source = path.join(snapshot, 'package.json');
+        fs.mkdirSync(path.dirname(source), { recursive: true });
+        fs.writeFileSync(source, '{"name":"prepared"}\n');
+        const comparison = {
+            baselineCommit: 'a'.repeat(40),
+            candidateCommit: 'b'.repeat(40),
+        };
+        const armManifest = path.join(root, 'manifests/current-source-manifest.json');
+        fs.mkdirSync(path.dirname(armManifest), { recursive: true });
+        fs.writeFileSync(
+            armManifest,
+            JSON.stringify({
+                version: MANIFEST_VERSION,
+                arm: 'current',
+                snapshot,
+                comparison,
+                entries: [
+                    {
+                        path: 'package.json',
+                        type: 'file',
+                        sha256: sha256File(source),
+                    },
+                ],
+            })
+        );
+        fs.writeFileSync(
+            path.join(root, 'source-manifest.json'),
+            JSON.stringify({
+                version: MANIFEST_VERSION,
+                comparison,
+                current: {
+                    path: armManifest,
+                    sha256: sha256File(armManifest),
+                },
+            })
+        );
+
+        expect(() => verifyPreparedSnapshot('current', snapshot, root)).not.toThrow();
+        fs.writeFileSync(source, '{"name":"changed-after-prepare"}\n');
+        expect(() => verifyPreparedSnapshot('current', snapshot, root)).toThrow(
+            'changed package.json after prepare'
+        );
+    });
 
     it('user cannot record a startup settle that the workload does not use', () => {
         const root = createEvidenceRoot();
@@ -274,6 +336,28 @@ describe('user previews and resumes the desktop performance run', () => {
 
         expect(result.status).toBe(1);
         expect(result.stderr).toContain('TOUCHAI_PERF_STARTUP_SETTLE_MS');
+    });
+
+    it.each([
+        ['warm-samples', '1.5'],
+        ['latency-blocks', '2.5'],
+        ['memory-interval-ms', '250.5'],
+    ])('user cannot record fractional --%s', (option, value) => {
+        const root = createEvidenceRoot();
+        const result = runHarness(root, [
+            '--dry-run',
+            '--flows',
+            'latency',
+            '--latency-blocks',
+            '1',
+            '--warm-samples',
+            '0',
+            `--${option}`,
+            value,
+        ]);
+
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain(`--${option}`);
     });
 
     it.each([

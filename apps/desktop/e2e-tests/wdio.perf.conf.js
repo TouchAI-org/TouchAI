@@ -67,17 +67,19 @@ async function closeTauriDriverAndWait() {
     const child = tauriDriver;
     tauriDriver = null;
     exitRequested = true;
-    if (!child || child.exitCode !== null) return;
-    await new Promise((resolve) => {
-        const timeout = setTimeout(() => {
-            child.kill('SIGKILL');
-        }, 5000);
-        child.once('exit', () => {
-            clearTimeout(timeout);
-            resolve();
+    if (!child) return;
+    if (child.exitCode === null && child.signalCode === null) {
+        await new Promise((resolve) => {
+            const timeout = setTimeout(() => {
+                child.kill('SIGKILL');
+            }, 5000);
+            child.once('exit', () => {
+                clearTimeout(timeout);
+                resolve();
+            });
+            child.kill('SIGTERM');
         });
-        child.kill('SIGTERM');
-    });
+    }
     await waitForDriverPort(false, 30000);
 }
 

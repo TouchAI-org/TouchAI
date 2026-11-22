@@ -20,14 +20,17 @@ export function parseArgs(argv) {
     return values;
 }
 
-function numberArg(args, name, fallback) {
-    const value = Number(args[name]);
-    return Number.isFinite(value) && value > 0 ? value : fallback;
-}
-
-function nonNegativeNumberArg(args, name, fallback) {
-    const value = Number(args[name]);
-    return Number.isFinite(value) && value >= 0 ? value : fallback;
+function integerArg(args, name, fallback, minimum = 1) {
+    if (args[name] === undefined) return fallback;
+    const raw = String(args[name]);
+    if (!/^\d+$/.test(raw)) {
+        throw new Error(`--${name} must be an integer of at least ${minimum}.`);
+    }
+    const value = Number(raw);
+    if (!Number.isSafeInteger(value) || value < minimum) {
+        throw new Error(`--${name} must be an integer of at least ${minimum}.`);
+    }
+    return value;
 }
 
 export function buildRunPlan(options) {
@@ -106,20 +109,94 @@ export function protocolMismatches(previous, requested) {
         .map(([key]) => key);
 }
 
+function planIdentity(item) {
+    if (
+        !item ||
+        typeof item.flow !== 'string' ||
+        !Number.isInteger(item.block) ||
+        !Number.isInteger(item.sequenceIndex) ||
+        (item.arm !== 'baseline' && item.arm !== 'current') ||
+        typeof item.fixture !== 'string'
+    ) {
+        return null;
+    }
+    return JSON.stringify([
+        item.flow,
+        item.block,
+        item.sequenceIndex,
+        item.arm,
+        item.historyLevel || 0,
+        item.fixture,
+    ]);
+}
+
+export function validatePersistedPlan(protocol, plan) {
+    if (!Array.isArray(protocol?.flows) || protocol.flows.length === 0) {
+        return 'persisted run protocol has no flows';
+    }
+    const unknownFlow = protocol.flows.find(
+        (flow) => !['latency', 'progress', 'long-session'].includes(flow)
+    );
+    if (unknownFlow) return `persisted run protocol has unknown flow ${unknownFlow}`;
+    let expected;
+    try {
+        expected = buildRunPlan(protocol);
+    } catch (error) {
+        return `persisted run protocol is invalid: ${
+            error instanceof Error ? error.message : String(error)
+        }`;
+    }
+    if (!Array.isArray(plan)) return 'persisted run plan is missing';
+    const savedIds = plan.map(planIdentity);
+    if (savedIds.some((identity) => identity === null)) {
+        return 'persisted run plan contains an invalid slot';
+    }
+    if (new Set(savedIds).size !== savedIds.length) {
+        return 'persisted run plan contains duplicate slots';
+    }
+    const expectedIds = new Set(expected.map(planIdentity));
+    const saved = new Set(savedIds);
+    if (expectedIds.size !== saved.size) {
+        return `persisted run plan has ${saved.size} slots; the declared protocol requires ${expectedIds.size}`;
+    }
+    for (const identity of expectedIds) {
+        if (!saved.has(identity)) return 'persisted run plan does not match the declared protocol';
+    }
+    for (const identity of saved) {
+        if (!expectedIds.has(identity))
+            return 'persisted run plan does not match the declared protocol';
+    }
+    return null;
+}
+
+function parseFlows(value) {
+    const flows = String(value)
+        .split(',')
+        .map((flow) => flow.trim())
+        .filter(Boolean);
+    if (flows.length === 0) throw new Error('--flows must not be empty.');
+    const unknown = flows.find((flow) => !['latency', 'progress', 'long-session'].includes(flow));
+    if (unknown) throw new Error(`Unknown performance flow: ${unknown}`);
+    if (new Set(flows).size !== flows.length) {
+        throw new Error('--flows must not contain duplicates.');
+    }
+    return flows;
+}
+
 export function readOptions(args) {
     return {
-        flows: (args.flows ?? 'latency,progress,long-session').split(',').filter(Boolean),
-        latencyBlocks: numberArg(args, 'latency-blocks', 60),
-        progressBlocks: numberArg(args, 'progress-blocks', 3),
-        longBlocks: numberArg(args, 'long-blocks', 6),
+        flows: parseFlows(args.flows ?? 'latency,progress,long-session'),
+        latencyBlocks: integerArg(args, 'latency-blocks', 60),
+        progressBlocks: integerArg(args, 'progress-blocks', 3),
+        longBlocks: integerArg(args, 'long-blocks', 6),
         // Keep the default formal levels reproducible; 1500 remains available
         // as an explicit diagnostic because it is not stable on the 3.6 GiB VM.
         historyLevels: parseHistoryLevels(args['history-levels'] ?? '100,500,1000'),
-        warmSamples: nonNegativeNumberArg(args, 'warm-samples', 8),
-        progressWarmups: numberArg(args, 'progress-warmups', 4),
+        warmSamples: integerArg(args, 'warm-samples', 8, 0),
+        progressWarmups: integerArg(args, 'progress-warmups', 4),
         // Two 16-task pilot attempts hit the same JSC crash at the 16th task.
-        progressTasks: numberArg(args, 'progress-tasks', 8),
-        memoryIntervalMs: numberArg(args, 'memory-interval-ms', 250),
+        progressTasks: integerArg(args, 'progress-tasks', 8),
+        memoryIntervalMs: integerArg(args, 'memory-interval-ms', 250),
         dryRun: args['dry-run'] === 'true',
         resume: args.resume === 'true',
     };

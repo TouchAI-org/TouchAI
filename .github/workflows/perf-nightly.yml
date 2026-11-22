@@ -167,6 +167,16 @@ jobs:
                     echo "long-blocks must be at least 6 for memory and full scopes" >&2
                     exit 1
                   fi
+                  launches=$((LATENCY_BLOCKS * 4))
+                  if [ "$PERF_SCOPE" != "cold-latency" ]; then
+                    history_count=$(printf '%s' "$HISTORY_LEVELS" | awk -F, '{print NF}')
+                    launches=$((launches + PROGRESS_BLOCKS * 4 + LONG_BLOCKS * 4 * history_count))
+                  fi
+                  settle_budget_ms=$((launches * TOUCHAI_PERF_STARTUP_SETTLE_MS))
+                  if [ "$settle_budget_ms" -gt $((180 * 60 * 1000)) ]; then
+                    echo "Selected launch count would spend more than 180 minutes settling alone; reduce blocks or settle time." >&2
+                    exit 1
+                  fi
 
             - name: Run desktop performance protocol
               run: |
@@ -184,6 +194,10 @@ jobs:
                     --long-blocks "$LONG_BLOCKS" \
                     --history-levels "$HISTORY_LEVELS" \
                     --warm-samples 0
+
+            - name: Enforce desktop performance gate
+              if: always()
+              run: node apps/desktop/scripts/perf/run.mjs gate
 
             - name: Summarize gate
               if: always()
@@ -212,7 +226,3 @@ jobs:
                   path: ${{ env.TOUCHAI_PERF_EVIDENCE }}
                   if-no-files-found: warn
                   retention-days: 30
-
-            - name: Enforce desktop performance gate
-              if: always()
-              run: node apps/desktop/scripts/perf/run.mjs gate

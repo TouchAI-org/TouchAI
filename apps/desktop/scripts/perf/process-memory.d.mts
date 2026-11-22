@@ -25,6 +25,7 @@ export interface ProcessRunIdentity {
 
 export function readRollup(pid: number): ProcessMemory | null;
 export function aggregateMemory(processes: ProcessMemory[]): ProcessMemoryTotals;
+export function nextMemorySampleDelay(scheduledAt: number, now: number): number;
 export function readProcessSample(
     candidate: { pid: number; name: string },
     options?: {
