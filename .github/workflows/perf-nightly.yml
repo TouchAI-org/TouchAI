@@ -86,6 +86,57 @@ jobs:
                   echo "PERF_BASELINE=$baseline" >> "$GITHUB_ENV"
                   echo "PERF_CANDIDATE=$candidate" >> "$GITHUB_ENV"
 
+            # Fail before installing toolchains or downloading dependencies when
+            # the requested run cannot finish.
+            - name: Validate inputs
+              run: |
+                  case "$TOUCHAI_PERF_STARTUP_SETTLE_MS" in
+                    ''|*[!0-9]*)
+                      echo "startup-settle-ms must be a positive integer" >&2
+                      exit 1
+                      ;;
+                  esac
+                  if [ "$TOUCHAI_PERF_STARTUP_SETTLE_MS" -lt 1 ]; then
+                    echo "startup-settle-ms must be a positive integer" >&2
+                    exit 1
+                  fi
+                  case "$LATENCY_BLOCKS" in
+                    ''|*[!0-9]*)
+                      echo "latency-blocks must be a positive integer" >&2
+                      exit 1
+                      ;;
+                  esac
+                  if [ "$LATENCY_BLOCKS" -lt 3 ]; then
+                    echo "latency-blocks must be at least 3" >&2
+                    exit 1
+                  fi
+                  case "$PERF_SCOPE" in
+                    cold-latency|steady-state-memory|full) ;;
+                    *)
+                      echo "performance-scope must be cold-latency, steady-state-memory or full" >&2
+                      exit 1
+                      ;;
+                  esac
+                  case "$LONG_BLOCKS" in
+                    ''|*[!0-9]*)
+                      echo "long-blocks must be a positive integer" >&2
+                      exit 1
+                      ;;
+                  esac
+                  if [ "$PERF_SCOPE" != "cold-latency" ] && [ "$LONG_BLOCKS" -lt 6 ]; then
+                    echo "long-blocks must be at least 6 for memory and full scopes" >&2
+                    exit 1
+                  fi
+                  latency_launches=0
+                  if [ "$PERF_SCOPE" = "cold-latency" ] || [ "$PERF_SCOPE" = "full" ]; then
+                    latency_launches=$((LATENCY_BLOCKS * 4))
+                  fi
+                  settle_budget_ms=$((latency_launches * TOUCHAI_PERF_STARTUP_SETTLE_MS))
+                  if [ "$settle_budget_ms" -gt $((180 * 60 * 1000)) ]; then
+                    echo "Selected latency launches would spend more than 180 minutes settling alone; reduce latency blocks or settle time." >&2
+                    exit 1
+                  fi
+
             - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6
 
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
@@ -127,56 +178,6 @@ jobs:
 
             - name: Install tauri-driver
               run: cargo install tauri-driver --version 2.1.0 --locked
-
-            - name: Validate inputs
-              run: |
-                  case "$TOUCHAI_PERF_STARTUP_SETTLE_MS" in
-                    ''|*[!0-9]*)
-                      echo "startup-settle-ms must be a positive integer" >&2
-                      exit 1
-                      ;;
-                  esac
-                  if [ "$TOUCHAI_PERF_STARTUP_SETTLE_MS" -lt 1 ]; then
-                    echo "startup-settle-ms must be a positive integer" >&2
-                    exit 1
-                  fi
-                  case "$LATENCY_BLOCKS" in
-                    ''|*[!0-9]*)
-                      echo "latency-blocks must be a positive integer" >&2
-                      exit 1
-                      ;;
-                  esac
-                  if [ "$LATENCY_BLOCKS" -lt 3 ]; then
-                    echo "latency-blocks must be at least 3" >&2
-                    exit 1
-                  fi
-                  case "$PERF_SCOPE" in
-                    cold-latency|steady-state-memory|full) ;;
-                    *)
-                      echo "performance-scope must be cold-latency, steady-state-memory or full" >&2
-                      exit 1
-                      ;;
-                  esac
-                  case "$LONG_BLOCKS" in
-                    ''|*[!0-9]*)
-                      echo "long-blocks must be a positive integer" >&2
-                      exit 1
-                      ;;
-                  esac
-                  if [ "$PERF_SCOPE" != "cold-latency" ] && [ "$LONG_BLOCKS" -lt 6 ]; then
-                    echo "long-blocks must be at least 6 for memory and full scopes" >&2
-                    exit 1
-                  fi
-                  launches=$((LATENCY_BLOCKS * 4))
-                  if [ "$PERF_SCOPE" != "cold-latency" ]; then
-                    history_count=$(printf '%s' "$HISTORY_LEVELS" | awk -F, '{print NF}')
-                    launches=$((launches + PROGRESS_BLOCKS * 4 + LONG_BLOCKS * 4 * history_count))
-                  fi
-                  settle_budget_ms=$((launches * TOUCHAI_PERF_STARTUP_SETTLE_MS))
-                  if [ "$settle_budget_ms" -gt $((180 * 60 * 1000)) ]; then
-                    echo "Selected launch count would spend more than 180 minutes settling alone; reduce blocks or settle time." >&2
-                    exit 1
-                  fi
 
             - name: Run desktop performance protocol
               run: |

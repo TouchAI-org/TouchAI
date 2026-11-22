@@ -45,6 +45,27 @@ async function readPerformanceWorkflow(): Promise<PerformanceWorkflow> {
     return parse(await readFile(workflowPath, 'utf8')) as PerformanceWorkflow;
 }
 
+function runInputValidation(workflow: PerformanceWorkflow, overrides: Record<string, string> = {}) {
+    const validate = workflow.jobs.performance.steps.find(
+        (step) => step.name === 'Validate inputs'
+    );
+    if (!validate?.run) throw new Error('Performance input validation step is missing.');
+
+    return spawnSync('bash', ['-e', '-c', validate.run], {
+        encoding: 'utf8',
+        env: {
+            ...process.env,
+            TOUCHAI_PERF_STARTUP_SETTLE_MS: '12000',
+            LATENCY_BLOCKS: '60',
+            PROGRESS_BLOCKS: '3',
+            LONG_BLOCKS: '6',
+            HISTORY_LEVELS: '100,500,1000',
+            PERF_SCOPE: 'full',
+            ...overrides,
+        },
+    });
+}
+
 function spawnGate(root: string) {
     return spawnSync(process.execPath, [perfRunner, 'gate'], {
         encoding: 'utf8',
@@ -195,6 +216,47 @@ describe('user runs desktop performance on GitHub Actions', () => {
         expect(validate?.run).toContain('long-blocks must be at least 6');
         expect(validate?.run).toContain('more than 180 minutes settling alone');
         expect(await readFile(workflowPath, 'utf8')).not.toContain('self-hosted');
+    });
+
+    it('user sees impossible latency budgets fail before setup without charging memory-only scopes', async () => {
+        const workflow = await readPerformanceWorkflow();
+        const steps = workflow.jobs.performance.steps;
+        const validateIndex = steps.findIndex((step) => step.name === 'Validate inputs');
+        const setupIndexes = steps
+            .map((step, index) =>
+                step.uses?.startsWith('pnpm/action-setup@') ||
+                step.uses?.startsWith('actions/setup-node@') ||
+                step.name === 'Install Linux GUI and build dependencies' ||
+                step.name === 'Install dependencies' ||
+                step.name === 'Install tauri-driver'
+                    ? index
+                    : -1
+            )
+            .filter((index) => index >= 0);
+
+        expect(validateIndex).toBeGreaterThan(-1);
+        for (const index of setupIndexes) {
+            expect(validateIndex).toBeLessThan(index);
+        }
+
+        const memoryOnly = runInputValidation(workflow, {
+            LATENCY_BLOCKS: '500',
+            PERF_SCOPE: 'steady-state-memory',
+        });
+        const coldLatency = runInputValidation(workflow, {
+            LATENCY_BLOCKS: '500',
+            PERF_SCOPE: 'cold-latency',
+        });
+        const full = runInputValidation(workflow, {
+            LATENCY_BLOCKS: '500',
+            PERF_SCOPE: 'full',
+        });
+
+        expect(memoryOnly.status).toBe(0);
+        expect(coldLatency.status).toBe(1);
+        expect(coldLatency.stderr).toContain('more than 180 minutes settling alone');
+        expect(full.status).toBe(1);
+        expect(full.stderr).toContain('more than 180 minutes settling alone');
     });
 
     it('user sees invalid samples and gate failures make the job fail', async () => {
