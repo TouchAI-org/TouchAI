@@ -3,13 +3,15 @@ import type { AgentEvent, AgentHost, AgentStartInput } from '@touchai/agent-core
 
 import { AiError, AiErrorCode } from '@/app/api/agent/errors';
 import type { PrivacyApi } from '@/app/api/privacy';
+import { notify } from '@/app/api/windows/notifications';
 import { createAgentAnalytics } from '@/app/workflows/agent/analytics';
 import { createAgentHistoryQueries } from '@/app/workflows/agent/history';
 import { createMainAgentWorkflow } from '@/app/workflows/agent/host';
 import { createTaskModelBindings } from '@/app/workflows/agent/modelBindings';
 import { createTaskStatusPublisher } from '@/app/workflows/agent/notifications';
 import { createMainTaskObservations } from '@/app/workflows/agent/observations';
-import { tt } from '@/i18n';
+import { createSqliteSchedulerRepository } from '@/database/queries/scheduledTasks';
+import { t, tt } from '@/i18n';
 import { createAgentSessions } from '@/modules/agent';
 import type {
     AgentPendingDelivery,
@@ -18,7 +20,7 @@ import type {
 } from '@/modules/agent/contracts';
 import type { AnalyticsSink } from '@/modules/analytics';
 import { createModelSelection } from '@/modules/models';
-import { EventTriggerRegistry, TaskScheduler } from '@/modules/scheduler';
+import { EventTriggerRegistry, TaskScheduler } from '@/modules/scheduler/public';
 import type { SettingsApi } from '@/modules/settings/public';
 import { readMcpServerNames } from '@/modules/tools';
 import { log } from '@/platform/diagnostics';
@@ -39,6 +41,20 @@ export interface MainAgentAssembly {
     releaseTask(taskId: string): Promise<void>;
     dispose(): Promise<void>;
     sessions: Omit<AgentSessionHost, 'execution'>;
+}
+
+function isSchedulerCancellation(error: unknown): boolean {
+    return (
+        (error instanceof Error && error.name === 'AbortError') ||
+        (typeof error === 'object' &&
+            error !== null &&
+            'code' in error &&
+            (error.code === 'REQUEST_CANCELLED' || error.code === 'REQUEST_CANCELLED_BY_USER'))
+    );
+}
+
+function compactSchedulerError(error: unknown): string {
+    return (error instanceof Error ? error.message : String(error)).slice(0, 500);
 }
 
 /** This is the sole production Core creation entry. Clients receive safe session capabilities. */
@@ -181,12 +197,52 @@ export function assembleDesktopMainAgent(input: {
     const assembly = assembleAgentHost(workflow);
     const events = new EventTriggerRegistry(log.warn);
     const scheduler = new TaskScheduler({
+        repository: createSqliteSchedulerRepository(),
         diagnostics: log,
         listen: events.setupEventTrigger.bind(events),
         run: async (request) => {
             const task = await assembly.sessions.startBackgroundTask(request);
-            await task.completion;
+            let snapshot = assembly.sessions.getTaskSnapshot(task.taskId);
+            const unsubscribe = assembly.sessions.subscribeTask(task.taskId, (next) => {
+                snapshot = next;
+            });
+            const completion = task.completion
+                .then((result) => ({
+                    outcome:
+                        snapshot?.status === 'cancelled'
+                            ? ('cancelled' as const)
+                            : ('completed' as const),
+                    sessionId: result.turn?.sessionId ?? task.sessionId,
+                    turnId: result.turn?.id ?? snapshot?.turnId ?? null,
+                    errorSummary: null,
+                }))
+                .catch((error: unknown) => ({
+                    outcome: isSchedulerCancellation(error)
+                        ? ('cancelled' as const)
+                        : ('failed' as const),
+                    sessionId: task.sessionId,
+                    turnId: snapshot?.turnId ?? null,
+                    errorSummary: snapshot?.error ?? compactSchedulerError(error),
+                }))
+                .finally(unsubscribe);
+            return {
+                backgroundTaskId: task.taskId,
+                sessionId: task.sessionId,
+                completion,
+            };
         },
+        notifyFailure: ({ scheduleName, reason }) => {
+            notify({
+                title: t('notification.scheduledTaskFailure.title'),
+                body: t('notification.scheduledTaskFailure.body', {
+                    name: scheduleName,
+                    reason,
+                }),
+            });
+        },
+    });
+    void scheduler.initialize().catch((error: unknown) => {
+        log.error('[Scheduler] Failed to reconcile scheduled tasks at startup', error);
     });
     return Object.freeze({
         sessions: assembly.sessions,

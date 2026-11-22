@@ -1,8 +1,5 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-/**
- * JSON 值类型（递归定义）
- */
 export type JsonValue =
     | string
     | number
@@ -11,73 +8,105 @@ export type JsonValue =
     | JsonValue[]
     | { [key: string]: JsonValue };
 
-/**
- * JSON 对象类型
- */
 export type JsonObject = { [key: string]: JsonValue };
 
-/**
- * Cron 触发器
- */
 export interface CronTrigger {
     type: 'cron';
-    expression: string; // cron 表达式，例如 "0 9 * * *"
+    expression: string;
 }
 
-/**
- * 间隔触发器
- */
 export interface IntervalTrigger {
     type: 'interval';
-    milliseconds: number; // 间隔毫秒数
+    milliseconds: number;
 }
 
-/**
- * 一次性触发器
- */
 export interface OnceTrigger {
     type: 'once';
-    timestamp: number; // 执行时间戳
+    timestamp: number;
 }
 
-/**
- * 事件触发器（扩展点）
- */
 export interface EventTrigger {
     type: 'event';
-    eventType: string; // 事件类型标识
-    eventConfig?: JsonObject; // 事件特定配置
+    eventType: string;
+    eventConfig?: JsonObject;
 }
 
-/**
- * 触发器联合类型
- */
 export type ScheduleTrigger = CronTrigger | IntervalTrigger | OnceTrigger | EventTrigger;
 
-/**
- * 定时任务
- */
 export interface ScheduledTask {
     id: string;
     name: string;
     prompt: string;
     trigger: ScheduleTrigger;
+    timezone: string;
     modelId?: string;
     providerId?: number;
     enabled: boolean;
     lastRunAt: number | null;
     nextRunAt: number | null;
+    version: number;
+    deletedAt: number | null;
     createdAt: number;
     updatedAt: number;
 }
 
-/**
- * 事件触发器处理器接口
- */
 export interface EventTriggerHandler {
     eventType: string;
     displayName: string;
     description: string;
     configSchema?: JsonObject; // 配置参数的 JSON Schema
     setup: (config: JsonObject, callback: () => void) => Promise<() => void>;
+}
+
+export type ScheduledTaskRunOutcome =
+    | 'completed'
+    | 'failed'
+    | 'cancelled'
+    | 'skipped_overlap'
+    | 'missed'
+    | 'skipped_dst';
+
+/** `outcome = null` means the shared background task is still active. */
+export interface ScheduledTaskRun {
+    id: string;
+    scheduleId: string;
+    scheduleVersion: number;
+    scheduledFor: number;
+    startedAt: number | null;
+    finishedAt: number | null;
+    outcome: ScheduledTaskRunOutcome | null;
+    reason: string | null;
+    backgroundTaskId: string | null;
+    sessionId: number | null;
+    turnId: number | null;
+    createdAt: number;
+}
+
+export interface SchedulerRepository {
+    insertTask(task: ScheduledTask): Promise<void>;
+    updateTask(task: ScheduledTask): Promise<void>;
+    listTasks(): Promise<ScheduledTask[]>;
+    findTask(taskId: string): Promise<ScheduledTask | undefined>;
+    insertRun(run: ScheduledTaskRun): Promise<boolean>;
+    updateRun(
+        runId: string,
+        patch: Partial<Omit<ScheduledTaskRun, 'id' | 'scheduleId'>>
+    ): Promise<void>;
+    findActiveRun(scheduleId: string): Promise<ScheduledTaskRun | undefined>;
+    listActiveRuns(): Promise<ScheduledTaskRun[]>;
+    listRuns(scheduleId: string): Promise<ScheduledTaskRun[]>;
+    pruneRuns(scheduleId: string): Promise<void>;
+}
+
+export interface SchedulerCompletion {
+    outcome: Exclude<ScheduledTaskRunOutcome, 'skipped_overlap' | 'missed' | 'skipped_dst'>;
+    sessionId: number | null;
+    turnId: number | null;
+    errorSummary: string | null;
+}
+
+export interface SchedulerExecution {
+    backgroundTaskId: string;
+    sessionId: number | null;
+    completion: Promise<SchedulerCompletion>;
 }
