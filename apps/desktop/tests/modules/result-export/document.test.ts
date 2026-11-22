@@ -31,6 +31,80 @@ describe('user saves a completed answer', () => {
         expect(result.bytes).toBe(new TextEncoder().encode(result.html).byteLength);
     });
 
+    it('user sees ordinary punctuation in a plain text result without extra formatting', async () => {
+        const result = await buildResultExportDocument({
+            message: createResultExportMessage({
+                parts: [
+                    {
+                        id: 'text-1',
+                        type: 'text',
+                        content: 'A useful result, with ordinary punctuation; it stays readable.',
+                    },
+                ],
+            }),
+            presentation: RESULT_EXPORT_TEST_PRESENTATION,
+        });
+        const document = parseResult(result.html);
+
+        expect(document.querySelectorAll('p')).toHaveLength(1);
+        expect(document.querySelector('p')?.textContent).toBe(
+            'A useful result, with ordinary punctuation; it stays readable.'
+        );
+        expect(document.querySelectorAll('ul, ol, pre, blockquote')).toHaveLength(0);
+    });
+
+    it('user sees a number that starts a Markdown list rendered as a list', async () => {
+        const result = await buildResultExportDocument({
+            message: createResultExportMessage({
+                parts: [{ id: 'text-1', type: 'text', content: '1. first item' }],
+            }),
+            presentation: RESULT_EXPORT_TEST_PRESENTATION,
+        });
+        const document = parseResult(result.html);
+
+        expect(document.querySelector('ol > li')?.textContent).toBe('first item');
+    });
+
+    it('user sees an explicit external link kept safe', async () => {
+        const result = await buildResultExportDocument({
+            message: createResultExportMessage({
+                parts: [
+                    {
+                        id: 'text-1',
+                        type: 'text',
+                        content: 'Read [the result](https://example.com/result) for details.',
+                    },
+                ],
+            }),
+            presentation: RESULT_EXPORT_TEST_PRESENTATION,
+        });
+        const document = parseResult(result.html);
+        const link = document.querySelector('a[href="https://example.com/result"]');
+
+        expect(link?.textContent).toBe('the result');
+        expect(link?.getAttribute('rel')).toBe('noopener noreferrer');
+    });
+
+    it('user sees a bare domain in plain prose kept as a safe external link', async () => {
+        const result = await buildResultExportDocument({
+            message: createResultExportMessage({
+                parts: [
+                    {
+                        id: 'text-1',
+                        type: 'text',
+                        content: 'Visit example.com for details.',
+                    },
+                ],
+            }),
+            presentation: RESULT_EXPORT_TEST_PRESENTATION,
+        });
+        const document = parseResult(result.html);
+        const link = document.querySelector('a[href="http://example.com"]');
+
+        expect(link?.textContent).toBe('example.com');
+        expect(link?.getAttribute('rel')).toBe('noopener noreferrer');
+    });
+
     it('user saves a live widget and keeps its output and interaction script', async () => {
         const widgetHtml = [
             '<div class="artifact">',
@@ -296,6 +370,15 @@ describe('user saves a completed answer', () => {
         samples.sort((left, right) => left - right);
         const p50 = samples[Math.floor(samples.length / 2)]!;
         const p95 = samples[Math.ceil(samples.length * 0.95) - 1]!;
+        const saved = await buildResultExportDocument({
+            message: createResultExportMessage({
+                parts: [{ id: 'text-1', type: 'text', content }],
+            }),
+            presentation: RESULT_EXPORT_TEST_PRESENTATION,
+        });
+
+        expect(saved.html).toContain(content);
+        expect(saved.bytes).toBeGreaterThan(content.length);
         expect(p50).toBeLessThanOrEqual(250);
         expect(p95).toBeLessThanOrEqual(1_000);
     }, 20_000);

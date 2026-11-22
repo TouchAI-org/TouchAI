@@ -52,6 +52,18 @@ const CLASSIC_SCRIPT_TYPES = new Set([
     'text/javascript',
 ]);
 
+const HTML_ESCAPES: Readonly<Record<string, string>> = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+};
+
+const MARKDOWN_CONTROL_CHARACTERS = /[\\`*_[\]{}<>#!|~$^&@\r\n:+\-=]/;
+const MARKDOWN_BLOCK_PREFIX = /^(?: {4}|\t|[ \t]*\d{1,9}[.)](?:[ \t]|$))/;
+const BARE_LINK = /(?:^|[\s(])(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,}(?:[/?#]|$|[\s).,;!?])/;
+
 const OPTIONAL_END_TAGS = new Set([
     'body',
     'caption',
@@ -143,13 +155,22 @@ const resultMarkdown = getMarkdown('touchai-result-export', {
     },
 });
 
+resultMarkdown.renderer.rules.link = (tokens, index) => {
+    const token = tokens[index] as unknown as {
+        href?: unknown;
+        text?: unknown;
+        title?: unknown;
+    };
+    const href = String(token.href ?? '');
+    const text = String(token.text ?? href);
+    const title = String(token.title ?? '');
+    return `<a href="${escapeHtml(href)}"${
+        title ? ` title="${escapeHtml(title)}"` : ''
+    }>${escapeHtml(text)}</a>`;
+};
+
 function escapeHtml(value: string): string {
-    return value
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
+    return value.replace(/[&<>"']/g, (character) => HTML_ESCAPES[character]!);
 }
 
 function safeCssValue(value: string): string {
@@ -238,6 +259,15 @@ export function containsHighConfidenceCredential(message: ResultExportMessage): 
 }
 
 function renderMarkdown(content: string): string {
+    // Large plain-text results are common. Skip the markdown and linkify token
+    // scanners when no inline or block syntax can affect the rendered output.
+    if (
+        !MARKDOWN_CONTROL_CHARACTERS.test(content) &&
+        !MARKDOWN_BLOCK_PREFIX.test(content) &&
+        !BARE_LINK.test(content)
+    ) {
+        return `<p>${escapeHtml(content)}</p>`;
+    }
     const rendered = resultMarkdown.render(content);
     // markdown-it escapes raw HTML because `html: false`; its own tags are
     // trusted. Only materialize a DOM when a generated link or image needs URL
