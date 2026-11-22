@@ -151,6 +151,22 @@ export function reduceAppUpdateState(
                 error: action.error,
                 unsupportedReason: action.unsupportedReason,
             };
+        case 'check-abandoned':
+            // A switch that failed before saving never owns a check, so the
+            // request state has to leave `checking` or download and install stay
+            // blocked. `check-started` already cleared the failure fields.
+            if (state.status !== 'checking') {
+                return state;
+            }
+
+            return {
+                ...state,
+                status: state.downloadedUpdate
+                    ? 'downloaded'
+                    : state.availableUpdate
+                      ? 'available'
+                      : 'idle',
+            };
         case 'download-started':
             return {
                 ...state,

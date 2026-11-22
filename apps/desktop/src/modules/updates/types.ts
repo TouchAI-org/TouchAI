@@ -143,6 +143,7 @@ export type AppUpdateAction =
           error: string | null;
           unsupportedReason: AppUpdateUnsupportedReason | null;
       }
+    | { type: 'check-abandoned' }
     | { type: 'download-started' }
     | { type: 'download-progress'; progress: number }
     | { type: 'download-completed'; update?: AppUpdateInfo | null }

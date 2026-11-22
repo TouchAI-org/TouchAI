@@ -263,6 +263,16 @@ export class AppUpdateController<Operation extends UpdateOperation = UpdateOpera
             await this.writePreference(() => this.settings.updateAppUpdateLastCheckedAt(null));
             if (!this.isInitializationActive(this.initialization)) return;
             this.commit({ type: 'channel-updated', channel });
+        } catch (error) {
+            // The switch superseded the running check before it saved, so no
+            // check can settle the request state any more. Until a later sync
+            // applies a channel the switch already saved, the state still
+            // describes the previous channel, and `checking` blocks download
+            // and install. The reducer ignores this when the switch committed.
+            if (this.initialization && this.isInitializationActive(this.initialization)) {
+                this.commit({ type: 'check-abandoned' });
+            }
+            throw error;
         } finally {
             this.endChannelSwitch();
         }
@@ -383,6 +393,10 @@ export class AppUpdateController<Operation extends UpdateOperation = UpdateOpera
             if (this.channelSwitch) continue;
 
             this.syncSettings();
+            // A settings listener can request a switch synchronously while
+            // syncSettings notifies it; that decision starts in the next turn
+            // instead of checking the channel it replaces.
+            if (this.channelSwitch) continue;
             const reportErrors =
                 source === 'manual' ||
                 (source === 'settings-open' && this.state.currentVersion === null);
@@ -466,15 +480,23 @@ export class AppUpdateController<Operation extends UpdateOperation = UpdateOpera
             }
 
             const checkedAt = this.now();
-            this.consecutiveCheckFailures = 0;
-            this.commit({ type: 'check-completed', channel, result, checkedAt });
-            await this.writePreference(() => this.settings.updateAppUpdateLastCheckedAt(checkedAt));
+            // The write may queue behind an earlier preference save, so it
+            // re-checks ownership when it starts; a superseded check must not
+            // persist a time for a decision that replaced it.
+            await this.writePreference(async () => {
+                if (!this.ownsCheck(initialization, attempt)) return;
+                await this.settings.updateAppUpdateLastCheckedAt(checkedAt);
+            });
             if (!this.ownsCheck(initialization, attempt)) {
                 // The save only landed now; the switch queued its own save for
                 // after it, and this check may not report anything any more.
                 this.abandonCheck(initialization, attempt);
                 return false;
             }
+            this.consecutiveCheckFailures = 0;
+            // Commit after the save so a rejected write leaves the request in
+            // `checking` and the quiet-failure path can still revert it.
+            this.commit({ type: 'check-completed', channel, result, checkedAt });
             void this.checkEvents?.publish(result, checkedAt).catch((error) => {
                 this.diagnostics.warn('[AppUpdateService] Failed to share update check:', error);
             });
