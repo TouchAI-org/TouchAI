@@ -8,6 +8,7 @@ import {
     resolveVerifiedFontFile,
     sha256OfFile,
 } from '../../e2e-tests/e2e-font.js';
+import { createSearchWindowHeightPlugins } from './searchWindowHeight.vite.mjs';
 // Browser layout regression: use the production template, CSS, messages and geometry owner.
 // Native IPC and unrelated message renderers are isolated; this is not desktop E2E.
 const root = fileURLToPath(new URL('../..', import.meta.url))
@@ -17,10 +18,6 @@ const base = process.env.TOUCHAI_LAYOUT_OUTPUT;
 assert.ok(base, 'Set TOUCHAI_LAYOUT_OUTPUT to an external scratch directory');
 const require = createRequire(`${root}/package.json`);
 const { build } = await import(pathToFileURL(require.resolve('vite')).href);
-const { default: vue } = await import(pathToFileURL(require.resolve('@vitejs/plugin-vue')).href);
-const { default: tailwind } = await import(
-    pathToFileURL(require.resolve('@tailwindcss/vite')).href
-);
 const { chromium } = require('@playwright/test');
 const view = await readFile(`${root}/src/views/SearchView/index.vue`, 'utf8');
 const template = view.slice(view.indexOf('<template>'));
@@ -62,8 +59,8 @@ await writeFile(
 );
 const modules = {
     'probe:fixture.vue': fixture,
-    'probe:quicksearch': `import{h}from'vue';export default {render:()=>h('div',{style:{height:'520px'}},'Search results')};`,
-    'probe:searchbar': `import{defineComponent,h}from'vue';export default defineComponent({setup(){return()=>h('div',{'data-testid':'search-bar',style:{height:'60px',background:'var(--color-background-primary)'}},'Input');}})`,
+    'probe:quicksearch': `import{defineComponent,h}from'vue';export default defineComponent({setup(_,{expose}){expose({getContentHeight:()=>520});return()=>h('div',{style:{height:'520px'}},'Search results')}});`,
+    'probe:searchbar': `import{defineComponent,h}from'vue';export default defineComponent({setup(_,{slots}){return()=>[h('div',{'data-testid':'search-bar',style:{height:'60px',background:'var(--color-background-primary)'}},'Input'),slots.results?.({skillPicker:null,selectSkill:()=>{}})]}});`,
     'probe:presentation': `let s=${JSON.stringify(nativeState)};window.commits=[];const noop=async()=>{};const unlisten=async()=>()=>{};const api={outerPosition:async()=>({x:0,y:0}),innerSize:async()=>({width:846,height:1000}),scaleFactor:async()=>1,onMoved:unlisten,onResized:unlisten,onScaleChanged:unlisten,isMaximized:async()=>false,maximize:noop,unmaximize:noop,currentMonitor:async()=>({workArea:{position:{x:0,y:0},size:{width:1920,height:1000}},scaleFactor:1}),getSearchWindowState:async()=>s,setSearchWindowDefaults:noop,setSearchWindowMinSize:noop,setSearchWindowAllowHeightOverride:noop,resetSearchWindowBounds:async()=>{s.currentHeight=60},commitSearchPanelResize:async p=>{window.commits.push({t:performance.now(),height:p.to.height});if(window.rejectResizes)throw new Error('resize unavailable');await new Promise(r=>setTimeout(r,24));if(p.auto&&p.respectManualOverride!==false&&s.heightMode==='manual_override')return s;return s={...s,currentWidth:p.to.width,currentHeight:p.to.height,heightMode:p.auto?'auto':'manual_override'}},resizeWindowHeight:noop};export const useSearchWindowApi=()=>api;`,
     'probe:analytics': `export const useProductAnalyticsApi=()=>({runResultAction:async(_action,run)=>run()});`,
     'probe:settings': `import{ref}from'vue';const state={outputScrollBehavior:ref('follow_output'),initialize:async()=>{}};export const useSettingsStore=()=>state;`,
@@ -100,7 +97,7 @@ const result = await build({
     configFile: false,
     root,
     define: { 'process.env.NODE_ENV': '"production"' },
-    plugins: [plugin, tailwind(), vue()],
+    plugins: createSearchWindowHeightPlugins(plugin, root),
     logLevel: 'warn',
     resolve: {
         dedupe: ['vue', 'motion-v', 'pinia'],
