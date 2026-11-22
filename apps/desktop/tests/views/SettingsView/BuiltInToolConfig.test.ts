@@ -123,6 +123,37 @@ describe('given actual builtin configuration forms and their public save contrac
         expect(wrapper!.text()).toContain(t('settings.builtInTools.upgradeModel.emptyChain'));
         expect(wrapper!.find('input[type="number"]').exists()).toBe(false);
     });
+
+    it('user opens conversation search and sees its default-enabled switch', () => {
+        mountPanel(
+            tool({
+                tool_id: 'search_conversation',
+                config_json: '{"enabled":true}',
+            })
+        );
+
+        expect(wrapper!.text()).toContain(t('settings.builtInTools.searchConversation.title'));
+        const toggle = wrapper!.get('[data-testid="conversation-search-enabled"]');
+        expect(toggle.attributes('data-state')).toBe('checked');
+        expect(toggle.attributes('aria-label')).toBe(
+            t('settings.builtInTools.searchConversation.title')
+        );
+    });
+
+    it('user disables conversation search and receives one persisted false value after debounce', async () => {
+        mountPanel(
+            tool({
+                tool_id: 'search_conversation',
+                config_json: '{"enabled":true}',
+            })
+        );
+        const toggle = wrapper!.get('[data-testid="conversation-search-enabled"]');
+        await toggle.trigger('click');
+        await vi.advanceTimersByTimeAsync(450);
+
+        const patch = wrapper!.emitted('save')?.at(-1)?.[0] as { config_json: string };
+        expect(JSON.parse(patch.config_json)).toEqual({ enabled: false });
+    });
 });
 
 beforePresentation(async () => {

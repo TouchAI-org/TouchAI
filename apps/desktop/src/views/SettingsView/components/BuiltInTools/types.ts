@@ -11,7 +11,10 @@ export {
     serializeBrowserAutomationToolConfig,
 } from '@/app/api/tools/configuration';
 export {
+    parseSearchConversationToolConfig,
     parseUpgradeModelToolConfig,
+    type SearchConversationToolConfig,
+    serializeSearchConversationToolConfig,
     type UpgradeModelToolConfig,
 } from '@/app/api/tools/configuration';
 import type { BuiltInToolEntity } from '@/app/api/tools/administration';
@@ -100,6 +103,10 @@ export function getBuiltInToolSummary(toolId: string, description?: string | nul
 
     if (toolId === 'activate_skill') {
         return t('settings.builtInTools.summary.activateSkill');
+    }
+
+    if (toolId === 'search_conversation') {
+        return t('settings.builtInTools.summary.searchConversation');
     }
 
     return description?.trim() || t('settings.builtInTools.summary.fallback');

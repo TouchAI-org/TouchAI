@@ -2,16 +2,22 @@
 
 <script setup lang="ts">
     import EmptyState from '@components/EmptyState.vue';
+    import { Switch } from '@components/ui/switch';
     import { onUnmounted, ref, watch } from 'vue';
 
-    import { serializeUpgradeModelToolConfig } from '@/app/api/tools/configuration';
+    import {
+        serializeSearchConversationToolConfig,
+        serializeUpgradeModelToolConfig,
+    } from '@/app/api/tools/configuration';
     import { t } from '@/i18n';
 
     import type { BuiltInToolEntity, BuiltInToolUpdateData } from '../types';
     import {
         type BashToolConfig as BashToolConfigValue,
         parseBashToolConfig,
+        parseSearchConversationToolConfig,
         parseUpgradeModelToolConfig,
+        type SearchConversationToolConfig as SearchConversationToolConfigValue,
         type UpgradeModelToolConfig as UpgradeModelToolConfigValue,
         usesBuiltInToolEmptyConfig,
     } from '../types';
@@ -33,6 +39,9 @@
     const upgradeModelConfig = ref<UpgradeModelToolConfigValue>(
         parseUpgradeModelToolConfig(props.tool.config_json)
     );
+    const searchConversationConfig = ref<SearchConversationToolConfigValue>(
+        parseSearchConversationToolConfig(props.tool.config_json)
+    );
     let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
 
     function clearAutoSaveTimer() {
@@ -48,6 +57,7 @@
             clearAutoSaveTimer();
             bashConfig.value = parseBashToolConfig(tool.config_json);
             upgradeModelConfig.value = parseUpgradeModelToolConfig(tool.config_json);
+            searchConversationConfig.value = parseSearchConversationToolConfig(tool.config_json);
         },
         { deep: true }
     );
@@ -105,6 +115,41 @@
         }
     );
 
+    watch(
+        () => JSON.stringify(searchConversationConfig.value),
+        () => {
+            if (props.tool.tool_id !== 'search_conversation') {
+                clearAutoSaveTimer();
+                return;
+            }
+
+            const currentConfigJson = serializeSearchConversationToolConfig(
+                parseSearchConversationToolConfig(props.tool.config_json)
+            );
+            const nextConfigJson = serializeSearchConversationToolConfig(
+                searchConversationConfig.value
+            );
+
+            if (nextConfigJson === currentConfigJson) {
+                clearAutoSaveTimer();
+                return;
+            }
+
+            clearAutoSaveTimer();
+            autoSaveTimer = setTimeout(() => {
+                emit('save', {
+                    config_json: nextConfigJson,
+                });
+                autoSaveTimer = null;
+            }, 450);
+        }
+    );
+
+    function setSearchConversationEnabled(enabled: boolean) {
+        if (props.tool.tool_id !== 'search_conversation') return;
+        searchConversationConfig.value = { enabled };
+    }
+
     onUnmounted(() => {
         clearAutoSaveTimer();
     });
@@ -117,6 +162,26 @@
             v-else-if="tool.tool_id === 'upgrade_model'"
             v-model="upgradeModelConfig"
         />
+        <div
+            v-else-if="tool.tool_id === 'search_conversation'"
+            class="flex items-start justify-between gap-6 rounded-lg bg-surface-hover px-4 py-3"
+        >
+            <div class="min-w-0">
+                <h4 class="text-sm font-semibold text-text-primary">
+                    {{ t('settings.builtInTools.searchConversation.title') }}
+                </h4>
+                <p class="mt-1 text-sm leading-6 text-muted-foreground">
+                    {{ t('settings.builtInTools.searchConversation.description') }}
+                </p>
+            </div>
+            <Switch
+                data-testid="conversation-search-enabled"
+                :aria-label="t('settings.builtInTools.searchConversation.title')"
+                :model-value="searchConversationConfig.enabled"
+                :disabled="saving"
+                @update:model-value="setSearchConversationEnabled"
+            />
+        </div>
         <EmptyState
             v-else-if="usesBuiltInToolEmptyConfig(tool.tool_id)"
             :title="t('settings.builtInTools.noConfig')"

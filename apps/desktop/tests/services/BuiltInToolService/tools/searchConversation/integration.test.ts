@@ -49,7 +49,7 @@ function fixture() {
     ]);
     const complete = vi.fn<ToolModelCapabilities['complete']>(
         async (_taskId, _model, input) =>
-            await new Promise((resolve, reject) => {
+            await new Promise((_resolve, reject) => {
                 input.signal?.addEventListener(
                     'abort',
                     () => reject(new DOMException('cancelled', 'AbortError')),
