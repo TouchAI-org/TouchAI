@@ -3,7 +3,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
+    installRailNavigationMeasurement,
     installRendererMeasurement,
+    RAIL_NAVIGATION_ELEMENT_ID,
     RENDERER_MEASUREMENT_ELEMENT_ID,
 } from '../../../e2e-tests/perf/renderer-measurement.js';
 
@@ -45,9 +47,48 @@ function installSerializedMeasurement(token) {
     installer(token);
 }
 
+function appendConversationLog(busy = 'true') {
+    const host = document.createElement('div');
+    host.setAttribute('data-testid', 'conversation-panel-host');
+    const log = document.createElement('div');
+    log.setAttribute('role', 'log');
+    log.setAttribute('aria-busy', busy);
+    host.append(log);
+    document.body.append(host);
+    return log;
+}
+
+function appendRail() {
+    const scroller = document.createElement('div');
+    scroller.setAttribute('data-slot', 'message-scroller');
+    const viewport = document.createElement('section');
+    Object.defineProperty(viewport, 'scrollHeight', { configurable: true, value: 1000 });
+    Object.defineProperty(viewport, 'clientHeight', { configurable: true, value: 400 });
+    viewport.scrollTop = 600;
+    const rail = document.createElement('nav');
+    rail.setAttribute('data-slot', 'message-scroller-rail');
+    const buttons = [0, 1].map((index) => {
+        const button = document.createElement('button');
+        button.setAttribute('data-slot', 'message-scroller-rail-item');
+        button.addEventListener('click', () => {
+            viewport.scrollTop = index === 0 ? 0 : 600;
+            buttons.forEach((candidate, candidateIndex) => {
+                if (candidateIndex === index) candidate.setAttribute('aria-current', 'location');
+                else candidate.removeAttribute('aria-current');
+            });
+        });
+        rail.append(button);
+        return button;
+    });
+    buttons[1].setAttribute('aria-current', 'location');
+    scroller.append(viewport, rail);
+    document.body.append(scroller);
+}
+
 afterEach(() => {
     window.__TOUCHAI_PERF_MEASUREMENT_CLEANUP__?.();
     document.getElementById(RENDERER_MEASUREMENT_ELEMENT_ID)?.remove();
+    document.getElementById(RAIL_NAVIGATION_ELEMENT_ID)?.remove();
     document.body.innerHTML = '';
 });
 
@@ -79,6 +120,29 @@ describe('user measures renderer latency in the application world', () => {
         expect(completed?.firstTextAt).not.toBeNull();
     });
 
+    it('user sees a final idle snapshot after streaming settles', async () => {
+        const log = appendConversationLog();
+        installSerializedMeasurement('TOKEN-FINAL');
+
+        dispatchEnter();
+        appendAssistant('assistant-final', 'TOKEN-FINAL');
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        log.setAttribute('aria-busy', 'false');
+        await new Promise((resolve) => setTimeout(resolve, 120));
+
+        const settled = readMeasurement()?.settledResult;
+        expect(settled).toMatchObject({
+            busy: 'false',
+            atEnd: true,
+        });
+        expect(settled?.frameCount).toBeGreaterThan(0);
+        expect(settled?.mutationCount).toBeGreaterThan(0);
+        expect(settled?.frameGapSamples).toBeGreaterThan(0);
+        expect(settled?.frameGapSamples).toBe((settled?.frameCount ?? 0) - 1);
+        expect(settled?.frameGapP95Ms).toBeGreaterThanOrEqual(0);
+        expect(settled?.frameGapMaxMs).toBeGreaterThanOrEqual(settled?.frameGapP95Ms ?? 0);
+    });
+
     it('user gets Shift+Enter ignored until a plain Enter submits', () => {
         installRendererMeasurement('TOKEN-2');
 
@@ -100,5 +164,38 @@ describe('user measures renderer latency in the application world', () => {
 
         expect(readMeasurement()?.result).toBeNull();
         expect(readMeasurement()?.startAt).toBe(started?.startAt);
+    });
+
+    it('user measures navigation to both ends of the native rail', async () => {
+        appendRail();
+        const installer = Function(`return (${installRailNavigationMeasurement.toString()});`)();
+        installer(2, 96, 1000);
+
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        const result = JSON.parse(
+            document.getElementById(RAIL_NAVIGATION_ELEMENT_ID)?.textContent ?? '{}'
+        ).result;
+
+        expect(result).toMatchObject({
+            turnCount: 2,
+            tickCount: 2,
+            sampled: false,
+        });
+        expect(result?.steps).toHaveLength(2);
+        expect(result?.steps[0]).toMatchObject({
+            target: 'first',
+            targetIndex: 0,
+            moved: true,
+            focusedBefore: true,
+            focusedAfter: true,
+            activeTarget: true,
+        });
+        expect(result?.steps[1]).toMatchObject({
+            target: 'last',
+            targetIndex: 1,
+            moved: true,
+            focusedAfter: true,
+            activeTarget: true,
+        });
     });
 });

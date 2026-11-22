@@ -2,12 +2,14 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { startupSettleMs } from '../../scripts/perf/lib/config.mjs';
+import { MAX_RAIL_TICKS, startupSettleMs } from '../../scripts/perf/lib/config.mjs';
 import { focusMain } from '../test/support/agent-ui.js';
 import { fillSearchDraft, pressEditorKey } from '../test/support/conversation-queue.js';
 import { callE2eBridge, waitForE2eBridge } from '../test/support/desktop.js';
 import {
+    installRailNavigationMeasurement,
     installRendererMeasurement,
+    RAIL_NAVIGATION_ELEMENT_ID,
     RENDERER_MEASUREMENT_ELEMENT_ID,
 } from './renderer-measurement.js';
 import {
@@ -61,8 +63,7 @@ async function waitForMainWindow() {
     await $("[data-testid='search-editor-host'] .ProseMirror").waitForDisplayed({ timeout: 60000 });
 }
 
-async function armRendererMeasurement(doneToken) {
-    const source = `(${installRendererMeasurement.toString()})(${JSON.stringify(doneToken)});`;
+async function injectAppWorldScript(source, elementId, message) {
     const installed = await browser.execute(
         (installSource, elementId) => {
             const script = document.createElement('script');
@@ -72,14 +73,14 @@ async function armRendererMeasurement(doneToken) {
             return Boolean(document.getElementById(elementId));
         },
         source,
-        RENDERER_MEASUREMENT_ELEMENT_ID
+        elementId
     );
     if (!installed) {
-        throw new Error('The renderer measurement bridge did not install.');
+        throw new Error(message);
     }
 }
 
-async function readRendererMeasurement() {
+async function readAppWorldState(elementId) {
     return await browser.execute((elementId) => {
         const raw = document.getElementById(elementId)?.textContent;
         if (!raw) return null;
@@ -88,7 +89,20 @@ async function readRendererMeasurement() {
         } catch (error) {
             return { lastError: `Invalid renderer measurement state: ${String(error)}` };
         }
-    }, RENDERER_MEASUREMENT_ELEMENT_ID);
+    }, elementId);
+}
+
+async function armRendererMeasurement(doneToken) {
+    const source = `(${installRendererMeasurement.toString()})(${JSON.stringify(doneToken)});`;
+    await injectAppWorldScript(
+        source,
+        RENDERER_MEASUREMENT_ELEMENT_ID,
+        'The renderer measurement bridge did not install.'
+    );
+}
+
+async function readRendererMeasurement() {
+    return await readAppWorldState(RENDERER_MEASUREMENT_ELEMENT_ID);
 }
 
 async function withTimeout(operation, milliseconds, message) {
@@ -169,15 +183,15 @@ async function waitRendererMeasurement(doneToken, timeoutMs = 180000) {
             browser.waitUntil(
                 async () => {
                     const state = await readRendererMeasurement();
-                    return Boolean(state?.result);
+                    return Boolean(state?.settledResult);
                 },
                 {
                     timeout: timeoutMs,
-                    timeoutMsg: 'The renderer did not reach the performance sentinel.',
+                    timeoutMsg: 'The renderer did not settle after the performance sentinel.',
                 }
             ),
             timeoutMs + 1000,
-            `The renderer did not reach the performance sentinel within ${timeoutMs}ms.`
+            `The renderer did not settle after the performance sentinel within ${timeoutMs}ms.`
         );
     } catch (error) {
         const diagnosticPath = await captureSentinelTimeout(doneToken, error);
@@ -186,16 +200,79 @@ async function waitRendererMeasurement(doneToken, timeoutMs = 180000) {
             { cause: error }
         );
     }
-    const result = (await readRendererMeasurement())?.result ?? null;
+    const state = await readRendererMeasurement();
+    const result = state?.result ?? null;
+    const settled = state?.settledResult ?? null;
     if (
         !result ||
         result.keydownAt === null ||
         !Number.isFinite(result.durationMs) ||
-        result.durationMs <= 0
+        result.durationMs <= 0 ||
+        !settled ||
+        settled.busy !== 'false' ||
+        !Number.isFinite(settled.durationMs) ||
+        settled.durationMs <= 0 ||
+        !Number.isFinite(settled.frameCount) ||
+        settled.frameCount <= 0 ||
+        !Number.isFinite(settled.mutationCount) ||
+        settled.mutationCount <= 0
     ) {
-        throw new Error('Renderer performance result was missing.');
+        throw new Error('Renderer performance result or final state was missing.');
     }
-    return result;
+    return { ...result, settled };
+}
+
+async function captureNativeScreenshot(name) {
+    const directory =
+        process.env.TOUCHAI_PERF_RUN_LOG_DIR ||
+        (eventsFile ? path.dirname(eventsFile) : process.cwd());
+    fs.mkdirSync(directory, { recursive: true });
+    const file = path.join(directory, `${name}.png`);
+    await browser.saveScreenshot(file);
+    if (!fs.existsSync(file) || fs.statSync(file).size === 0) {
+        throw new Error(`Native screenshot was not written: ${file}`);
+    }
+    return file;
+}
+
+async function measureRailNavigation() {
+    const turnCount = Math.ceil(historyLevel / 2);
+    const source = `(${installRailNavigationMeasurement.toString()})(${turnCount}, ${MAX_RAIL_TICKS});`;
+    await injectAppWorldScript(
+        source,
+        RAIL_NAVIGATION_ELEMENT_ID,
+        'The native rail navigation measurement did not install.'
+    );
+
+    let measurement = null;
+    let measurementError = null;
+    await withTimeout(
+        browser.waitUntil(
+            async () => {
+                const state = await readAppWorldState(RAIL_NAVIGATION_ELEMENT_ID);
+                if (state?.error) measurementError = state.error;
+                if (state?.result) measurement = state.result;
+                return Boolean(measurement || measurementError);
+            },
+            {
+                timeout: 30000,
+                timeoutMsg: 'The native rail navigation did not settle.',
+            }
+        ),
+        31000,
+        'The native rail navigation did not settle.'
+    );
+    if (measurementError) throw new Error(measurementError);
+    if (!measurement) throw new Error('Native rail navigation evidence was missing.');
+
+    const screenshot = await captureNativeScreenshot(`long-${historyLevel}-rail`);
+    appendEvent({
+        type: 'long-rail',
+        historyLevel,
+        screenshot,
+        ...measurement,
+    });
+    return measurement;
 }
 
 async function submitAndMeasure(sample, options = {}) {
@@ -228,6 +305,9 @@ async function submitAndMeasure(sample, options = {}) {
         databasePath: path.join(process.env.TOUCHAI_PERF_APP_ROOT, 'data/touchai.db'),
         prompt,
     });
+    const screenshot = options.screenshotName
+        ? await captureNativeScreenshot(options.screenshotName)
+        : null;
 
     const record = {
         type: options.recordType ?? 'latency',
@@ -240,6 +320,7 @@ async function submitAndMeasure(sample, options = {}) {
         chunkBytes,
         alternate: Boolean(alternate),
         promptId: id,
+        screenshot,
         ...result,
     };
     appendEvent(record);
@@ -355,6 +436,7 @@ async function runLongSession() {
     await openSeededSession();
     await sleep(10000);
     appendEvent({ type: 'long-phase', phase: 'retained', ...(await domMetrics()) });
+    await measureRailNavigation();
     appendEvent({ type: 'long-phase', phase: 'stream-start', ...(await domMetrics()) });
     await submitAndMeasure(0, {
         recordType: 'long-stream',
@@ -363,6 +445,7 @@ async function runLongSession() {
         chunks: 32,
         chunkBytes: 256,
         timeoutMs: 300000,
+        screenshotName: `long-${historyLevel}-stream-settled`,
     });
     appendEvent({ type: 'long-phase', phase: 'terminal', ...(await domMetrics()) });
     await sleep(10000);

@@ -51,10 +51,15 @@ function createEvidenceRoot(): string {
     return root;
 }
 
-function writeFixtureManifest(root: string): void {
+function writeFixtureManifest(root: string, historyLevels = [100]): void {
     const fixtures = {
         base: { sha256: 'base-fixture-sha', businessOracleSha256: 'base-oracle' },
-        'long-100': { sha256: 'long-fixture-sha', businessOracleSha256: 'long-oracle' },
+        ...Object.fromEntries(
+            historyLevels.map((level) => [
+                `long-${level}`,
+                { sha256: 'long-fixture-sha', businessOracleSha256: 'long-oracle' },
+            ])
+        ),
     };
     fs.writeFileSync(
         path.join(root, 'fixture-manifest.json'),
@@ -79,10 +84,15 @@ function writeFixtureManifest(root: string): void {
                         baseline: 'base-oracle',
                         current: 'base-oracle',
                     },
-                    'long-100': {
-                        baseline: 'long-oracle',
-                        current: 'long-oracle',
-                    },
+                    ...Object.fromEntries(
+                        historyLevels.map((level) => [
+                            `long-${level}`,
+                            {
+                                baseline: 'long-oracle',
+                                current: 'long-oracle',
+                            },
+                        ])
+                    ),
                 },
             },
             null,
@@ -172,7 +182,10 @@ function writeSyntheticRuns(root: string, runs: SyntheticRun[], plannedRuns = ru
     writeRunPlan(root, plannedRuns);
 }
 
-function writeSyntheticLongSessionRuns(root: string): void {
+function writeSyntheticLongSessionRuns(root: string, historyLevel = 100): void {
+    const fixture = `long-${historyLevel}`;
+    const turnCount = Math.ceil(historyLevel / 2);
+    const tickCount = Math.min(turnCount, 96);
     fs.writeFileSync(
         path.join(root, 'run-plan.json'),
         `${JSON.stringify(
@@ -180,7 +193,7 @@ function writeSyntheticLongSessionRuns(root: string): void {
                 protocol: {
                     comparison,
                     flows: ['long-session'],
-                    historyLevels: [100],
+                    historyLevels: [historyLevel],
                     warmSamples: 0,
                     memoryIntervalMs: 250,
                 },
@@ -196,7 +209,7 @@ function writeSyntheticLongSessionRuns(root: string): void {
     for (let block = 1; block <= 3; block += 1) {
         for (const [offset, arm] of order.entries()) {
             const sequenceIndex = offset + 1;
-            const runId = `long-session-h100-b${block}-s${sequenceIndex}-${arm}`;
+            const runId = `long-session-h${historyLevel}-b${block}-s${sequenceIndex}-${arm}`;
             const at = block * 100_000 + sequenceIndex * 10_000;
             const isBaseline = arm === 'baseline';
             const baselinePss = isBaseline ? 1_000_000 : 980_000;
@@ -209,8 +222,8 @@ function writeSyntheticLongSessionRuns(root: string): void {
                 flow: 'long-session',
                 block,
                 sequenceIndex,
-                historyLevel: 100,
-                fixture: 'long-100',
+                historyLevel,
+                fixture,
                 fixtureSha256: 'long-fixture-sha',
                 binarySha256: `${arm}-binary-sha`,
                 attempt: 1,
@@ -222,13 +235,13 @@ function writeSyntheticLongSessionRuns(root: string): void {
                 flow: 'long-session',
                 block,
                 sequenceIndex,
-                historyLevel: 100,
+                historyLevel,
                 exitCode: 0,
                 signal: null,
                 notificationFailures: 0,
                 valid: true,
                 invalidReasons: [],
-                fixture: 'long-100',
+                fixture,
                 fixtureSha256: 'long-fixture-sha',
                 binarySha256: `${arm}-binary-sha`,
                 attempt: 1,
@@ -295,6 +308,74 @@ function writeSyntheticLongSessionRuns(root: string): void {
                     at: at + 3_000,
                 }
             );
+            events.push(
+                {
+                    type: 'long-rail',
+                    runId,
+                    arm,
+                    historyLevel,
+                    turnCount,
+                    tickCount,
+                    sampled: tickCount < turnCount,
+                    screenshot: `/tmp/${runId}-rail.png`,
+                    steps: [
+                        {
+                            target: 'first',
+                            targetIndex: 0,
+                            durationMs: isBaseline ? 40 : 38,
+                            scrollTopBefore: 5_000,
+                            scrollTopAfter: 0,
+                            endDistanceAfter: 5_000,
+                            moved: true,
+                            focusedBefore: true,
+                            focusedAfter: true,
+                            activeTarget: true,
+                        },
+                        {
+                            target: 'last',
+                            targetIndex: tickCount - 1,
+                            durationMs: isBaseline ? 45 : 42,
+                            scrollTopBefore: 0,
+                            scrollTopAfter: 5_000,
+                            endDistanceAfter: 0,
+                            moved: true,
+                            focusedBefore: true,
+                            focusedAfter: true,
+                            activeTarget: true,
+                        },
+                    ],
+                },
+                {
+                    type: 'long-stream',
+                    runId,
+                    arm,
+                    mode: 'long-stream',
+                    durationMs: isBaseline ? 500 : 480,
+                    firstTextMs: isBaseline ? 200 : 190,
+                    screenshot: `/tmp/${runId}-stream.png`,
+                    settled: {
+                        busy: 'false',
+                        atEnd: true,
+                        durationMs: isBaseline ? 550 : 525,
+                        settleMs: isBaseline ? 50 : 45,
+                        mutationCount: isBaseline ? 100 : 90,
+                        frameCount: isBaseline ? 30 : 32,
+                        frameGapSamples: isBaseline ? 29 : 31,
+                        frameGapDropped: 0,
+                        frameGapP95Ms: isBaseline ? 20 : 19,
+                        frameGapMaxMs: isBaseline ? 30 : 28,
+                        frameGapOver50Ms: 0,
+                        domNodes: 2_000,
+                        messageCount: 100,
+                        bodyTextChars: 20_000,
+                        assistantTextChars: 1_000,
+                        railTicks: Math.min(turnCount + 1, 96),
+                        scrollTop: 5_000,
+                        scrollHeight: 5_400,
+                        clientHeight: 400,
+                    },
+                }
+            );
             const memorySamples = new Map<number, number>();
             for (let sampleAt = at + 100; sampleAt <= at + 3_000; sampleAt += 250) {
                 memorySamples.set(
@@ -345,7 +426,7 @@ function writeSyntheticLongSessionRuns(root: string): void {
     );
     writeRunPlan(
         root,
-        runs.filter((run) => run.type === 'run').map((run) => ({ ...run, historyLevel: 100 }))
+        runs.filter((run) => run.type === 'run').map((run) => ({ ...run, historyLevel }))
     );
 }
 
@@ -795,6 +876,111 @@ describe('user reads the desktop performance statistics', () => {
         );
     });
 
+    it('user cannot pass a native long-session run without rail navigation evidence', () => {
+        const root = createEvidenceRoot();
+        writeFixtureManifest(root);
+        writeSyntheticLongSessionRuns(root);
+        const eventsFile = path.join(root, 'raw/formal/events.jsonl');
+        const events = fs
+            .readFileSync(eventsFile, 'utf8')
+            .trim()
+            .split('\n')
+            .map((line) => JSON.parse(line))
+            .filter((event) => event.type !== 'long-rail');
+        fs.writeFileSync(
+            eventsFile,
+            `${events.map((event) => JSON.stringify(event)).join('\n')}\n`
+        );
+
+        runStats(root);
+        const stats = readStats(root);
+
+        expect(stats.rawCounts.invalidRuns).toBe(12);
+        expect(
+            stats.invalidRuns.every((run: { invalidReasons: string[] }) =>
+                run.invalidReasons.includes('long-session rail evidence is missing or duplicated')
+            )
+        ).toBe(true);
+    });
+
+    it('user sees sampled rail metrics bounded to 96 ticks for a long history', () => {
+        const root = createEvidenceRoot();
+        writeFixtureManifest(root, [500]);
+        writeSyntheticLongSessionRuns(root, 500);
+
+        runStats(root);
+        const stats = readStats(root);
+
+        expect(stats.rawCounts.invalidRuns).toBe(0);
+        expect(stats.longSession.status).toBe('PASS');
+        const metrics = stats.longSession.levels[0].uiMetrics;
+        const railTicks = metrics.find(
+            (metric: { id: string }) => metric.id === 'long-500.rail.ticks'
+        );
+        const frameGap = metrics.find(
+            (metric: { id: string }) => metric.id === 'long-500.stream.frame-gap.p95'
+        );
+        expect(railTicks.armStats.current.median).toBe(96);
+        expect(frameGap.gate).toBe(false);
+        expect(frameGap.status).toBe('AUX');
+    });
+
+    it('user cannot pass rail evidence above the 96-tick rendering bound', () => {
+        const root = createEvidenceRoot();
+        writeFixtureManifest(root, [500]);
+        writeSyntheticLongSessionRuns(root, 500);
+        const eventsFile = path.join(root, 'raw/formal/events.jsonl');
+        const events = fs
+            .readFileSync(eventsFile, 'utf8')
+            .trim()
+            .split('\n')
+            .map((line) => JSON.parse(line));
+        const rail = events.find((event) => event.type === 'long-rail');
+        rail.tickCount = 97;
+        rail.steps[1].targetIndex = 96;
+        fs.writeFileSync(
+            eventsFile,
+            `${events.map((event) => JSON.stringify(event)).join('\n')}\n`
+        );
+
+        runStats(root);
+        const stats = readStats(root);
+
+        expect(stats.rawCounts.invalidRuns).toBe(1);
+        expect(stats.invalidRuns[0].invalidReasons).toContain(
+            'long-session rail evidence is invalid'
+        );
+    });
+
+    it('user cannot pass a native long-session run without a final streaming snapshot', () => {
+        const root = createEvidenceRoot();
+        writeFixtureManifest(root);
+        writeSyntheticLongSessionRuns(root);
+        const eventsFile = path.join(root, 'raw/formal/events.jsonl');
+        const events = fs
+            .readFileSync(eventsFile, 'utf8')
+            .trim()
+            .split('\n')
+            .map((line) => JSON.parse(line));
+        const firstRunId = events[0].runId;
+        const stream = events.find(
+            (event) => event.runId === firstRunId && event.type === 'long-stream'
+        );
+        stream.settled.busy = 'true';
+        fs.writeFileSync(
+            eventsFile,
+            `${events.map((event) => JSON.stringify(event)).join('\n')}\n`
+        );
+
+        runStats(root);
+        const stats = readStats(root);
+
+        expect(stats.rawCounts.invalidRuns).toBe(1);
+        expect(stats.invalidRuns[0].invalidReasons).toContain(
+            'long-session streaming final-state evidence is invalid'
+        );
+    });
+
     describe('given a cold-only protocol', () => {
         it('user sees only cold gates and no misleading BLOCKED warm rows', () => {
             const root = createEvidenceRoot();
@@ -867,6 +1053,7 @@ describe('user reads the desktop performance statistics', () => {
             );
 
             expect(result.status).toBe(0);
+            expect(stats.longSession.status).toBe('PASS');
             expect(settled.status).toBe('AUX');
             expect(settled.armStats.current.median).toBe(1_040_000);
             expect(settled.armStats.baseline.median).toBe(1_050_000);
@@ -875,6 +1062,10 @@ describe('user reads the desktop performance statistics', () => {
                     ([, values]: [string, number[]]) => (values[0] ?? 0) > 0
                 )
             ).toBe(true);
+            const summary = fs.readFileSync(path.join(root, 'summary.md'), 'utf8');
+            expect(summary).toContain('#### Native UI');
+            expect(summary).toContain('rail navigation P95');
+            expect(summary).toContain('streaming frame-gap P95');
         });
     });
 

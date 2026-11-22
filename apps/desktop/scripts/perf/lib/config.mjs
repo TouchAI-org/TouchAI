@@ -31,6 +31,8 @@ export const baselineSnapshot = path.join(snapshotsRoot, 'baseline');
 
 export const MANIFEST_VERSION = 1;
 export const MAX_DISPLAY_STARTUP_ATTEMPTS = 2;
+// Keep native evidence aligned with MessageScroller's rendering bound.
+export const MAX_RAIL_TICKS = 96;
 export const DEFAULT_PORT = readPort(process.env.TOUCHAI_PERF_PORT ?? 3426);
 export const startupSettleMs = readPositiveInteger(
     process.env.TOUCHAI_PERF_STARTUP_SETTLE_MS ?? 8000,

@@ -74,6 +74,22 @@ function groupRunValues(rows, valueSelector) {
     return grouped;
 }
 
+function groupRunArrays(rows, valueSelector) {
+    const grouped = new Map();
+    for (const row of rows) {
+        const values = valueSelector(row);
+        if (!Array.isArray(values)) continue;
+        const numeric = values.filter(
+            (value) => typeof value === 'number' && Number.isFinite(value)
+        );
+        if (numeric.length === 0) continue;
+        const groupedValues = grouped.get(row.runId) ?? [];
+        groupedValues.push(...numeric);
+        grouped.set(row.runId, groupedValues);
+    }
+    return grouped;
+}
+
 function blockKeyForRun(run) {
     const block = Number(run?.block);
     if (!Number.isInteger(block) || block <= 0) return null;
@@ -523,6 +539,8 @@ export function buildLongSessionStats(
             const streamStart = eventForRun(events, run.runId, 'long-phase', 'stream-start');
             const terminal = eventForRun(events, run.runId, 'long-phase', 'terminal');
             const settled = eventForRun(events, run.runId, 'long-phase', 'settled');
+            const rail = eventForRun(events, run.runId, 'long-rail', undefined);
+            const stream = eventForRun(events, run.runId, 'long-stream', undefined);
             const samples = memoryByRun.get(run.runId) ?? [];
             if (!baselineEvent || !openStart || !retained || !streamStart || !terminal || !settled)
                 continue;
@@ -562,6 +580,11 @@ export function buildLongSessionStats(
                       )
                     : null,
                 settledTotalPssKb: settledMemory.totalPssKb,
+                railTickCount: rail?.tickCount,
+                railNavigationMs:
+                    rail?.steps?.map((step) => step.durationMs).filter(Number.isFinite) ?? [],
+                streamSettledMs: stream?.settled?.durationMs,
+                streamFrameGapP95Ms: stream?.settled?.frameGapP95Ms,
             });
         }
 
@@ -577,6 +600,15 @@ export function buildLongSessionStats(
             );
         const scopedPlan = plannedItems.filter(
             (item) => item.flow === 'long-session' && Number(item.historyLevel) === Number(level)
+        );
+        const railNavigationByArm = Object.fromEntries(
+            arms.map((arm) => [
+                arm,
+                groupRunArrays(
+                    levelRows.filter((row) => row.arm === arm),
+                    (row) => row.railNavigationMs
+                ),
+            ])
         );
         const metrics = [
             summarizeMetric({
@@ -652,13 +684,87 @@ export function buildLongSessionStats(
                 plannedItems: scopedPlan,
             }),
         ];
-        const gates = metrics.filter((metric) => metric.gate);
+        const uiMetrics = [
+            summarizeMetric({
+                id: `long-${level}.rail.ticks`,
+                label: `Long-session ${level} rendered rail ticks`,
+                unit: 'ticks',
+                groupedByArm: makeGrouped('railTickCount'),
+                runById,
+                metric: 'median',
+                gate: false,
+                seed: `long-${level}-rail-ticks`,
+                notes: 'Auxiliary count of available rail destinations after opening the history.',
+                plannedItems: scopedPlan,
+            }),
+            summarizeMetric({
+                id: `long-${level}.rail.navigation.median`,
+                label: `Long-session ${level} first/last rail navigation P50`,
+                unit: 'ms',
+                groupedByArm: railNavigationByArm,
+                runById,
+                metric: 'median',
+                gate: true,
+                seed: `long-${level}-rail-navigation-p50`,
+                notes: 'Native click-to-settled navigation between the two rail ends.',
+                plannedItems: scopedPlan,
+            }),
+            summarizeMetric({
+                id: `long-${level}.rail.navigation.p95`,
+                label: `Long-session ${level} first/last rail navigation P95`,
+                unit: 'ms',
+                groupedByArm: railNavigationByArm,
+                runById,
+                metric: 'p95',
+                gate: true,
+                seed: `long-${level}-rail-navigation-p95`,
+                notes: 'Native click-to-settled navigation between the two rail ends.',
+                plannedItems: scopedPlan,
+            }),
+            summarizeMetric({
+                id: `long-${level}.stream.settled.median`,
+                label: `Long-session ${level} Enter to final idle P50`,
+                unit: 'ms',
+                groupedByArm: makeGrouped('streamSettledMs'),
+                runById,
+                metric: 'median',
+                gate: true,
+                seed: `long-${level}-stream-settled-p50`,
+                notes: 'Enter to two idle animation frames after the final content.',
+                plannedItems: scopedPlan,
+            }),
+            summarizeMetric({
+                id: `long-${level}.stream.settled.p95`,
+                label: `Long-session ${level} Enter to final idle P95`,
+                unit: 'ms',
+                groupedByArm: makeGrouped('streamSettledMs'),
+                runById,
+                metric: 'p95',
+                gate: true,
+                seed: `long-${level}-stream-settled-p95`,
+                notes: 'Enter to two idle animation frames after the final content.',
+                plannedItems: scopedPlan,
+            }),
+            summarizeMetric({
+                id: `long-${level}.stream.frame-gap.p95`,
+                label: `Long-session ${level} streaming frame-gap P95`,
+                unit: 'ms',
+                groupedByArm: makeGrouped('streamFrameGapP95Ms'),
+                runById,
+                metric: 'median',
+                gate: false,
+                seed: `long-${level}-stream-frame-gap-p95`,
+                notes: 'Auxiliary per-run 95th percentile of animation-frame gaps from Enter to final idle; scheduler noise makes this unsuitable as a hard gate.',
+                plannedItems: scopedPlan,
+            }),
+        ];
+        const gates = [...metrics, ...uiMetrics].filter((metric) => metric.gate);
         const status = gates.some((metric) => metric.status === 'FAIL')
             ? 'FAIL'
             : gates.some((metric) => metric.status === 'BLOCKED')
               ? 'BLOCKED'
               : 'PASS';
-        levelResults.push({ level, status, metrics });
+        levelResults.push({ level, status, metrics, uiMetrics });
     }
     const status = levelResults.some((level) => level.status === 'FAIL')
         ? 'FAIL'

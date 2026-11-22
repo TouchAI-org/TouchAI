@@ -77,6 +77,16 @@ export function writeSummaryMarkdown(stats) {
             '| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |',
             ...metricMarkdownRows(level.metrics)
         );
+        if (level.uiMetrics?.length) {
+            lines.push(
+                '',
+                '#### Native UI',
+                '',
+                '| Metric | Baseline runs/blocks/samples | Current runs/blocks/samples | Baseline | Current | Ratio | 95% CI | Status |',
+                '| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |',
+                ...metricMarkdownRows(level.uiMetrics)
+            );
+        }
     }
     lines.push(
         '',
@@ -112,7 +122,7 @@ export function writeSamplesCsv(stats) {
         }
     }
     for (const level of stats.longSession.levels) {
-        for (const metric of level.metrics) {
+        for (const metric of [...level.metrics, ...(level.uiMetrics ?? [])]) {
             for (const arm of arms) {
                 for (const [runId, values] of metric.armStats[arm].runs ?? []) {
                     for (const value of values) {
