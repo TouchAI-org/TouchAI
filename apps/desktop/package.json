@@ -17,6 +17,7 @@
         "test:coverage": "vitest run --configLoader runner --coverage --passWithNoTests",
         "test:coverage:raise": "vitest run --configLoader runner --coverage --passWithNoTests --coverage.thresholds.autoUpdate",
         "test:e2e": "node ./scripts/run-e2e-command.mjs",
+        "test:result-export": "playwright test --config=playwright.result-export.config.ts --workers=2",
         "test:pr": "pnpm check && pnpm test:unit && pnpm test:rust && pnpm test:coverage",
         "test:rust": "node ./scripts/run-rust-command.mjs test",
         "test:coverage:rust": "cargo llvm-cov --manifest-path src-tauri/Cargo.toml --all-targets --json --summary-only --output-path src-tauri/coverage.json",

@@ -14,6 +14,7 @@ pub mod observability;
 pub mod paths;
 pub mod privacy_filter;
 pub mod quick_search;
+pub mod result_export;
 pub mod shortcut;
 pub mod skills;
 pub mod updater;
@@ -125,6 +126,7 @@ pub fn invoke_handler<R: tauri::Runtime>(
         quick_search::quick_search_get_image_thumbnails,
         quick_search::quick_search_prepare_index,
         quick_search::quick_search_get_status,
+        result_export::result_export_html,
         updater::updater_check_for_updates,
         updater::updater_show_update_notification,
         updater::updater_open_update_settings,

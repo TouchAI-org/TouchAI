@@ -994,6 +994,19 @@ const zhCNMessages = {
     'assistant.reasoning.title': '推理过程',
     'assistant.action.copyMessage': '复制消息',
     'assistant.action.regenerateResponse': '重新生成回复',
+    'assistant.action.saveResult': '保存结果',
+    'assistant.resultExport.dialogTitle': '保存结果',
+    'assistant.resultExport.dialogFilter': 'HTML 结果',
+    'assistant.resultExport.saved': '结果已保存',
+    'assistant.resultExport.savedWithOnlineResources':
+        '结果已保存。部分交互需要联网，请保留网络连接。',
+    'assistant.resultExport.savedLarge': '结果已保存，但文件超过 4 MiB。',
+    'assistant.resultExport.savedLargeWithOnlineResources':
+        '结果已保存，但文件超过 4 MiB。部分交互需要联网，请保留网络连接。',
+    'assistant.resultExport.sensitiveBlocked':
+        '结果中检测到高置信度凭据，已阻止导出。请移除凭据后重试。',
+    'assistant.resultExport.tooLarge': '结果超过 8 MiB 导出上限，无法保存。',
+    'assistant.resultExport.failed': '保存结果失败，请检查目标位置后重试。',
     'conversation.toolCall.section.arguments': '参数',
     'conversation.toolCall.section.result': '结果',
     'conversation.toolCall.unnamed': '未命名工具',
@@ -2540,6 +2553,19 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'assistant.reasoning.title': 'Reasoning',
     'assistant.action.copyMessage': 'Copy message',
     'assistant.action.regenerateResponse': 'Regenerate response',
+    'assistant.action.saveResult': 'Save result',
+    'assistant.resultExport.dialogTitle': 'Save result',
+    'assistant.resultExport.dialogFilter': 'HTML result',
+    'assistant.resultExport.saved': 'Result saved',
+    'assistant.resultExport.savedWithOnlineResources':
+        'Result saved. Some interactions require internet access.',
+    'assistant.resultExport.savedLarge': 'Result saved, but the file is larger than 4 MiB.',
+    'assistant.resultExport.savedLargeWithOnlineResources':
+        'Result saved, but the file is larger than 4 MiB. Some interactions require internet access.',
+    'assistant.resultExport.sensitiveBlocked':
+        'A high-confidence credential was detected. Export was blocked. Remove it and retry.',
+    'assistant.resultExport.tooLarge': 'The result exceeds the 8 MiB export limit.',
+    'assistant.resultExport.failed': 'Could not save the result. Check the destination and retry.',
     'conversation.toolCall.section.arguments': 'Arguments',
     'conversation.toolCall.section.result': 'Result',
     'conversation.toolCall.unnamed': 'Unnamed tool',

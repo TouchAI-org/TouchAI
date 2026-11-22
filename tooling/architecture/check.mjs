@@ -46,6 +46,11 @@ const API_PLATFORM_BINDINGS = {
     'app/api/agent/events.ts': {
         'platform/windows/events.ts': ['createWindowEvents'],
     },
+    'app/api/agent/resultExport.ts': {
+        'platform/files/dialogs.ts': ['save'],
+        'platform/http/index.ts': ['createTauriFetch'],
+        'platform/native/resultExport.ts': ['resultExport'],
+    },
     'app/api/attachments/presentation.ts': {
         'platform/files/index.ts': ['convertFileSrc'],
     },

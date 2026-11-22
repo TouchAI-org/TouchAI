@@ -84,6 +84,12 @@
 
                 <div v-if="showMessageActions" class="mt-3 flex items-center gap-1">
                     <ActionButton
+                        v-if="canSaveResult"
+                        icon="download"
+                        :handler="handleSaveResult"
+                        :aria-label="t('assistant.action.saveResult')"
+                    />
+                    <ActionButton
                         icon="copy"
                         :handler="handleCopy"
                         :aria-label="t('assistant.action.copyMessage')"
@@ -103,6 +109,7 @@
     import ActionButton from '@components/ActionButton.vue';
     import MarkdownContent from '@components/MarkdownContent.vue';
     import StatusDivider from '@components/ui/status-divider/StatusDivider.vue';
+    import { createResultExportPresentation } from '@components/widgets/resultExportPresentation';
     import { useMotion } from '@composables/useMotion';
     import { computed, onMounted, onUnmounted, provide, ref, watch } from 'vue';
 
@@ -113,6 +120,7 @@
         ToolCallInfo,
         WidgetInfo,
     } from '@/app/api/agent/history';
+    import { exportAssistantResult } from '@/app/api/agent/resultExport';
     import { useProductAnalyticsApi } from '@/app/api/analytics/product';
     import { log } from '@/app/api/diagnostics';
     import { type PrivacyReviewAnnotation } from '@/app/api/privacy';
@@ -415,6 +423,47 @@
     const showMessageActions = computed(() => {
         return !props.message.isStreaming && !isRequestStateMessage.value;
     });
+    const canSaveResult = computed(() => {
+        if (!showMessageActions.value || props.message.role !== 'assistant') return false;
+        if (
+            props.message.parts.some(
+                (part) =>
+                    (part.type === 'tool_call' &&
+                        (part.toolCall.status === 'executing' ||
+                            part.toolCall.status === 'awaiting_approval')) ||
+                    (part.type === 'context_compaction' && part.state === 'compacting')
+            ) ||
+            props.message.approvals?.some((approval) => approval.status === 'pending')
+        ) {
+            return false;
+        }
+        const readyWidgetIds = new Set(
+            (props.message.widgets ?? [])
+                .filter((widget) => widget.phase === 'ready')
+                .map((widget) => widget.widgetId)
+        );
+        return (
+            props.message.parts.some(
+                (part) =>
+                    (part.type === 'text' && Boolean(part.content.trim())) ||
+                    (part.type === 'widget' && readyWidgetIds.has(part.widgetId))
+            ) || Boolean(props.message.content.trim())
+        );
+    });
+
+    let saveResultInFlight = false;
+
+    async function handleSaveResult() {
+        if (saveResultInFlight || !canSaveResult.value) return;
+        saveResultInFlight = true;
+        try {
+            await exportAssistantResult(props.message, createResultExportPresentation());
+        } catch (error) {
+            log.error('[AssistantMessage] Failed to save result:', error);
+        } finally {
+            saveResultInFlight = false;
+        }
+    }
 
     async function handleCopy() {
         try {

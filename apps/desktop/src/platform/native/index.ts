@@ -12,6 +12,7 @@ import { observability } from './observability';
 import { paths } from './paths';
 import { privacyFilter } from './privacyFilter';
 import { quickSearch } from './quickSearch';
+import { resultExport } from './resultExport';
 import { runtime } from './runtime';
 import { shortcut } from './shortcut';
 import { skills } from './skills';
@@ -91,6 +92,7 @@ export {
     paths,
     privacyFilter,
     quickSearch,
+    resultExport,
     runtime,
     shortcut,
     skills,
@@ -116,6 +118,7 @@ export const native = {
     privacyFilter,
     mcp,
     quickSearch,
+    resultExport,
     runtime,
     updater,
 } as const;
