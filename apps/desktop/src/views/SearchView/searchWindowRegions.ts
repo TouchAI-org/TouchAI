@@ -140,25 +140,60 @@ export function createSearchWindowRegionSignature(regions: SearchWindowRegion[])
     return JSON.stringify(regions);
 }
 
+/**
+ * 一次 region 提交被更晚的一次 show 抢先完成时的结果。
+ *
+ * 调用方把它当作“本次未提交”，按最新的 preparation 重试；把这种竞争当成协议
+ * 损坏会隐藏一个本来健康的窗口。
+ */
+export interface SearchSurfacePreparationSuperseded {
+    status: 'superseded';
+    requestedGeneration: number;
+    committedGeneration: number;
+}
+
+export type SearchSurfacePreparationUpdate =
+    | SearchWindowRegionUpdate
+    | SearchSurfacePreparationSuperseded;
+
+function comparePreparationEpochs(
+    a: { rendererEpoch: number; showEpoch: number; hostEpoch: number },
+    b: { rendererEpoch: number; showEpoch: number; hostEpoch: number }
+): number {
+    return (
+        a.rendererEpoch - b.rendererEpoch || a.showEpoch - b.showEpoch || a.hostEpoch - b.hostEpoch
+    );
+}
+
 export function validateSearchSurfacePreparationUpdate(
     update: SearchWindowRegionUpdate,
     preparation: SearchSurfacePreparation | undefined,
     generation: number
-): SearchWindowRegionUpdate {
+): SearchSurfacePreparationUpdate {
     if (!preparation || update.status !== 'applied') return update;
 
     const shown = update.showStatus;
     if (
-        !shown ||
-        shown.status !== 'shown' ||
-        shown.rendererEpoch !== preparation.rendererEpoch ||
-        shown.showEpoch !== preparation.showEpoch ||
-        shown.hostEpoch !== preparation.hostEpoch ||
-        shown.generation !== generation
+        shown &&
+        shown.status === 'shown' &&
+        shown.rendererEpoch === preparation.rendererEpoch &&
+        shown.showEpoch === preparation.showEpoch &&
+        shown.hostEpoch === preparation.hostEpoch &&
+        shown.generation === generation
     ) {
-        throw new Error('Search surface preparation acknowledgement is invalid');
+        return update;
     }
-    return update;
+    // 提交在飞行途中可能被一次更新的 show（renderer/show/host epoch 更大）抢先
+    // 提交，原生侧返回的 ack 属于那次更新的 preparation。这是正常的竞争，不是
+    // 协议损坏：报告为 superseded，让上层按最新 preparation 重试。
+    if (shown?.status === 'shown' && comparePreparationEpochs(shown, preparation) > 0) {
+        return {
+            status: 'superseded',
+            requestedGeneration: generation,
+            committedGeneration: shown.generation,
+        };
+    }
+    throw new Error('Search surface preparation acknowledgement is invalid');
 }
 
 export interface SearchWindowRegionReport<TContext = unknown> {
@@ -167,7 +202,7 @@ export interface SearchWindowRegionReport<TContext = unknown> {
     report: (
         generation: number,
         context: TContext | undefined
-    ) => Promise<SearchWindowRegionUpdate> | SearchWindowRegionUpdate;
+    ) => Promise<SearchSurfacePreparationUpdate> | SearchSurfacePreparationUpdate;
 }
 
 export interface SearchWindowRegionReporter<TContext = unknown> {
@@ -241,6 +276,12 @@ export function createSearchWindowRegionReporter<TContext = unknown>(
                 // flight.  Its write is still allowed to complete, but this
                 // acknowledgement must not affect the newer report.
                 const isLatestRequest = requestId === latestRequestId;
+                if (update.status === 'superseded') {
+                    // 更晚的一次 show 已经提交了它自己的 preparation，这次 flush
+                    // 没有可提交的内容。返回 false 让上层重试或忽略，而不是把它
+                    // 判成不安全状态去隐藏窗口。
+                    return false;
+                }
                 if (update.status === 'applied') {
                     if (update.generation !== generation) {
                         throw new Error(
