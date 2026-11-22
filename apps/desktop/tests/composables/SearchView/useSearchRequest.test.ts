@@ -7,11 +7,12 @@ import {
     searchRequestFixture,
     streamingResponse,
 } from '@tests/utils/searchRequest';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ref } from 'vue';
 
 import { agentApiKey } from '@/app/api/agent';
 import { createInputHistorySnapshot } from '@/app/api/agent/history';
+import { handoffPromptSnippet } from '@/views/SearchView/composables/promptSnippetHandoff';
 import { useSearchRequestFlow } from '@/views/SearchView/composables/useSearchRequest';
 
 describe('given Search submits requests to the actual main Core owner', () => {
@@ -155,6 +156,45 @@ describe('given Search submits requests to the actual main Core owner', () => {
             result.sessionHistory.value.some((message) => message.content === 'Last answer')
         ).toBe(true);
         expect(cleared()).toBe(3);
+    });
+
+    it('user inserts a snippet while another reply is running and sees the full draft queued once', async () => {
+        const { result } = await mountSearchFlow();
+        const channel = streamingResponse();
+        network.replies.push(channel.response, response('Snippet answer'));
+        const first = result.handleSubmit('Keep working');
+        await expect.poll(() => network.requests.length).toBe(1);
+
+        let draft = createInputHistorySnapshot({
+            text: 'Existing context: ',
+            attachments: [],
+        });
+        await handoffPromptSnippet({
+            body: 'Summarize the current state.',
+            insertionMode: 'paste_and_send',
+            insertTextAtCursor: (body) => {
+                draft = createInputHistorySnapshot({
+                    ...draft,
+                    text: `${draft.text}${body}`,
+                });
+            },
+            captureInputSnapshot: () => draft,
+            closePicker: vi.fn().mockResolvedValue(undefined),
+            submit: (snapshot) => result.handleSubmit(snapshot.text, snapshot),
+        });
+
+        await expect
+            .poll(() => result.pendingUserMessages.value.map((message) => message.prompt))
+            .toEqual(['Existing context: Summarize the current state.']);
+        expect(network.requests).toHaveLength(1);
+
+        channel.delta({ role: 'assistant', content: 'Still working' });
+        channel.finish();
+        await first;
+        await expect.poll(() => network.requests.length).toBe(2);
+        expect(JSON.stringify(network.requests[1]?.messages)).toContain(
+            'Existing context: Summarize the current state.'
+        );
     });
 
     it('user drops the queued prompt while the current task remains active', async () => {

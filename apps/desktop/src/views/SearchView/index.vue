@@ -62,6 +62,7 @@
     import AskUserPanel from './components/AskUser/AskUserPanel.vue';
     import ConversationPanel from './components/ConversationPanel/index.vue';
     import ModelDropdownPopup from './components/ModelDropdownPopup/index.vue';
+    import PromptSnippetPicker from './components/PromptSnippetPicker/index.vue';
     import QuickSearchPanel from './components/QuickSearchPanel/index.vue';
     import SearchBar from './components/SearchBar/index.vue';
     import SkillPickerPanel from './components/SearchBar/SkillPickerPanel.vue';
@@ -70,6 +71,7 @@
     import type { SearchOverlayPosition } from './components/SearchOverlayHost/position';
     import SearchPanelResizeHandles from './components/SearchPanelResizeHandles/index.vue';
     import SessionHistoryPopover from './components/SessionHistoryPopover/index.vue';
+    import { handoffPromptSnippet } from './composables/promptSnippetHandoff';
     import {
         createSearchEntryPolicy,
         createSearchInteractionContext,
@@ -155,7 +157,7 @@
     const modelDropdownState = ref<SearchModelDropdownState>({
         isOpen: false,
     });
-    type ActiveSearchOverlay = 'none' | 'model-dropdown' | 'session-history';
+    type ActiveSearchOverlay = 'none' | 'model-dropdown' | 'session-history' | 'prompt-snippets';
     type OverlayContentHandle = {
         handleOverlayShown: () => void;
         handleKeyDown: (event: KeyboardEvent) => void;
@@ -218,6 +220,7 @@
     const overlayHost = ref<OverlayHostHandle>();
     const modelDropdownOverlay = ref<OverlayContentHandle>();
     const sessionHistoryPopover = ref<OverlayContentHandle>();
+    const promptSnippetPicker = ref<OverlayContentHandle>();
     let pendingOverlayFocus: ActiveSearchOverlay = 'none';
     let pendingOverlayFocusEpoch = 0;
     let overlayIntentEpoch = 0;
@@ -368,7 +371,12 @@
     const mcpStore = useMcpStore();
     const toolsStartup = useMainToolsStartupApi();
     const settingsStore = useSettingsStore();
-    const { searchWindowDefaultSize, searchKeybindings } = storeToRefs(settingsStore);
+    const {
+        promptSnippetInsertionMode,
+        promptSnippets,
+        searchWindowDefaultSize,
+        searchKeybindings,
+    } = storeToRefs(settingsStore);
     const { sessionStatuses, refreshAllStatuses: refreshSessionStatuses } = useSessionStatus();
     const {
         isPinned,
@@ -1049,6 +1057,15 @@
         };
     }
 
+    function getPromptSnippetPickerData() {
+        return {
+            items: promptSnippets.value.items,
+            insertionMode: promptSnippetInsertionMode.value,
+            storageIssue: promptSnippets.value.storageIssue,
+            toggleShortcut: searchKeybindings.value['search.snippet.open'],
+        };
+    }
+
     async function focusActiveOverlay(intentEpoch: number) {
         if (!isOverlayIntentCurrent(intentEpoch)) return;
         const overlayToFocus = activeOverlay.value;
@@ -1077,7 +1094,9 @@
         const overlayHandle =
             overlayToFocus === 'model-dropdown'
                 ? modelDropdownOverlay.value
-                : sessionHistoryPopover.value;
+                : overlayToFocus === 'session-history'
+                  ? sessionHistoryPopover.value
+                  : promptSnippetPicker.value;
         if (!overlayHandle) return;
 
         clearPendingOverlayFocus();
@@ -1189,6 +1208,9 @@
                 if (isQuickSearchOpen.value) {
                     controller.toggleQuickSearchView();
                 }
+                return;
+            case 'search.snippet.open':
+                await handleTogglePromptSnippetPickerRequest();
                 return;
             case 'search.window.pin':
                 await handleToggleWindowPin();
@@ -1648,13 +1670,17 @@
                 ? 'model-dropdown-surface'
                 : activeOverlay.value === 'session-history'
                   ? 'session-history-surface'
-                  : null,
+                  : activeOverlay.value === 'prompt-snippets'
+                    ? 'prompt-snippets-surface'
+                    : null,
         forwardOverlayKeydown: (key) => {
             const event = new KeyboardEvent('keydown', { key });
             if (activeOverlay.value === 'model-dropdown')
                 modelDropdownOverlay.value?.handleKeyDown(event);
             if (activeOverlay.value === 'session-history')
                 sessionHistoryPopover.value?.handleKeyDown(event);
+            if (activeOverlay.value === 'prompt-snippets')
+                promptSnippetPicker.value?.handleKeyDown(event);
         },
         isQuickSearchOpen,
         shouldTriggerQuickSearch,
@@ -2043,6 +2069,39 @@
         if (!isOverlayIntentCurrent(intentEpoch)) return;
     }
 
+    async function closePromptSnippetPickerForIntent(intentEpoch: number, restoreFocus: boolean) {
+        if (!isOverlayIntentCurrent(intentEpoch)) return false;
+        clearPendingOverlayFocus();
+        if (activeOverlay.value === 'prompt-snippets') activeOverlay.value = 'none';
+        if (restoreFocus) {
+            await controller.focusSearchInput();
+            if (!isOverlayIntentCurrent(intentEpoch)) return false;
+        }
+        return true;
+    }
+
+    async function closePromptSnippetPicker(restoreFocus = true) {
+        const intentEpoch = beginOverlayIntent();
+        await closePromptSnippetPickerForIntent(intentEpoch, restoreFocus);
+        if (!isOverlayIntentCurrent(intentEpoch)) return;
+    }
+
+    async function handlePromptSnippetSelect(snippet: { body: string }) {
+        await handoffPromptSnippet({
+            body: snippet.body,
+            insertionMode: promptSnippetInsertionMode.value,
+            insertTextAtCursor: (text) => {
+                if (!searchBar.value) {
+                    throw new Error('Search composer is not available.');
+                }
+                searchBar.value.insertTextAtCursor(text);
+            },
+            captureInputSnapshot: () => buildCurrentInputHistorySnapshot(),
+            closePicker: ({ restoreFocus }) => closePromptSnippetPicker(restoreFocus),
+            submit: (snapshot) => submitComposerQuery(snapshot.text, snapshot),
+        });
+    }
+
     async function hideAllOverlaysForIntent(intentEpoch: number, restoreFocus: boolean) {
         if (!isOverlayIntentCurrent(intentEpoch)) return false;
         const hadOverlay = activeOverlay.value !== 'none';
@@ -2143,6 +2202,40 @@
         } finally {
             clearPendingModelOpen(intentEpoch);
         }
+    }
+
+    async function handleTogglePromptSnippetPickerRequest() {
+        if (surfaceHiding.value || searchViewListenersDisposed) return;
+        const intentEpoch = beginOverlayIntent();
+        if (activeOverlay.value === 'prompt-snippets') {
+            await closePromptSnippetPickerForIntent(intentEpoch, true);
+            if (!isOverlayIntentCurrent(intentEpoch)) return;
+            return;
+        }
+
+        await closeModelDropdownForIntent(intentEpoch, false);
+        if (!isOverlayIntentCurrent(intentEpoch)) return;
+        await closeSessionHistoryOverlayForIntent(intentEpoch, false);
+        if (!isOverlayIntentCurrent(intentEpoch)) return;
+        if (!(await closeSkillPickerForOverlayIntent(intentEpoch))) return;
+
+        const anchorElement = inputArea.value ?? pageContent.value ?? pageContainer.value;
+        if (!anchorElement) return;
+        if (quickSearchOpen.value) {
+            alignOverlayToResultsSlot(true);
+        } else {
+            alignOverlayToResultsSlot(false);
+        }
+
+        overlayAnchorElement.value = anchorElement;
+        overlayPositionAnchorElement.value = quickSearchOpen.value
+            ? (overlayLeftAlignElement.value ?? inputArea.value ?? anchorElement)
+            : anchorElement;
+        renderedOverlay.value = 'prompt-snippets';
+        overlayPositionReady.value = false;
+        overlaySettleEpoch += 1;
+        activeOverlay.value = 'prompt-snippets';
+        await focusActiveOverlay(intentEpoch);
     }
 
     async function openHistoryDialog() {
@@ -3363,6 +3456,13 @@
                 :on-model-select="handleModelSelect"
                 :on-search-query-change="handleModelSearchQueryChange"
                 @close="closeModelDropdown()"
+            />
+            <PromptSnippetPicker
+                v-else-if="renderedOverlay === 'prompt-snippets'"
+                ref="promptSnippetPicker"
+                :data="getPromptSnippetPickerData()"
+                :on-select="handlePromptSnippetSelect"
+                @close="closePromptSnippetPicker()"
             />
             <SessionHistoryPopover
                 v-else-if="renderedOverlay === 'session-history'"

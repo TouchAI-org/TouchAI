@@ -114,6 +114,7 @@ const zhCNMessages = {
     'settings.general.searchActions.reopenLastClosedSession': '打开最近关闭的会话',
     'settings.general.searchActions.modelToggle': '切换模型选择',
     'settings.general.searchActions.quickSearchToggleView': '切换快捷搜索视图',
+    'settings.general.searchActions.promptSnippets': '打开提示词片段',
     'settings.general.searchActions.windowPin': '切换窗口置顶',
     'settings.general.searchActions.windowMaximize': '切换窗口最大化',
     'settings.general.searchActions.openSettings': '打开设置',
@@ -131,6 +132,7 @@ const zhCNMessages = {
     'settings.general.searchActionDescriptions.modelToggle': '快速打开或收起模型列表',
     'settings.general.searchActionDescriptions.quickSearchToggleView':
         '在快捷搜索打开时切换结果视图',
+    'settings.general.searchActionDescriptions.promptSnippets': '打开提示词片段选择器',
     'settings.general.searchActionDescriptions.windowPin': '切换搜索窗口的置顶状态',
     'settings.general.searchActionDescriptions.windowMaximize': '切换搜索窗口最大化',
     'settings.general.searchActionDescriptions.openSettings': '快速打开设置窗口',
@@ -1477,6 +1479,7 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.general.searchActions.reopenLastClosedSession': 'Open most recently closed session',
     'settings.general.searchActions.modelToggle': 'Toggle model picker',
     'settings.general.searchActions.quickSearchToggleView': 'Toggle quick search view',
+    'settings.general.searchActions.promptSnippets': 'Open prompt snippets',
     'settings.general.searchActions.windowPin': 'Toggle window pin',
     'settings.general.searchActions.windowMaximize': 'Toggle window maximize',
     'settings.general.searchActions.openSettings': 'Open settings',
@@ -1494,6 +1497,7 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.general.searchActionDescriptions.modelToggle': 'Open or close the model picker.',
     'settings.general.searchActionDescriptions.quickSearchToggleView':
         'Switch the result view while quick search is open.',
+    'settings.general.searchActionDescriptions.promptSnippets': 'Open the prompt snippet picker.',
     'settings.general.searchActionDescriptions.windowPin':
         'Toggle whether the search window stays on top.',
     'settings.general.searchActionDescriptions.windowMaximize':

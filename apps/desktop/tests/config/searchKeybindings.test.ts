@@ -53,6 +53,7 @@ describe('user changes the search shortcuts', () => {
             'search.session.reopenLastClosed': 'Mod+Shift+T',
             'search.model.toggle': 'Mod+M',
             'search.quickSearch.toggleView': 'Mod+G',
+            'search.snippet.open': 'Mod+Shift+P',
             'search.window.pin': 'Mod+P',
             'search.window.maximize': 'F11',
             'search.settings.open': 'Mod+,',

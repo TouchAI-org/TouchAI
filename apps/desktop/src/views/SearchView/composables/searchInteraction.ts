@@ -36,7 +36,10 @@ export type SearchActivationSource = 'shortcut' | 'manual' | 'unknown';
 
 export type SearchHideReason = 'app-blur-hide' | 'manual-dismiss' | 'policy-toggle-hide';
 
-export type SearchOverlaySurfaceType = 'model-dropdown-surface' | 'session-history-surface';
+export type SearchOverlaySurfaceType =
+    | 'model-dropdown-surface'
+    | 'session-history-surface'
+    | 'prompt-snippets-surface';
 
 export interface SearchActivationContextState {
     activationEpoch: number;
@@ -74,7 +77,7 @@ interface UseQuickSearchCoordinatorOptions {
     cursorContext: Ref<SearchCursorContext>;
     modelOverride: Ref<SearchModelOverride>;
     modelDropdownState: Ref<SearchModelDropdownState>;
-    activeOverlay: Ref<'none' | 'model-dropdown' | 'session-history'>;
+    activeOverlay: Ref<'none' | 'model-dropdown' | 'session-history' | 'prompt-snippets'>;
     quickSearchOpen: Ref<boolean>;
     /** Keep QuickSearch mounted while its surface hands off to the session panel. */
     quickSearchHandoff?: Readonly<Ref<boolean>>;
@@ -859,6 +862,15 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
 
         const modified = input.ctrlKey || input.metaKey || input.altKey || input.shiftKey;
         if (getActiveSurface() !== 'search-surface') {
+            if (
+                getActiveSurface() === 'prompt-snippets-surface' &&
+                !modified &&
+                /^[1-9]$/.test(input.key)
+            ) {
+                onForwardToOverlay(input.key);
+                return true;
+            }
+
             if (!modified && ['ArrowUp', 'ArrowDown', 'Enter'].includes(input.key)) {
                 onForwardToOverlay(input.key);
                 return true;
