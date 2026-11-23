@@ -7,6 +7,7 @@ import { messages } from '../schema';
 import type { MessageCreateData, MessageEntity, MessagePartEntity } from '../types';
 import { findAttachmentsByMessageIds, type MessageAttachmentRow } from './attachments';
 import { findMessagePartsByMessageIds } from './messageParts';
+import { buildSessionSearchTrigramExpression } from './sessionSearchTrigrams';
 
 /** A database message is returned once, with its ordered parts and resolved attachments. */
 export interface MessageRow extends MessageEntity {
@@ -154,6 +155,89 @@ export async function findConversationSearchMessagesBySessionIds(
     }));
 }
 
+/**
+ * Returns the latest keyword matches per candidate session, bounded per session. The trigram
+ * index narrows candidates; the substring check re-validates the full text. Unlike the ranking
+ * sample this keeps a real hit from the middle of a long conversation as an anchor.
+ */
+export async function findConversationSearchMatchMessages(
+    sessionIds: readonly number[],
+    roles: readonly ('user' | 'assistant')[],
+    query: string,
+    limitPerSession: number,
+    database: DatabaseExecutor = db
+): Promise<ConversationSearchMessage[]> {
+    const uniqueSessionIds = [...new Set(sessionIds)];
+    const uniqueRoles = [...new Set(roles)].filter(
+        (role): role is 'user' | 'assistant' => role === 'user' || role === 'assistant'
+    );
+    const normalizedQuery = query.trim().toLocaleLowerCase();
+    const perSession = Math.max(1, Math.floor(limitPerSession));
+    if (uniqueSessionIds.length === 0 || uniqueRoles.length === 0 || !normalizedQuery) return [];
+
+    const roleValues = sql.join(
+        uniqueRoles.map((role) => sql`${role}`),
+        sql`, `
+    );
+    const trigramExpression = buildSessionSearchTrigramExpression(normalizedQuery);
+    const indexedCandidates = trigramExpression
+        ? sql`AND messages.id IN (
+                SELECT rowid FROM message_search_fts
+                WHERE message_search_fts MATCH ${trigramExpression}
+            )`
+        : sql``;
+
+    const rows = await database.all<[number, number, 'user' | 'assistant', string]>(sql`
+        WITH candidate_sessions(session_id) AS (
+            SELECT value
+            FROM json_each(${JSON.stringify(uniqueSessionIds)})
+        ),
+        message_text AS (
+            SELECT
+                messages.id AS id,
+                messages.session_id AS session_id,
+                messages.role AS role,
+                coalesce((
+                    SELECT group_concat(parts.content, '')
+                    FROM (
+                        SELECT content
+                        FROM message_parts
+                        WHERE message_id = messages.id AND type = 'text'
+                        ORDER BY sort_order, id
+                    ) AS parts
+                ), '') AS content
+            FROM messages
+            INNER JOIN candidate_sessions
+                ON candidate_sessions.session_id = messages.session_id
+            WHERE messages.role IN (${roleValues})
+              ${indexedCandidates}
+        ),
+        matched AS (
+            SELECT
+                id,
+                session_id,
+                role,
+                content,
+                ROW_NUMBER() OVER (
+                    PARTITION BY session_id
+                    ORDER BY id DESC
+                ) AS match_rank
+            FROM message_text
+            WHERE instr(lower(content), ${normalizedQuery}) > 0
+        )
+        SELECT id, session_id, role, content
+        FROM matched
+        WHERE match_rank <= ${perSession}
+        ORDER BY session_id, id
+    `);
+    return rows.map(([id, sessionId, role, content]) => ({
+        id,
+        session_id: sessionId,
+        role,
+        content,
+    }));
+}
+
 /** Separate range and point reads keep the session/id index usable for long archives. */
 export async function findContextMessageRows(
     sessionId: number,
@@ -182,6 +266,19 @@ export interface ConversationReadMessage {
     role: 'user' | 'assistant';
     created_at: string;
     content: string;
+}
+
+export async function findMessageInSession(
+    sessionId: number,
+    messageId: number,
+    database: DatabaseExecutor = db
+): Promise<boolean> {
+    const row = await database
+        .select({ id: messages.id })
+        .from(messages)
+        .where(and(eq(messages.session_id, sessionId), eq(messages.id, messageId)))
+        .get();
+    return row !== undefined;
 }
 
 /**

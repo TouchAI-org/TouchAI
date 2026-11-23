@@ -167,6 +167,16 @@ export const findSessionById = async (sessionId: number): Promise<SessionEntity 
         .where(eq(sessions.id, sessionId))
         .get();
 
+/** Public conversation ids are UUID strings; tools receive this value, not the row id. */
+export const findSessionByPublicId = async (
+    sessionId: string
+): Promise<SessionEntity | undefined> =>
+    await db
+        .select(createSessionListSelection(db))
+        .from(sessions)
+        .where(eq(sessions.session_id, sessionId))
+        .get();
+
 /**
  * 列出会话。
  */

@@ -1,5 +1,6 @@
 import {
     type ConversationSearchMessage,
+    findConversationSearchMatchMessages,
     findConversationSearchMessagesBySessionIds,
 } from '@/database/queries/messages';
 import { listSessions, type ListSessionsOptions } from '@/database/queries/sessions';
@@ -35,6 +36,19 @@ export const databaseSearchConversationHistory: SearchConversationHistory = Obje
         return (await findConversationSearchMessagesBySessionIds(
             sessionIds,
             roles
+        )) satisfies ConversationSearchMessage[];
+    },
+    async findMatchMessages(
+        sessionIds: Parameters<SearchConversationHistory['findMatchMessages']>[0],
+        roles: Parameters<SearchConversationHistory['findMatchMessages']>[1],
+        query: Parameters<SearchConversationHistory['findMatchMessages']>[2],
+        limitPerSession: Parameters<SearchConversationHistory['findMatchMessages']>[3]
+    ) {
+        return (await findConversationSearchMatchMessages(
+            sessionIds,
+            roles,
+            query,
+            limitPerSession
         )) satisfies ConversationSearchMessage[];
     },
 });

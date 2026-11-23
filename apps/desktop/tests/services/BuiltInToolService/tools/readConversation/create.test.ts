@@ -57,7 +57,10 @@ function fixture(
         const page = ordered.slice(0, options.limit);
         return options.direction === 'before' ? page.reverse() : page;
     });
-    const history: ReadConversationHistory = { findSession, listMessages };
+    const hasMessage = vi.fn<ReadConversationHistory['hasMessage']>(async (_sessionId, messageId) =>
+        (input.messages ?? []).some((entry) => entry.id === messageId)
+    );
+    const history: ReadConversationHistory = { findSession, listMessages, hasMessage };
 
     const [descriptor] = createReadConversationTools({
         messages: {
@@ -81,7 +84,7 @@ function fixture(
         return descriptor!.execute(args, config, context);
     }
 
-    return { execute, findSession, listMessages };
+    return { execute, findSession, listMessages, hasMessage };
 }
 
 describe('given the conversation read builtin pages one session', () => {
@@ -205,6 +208,96 @@ describe('given the conversation read builtin pages one session', () => {
         expect(result).toMatchObject({ isError: true, status: 'error' });
         expect(result.result).toContain('builtInTools.readConversation.disabled');
         expect(findSession).not.toHaveBeenCalled();
+        expect(listMessages).not.toHaveBeenCalled();
+    });
+
+    it('user walks every older page without gaps when the byte budget splits a long conversation', async () => {
+        const messages = Array.from({ length: 20 }, (_, index) =>
+            message(index + 1, index % 2 === 0 ? 'user' : 'assistant', '会'.repeat(1500))
+        );
+        const { execute } = fixture({ messages });
+
+        const seen: number[] = [];
+        let anchor: number | undefined;
+        for (let page = 0; page < 20; page += 1) {
+            const parsed = output(
+                await execute(
+                    anchor === undefined
+                        ? { session_id: 'session-1', limit: 20 }
+                        : { session_id: 'session-1', limit: 20, message_id: anchor }
+                )
+            );
+            expect(parsed.messages.map((entry) => entry.message_id)).toEqual(
+                [...parsed.messages.map((entry) => entry.message_id)].sort(
+                    (left, right) => left - right
+                )
+            );
+            seen.push(...parsed.messages.map((entry) => entry.message_id));
+            if (!parsed.has_more) break;
+            expect(parsed.next_cursor?.direction).toBe('before');
+            anchor = parsed.next_cursor!.message_id;
+        }
+
+        expect([...seen].sort((left, right) => left - right)).toEqual(
+            Array.from({ length: 20 }, (_, index) => index + 1)
+        );
+    });
+
+    it('user walks every newer page without gaps when the byte budget splits a long conversation', async () => {
+        const messages = Array.from({ length: 20 }, (_, index) =>
+            message(index + 1, 'user', '会'.repeat(1500))
+        );
+        const { execute } = fixture({ messages });
+
+        const seen: number[] = [];
+        let anchor = 1;
+        for (let page = 0; page < 20; page += 1) {
+            const parsed = output(
+                await execute({
+                    session_id: 'session-1',
+                    limit: 20,
+                    message_id: anchor,
+                    direction: 'after',
+                })
+            );
+            seen.push(...parsed.messages.map((entry) => entry.message_id));
+            if (!parsed.has_more) break;
+            expect(parsed.next_cursor?.direction).toBe('after');
+            anchor = parsed.next_cursor!.message_id;
+        }
+
+        expect(seen).toEqual(Array.from({ length: 19 }, (_, index) => index + 2));
+    });
+
+    it('user receives at most 50 KiB even with escaped text and a very long title', async () => {
+        const { execute } = fixture({
+            session: { ...session, title: 'T'.repeat(60_000) },
+            messages: [message(1, 'user', '\u0001'.repeat(10_000))],
+        });
+
+        const result = await execute({
+            session_id: 'session-1',
+            max_chars_per_message: 8000,
+        });
+        const parsed = output(result);
+
+        expect(new TextEncoder().encode(result.result).length).toBeLessThanOrEqual(50 * 1024);
+        expect(parsed.session.title.length).toBeLessThanOrEqual(201);
+        expect(parsed.messages[0]?.truncated).toBe(true);
+        expect(parsed.messages).toHaveLength(1);
+        expect(parsed.has_more).toBe(false);
+        expect(parsed.next_cursor).toBeNull();
+    });
+
+    it('user gets a readable error when the anchor belongs to another conversation', async () => {
+        const { execute, listMessages } = fixture({
+            messages: [message(1, 'user', 'first')],
+        });
+
+        const result = await execute({ session_id: 'session-1', message_id: 999 });
+
+        expect(result).toMatchObject({ isError: true, status: 'error' });
+        expect(result.result).toContain('builtInTools.readConversation.invalidAnchor');
         expect(listMessages).not.toHaveBeenCalled();
     });
 });

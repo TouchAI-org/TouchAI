@@ -47,6 +47,14 @@ function fixture() {
             content: 'Searchable content',
         },
     ]);
+    const findMatchMessages = vi.fn(async () => [
+        {
+            id: 1,
+            session_id: 1,
+            role: 'user' as const,
+            content: 'Searchable content',
+        },
+    ]);
     const complete = vi.fn<ToolModelCapabilities['complete']>(
         async (_taskId, _model, input) =>
             await new Promise((_resolve, reject) => {
@@ -72,10 +80,11 @@ function fixture() {
             history: {
                 listCandidates,
                 findMessages,
+                findMatchMessages,
             },
         })
     );
-    return { database, catalog, listCandidates, findMessages, complete };
+    return { database, catalog, listCandidates, findMessages, findMatchMessages, complete };
 }
 
 function task(signal: AbortSignal): ToolTaskContext {

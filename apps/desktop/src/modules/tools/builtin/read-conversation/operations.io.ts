@@ -1,14 +1,12 @@
-import { findConversationMessagePage } from '@/database/queries/messages';
-import { findSessionById } from '@/database/queries/sessions';
+import { findConversationMessagePage, findMessageInSession } from '@/database/queries/messages';
+import { findSessionByPublicId } from '@/database/queries/sessions';
 
 import type { ReadConversationHistory } from './create';
 
 export const databaseReadConversationHistory: ReadConversationHistory = Object.freeze({
     async findSession(sessionId: string) {
-        const numericId = Number(sessionId);
-        if (!Number.isInteger(numericId) || numericId <= 0) return null;
-        const session = await findSessionById(numericId);
-        if (!session || session.session_id !== sessionId) return null;
+        const session = await findSessionByPublicId(sessionId);
+        if (!session) return null;
         return {
             id: session.id,
             session_id: session.session_id,
@@ -20,5 +18,8 @@ export const databaseReadConversationHistory: ReadConversationHistory = Object.f
     },
     async listMessages(options: Parameters<ReadConversationHistory['listMessages']>[0]) {
         return findConversationMessagePage(options);
+    },
+    async hasMessage(sessionId: number, messageId: number) {
+        return findMessageInSession(sessionId, messageId);
     },
 });

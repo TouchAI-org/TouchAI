@@ -5,7 +5,10 @@ import {
 } from '@tests/database/sqliteHarness';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { findConversationSearchMessagesBySessionIds } from '@/database/queries/messages';
+import {
+    findConversationSearchMatchMessages,
+    findConversationSearchMessagesBySessionIds,
+} from '@/database/queries/messages';
 
 afterEach(closeTestDatabases);
 
@@ -162,5 +165,36 @@ describe('given conversation search needs bounded transcript messages for many s
             },
         ]);
         expect(JSON.stringify(rows)).not.toContain('hidden tool output');
+    });
+
+    it('user gets a match anchor for a hit in the middle of a long conversation', async () => {
+        const database = openMigratedDatabase();
+        routeQueriesTo(database);
+        seedSession(database, 1);
+        for (let id = 1; id <= 120; id += 1) {
+            seedMessage(database, {
+                id,
+                sessionId: 1,
+                role: id % 2 === 0 ? 'assistant' : 'user',
+                content: id === 61 ? 'needle in the middle of a long conversation' : `filler-${id}`,
+            });
+        }
+        seedMessage(database, { id: 121, sessionId: 1, role: 'system', content: 'needle hidden' });
+
+        const rows = await findConversationSearchMatchMessages(
+            [1],
+            ['user', 'assistant'],
+            'needle',
+            3
+        );
+
+        expect(rows).toEqual([
+            {
+                id: 61,
+                session_id: 1,
+                role: 'user',
+                content: 'needle in the middle of a long conversation',
+            },
+        ]);
     });
 });

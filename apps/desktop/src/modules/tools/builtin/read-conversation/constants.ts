@@ -7,10 +7,11 @@ export const READ_CONVERSATION_DEFAULT_MAX_CHARS = 1500;
 export const READ_CONVERSATION_MIN_MAX_CHARS = 50;
 export const READ_CONVERSATION_MAX_MAX_CHARS = 8000;
 export const READ_CONVERSATION_MAX_BYTES = 50 * 1024;
+export const READ_CONVERSATION_MAX_TITLE_CODE_POINTS = 200;
 
 export const READ_CONVERSATION_TOOL_DESCRIPTION = [
     'Read one saved conversation by session id, starting from a message returned by SearchConversation.',
-    'direction "before" walks toward older messages, "after" toward newer ones; every call is bounded by limit, max_chars_per_message and 50 KiB of returned text.',
+    'direction "before" walks toward older messages, "after" toward newer ones; every call is bounded by limit, max_chars_per_message and 50 KiB of serialized output.',
     'Only user and assistant text is returned; system and tool content are never exposed.',
     'Use next_cursor from the previous call to keep reading in the same direction.',
 ].join(' ');

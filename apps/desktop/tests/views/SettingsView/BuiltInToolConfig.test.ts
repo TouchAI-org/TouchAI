@@ -154,6 +154,38 @@ describe('given actual builtin configuration forms and their public save contrac
         const patch = wrapper!.emitted('save')?.at(-1)?.[0] as { config_json: string };
         expect(JSON.parse(patch.config_json)).toEqual({ enabled: false });
     });
+
+    it('user turns conversation read off and back on without persisting a stale disabled value', async () => {
+        mountPanel(
+            tool({
+                tool_id: 'read_conversation',
+                config_json: '{"enabled":true}',
+            })
+        );
+        const toggle = wrapper!.get('[data-testid="conversation-read-enabled"]');
+        await toggle.trigger('click');
+        await vi.advanceTimersByTimeAsync(200);
+        await toggle.trigger('click');
+        await vi.advanceTimersByTimeAsync(600);
+
+        expect(wrapper!.emitted('save')).toBeUndefined();
+    });
+
+    it('user turns conversation read on and back off without persisting a stale enabled value', async () => {
+        mountPanel(
+            tool({
+                tool_id: 'read_conversation',
+                config_json: '{"enabled":false}',
+            })
+        );
+        const toggle = wrapper!.get('[data-testid="conversation-read-enabled"]');
+        await toggle.trigger('click');
+        await vi.advanceTimersByTimeAsync(200);
+        await toggle.trigger('click');
+        await vi.advanceTimersByTimeAsync(600);
+
+        expect(wrapper!.emitted('save')).toBeUndefined();
+    });
 });
 
 beforePresentation(async () => {

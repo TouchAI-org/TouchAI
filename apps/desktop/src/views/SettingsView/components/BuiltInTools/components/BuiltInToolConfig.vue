@@ -172,6 +172,7 @@
             );
 
             if (nextConfigJson === currentConfigJson) {
+                clearAutoSaveTimer();
                 return;
             }
 

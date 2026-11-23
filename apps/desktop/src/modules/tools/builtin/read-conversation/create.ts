@@ -13,6 +13,7 @@ import {
 } from './configuration';
 import {
     READ_CONVERSATION_MAX_BYTES,
+    READ_CONVERSATION_MAX_TITLE_CODE_POINTS,
     READ_CONVERSATION_TOOL_DESCRIPTION,
     READ_CONVERSATION_TOOL_INPUT_SCHEMA,
 } from './constants';
@@ -48,6 +49,7 @@ export interface ReadConversationHistory {
         limit: number;
         roles: readonly ('user' | 'assistant')[];
     }): Promise<ReadConversationMessage[]>;
+    hasMessage(sessionId: number, messageId: number): Promise<boolean>;
 }
 
 interface ReadConversationOutputMessage {
@@ -72,12 +74,17 @@ interface ReadConversationOutput {
 }
 
 function buildPage(
+    session: ReadConversationSession,
     messages: readonly ReadConversationMessage[],
-    args: ReadConversationArguments
-): { messages: ReadConversationOutputMessage[]; hasMore: boolean } {
-    const output: ReadConversationOutputMessage[] = [];
-    let bytes = 0;
-    for (const message of messages) {
+    args: ReadConversationArguments,
+    moreAvailable: boolean
+): string {
+    const ordered = args.direction === 'before' ? [...messages].reverse() : [...messages];
+    let output: ReadConversationOutputMessage[] = [];
+    let hasMore = moreAvailable;
+
+    for (let index = 0; index < ordered.length; index += 1) {
+        const message = ordered[index]!;
         const truncated = truncateText(message.content, args.max_chars_per_message);
         const entry: ReadConversationOutputMessage = {
             message_id: message.id,
@@ -86,40 +93,92 @@ function buildPage(
             text: truncated.text,
             truncated: truncated.truncated,
         };
-        const entryBytes = utf8ByteLength(JSON.stringify(entry));
-        if (output.length > 0 && bytes + entryBytes > READ_CONVERSATION_MAX_BYTES) {
-            return { messages: output, hasMore: true };
+        const candidate = args.direction === 'before' ? [entry, ...output] : [...output, entry];
+        const remaining = index < ordered.length - 1;
+        if (!fits(session, candidate, args, hasMore || remaining)) {
+            hasMore = true;
+            break;
         }
-        bytes += entryBytes;
-        output.push(entry);
+        output = candidate;
     }
-    return { messages: output, hasMore: false };
+
+    if (output.length === 0 && ordered.length > 0) {
+        output = [fitFirstMessage(session, ordered[0]!, args)];
+        hasMore = moreAvailable || ordered.length > 1;
+    }
+
+    return serialize(session, output, args, hasMore);
 }
 
-function buildOutput(
+function truncateTitle(title: string): string {
+    const points = Array.from(title);
+    if (points.length <= READ_CONVERSATION_MAX_TITLE_CODE_POINTS) return title;
+    return `${points.slice(0, READ_CONVERSATION_MAX_TITLE_CODE_POINTS).join('')}…`;
+}
+
+function serialize(
     session: ReadConversationSession,
-    page: { messages: ReadConversationOutputMessage[]; hasMore: boolean },
-    args: ReadConversationArguments
+    messages: readonly ReadConversationOutputMessage[],
+    args: ReadConversationArguments,
+    hasMore: boolean
 ): string {
-    const last = page.messages[page.messages.length - 1];
-    const first = page.messages[0];
-    const cursorSource = args.direction === 'before' ? first : last;
+    const cursorSource = args.direction === 'before' ? messages[0] : messages[messages.length - 1];
     const output: ReadConversationOutput = {
         session: {
             session_id: session.session_id,
-            title: session.title,
+            title: truncateTitle(session.title),
             model: session.model,
             created_at: session.created_at,
             archived: session.archived,
         },
-        messages: page.messages,
+        messages: [...messages],
         next_cursor:
-            page.hasMore && cursorSource
+            hasMore && cursorSource
                 ? { message_id: cursorSource.message_id, direction: args.direction }
                 : null,
-        has_more: page.hasMore,
+        has_more: hasMore,
     };
     return JSON.stringify(output);
+}
+
+function fits(
+    session: ReadConversationSession,
+    messages: readonly ReadConversationOutputMessage[],
+    args: ReadConversationArguments,
+    hasMore: boolean
+): boolean {
+    return (
+        utf8ByteLength(serialize(session, messages, args, hasMore)) <= READ_CONVERSATION_MAX_BYTES
+    );
+}
+
+function fitFirstMessage(
+    session: ReadConversationSession,
+    message: ReadConversationMessage,
+    args: ReadConversationArguments
+): ReadConversationOutputMessage {
+    const entry = (text: string): ReadConversationOutputMessage => ({
+        message_id: message.id,
+        role: message.role,
+        created_at: message.created_at,
+        text,
+        truncated: true,
+    });
+    const points = Array.from(message.content);
+    let low = 0;
+    let high = Math.min(points.length, args.max_chars_per_message);
+    let best = entry('');
+    while (low <= high) {
+        const middle = Math.floor((low + high) / 2);
+        const candidate = entry(points.slice(0, middle).join(''));
+        if (fits(session, [candidate], args, true)) {
+            best = candidate;
+            low = middle + 1;
+        } else {
+            high = middle - 1;
+        }
+    }
+    return best;
 }
 
 export function createReadConversationTools(input: {
@@ -179,6 +238,22 @@ export function createReadConversationTools(input: {
                     };
                 }
 
+                if (
+                    parsed.message_id !== undefined &&
+                    !(await history.hasMessage(session.id, parsed.message_id))
+                ) {
+                    const invalidAnchor = input.messages.t(
+                        'builtInTools.readConversation.invalidAnchor',
+                        { messageId: parsed.message_id }
+                    );
+                    return {
+                        result: invalidAnchor,
+                        isError: true,
+                        status: 'error',
+                        errorMessage: invalidAnchor,
+                    };
+                }
+
                 const rows = await history.listMessages({
                     sessionId: session.id,
                     anchorId: parsed.message_id,
@@ -188,15 +263,13 @@ export function createReadConversationTools(input: {
                 });
                 context.signal?.throwIfAborted();
 
-                const overflow =
-                    rows.length > parsed.limit
-                        ? parsed.direction === 'before'
-                            ? rows.slice(1)
-                            : rows.slice(0, parsed.limit)
-                        : rows;
-                const page = buildPage(overflow, parsed);
-                const hasMore = rows.length > parsed.limit || page.hasMore;
-                const result = buildOutput(session, { messages: page.messages, hasMore }, parsed);
+                const moreAvailable = rows.length > parsed.limit;
+                const pageRows = moreAvailable
+                    ? parsed.direction === 'before'
+                        ? rows.slice(1)
+                        : rows.slice(0, parsed.limit)
+                    : rows;
+                const result = buildPage(session, pageRows, parsed, moreAvailable);
                 context.signal?.throwIfAborted();
                 return { result, isError: false, status: 'success' };
             } catch (error) {

@@ -5,7 +5,10 @@ import {
 } from '@tests/database/sqliteHarness';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { findConversationSearchMessagesBySessionIds } from '@/database/queries/messages';
+import {
+    findConversationSearchMatchMessages,
+    findConversationSearchMessagesBySessionIds,
+} from '@/database/queries/messages';
 import { listSessions } from '@/database/queries/sessions';
 
 afterEach(closeTestDatabases);
@@ -25,6 +28,12 @@ describe('given conversation search exposes its database access path', () => {
                   params: unknown[];
               }
             | undefined;
+        let matchRequest:
+            | {
+                  sql: string;
+                  params: unknown[];
+              }
+            | undefined;
         routeQueriesTo(database, {
             afterQuery(request) {
                 if (request.sql.includes('message_search_fts')) {
@@ -35,6 +44,12 @@ describe('given conversation search exposes its database access path', () => {
                 }
                 if (request.sql.includes('json_group_array')) {
                     messageRequest = {
+                        sql: request.sql,
+                        params: request.params,
+                    };
+                }
+                if (request.sql.includes('instr(lower(content)')) {
+                    matchRequest = {
                         sql: request.sql,
                         params: request.params,
                     };
@@ -85,5 +100,16 @@ describe('given conversation search exposes its database access path', () => {
         expect(messageDetails).toContain(
             'SEARCH message_parts USING INDEX message_parts_message_id_sort_order_idx'
         );
+
+        await findConversationSearchMatchMessages([1], ['user'], 'abcdefghi', 3);
+        expect(matchRequest).toBeDefined();
+        const matchPlan = database
+            .prepare(`EXPLAIN QUERY PLAN ${matchRequest!.sql}`)
+            .all(...(matchRequest!.params as [])) as Array<{ detail: string }>;
+        const matchDetails = matchPlan.map((row) => row.detail).join('\n');
+
+        expect(matchDetails).toContain('SCAN message_search_fts VIRTUAL TABLE INDEX');
+        expect(matchDetails).toContain('SEARCH messages USING INTEGER PRIMARY KEY');
+        expect(matchDetails).not.toMatch(/^SCAN messages\b/m);
     });
 });

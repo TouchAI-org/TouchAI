@@ -58,6 +58,7 @@ function fixture(
     input: {
         candidates?: Candidate[];
         messages?: StoredMessage[];
+        matchMessages?: StoredMessage[];
         completion?: ToolModelCapabilities['complete'];
         loadCandidates?: SearchConversationHistory['listCandidates'];
     } = {}
@@ -81,6 +82,39 @@ function fixture(
     const complete = vi.fn<ToolModelCapabilities['complete']>(
         input.completion ?? (async () => ({ content: '{"relevant_indices":[0]}' }))
     );
+    const findMatchMessages = vi.fn<SearchConversationHistory['findMatchMessages']>(
+        async (sessionIds, roles, query, limitPerSession) => {
+            const normalizedQuery = query.toLocaleLowerCase();
+            const counts = new Map<number, number>();
+            const matches: Array<{
+                id: number;
+                session_id: number;
+                role: 'user' | 'assistant';
+                content: string;
+            }> = [];
+            for (const message of [...(input.matchMessages ?? input.messages ?? [])].reverse()) {
+                if (
+                    !sessionIds.includes(message.session_id) ||
+                    !roles.includes(message.role as 'user' | 'assistant') ||
+                    !message.content.toLocaleLowerCase().includes(normalizedQuery)
+                ) {
+                    continue;
+                }
+                const count = counts.get(message.session_id) ?? 0;
+                if (count >= limitPerSession) continue;
+                counts.set(message.session_id, count + 1);
+                matches.push({
+                    id: message.id,
+                    session_id: message.session_id,
+                    role: message.role as 'user' | 'assistant',
+                    content: message.content,
+                });
+            }
+            return matches.sort(
+                (left, right) => left.session_id - right.session_id || left.id - right.id
+            );
+        }
+    );
     const models: ToolModelCapabilities = {
         resolve: async () => null,
         isAvailable: async () => true,
@@ -89,6 +123,7 @@ function fixture(
     const history: SearchConversationHistory = {
         listCandidates,
         findMessages,
+        findMatchMessages,
     };
     const [descriptor] = createSearchConversationTools({
         messages: {
@@ -123,7 +158,14 @@ function fixture(
         return prepared.execute(args, config, context);
     }
 
-    return { describe: descriptor, execute, listCandidates, findMessages, complete };
+    return {
+        describe: descriptor,
+        execute,
+        listCandidates,
+        findMessages,
+        findMatchMessages,
+        complete,
+    };
 }
 
 function output(result: { result: string }): {
@@ -214,6 +256,23 @@ describe('given the conversation search builtin performs a bounded two-stage sea
         expect(parsed.ranking_status).toBe('keyword');
         expect(parsed.results.map((entry) => entry.session_id)).toEqual(['session-1', 'session-2']);
         expect(complete).not.toHaveBeenCalled();
+    });
+
+    it('user gets a match anchor even when the hit sits outside the ranking sample', async () => {
+        const { execute } = fixture({
+            candidates: [candidate(1, { message_count: 120 })],
+            messages: [
+                { id: 1, session_id: 1, role: 'user', content: 'opening message' },
+                { id: 120, session_id: 1, role: 'assistant', content: 'closing message' },
+            ],
+            matchMessages: [{ id: 61, session_id: 1, role: 'user', content: 'the needle is here' }],
+        });
+
+        const parsed = output(await execute({ query: 'needle', limit: 1 }));
+
+        expect(parsed.results[0]?.matches).toEqual([
+            { message_id: 61, role: 'user', snippet: 'the needle is here' },
+        ]);
     });
 
     it('user keeps title matches while role filtering excludes transcript and snippet content', async () => {

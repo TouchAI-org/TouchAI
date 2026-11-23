@@ -53,6 +53,12 @@ export interface SearchConversationHistory {
         sessionIds: readonly number[],
         roles: readonly ('user' | 'assistant')[]
     ): Promise<Array<RankingMessage & { session_id: number }>>;
+    findMatchMessages(
+        sessionIds: readonly number[],
+        roles: readonly ('user' | 'assistant')[],
+        query: string,
+        limitPerSession: number
+    ): Promise<Array<RankingMessage & { session_id: number }>>;
 }
 
 interface SearchConversationResultEntry {
@@ -328,6 +334,28 @@ export function createSearchConversationTools(input: {
                     else messagesBySession.set(message.session_id, [message]);
                 }
 
+                const matchMessages = (
+                    await history.findMatchMessages(
+                        sessions.map((session) => session.id),
+                        parsed.roles,
+                        parsed.query,
+                        CONVERSATION_SEARCH_MAX_SNIPPETS
+                    )
+                ).filter(
+                    (message) => isSearchRole(message.role) && parsed.roles.includes(message.role)
+                );
+                context.signal?.throwIfAborted();
+
+                const matchMessagesBySession = new Map<number, RankingMessage[]>();
+                for (const message of matchMessages) {
+                    if (!sessionIds.has(message.session_id) || !isSearchRole(message.role)) {
+                        continue;
+                    }
+                    const current = matchMessagesBySession.get(message.session_id);
+                    if (current) current.push(message);
+                    else matchMessagesBySession.set(message.session_id, [message]);
+                }
+
                 const candidates: RankingCandidate[] = sessions.map((session) => ({
                     session_id: session.session_id,
                     title: session.title,
@@ -340,8 +368,8 @@ export function createSearchConversationTools(input: {
                 const archivedBySessionId = new Map(
                     sessions.map((session) => [session.session_id, !!session.archived_at])
                 );
-                const snippets = candidates.map((candidate) =>
-                    buildSnippets(candidate.messages, parsed.query)
+                const snippets = sessions.map((session) =>
+                    buildSnippets(matchMessagesBySession.get(session.id) ?? [], parsed.query)
                 );
                 const fallbackIndices = Array.from(
                     { length: Math.min(parsed.limit, candidates.length) },

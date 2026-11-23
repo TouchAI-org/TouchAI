@@ -6,6 +6,7 @@ import {
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { findConversationMessagePage } from '@/database/queries/messages';
+import { databaseReadConversationHistory } from '@/modules/tools/builtin/read-conversation/operations.io';
 
 afterEach(closeTestDatabases);
 
@@ -107,5 +108,49 @@ describe('given a saved conversation needs a paged read', () => {
         });
 
         expect(rows.map((row) => row.id)).toEqual([3, 4]);
+    });
+
+    it('user reads a conversation by the public session id returned from search', async () => {
+        const database = openMigratedDatabase();
+        routeQueriesTo(database);
+        seedSession(database);
+        for (let id = 1; id <= 3; id += 1) {
+            seedMessage(database, { id, role: 'user', content: `message-${id}` });
+        }
+
+        const session = await databaseReadConversationHistory.findSession('session-1');
+        expect(session).toMatchObject({ id: 1, session_id: 'session-1' });
+
+        const rows = await databaseReadConversationHistory.listMessages({
+            sessionId: session!.id,
+            direction: 'before',
+            limit: 2,
+            roles: ['user', 'assistant'],
+        });
+        expect(rows.map((row) => row.id)).toEqual([2, 3]);
+        expect(await databaseReadConversationHistory.findSession('1')).toBeNull();
+    });
+
+    it('user cannot page around an anchor from another conversation', async () => {
+        const database = openMigratedDatabase();
+        routeQueriesTo(database);
+        seedSession(database);
+        seedMessage(database, { id: 1, role: 'user', content: 'message-1' });
+        database
+            .prepare(
+                `INSERT INTO sessions (id, session_id, title, model, created_at, updated_at)
+                 VALUES (2, 'session-2', 'Session 2', 'model-a', '2026-01-01 00:00:00', '2026-01-01 00:00:00')`
+            )
+            .run();
+        database
+            .prepare(
+                `INSERT INTO messages (id, session_id, role, created_at, updated_at)
+                 VALUES (2, 2, 'user', '2026-01-01 00:00:00', '2026-01-01 00:00:00')`
+            )
+            .run();
+
+        expect(await databaseReadConversationHistory.hasMessage(1, 1)).toBe(true);
+        expect(await databaseReadConversationHistory.hasMessage(1, 2)).toBe(false);
+        expect(await databaseReadConversationHistory.hasMessage(1, 999)).toBe(false);
     });
 });

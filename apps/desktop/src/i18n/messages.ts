@@ -1290,6 +1290,7 @@ const zhCNMessages = {
     'builtInTools.searchConversation.error': '会话搜索失败：{message}',
     'builtInTools.readConversation.disabled': '会话读取已在设置中关闭。',
     'builtInTools.readConversation.notFound': '找不到会话：{sessionId}',
+    'builtInTools.readConversation.invalidAnchor': '消息不属于该会话或不存在：{messageId}',
     'builtInTools.readConversation.error': '会话读取失败：{message}',
     'database.backup.exportCancelled': '已取消导出',
     'database.backup.importCancelled': '已取消导入',
@@ -2744,6 +2745,8 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'builtInTools.searchConversation.error': 'Conversation search failed: {message}',
     'builtInTools.readConversation.disabled': 'Conversation read is disabled in Settings.',
     'builtInTools.readConversation.notFound': 'Conversation not found: {sessionId}',
+    'builtInTools.readConversation.invalidAnchor':
+        'Message does not belong to this conversation: {messageId}',
     'builtInTools.readConversation.error': 'Conversation read failed: {message}',
     'database.backup.exportCancelled': 'Export cancelled',
     'database.backup.importCancelled': 'Import cancelled',
