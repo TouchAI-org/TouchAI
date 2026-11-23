@@ -110,7 +110,7 @@
         @mousedown="handleToolbarDragMouseDown"
         @wheel.passive="emit('wheel', $event.deltaY)"
     >
-        <div class="ml-auto flex items-center gap-2.5">
+        <div class="flex items-center gap-2.5">
             <button
                 type="button"
                 class="toolbar-button"
@@ -120,7 +120,7 @@
                 @mousedown.stop
                 @click.stop="handleNewSession"
             >
-                <AppIcon name="plus" class="h-4 w-4" />
+                <AppIcon name="new-session" class="h-4 w-4" />
             </button>
 
             <div
@@ -146,7 +146,9 @@
                     <AppIcon name="session-history" class="h-4 w-4" />
                 </button>
             </div>
+        </div>
 
+        <div class="ml-auto flex items-center gap-2.5">
             <button
                 v-if="canPin"
                 type="button"

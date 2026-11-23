@@ -71,10 +71,12 @@ an icon package directly.
   square and offset-square pair, shared by the floating conversation toolbar and the
   OS window chrome. Do not use diagonal arrows or expand/collapse brackets for these
   actions; they read as resize handles rather than window state.
-- **Conversation controls:** `session-history` uses the overlapping-message glyph
-  rather than a clock. `copy` uses the clipboard glyph rather than two sheets. The
-  four controls use separate 36px targets without an enclosing capsule, and the
-  pinned state changes icon colour only rather than adding a raised container.
+- **Conversation controls:** `new-session` uses the square-pen glyph, and
+  `session-history` uses the overlapping-message glyph rather than a clock. `copy`
+  uses the clipboard glyph rather than two sheets. Session actions sit on the left and
+  window controls on the right; the four controls use separate 36px targets without an
+  enclosing capsule, the window control stays at the far right, and the pinned state
+  changes icon colour only rather than adding a raised container.
 - **Attribution:** Lucide, licensed ISC (<https://lucide.dev>).
 
 Replacing the icon set is `breaking`: every glyph and the stroke width change.

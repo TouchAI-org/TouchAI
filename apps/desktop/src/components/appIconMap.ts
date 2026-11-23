@@ -48,6 +48,7 @@ import IconSearch from '~icons/lucide/search';
 import IconCog from '~icons/lucide/settings';
 import IconShieldCheck from '~icons/lucide/shield-check';
 import IconSquare from '~icons/lucide/square';
+import IconSquarePen from '~icons/lucide/square-pen';
 import IconTerminal from '~icons/lucide/terminal';
 import IconTrash from '~icons/lucide/trash-2';
 import IconError from '~icons/lucide/triangle-alert';
@@ -98,6 +99,7 @@ export const appIconMap = {
     'external-link': IconLinkExternal,
     mcp: IconBlocks,
     minimize: IconMinus,
+    'new-session': IconSquarePen,
     pin: IconPin,
     play: IconPlay,
     plus: IconPlus,

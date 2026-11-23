@@ -39,7 +39,7 @@ describe('user uses the conversation toolbar', () => {
     it('user clicks new session and the action is reported', async () => {
         const wrapper = mountToolbar();
 
-        await buttonByIcon(wrapper, 'plus')!.trigger('click');
+        await buttonByIcon(wrapper, 'new-session')!.trigger('click');
 
         expect(wrapper.emitted('newSession')).toHaveLength(1);
         wrapper.unmount();
@@ -48,7 +48,7 @@ describe('user uses the conversation toolbar', () => {
     it('user clicks new session on a disabled toolbar and nothing happens', async () => {
         const wrapper = mountToolbar({ disabled: true });
 
-        await buttonByIcon(wrapper, 'plus')!.trigger('click');
+        await buttonByIcon(wrapper, 'new-session')!.trigger('click');
 
         // A disabled toolbar must not act at all, not act and then look disabled.
         expect(wrapper.emitted('newSession')).toBeUndefined();
@@ -106,7 +106,7 @@ describe('user uses the conversation toolbar', () => {
 
     it('user drags from a button and the window does not move', async () => {
         const wrapper = mountToolbar();
-        const button = buttonByIcon(wrapper, 'plus')!.element;
+        const button = buttonByIcon(wrapper, 'new-session')!.element;
 
         // The buttons stop the event themselves; this checks the toolbar's own guard too.
         const event = new MouseEvent('mousedown', { button: 0, bubbles: true });
@@ -157,6 +157,19 @@ describe('user uses the conversation toolbar', () => {
 
         const buttons = wrapper.findAll('button');
         expect(buttons.at(-1)!.find('[data-icon="maximize-square"]').exists()).toBe(true);
+
+        wrapper.unmount();
+    });
+
+    it('user sees session actions on the left and window controls on the right', () => {
+        const wrapper = mountToolbar({ isPinned: true, isMaximized: false });
+
+        const groups = wrapper.find('[data-slot="conversation-toolbar"]').element.children;
+        expect(groups).toHaveLength(2);
+        expect(groups[0]!.querySelector('[data-icon="new-session"]')).toBeTruthy();
+        expect(groups[0]!.querySelector('[data-icon="session-history"]')).toBeTruthy();
+        expect(groups[1]!.querySelector('[data-icon="pin"]')).toBeTruthy();
+        expect(groups[1]!.querySelector('[data-icon="maximize-square"]')).toBeTruthy();
 
         wrapper.unmount();
     });
