@@ -6,6 +6,7 @@ import {
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { findConversationSearchMessagesBySessionIds } from '@/database/queries/messages';
+import { CONVERSATION_SEARCH_MATCH_MAX_CANDIDATES } from '@/modules/tools/builtin/search-conversation/constants';
 import { databaseSearchConversationHistory } from '@/modules/tools/builtin/search-conversation/operations.io';
 
 afterEach(closeTestDatabases);
@@ -309,5 +310,64 @@ describe('given conversation search needs bounded transcript messages for many s
         );
 
         expect(rows.map((row) => row.id)).toEqual([1]);
+    });
+
+    it('user gets an earlier session anchor after a later session fills the candidate budget', async () => {
+        const database = openMigratedDatabase();
+        routeQueriesTo(database);
+        seedSession(database, 1);
+        seedSession(database, 2);
+        seedMessage(database, {
+            id: 1,
+            sessionId: 1,
+            role: 'user',
+            content: 'valid needle anchor',
+        });
+        for (let index = 0; index < CONVERSATION_SEARCH_MATCH_MAX_CANDIDATES; index += 1) {
+            seedMessage(database, {
+                id: index + 2,
+                sessionId: 2,
+                role: 'assistant',
+                content: `valid needle ${index}`,
+            });
+        }
+
+        const rows = await databaseSearchConversationHistory.findMatchMessages(
+            [1, 2],
+            ['user', 'assistant'],
+            'needle',
+            3
+        );
+
+        expect(rows.filter((row) => row.session_id === 1).map((row) => row.id)).toEqual([1]);
+        expect(rows.filter((row) => row.session_id === 2)).toHaveLength(3);
+    });
+
+    it('user gets an anchor when casing differs through a non-ASCII fold to ASCII', async () => {
+        const database = openMigratedDatabase();
+        routeQueriesTo(database);
+        seedSession(database, 1);
+        seedMessage(database, {
+            id: 1,
+            sessionId: 1,
+            role: 'user',
+            content: 'Kelvin temperature',
+        });
+
+        const rows = await databaseSearchConversationHistory.findMatchMessages(
+            [1],
+            ['user', 'assistant'],
+            'kelvin',
+            3
+        );
+
+        expect(rows).toEqual([
+            {
+                id: 1,
+                session_id: 1,
+                role: 'user',
+                content: 'Kelvin temperature',
+            },
+        ]);
     });
 });

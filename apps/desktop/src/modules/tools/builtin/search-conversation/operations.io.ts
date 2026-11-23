@@ -12,9 +12,8 @@ import {
 import type { SearchConversationHistory } from './create';
 import { extractMatchedSnippet } from './operations';
 
-function hasCasedNonAscii(value: string): boolean {
+function hasCasedCharacter(value: string): boolean {
     for (const character of value) {
-        if (character.charCodeAt(0) < 0x80) continue;
         if (character.toLocaleLowerCase() !== character.toLocaleUpperCase()) return true;
     }
     return false;
@@ -61,15 +60,18 @@ export const databaseSearchConversationHistory: SearchConversationHistory = Obje
         if (sessionIds.length === 0 || roles.length === 0 || !normalizedQuery) return [];
 
         const perSession = Math.max(1, Math.floor(limitPerSession));
-        const foldedTextOnly = !hasCasedNonAscii(normalizedQuery);
+        // SQLite lower() folds ASCII only, so its substring filter is exact only when the
+        // query has no cased characters for either folding to differ on.
+        const foldedTextOnly = !hasCasedCharacter(normalizedQuery);
         const counts = new Map<number, number>();
+        const remainingSessionIds = new Set(sessionIds);
         const matches: ConversationSearchMessage[] = [];
         let scanned = 0;
         let cursor: { sessionId: number; messageId: number } | undefined;
 
-        while (scanned < CONVERSATION_SEARCH_MATCH_MAX_CANDIDATES) {
+        while (scanned < CONVERSATION_SEARCH_MATCH_MAX_CANDIDATES && remainingSessionIds.size > 0) {
             const page = await findConversationSearchMatchCandidates({
-                sessionIds,
+                sessionIds: [...remainingSessionIds],
                 roles,
                 query: normalizedQuery,
                 limit: CONVERSATION_SEARCH_MATCH_PAGE_SIZE,
@@ -87,7 +89,14 @@ export const databaseSearchConversationHistory: SearchConversationHistory = Obje
             }
 
             scanned += page.length;
-            if (sessionIds.every((id) => (counts.get(id) ?? 0) >= perSession)) break;
+            // Sessions that already have enough anchors must not keep consuming the global
+            // candidate budget, or they can starve every session ordered after them.
+            for (const sessionId of remainingSessionIds) {
+                if ((counts.get(sessionId) ?? 0) >= perSession) {
+                    remainingSessionIds.delete(sessionId);
+                }
+            }
+            if (remainingSessionIds.size === 0) break;
             if (page.length < CONVERSATION_SEARCH_MATCH_PAGE_SIZE) break;
             const last = page[page.length - 1]!;
             cursor = { sessionId: last.session_id, messageId: last.id };

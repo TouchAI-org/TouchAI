@@ -158,8 +158,9 @@ export async function findConversationSearchMessagesBySessionIds(
 /**
  * One keyset page of keyword candidates for anchor selection. The trigram index narrows
  * candidates; the caller verifies the full text and requests the next page until it has
- * enough real matches. `foldedTextOnly` applies a full ASCII/caseless substring check in
- * SQLite, which lets the page limit apply to real matches instead of trigram false positives.
+ * enough real matches. `foldedTextOnly` applies a full substring check in SQLite using
+ * `lower()`, which is exact only when the query has no cased characters because SQLite
+ * folds ASCII only while the caller folds Unicode.
  */
 export async function findConversationSearchMatchCandidates(
     options: {
