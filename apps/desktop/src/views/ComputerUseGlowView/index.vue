@@ -1,13 +1,13 @@
 <!-- Copyright (c) 2026. Qian Cheng. Licensed under GPL v3 -->
 
 <script setup lang="ts">
+    import AppIcon from '@components/AppIcon.vue';
     import { computed, onMounted, onUnmounted, ref } from 'vue';
     import { I18nT } from 'vue-i18n';
 
     import { log } from '@/app/api/diagnostics';
     import { type ComputerUseFeedback, useGlowWindowApi } from '@/app/api/windows/presentation';
     import { setLocale, t } from '@/i18n';
-    import IconMousePointer from '~icons/lucide/mouse-pointer-2';
 
     defineOptions({
         name: 'ComputerUseGlowView',
@@ -101,7 +101,7 @@
                 '--pointer-color': colors[(activity.ordinal - 1) % colors.length],
             }"
         >
-            <IconMousePointer class="h-8 w-8" />
+            <AppIcon name="cursor" class="h-8 w-8" />
             <span data-pointer-label>
                 {{
                     feedback.activities.length > 1

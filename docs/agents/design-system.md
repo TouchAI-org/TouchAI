@@ -6,6 +6,7 @@ primitives, or view-layer styling.
 - [Layers](#layers)
 - [Token rules](#token-rules)
 - [Primitive rules](#primitive-rules)
+- [Icons](#icons)
 - [Changing things](#changing-things)
 - [Motion preferences](#motion-preferences)
 - [Guards](#guards)
@@ -54,6 +55,27 @@ variant can be extended before hand-rolling markup.
 - **Primitives consume tokens.** No hard-coded palette classes.
 - **Class snapshots are the contract.** They live under
   `apps/desktop/tests/components/ui/`; a snapshot change is a visual change.
+
+## Icons
+
+`AppIcon` is the only icon entry point. Views pass a semantic name such as `search`
+or `trash`; `appIconMap` resolves that name to a glyph, so a call site never imports
+an icon package directly.
+
+- **Set:** Lucide (`@iconify-json/lucide`). Change the single `--app-icon-stroke`
+  custom property in `styles/tailwind.css` to adjust the product's `1.8` stroke
+  weight globally.
+- **Adding an icon:** add the semantic name to `appIconMap`, then use it through
+  `AppIcon`. Do not import `~icons/*` in a component.
+- **Window glyphs:** `maximize-square` / `restore-square` are the OS-chrome square
+  pair; `maximize` / `restore` are the expand/collapse brackets used by the floating
+  conversation toolbar.
+- **Conversation controls:** `session-history` uses the overlapping-message glyph
+  rather than a clock. `copy` uses the clipboard glyph so it cannot be mistaken for
+  restore. The four controls use separate 36px targets without an enclosing capsule.
+- **Attribution:** Lucide, licensed ISC (<https://lucide.dev>).
+
+Replacing the icon set is `breaking`: every glyph and the stroke width change.
 
 ## Changing things
 

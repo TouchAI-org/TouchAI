@@ -58,7 +58,7 @@ describe('user uses the conversation toolbar', () => {
     it('user opens the history and the new open state is reported', async () => {
         const wrapper = mountToolbar({ historyOpen: false });
 
-        await buttonByIcon(wrapper, 'chat-history')!.trigger('click');
+        await buttonByIcon(wrapper, 'session-history')!.trigger('click');
 
         const events = wrapper.emitted('historyOpenChange')!;
         expect(events[0]![0]).toMatchObject({ open: true });
@@ -68,7 +68,7 @@ describe('user uses the conversation toolbar', () => {
     it('user closes an open history and the new open state is reported', async () => {
         const wrapper = mountToolbar({ historyOpen: true });
 
-        await buttonByIcon(wrapper, 'chat-history')!.trigger('click');
+        await buttonByIcon(wrapper, 'session-history')!.trigger('click');
 
         expect(wrapper.emitted('historyOpenChange')![0]![0]).toMatchObject({ open: false });
         wrapper.unmount();
@@ -77,7 +77,7 @@ describe('user uses the conversation toolbar', () => {
     it('user hovers the history button and the prefetch is requested once', async () => {
         const wrapper = mountToolbar();
 
-        await buttonByIcon(wrapper, 'chat-history')!.trigger('mouseenter');
+        await buttonByIcon(wrapper, 'session-history')!.trigger('mouseenter');
 
         expect(wrapper.emitted('historyPrefetch')).toHaveLength(1);
         wrapper.unmount();
@@ -86,7 +86,7 @@ describe('user uses the conversation toolbar', () => {
     it('user hovers a disabled toolbar and no prefetch is requested', async () => {
         const wrapper = mountToolbar({ disabled: true });
 
-        await buttonByIcon(wrapper, 'chat-history')!.trigger('mouseenter');
+        await buttonByIcon(wrapper, 'session-history')!.trigger('mouseenter');
 
         expect(wrapper.emitted('historyPrefetch')).toBeUndefined();
         wrapper.unmount();

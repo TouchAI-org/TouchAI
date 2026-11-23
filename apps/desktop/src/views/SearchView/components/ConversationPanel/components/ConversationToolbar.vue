@@ -110,7 +110,7 @@
         @mousedown="handleToolbarDragMouseDown"
         @wheel.passive="emit('wheel', $event.deltaY)"
     >
-        <div class="ml-auto flex items-center gap-2">
+        <div class="ml-auto flex items-center gap-2.5">
             <button
                 type="button"
                 class="toolbar-button"
@@ -120,7 +120,7 @@
                 @mousedown.stop
                 @click.stop="handleNewSession"
             >
-                <AppIcon name="plus" class="h-3.5 w-3.5" />
+                <AppIcon name="plus" class="h-4 w-4" />
             </button>
 
             <div
@@ -143,7 +143,7 @@
                     @mouseenter="handleHistoryPrefetch"
                     @click.stop="toggleHistory"
                 >
-                    <AppIcon name="chat-history" class="h-3.5 w-3.5" />
+                    <AppIcon name="session-history" class="h-4 w-4" />
                 </button>
             </div>
 
@@ -161,7 +161,7 @@
                 @mousedown.stop
                 @click.stop="toggleMaximized"
             >
-                <AppIcon :name="isMaximized ? 'restore' : 'maximize'" class="h-3.5 w-3.5" />
+                <AppIcon :name="isMaximized ? 'restore' : 'maximize'" class="h-4 w-4" />
             </button>
 
             <button
@@ -175,7 +175,7 @@
                 @mousedown.stop
                 @click.stop="togglePinned"
             >
-                <AppIcon name="pin" class="h-3.5 w-3.5" />
+                <AppIcon name="pin" class="h-4 w-4" />
             </button>
         </div>
     </div>
@@ -188,8 +188,8 @@
 
     .toolbar-button {
         display: inline-flex;
-        height: 1.9rem;
-        width: 1.9rem;
+        height: 2.25rem;
+        width: 2.25rem;
         align-items: center;
         justify-content: center;
         border-radius: var(--radius-lg);
@@ -203,9 +203,9 @@
     .toolbar-button:hover,
     .toolbar-button:focus-visible,
     .toolbar-button--active {
-        background: var(--color-conversation-toolbar-hover);
+        background: var(--color-surface-hover);
         color: var(--color-conversation-toolbar-hover-text);
-        box-shadow: var(--shadow-conversation-toolbar);
+        box-shadow: none;
     }
 
     .toolbar-button--pinned {

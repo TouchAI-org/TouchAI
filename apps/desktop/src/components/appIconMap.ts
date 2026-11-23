@@ -15,6 +15,7 @@ import IconChevronRight from '~icons/lucide/chevron-right';
 import IconChevronUp from '~icons/lucide/chevron-up';
 import IconCheckCircle from '~icons/lucide/circle-check';
 import IconXCircle from '~icons/lucide/circle-x';
+import IconClipboardCopy from '~icons/lucide/clipboard-copy';
 import IconCopy from '~icons/lucide/copy';
 import IconData from '~icons/lucide/database';
 import IconDownload from '~icons/lucide/download';
@@ -35,7 +36,7 @@ import IconLeaf from '~icons/lucide/leaf';
 import IconLoader from '~icons/lucide/loader-circle';
 import IconMaximize from '~icons/lucide/maximize';
 import IconMenu from '~icons/lucide/menu';
-import IconChatHistory from '~icons/lucide/message-circle-more';
+import IconMessagesSquare from '~icons/lucide/messages-square';
 import IconWindowRestore from '~icons/lucide/minimize';
 import IconCompress from '~icons/lucide/minimize-2';
 import IconMinus from '~icons/lucide/minus';
@@ -48,7 +49,7 @@ import IconRefresh from '~icons/lucide/refresh-cw';
 import IconSearch from '~icons/lucide/search';
 import IconCog from '~icons/lucide/settings';
 import IconShieldCheck from '~icons/lucide/shield-check';
-import IconStop from '~icons/lucide/square';
+import IconSquare from '~icons/lucide/square';
 import IconTerminal from '~icons/lucide/terminal';
 import IconTrash from '~icons/lucide/trash-2';
 import IconError from '~icons/lucide/triangle-alert';
@@ -69,7 +70,7 @@ export const appIconMap = {
     close: IconX,
     compress: IconCompress,
     cursor: IconPointer,
-    copy: IconCopy,
+    copy: IconClipboardCopy,
     database: IconData,
     delete: IconTrash,
     'document-text': IconFileBlank,
@@ -81,14 +82,14 @@ export const appIconMap = {
     file: IconFile,
     folder: IconFolderOpen,
     'folder-open': IconFolderOpen,
-    'maximize-square': IconStop,
+    'maximize-square': IconSquare,
     github: IconGithub,
     'grid-alt': IconGridAlt,
     globe: IconGlobe,
     history: IconHistory,
     inbox: IconInbox,
     'list-ul': IconMenu,
-    'chat-history': IconChatHistory,
+    'session-history': IconMessagesSquare,
     maximize: IconMaximize,
     restore: IconWindowRestore,
     'information-circle': IconInfoCircle,
@@ -108,7 +109,7 @@ export const appIconMap = {
     'shield-check': IconShieldCheck,
     settings: IconCog,
     skill: IconSkill,
-    stop: IconStop,
+    stop: IconSquare,
     terminal: IconTerminal,
     tool: IconBriefcase,
     trash: IconTrash,
