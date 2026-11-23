@@ -161,7 +161,11 @@
                 @mousedown.stop
                 @click.stop="toggleMaximized"
             >
-                <AppIcon :name="isMaximized ? 'restore' : 'maximize'" class="h-4 w-4" />
+                <AppIcon
+                    :name="isMaximized ? 'restore-square' : 'maximize-square'"
+                    class="h-4 w-4"
+                    :class="isMaximized ? '-scale-x-100' : ''"
+                />
             </button>
 
             <button

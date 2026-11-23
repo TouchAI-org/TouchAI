@@ -45,7 +45,7 @@ describe('user controls the settings window', () => {
                 wrapper
                     .get('[data-testid="settings-window-maximize"] [data-name]')
                     .attributes('data-name')
-            ).toBe('restore');
+            ).toBe('restore-square');
         } finally {
             wrapper.unmount();
         }
@@ -68,7 +68,7 @@ describe('user controls the settings window', () => {
             wrapper
                 .get('[data-testid="settings-window-maximize"] [data-name]')
                 .attributes('data-name')
-        ).toBe('maximize');
+        ).toBe('maximize-square');
 
         windowApiMock.currentWindow.isMaximized.mockResolvedValue(true);
         notifyResized?.();
@@ -80,7 +80,7 @@ describe('user controls the settings window', () => {
             wrapper
                 .get('[data-testid="settings-window-maximize"] [data-name]')
                 .attributes('data-name')
-        ).toBe('restore');
+        ).toBe('restore-square');
 
         wrapper.unmount();
         expect(unlisten).toHaveBeenCalledOnce();
@@ -114,7 +114,7 @@ describe('user controls the settings window', () => {
                 wrapper
                     .get('[data-testid="settings-window-maximize"] [data-name]')
                     .attributes('data-name')
-            ).toBe('maximize');
+            ).toBe('maximize-square');
 
             await wrapper.get('[data-testid="settings-window-maximize"]').trigger('click');
             await flushPromises();
@@ -127,7 +127,7 @@ describe('user controls the settings window', () => {
                 wrapper
                     .get('[data-testid="settings-window-maximize"] [data-name]')
                     .attributes('data-name')
-            ).toBe('restore');
+            ).toBe('restore-square');
 
             windowApiMock.currentWindow.isMaximized.mockResolvedValue(true);
             await wrapper.get('[data-testid="settings-window-maximize"]').trigger('click');
@@ -152,7 +152,7 @@ describe('user controls the settings window', () => {
                 wrapper
                     .get('[data-testid="settings-window-maximize"] [data-name]')
                     .attributes('data-name')
-            ).toBe('maximize');
+            ).toBe('maximize-square');
         } finally {
             wrapper.unmount();
         }
@@ -172,7 +172,7 @@ describe('user controls the settings window', () => {
                 wrapper
                     .get('[data-testid="settings-window-maximize"] [data-name]')
                     .attributes('data-name')
-            ).toBe('maximize');
+            ).toBe('maximize-square');
         } finally {
             wrapper.unmount();
         }

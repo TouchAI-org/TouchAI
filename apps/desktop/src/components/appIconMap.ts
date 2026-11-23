@@ -16,6 +16,7 @@ import IconChevronUp from '~icons/lucide/chevron-up';
 import IconCheckCircle from '~icons/lucide/circle-check';
 import IconXCircle from '~icons/lucide/circle-x';
 import IconClipboardCopy from '~icons/lucide/clipboard-copy';
+import IconCopy from '~icons/lucide/copy';
 import IconData from '~icons/lucide/database';
 import IconDownload from '~icons/lucide/download';
 import IconLinkExternal from '~icons/lucide/external-link';
@@ -33,10 +34,8 @@ import IconInfoCircle from '~icons/lucide/info';
 import IconKeyboard from '~icons/lucide/keyboard';
 import IconLeaf from '~icons/lucide/leaf';
 import IconLoader from '~icons/lucide/loader-circle';
-import IconMaximize from '~icons/lucide/maximize';
 import IconMenu from '~icons/lucide/menu';
 import IconMessagesSquare from '~icons/lucide/messages-square';
-import IconWindowRestore from '~icons/lucide/minimize';
 import IconCompress from '~icons/lucide/minimize-2';
 import IconMinus from '~icons/lucide/minus';
 import IconPointer from '~icons/lucide/mouse-pointer-2';
@@ -88,8 +87,8 @@ export const appIconMap = {
     inbox: IconInbox,
     'list-ul': IconMenu,
     'session-history': IconMessagesSquare,
-    maximize: IconMaximize,
-    restore: IconWindowRestore,
+    'maximize-square': IconSquare,
+    'restore-square': IconCopy,
     'information-circle': IconInfoCircle,
     keyboard: IconKeyboard,
     llm: IconBoxes,

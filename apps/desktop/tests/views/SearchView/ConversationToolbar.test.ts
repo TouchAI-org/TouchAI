@@ -139,6 +139,19 @@ describe('user uses the conversation toolbar', () => {
         wrapper.unmount();
     });
 
+    it('user sees the same maximize and restore glyphs as the window chrome', async () => {
+        const wrapper = mountToolbar({ isMaximized: false });
+
+        expect(buttonByIcon(wrapper, 'maximize-square')).toBeTruthy();
+        await buttonByIcon(wrapper, 'maximize-square')!.trigger('click');
+        expect(wrapper.emitted('maximizeToggle')).toHaveLength(1);
+
+        await wrapper.setProps({ isMaximized: true });
+        expect(buttonByIcon(wrapper, 'restore-square')).toBeTruthy();
+
+        wrapper.unmount();
+    });
+
     it('user gets every toolbar button labelled for assistive technology', () => {
         const wrapper = mountToolbar();
 
