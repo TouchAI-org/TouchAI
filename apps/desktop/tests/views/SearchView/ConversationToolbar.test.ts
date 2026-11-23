@@ -152,6 +152,15 @@ describe('user uses the conversation toolbar', () => {
         wrapper.unmount();
     });
 
+    it('user finds the maximize control at the far right of the toolbar', () => {
+        const wrapper = mountToolbar({ isPinned: true, isMaximized: false });
+
+        const buttons = wrapper.findAll('button');
+        expect(buttons.at(-1)!.find('[data-icon="maximize-square"]').exists()).toBe(true);
+
+        wrapper.unmount();
+    });
+
     it('user gets every toolbar button labelled for assistive technology', () => {
         const wrapper = mountToolbar();
 

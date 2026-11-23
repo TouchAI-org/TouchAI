@@ -148,6 +148,20 @@
             </div>
 
             <button
+                v-if="canPin"
+                type="button"
+                class="toolbar-button"
+                :class="isPinned ? 'toolbar-button--pinned' : ''"
+                :aria-label="t('conversation.toolbar.pinWindow')"
+                :aria-pressed="isPinned"
+                data-drag-exclude="true"
+                @mousedown.stop
+                @click.stop="togglePinned"
+            >
+                <AppIcon name="pin" class="h-4 w-4" />
+            </button>
+
+            <button
                 type="button"
                 class="toolbar-button"
                 :class="disabled ? 'toolbar-button--disabled' : ''"
@@ -166,20 +180,6 @@
                     class="h-4 w-4"
                     :class="isMaximized ? '-scale-x-100' : ''"
                 />
-            </button>
-
-            <button
-                v-if="canPin"
-                type="button"
-                class="toolbar-button"
-                :class="isPinned ? 'toolbar-button--pinned' : ''"
-                :aria-label="t('conversation.toolbar.pinWindow')"
-                :aria-pressed="isPinned"
-                data-drag-exclude="true"
-                @mousedown.stop
-                @click.stop="togglePinned"
-            >
-                <AppIcon name="pin" class="h-4 w-4" />
             </button>
         </div>
     </div>
@@ -200,8 +200,7 @@
         color: var(--color-conversation-toolbar);
         transition:
             color var(--duration-quick) var(--ease-smooth-out),
-            background-color var(--duration-quick) var(--ease-smooth-out),
-            box-shadow var(--duration-quick) var(--ease-smooth-out);
+            background-color var(--duration-quick) var(--ease-smooth-out);
     }
 
     .toolbar-button:hover,
@@ -209,19 +208,16 @@
     .toolbar-button--active {
         background: var(--color-surface-hover);
         color: var(--color-conversation-toolbar-hover-text);
-        box-shadow: none;
     }
 
     .toolbar-button--pinned {
-        background: var(--color-conversation-toolbar-pinned);
         color: var(--color-conversation-toolbar-pinned-text);
-        box-shadow: var(--shadow-conversation-toolbar-pinned);
     }
 
     .toolbar-button--pinned:hover,
     .toolbar-button--pinned:focus-visible {
-        background: var(--color-conversation-toolbar-pinned-hover);
-        color: var(--color-text-primary);
+        background: var(--color-surface-hover);
+        color: var(--color-conversation-toolbar-pinned-text);
     }
 
     .toolbar-button--disabled {

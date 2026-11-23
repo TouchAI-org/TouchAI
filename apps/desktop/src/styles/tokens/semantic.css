@@ -126,24 +126,7 @@
     --color-message-action-surface: var(--color-gray-100);
     --color-conversation-toolbar: var(--color-chrome-gray-400);
     --color-conversation-toolbar-hover-text: var(--color-chrome-gray-600);
-    --color-conversation-toolbar-pinned: color-mix(
-        in srgb,
-        var(--color-secondary) 90%,
-        var(--color-white)
-    );
-    --color-conversation-toolbar-pinned-hover: color-mix(
-        in srgb,
-        var(--color-secondary) 95%,
-        var(--color-white)
-    );
     --color-conversation-toolbar-pinned-text: var(--color-primary-600);
-    --color-conversation-toolbar-pinned-border: color-mix(
-        in srgb,
-        var(--color-primary-200) 78%,
-        transparent
-    );
-    --shadow-conversation-toolbar-pinned:
-        inset 0 0 0 1px var(--color-conversation-toolbar-pinned-border), var(--shadow-control-warm);
 
     /* ── Chrome ──────────────────────────────────────────────────────────── */
 
