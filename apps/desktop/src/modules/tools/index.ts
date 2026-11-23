@@ -54,6 +54,29 @@ export { createFileSearchTools } from './builtin/read/file-search/create.io';
 export { createFileSearchOperations } from './builtin/read/file-search/operations';
 export { createReadOperations } from './builtin/read/operations.io';
 export {
+    DEFAULT_READ_CONVERSATION_TOOL_CONFIG,
+    parseReadConversationToolConfig,
+    type ReadConversationToolConfig,
+    serializeReadConversationToolConfig,
+} from './builtin/read-conversation/configuration';
+export {
+    READ_CONVERSATION_DEFAULT_LIMIT,
+    READ_CONVERSATION_DEFAULT_MAX_CHARS,
+    READ_CONVERSATION_MAX_BYTES,
+    READ_CONVERSATION_MAX_LIMIT,
+    READ_CONVERSATION_MAX_MAX_CHARS,
+    READ_CONVERSATION_MIN_MAX_CHARS,
+    READ_CONVERSATION_TOOL_DESCRIPTION,
+    READ_CONVERSATION_TOOL_INPUT_SCHEMA,
+    READ_CONVERSATION_TOOL_NAME,
+} from './builtin/read-conversation/constants';
+export {
+    type ReadConversationHistory,
+    type ReadConversationMessage,
+    type ReadConversationSession,
+} from './builtin/read-conversation/create';
+export { createReadConversationTools } from './builtin/read-conversation/create.io';
+export {
     DEFAULT_SEARCH_CONVERSATION_TOOL_CONFIG,
     parseSearchConversationToolConfig,
     type SearchConversationToolConfig,

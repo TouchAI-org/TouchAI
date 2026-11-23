@@ -127,7 +127,8 @@ describe('given the shipped conversation search builtin registration', () => {
                 })
             ).declarations.find((candidate) => candidate.name === 'builtin__search_conversation');
             expect(declaration?.description).toContain('different words');
-            expect(declaration?.description).toContain('only those candidates');
+            expect(declaration?.description).toContain('does not perform query expansion');
+            expect(declaration?.description).toContain('ReadConversation');
         } finally {
             tools.dispose();
         }
@@ -149,7 +150,7 @@ describe('given the shipped conversation search builtin registration', () => {
                 {
                     id: 'call',
                     name: 'builtin__search_conversation',
-                    arguments: '{"query":"session"}',
+                    arguments: '{"query":"session","rerank":true}',
                 },
                 {
                     iteration: 0,

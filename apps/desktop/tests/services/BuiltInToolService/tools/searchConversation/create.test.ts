@@ -127,11 +127,11 @@ function fixture(
 }
 
 function output(result: { result: string }): {
-    ranking_status: 'model' | 'keyword_fallback';
+    ranking_status: 'model' | 'keyword';
     results: Array<{
         session_id: string;
         archived: boolean;
-        snippets: string[];
+        matches: Array<{ message_id: number; role: string; snippet: string }>;
     }>;
 } {
     return JSON.parse(result.result) as ReturnType<typeof output>;
@@ -168,15 +168,16 @@ describe('given the conversation search builtin performs a bounded two-stage sea
             completion: async () => ({ content: '{"relevant_indices":[2,0]}' }),
         });
 
-        const result = await execute({ query: 'needle', limit: 2 });
+        const result = await execute({ query: 'needle', limit: 2, rerank: true });
         const parsed = output(result);
 
         expect(result).toMatchObject({ isError: false, status: 'success' });
         expect(parsed.ranking_status).toBe('model');
         expect(parsed.results.map((entry) => entry.session_id)).toEqual(['session-3', 'session-1']);
-        expect(parsed.results[0]?.snippets).toEqual([]);
-        expect(parsed.results[1]?.snippets).toHaveLength(1);
-        expect(Array.from(parsed.results[1]!.snippets[0]!).length).toBeLessThanOrEqual(
+        expect(parsed.results[0]?.matches).toEqual([]);
+        expect(parsed.results[1]?.matches).toHaveLength(1);
+        expect(parsed.results[1]!.matches[0]!.message_id).toBe(1);
+        expect(Array.from(parsed.results[1]!.matches[0]!.snippet).length).toBeLessThanOrEqual(
             'needle'.length + 104
         );
         expect(listCandidates).toHaveBeenCalledWith({
@@ -202,6 +203,19 @@ describe('given the conversation search builtin performs a bounded two-stage sea
         );
     });
 
+    it('user gets keyword-order results without invoking the model when rerank is omitted', async () => {
+        const { execute, complete } = fixture({
+            candidates: [candidate(1), candidate(2)],
+            completion: async () => ({ content: '{"relevant_indices":[1,0]}' }),
+        });
+
+        const parsed = output(await execute({ query: 'session' }));
+
+        expect(parsed.ranking_status).toBe('keyword');
+        expect(parsed.results.map((entry) => entry.session_id)).toEqual(['session-1', 'session-2']);
+        expect(complete).not.toHaveBeenCalled();
+    });
+
     it('user keeps title matches while role filtering excludes transcript and snippet content', async () => {
         const { execute, complete } = fixture({
             candidates: [candidate(1, { title: 'Release needle checklist' })],
@@ -221,11 +235,11 @@ describe('given the conversation search builtin performs a bounded two-stage sea
             ],
         });
 
-        const result = await execute({ query: 'needle', role: 'user' });
+        const result = await execute({ query: 'needle', role: 'user', rerank: true });
         const parsed = output(result);
 
         expect(parsed.results[0]?.session_id).toBe('session-1');
-        expect(parsed.results[0]?.snippets).toEqual([]);
+        expect(parsed.results[0]?.matches).toEqual([]);
         const prompt = String(complete.mock.calls[0]?.[2].userContent);
         expect(prompt).toContain('Release needle checklist');
         expect(prompt).toContain('A user message without the search word');
@@ -287,9 +301,9 @@ describe('given the conversation search builtin performs a bounded two-stage sea
             }),
         });
 
-        const parsed = output(await execute({ query: 'session' }));
+        const parsed = output(await execute({ query: 'session', rerank: true }));
 
-        expect(parsed.ranking_status).toBe('keyword_fallback');
+        expect(parsed.ranking_status).toBe('keyword');
         expect(parsed.results.map((entry) => entry.session_id)).toEqual(['session-1', 'session-2']);
     });
 
@@ -301,10 +315,10 @@ describe('given the conversation search builtin performs a bounded two-stage sea
             },
         });
 
-        const parsed = output(await execute({ query: 'session' }));
+        const parsed = output(await execute({ query: 'session', rerank: true }));
 
         expect(parsed).toMatchObject({
-            ranking_status: 'keyword_fallback',
+            ranking_status: 'keyword',
         });
         expect(parsed.results.map((entry) => entry.session_id)).toEqual(['session-1', 'session-2']);
     });
@@ -326,12 +340,12 @@ describe('given the conversation search builtin performs a bounded two-stage sea
                 }),
         });
 
-        const running = execute({ query: 'session' });
+        const running = execute({ query: 'session', rerank: true });
         await vi.waitFor(() => expect(complete).toHaveBeenCalledOnce());
         await vi.advanceTimersByTimeAsync(CONVERSATION_SEARCH_RANKING_DEADLINE_MS);
         const parsed = output(await running);
 
-        expect(parsed.ranking_status).toBe('keyword_fallback');
+        expect(parsed.ranking_status).toBe('keyword');
         expect(parsed.results.map((entry) => entry.session_id)).toEqual(['session-1', 'session-2']);
     });
 
@@ -343,7 +357,7 @@ describe('given the conversation search builtin performs a bounded two-stage sea
 
         expect(result).toMatchObject({ isError: false, status: 'success' });
         expect(parsed).toEqual({
-            ranking_status: 'keyword_fallback',
+            ranking_status: 'keyword',
             results: [],
         });
         expect(listCandidates).toHaveBeenCalledOnce();
@@ -398,7 +412,7 @@ describe('given the conversation search builtin performs a bounded two-stage sea
         });
 
         const running = execute(
-            { query: 'session' },
+            { query: 'session', rerank: true },
             {
                 signal: controller.signal,
             }
@@ -437,7 +451,7 @@ describe('given the conversation search builtin performs a bounded two-stage sea
             ],
         });
 
-        const parsed = output(await execute({ query: 'needle' }));
+        const parsed = output(await execute({ query: 'needle', rerank: true }));
         const prompt = String(complete.mock.calls[0]?.[2].userContent);
 
         expect(prompt).toContain('visible needle');
@@ -479,8 +493,8 @@ describe('given the conversation search builtin performs a bounded two-stage sea
         });
 
         const [left, right] = await Promise.all([
-            execute({ query: 'session' }, { taskId: 'left' }),
-            execute({ query: 'session' }, { taskId: 'right' }),
+            execute({ query: 'session', rerank: true }, { taskId: 'left' }),
+            execute({ query: 'session', rerank: true }, { taskId: 'right' }),
         ]);
 
         expect(seen.sort()).toEqual(['left', 'right']);

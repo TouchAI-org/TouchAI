@@ -63,11 +63,17 @@ interface SearchConversationResultEntry {
     last_message_at: string | null;
     message_count: number;
     archived: boolean;
-    snippets: string[];
+    matches: SearchConversationMatch[];
+}
+
+export interface SearchConversationMatch {
+    message_id: number;
+    role: 'user' | 'assistant';
+    snippet: string;
 }
 
 interface SearchConversationOutput {
-    ranking_status: 'model' | 'keyword_fallback';
+    ranking_status: 'model' | 'keyword';
     results: SearchConversationResultEntry[];
 }
 
@@ -81,19 +87,22 @@ function isSearchRole(value: string): value is 'user' | 'assistant' {
     return value === 'user' || value === 'assistant';
 }
 
-function buildSnippets(messages: readonly RankingMessage[], query: string): string[] {
+function buildSnippets(
+    messages: readonly RankingMessage[],
+    query: string
+): SearchConversationMatch[] {
     const normalizedQuery = query.toLocaleLowerCase();
-    const snippets: string[] = [];
+    const matches: SearchConversationMatch[] = [];
     const seen = new Set<string>();
     for (const message of messages) {
         if (!message.content.toLocaleLowerCase().includes(normalizedQuery)) continue;
         const snippet = extractMatchedSnippet(message.content, query);
         if (!snippet || seen.has(snippet)) continue;
         seen.add(snippet);
-        snippets.push(snippet);
-        if (snippets.length === CONVERSATION_SEARCH_MAX_SNIPPETS) break;
+        matches.push({ message_id: message.id, role: message.role, snippet });
+        if (matches.length === CONVERSATION_SEARCH_MAX_SNIPPETS) break;
     }
-    return snippets;
+    return matches;
 }
 
 function buildOutput(
@@ -113,7 +122,7 @@ function buildOutput(
                 last_message_at: candidate.last_message_at,
                 message_count: candidate.message_count,
                 archived: false,
-                snippets: [],
+                matches: [],
             };
         }),
     };
@@ -124,7 +133,7 @@ function buildOutputWithSnippets(
     status: SearchConversationOutput['ranking_status'],
     candidates: readonly RankingCandidate[],
     archivedBySessionId: ReadonlyMap<string, boolean>,
-    snippetsByIndex: readonly string[][],
+    snippetsByIndex: readonly SearchConversationMatch[][],
     selected: readonly number[]
 ): string {
     const output: SearchConversationOutput = {
@@ -139,7 +148,7 @@ function buildOutputWithSnippets(
                 last_message_at: candidate.last_message_at,
                 message_count: candidate.message_count,
                 archived: archivedBySessionId.get(candidate.session_id) ?? false,
-                snippets: snippetsByIndex[index] ?? [],
+                matches: snippetsByIndex[index] ?? [],
             };
         }),
     };
@@ -292,7 +301,7 @@ export function createSearchConversationTools(input: {
 
                 if (sessions.length === 0) {
                     return {
-                        result: buildOutput('keyword_fallback', [], []),
+                        result: buildOutput('keyword', [], []),
                         isError: false,
                         status: 'success',
                     };
@@ -340,10 +349,10 @@ export function createSearchConversationTools(input: {
                 );
 
                 const taskId = this.prepared?.taskId;
-                if (!taskId || !context.currentModel) {
+                if (!parsed.rerank || !taskId || !context.currentModel) {
                     return {
                         result: buildOutputWithSnippets(
-                            'keyword_fallback',
+                            'keyword',
                             candidates,
                             archivedBySessionId,
                             snippets,
@@ -374,7 +383,7 @@ export function createSearchConversationTools(input: {
                     : parseRankingResponse(completion.content, candidates.length, parsed.limit);
                 return {
                     result: buildOutputWithSnippets(
-                        rankedIndices ? 'model' : 'keyword_fallback',
+                        rankedIndices ? 'model' : 'keyword',
                         candidates,
                         archivedBySessionId,
                         snippets,

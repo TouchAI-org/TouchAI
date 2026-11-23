@@ -50,6 +50,12 @@ export type {
     ComputerUseUpdate,
 } from './builtin/computer-control/types';
 export {
+    DEFAULT_READ_CONVERSATION_TOOL_CONFIG,
+    parseReadConversationToolConfig,
+    type ReadConversationToolConfig,
+    serializeReadConversationToolConfig,
+} from './builtin/read-conversation/configuration';
+export {
     DEFAULT_SEARCH_CONVERSATION_TOOL_CONFIG,
     parseSearchConversationToolConfig,
     type SearchConversationToolConfig,

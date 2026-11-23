@@ -3,6 +3,7 @@ import { z } from '@/utils/zod';
 import {
     CONVERSATION_SEARCH_CANDIDATE_LIMIT,
     CONVERSATION_SEARCH_DEFAULT_LIMIT,
+    CONVERSATION_SEARCH_DEFAULT_RERANK,
     CONVERSATION_SEARCH_MAX_BATCH_BYTES,
     CONVERSATION_SEARCH_MAX_LIMIT,
     CONVERSATION_SEARCH_MAX_TRANSCRIPT_CODE_POINTS,
@@ -39,6 +40,7 @@ const searchConversationArgsSchema = z
         to_date: z.string().trim().min(1).optional(),
         model: z.string().trim().min(1).optional(),
         role: z.enum(['user', 'assistant']).optional(),
+        rerank: z.boolean().default(CONVERSATION_SEARCH_DEFAULT_RERANK),
     })
     .strict();
 

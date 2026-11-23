@@ -17,6 +17,7 @@ import {
     createFileSearchTools,
     createMcpConnections,
     createMcpFormatting,
+    createReadConversationTools,
     createReadTools,
     createSearchConversationTools,
     createSettingTools,
@@ -85,6 +86,7 @@ export function assembleMainTools(input: {
         ...createFileSearchTools({ messages }),
         ...createReadTools({ messages, attachments: { create: createAttachment } }),
         ...createSearchConversationTools({ messages, models: input.models }),
+        ...createReadConversationTools({ messages }),
         ...createSettingTools({ messages, settings: input.settings, warn: log.warn }),
         ...createShowWidgetTools({
             messages,

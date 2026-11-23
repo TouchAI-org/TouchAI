@@ -1,6 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { and, asc, count, eq, gte, inArray, lt, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, gte, inArray, lt, sql } from 'drizzle-orm';
 
 import { type DatabaseExecutor, db } from '../index';
 import { messages } from '../schema';
@@ -175,6 +175,80 @@ export async function findContextMessageRows(
         .orderBy(asc(messages.id))
         .all();
     return hydrateMessageRows(rows, database);
+}
+
+export interface ConversationReadMessage {
+    id: number;
+    role: 'user' | 'assistant';
+    created_at: string;
+    content: string;
+}
+
+/**
+ * Paged conversation read. `before` walks toward older messages, `after` toward newer ones.
+ * Rows are always returned ascending by id so the caller renders them in reading order.
+ */
+export async function findConversationMessagePage(
+    options: {
+        sessionId: number;
+        anchorId?: number;
+        direction: 'before' | 'after';
+        limit: number;
+        roles: readonly ('user' | 'assistant')[];
+    },
+    database: DatabaseExecutor = db
+): Promise<ConversationReadMessage[]> {
+    const roles = [...new Set(options.roles)].filter(
+        (role): role is 'user' | 'assistant' => role === 'user' || role === 'assistant'
+    );
+    if (roles.length === 0 || options.limit <= 0) return [];
+
+    const rows = await database
+        .select({
+            id: messages.id,
+            role: messages.role,
+            created_at: messages.created_at,
+        })
+        .from(messages)
+        .where(
+            and(
+                eq(messages.session_id, options.sessionId),
+                inArray(messages.role, roles),
+                options.anchorId === undefined
+                    ? undefined
+                    : options.direction === 'before'
+                      ? lt(messages.id, options.anchorId)
+                      : gt(messages.id, options.anchorId)
+            )
+        )
+        .orderBy(options.direction === 'before' ? desc(messages.id) : asc(messages.id))
+        .limit(options.limit)
+        .all();
+
+    if (rows.length === 0) return [];
+
+    const ordered = options.direction === 'before' ? [...rows].reverse() : rows;
+    const parts = await findMessagePartsByMessageIds(
+        ordered.map((row) => row.id),
+        database
+    );
+    const contentByMessage = new Map<number, string>();
+    for (const part of [...parts].sort(
+        (left, right) => left.sort_order - right.sort_order || left.id - right.id
+    )) {
+        if (part.type !== 'text') continue;
+        contentByMessage.set(
+            part.message_id,
+            (contentByMessage.get(part.message_id) ?? '') + part.content
+        );
+    }
+
+    return ordered.map((row) => ({
+        id: row.id,
+        role: row.role as 'user' | 'assistant',
+        created_at: row.created_at,
+        content: contentByMessage.get(row.id) ?? '',
+    }));
 }
 
 /**
