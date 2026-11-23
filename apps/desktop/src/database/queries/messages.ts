@@ -157,8 +157,9 @@ export async function findConversationSearchMessagesBySessionIds(
 
 /**
  * Returns the latest keyword matches per candidate session, bounded per session. The trigram
- * index narrows candidates; the substring check re-validates the full text. Unlike the ranking
- * sample this keeps a real hit from the middle of a long conversation as an anchor.
+ * index narrows candidates; the caller re-validates and cleans the text, so this returns a
+ * larger candidate window than the final snippet count. Unlike the ranking sample this can
+ * reach a real hit from the middle of a long conversation.
  */
 export async function findConversationSearchMatchMessages(
     sessionIds: readonly number[],
@@ -172,7 +173,7 @@ export async function findConversationSearchMatchMessages(
         (role): role is 'user' | 'assistant' => role === 'user' || role === 'assistant'
     );
     const normalizedQuery = query.trim().toLocaleLowerCase();
-    const perSession = Math.max(1, Math.floor(limitPerSession));
+    const perSession = Math.min(50, Math.max(1, Math.floor(limitPerSession)) * 10);
     if (uniqueSessionIds.length === 0 || uniqueRoles.length === 0 || !normalizedQuery) return [];
 
     const roleValues = sql.join(
@@ -186,6 +187,12 @@ export async function findConversationSearchMatchMessages(
                 WHERE message_search_fts MATCH ${trigramExpression}
             )`
         : sql``;
+    // SQLite lower() folds ASCII only, while the caller matches with Unicode case folding.
+    // When trigram candidates are available they are already case-insensitive across scripts;
+    // otherwise keep the ASCII fallback and let the caller verify the full text.
+    const fallbackTextFilter = trigramExpression
+        ? sql``
+        : sql`AND instr(lower(content), ${normalizedQuery}) > 0`;
 
     const rows = await database.all<[number, number, 'user' | 'assistant', string]>(sql`
         WITH candidate_sessions(session_id) AS (
@@ -223,7 +230,8 @@ export async function findConversationSearchMatchMessages(
                     ORDER BY id DESC
                 ) AS match_rank
             FROM message_text
-            WHERE instr(lower(content), ${normalizedQuery}) > 0
+            WHERE 1 = 1
+              ${fallbackTextFilter}
         )
         SELECT id, session_id, role, content
         FROM matched

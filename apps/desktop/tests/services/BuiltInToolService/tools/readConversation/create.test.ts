@@ -24,7 +24,7 @@ function message(id: number, role: 'user' | 'assistant', content: string): ReadC
 
 function output(result: { result: string }) {
     return JSON.parse(result.result) as {
-        session: { session_id: string; title: string; archived: boolean };
+        session: { session_id: string; title: string; model: string; archived: boolean };
         messages: Array<{
             message_id: number;
             role: string;
@@ -287,6 +287,21 @@ describe('given the conversation read builtin pages one session', () => {
         expect(parsed.messages).toHaveLength(1);
         expect(parsed.has_more).toBe(false);
         expect(parsed.next_cursor).toBeNull();
+    });
+
+    it('user receives at most 50 KiB when the stored model id is oversized', async () => {
+        const { execute } = fixture({
+            session: { ...session, model: 'M'.repeat(60_000) },
+            messages: [message(1, 'user', 'hello')],
+        });
+
+        const result = await execute({ session_id: 'session-1' });
+        const parsed = output(result);
+
+        expect(result).toMatchObject({ isError: false, status: 'success' });
+        expect(new TextEncoder().encode(result.result).length).toBeLessThanOrEqual(50 * 1024);
+        expect(parsed.session.model.length).toBeLessThanOrEqual(65);
+        expect(parsed.messages.map((entry) => entry.message_id)).toEqual([1]);
     });
 
     it('user gets a readable error when the anchor belongs to another conversation', async () => {

@@ -8,6 +8,7 @@ export const READ_CONVERSATION_MIN_MAX_CHARS = 50;
 export const READ_CONVERSATION_MAX_MAX_CHARS = 8000;
 export const READ_CONVERSATION_MAX_BYTES = 50 * 1024;
 export const READ_CONVERSATION_MAX_TITLE_CODE_POINTS = 200;
+export const READ_CONVERSATION_MAX_MODEL_CODE_POINTS = 64;
 
 export const READ_CONVERSATION_TOOL_DESCRIPTION = [
     'Read one saved conversation by session id, starting from a message returned by SearchConversation.',

@@ -48,7 +48,7 @@ describe('given conversation search exposes its database access path', () => {
                         params: request.params,
                     };
                 }
-                if (request.sql.includes('instr(lower(content)')) {
+                if (request.sql.includes('match_rank')) {
                     matchRequest = {
                         sql: request.sql,
                         params: request.params,

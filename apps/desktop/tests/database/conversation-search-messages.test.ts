@@ -197,4 +197,61 @@ describe('given conversation search needs bounded transcript messages for many s
             },
         ]);
     });
+
+    it('user gets an anchor when only the case differs outside ASCII', async () => {
+        const database = openMigratedDatabase();
+        routeQueriesTo(database);
+        seedSession(database, 1);
+        seedMessage(database, {
+            id: 1,
+            sessionId: 1,
+            role: 'user',
+            content: 'ÉTÉ echoes',
+        });
+
+        const rows = await findConversationSearchMatchMessages(
+            [1],
+            ['user', 'assistant'],
+            'été',
+            3
+        );
+
+        expect(rows).toEqual([
+            {
+                id: 1,
+                session_id: 1,
+                role: 'user',
+                content: 'ÉTÉ echoes',
+            },
+        ]);
+    });
+
+    it('user still gets an earlier anchor after newer matches clean to empty snippets', async () => {
+        const database = openMigratedDatabase();
+        routeQueriesTo(database);
+        seedSession(database, 1);
+        seedMessage(database, {
+            id: 1,
+            sessionId: 1,
+            role: 'user',
+            content: 'visible needle',
+        });
+        for (let id = 2; id <= 4; id += 1) {
+            seedMessage(database, {
+                id,
+                sessionId: 1,
+                role: 'assistant',
+                content: `<system-reminder>needle ${id}</system-reminder>`,
+            });
+        }
+
+        const rows = await findConversationSearchMatchMessages(
+            [1],
+            ['user', 'assistant'],
+            'needle',
+            3
+        );
+
+        expect(rows.map((row) => row.id)).toContain(1);
+    });
 });

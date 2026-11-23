@@ -13,6 +13,7 @@ import {
 } from './configuration';
 import {
     READ_CONVERSATION_MAX_BYTES,
+    READ_CONVERSATION_MAX_MODEL_CODE_POINTS,
     READ_CONVERSATION_MAX_TITLE_CODE_POINTS,
     READ_CONVERSATION_TOOL_DESCRIPTION,
     READ_CONVERSATION_TOOL_INPUT_SCHEMA,
@@ -107,13 +108,17 @@ function buildPage(
         hasMore = moreAvailable || ordered.length > 1;
     }
 
-    return serialize(session, output, args, hasMore);
+    const result = serialize(session, output, args, hasMore);
+    if (utf8ByteLength(result) > READ_CONVERSATION_MAX_BYTES) {
+        throw new Error('READ_CONVERSATION_RESPONSE_TOO_LARGE');
+    }
+    return result;
 }
 
-function truncateTitle(title: string): string {
-    const points = Array.from(title);
-    if (points.length <= READ_CONVERSATION_MAX_TITLE_CODE_POINTS) return title;
-    return `${points.slice(0, READ_CONVERSATION_MAX_TITLE_CODE_POINTS).join('')}…`;
+function truncateCodePoints(value: string, limit: number): string {
+    const points = Array.from(value);
+    if (points.length <= limit) return value;
+    return `${points.slice(0, limit).join('')}…`;
 }
 
 function serialize(
@@ -126,8 +131,8 @@ function serialize(
     const output: ReadConversationOutput = {
         session: {
             session_id: session.session_id,
-            title: truncateTitle(session.title),
-            model: session.model,
+            title: truncateCodePoints(session.title, READ_CONVERSATION_MAX_TITLE_CODE_POINTS),
+            model: truncateCodePoints(session.model, READ_CONVERSATION_MAX_MODEL_CODE_POINTS),
             created_at: session.created_at,
             archived: session.archived,
         },
