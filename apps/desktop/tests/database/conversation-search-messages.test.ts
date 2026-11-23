@@ -5,10 +5,8 @@ import {
 } from '@tests/database/sqliteHarness';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import {
-    findConversationSearchMatchMessages,
-    findConversationSearchMessagesBySessionIds,
-} from '@/database/queries/messages';
+import { findConversationSearchMessagesBySessionIds } from '@/database/queries/messages';
+import { databaseSearchConversationHistory } from '@/modules/tools/builtin/search-conversation/operations.io';
 
 afterEach(closeTestDatabases);
 
@@ -181,7 +179,7 @@ describe('given conversation search needs bounded transcript messages for many s
         }
         seedMessage(database, { id: 121, sessionId: 1, role: 'system', content: 'needle hidden' });
 
-        const rows = await findConversationSearchMatchMessages(
+        const rows = await databaseSearchConversationHistory.findMatchMessages(
             [1],
             ['user', 'assistant'],
             'needle',
@@ -209,7 +207,7 @@ describe('given conversation search needs bounded transcript messages for many s
             content: 'ÉTÉ echoes',
         });
 
-        const rows = await findConversationSearchMatchMessages(
+        const rows = await databaseSearchConversationHistory.findMatchMessages(
             [1],
             ['user', 'assistant'],
             'été',
@@ -245,7 +243,7 @@ describe('given conversation search needs bounded transcript messages for many s
             });
         }
 
-        const rows = await findConversationSearchMatchMessages(
+        const rows = await databaseSearchConversationHistory.findMatchMessages(
             [1],
             ['user', 'assistant'],
             'needle',
@@ -253,5 +251,63 @@ describe('given conversation search needs bounded transcript messages for many s
         );
 
         expect(rows.map((row) => row.id)).toContain(1);
+    });
+
+    it('user gets the valid anchor when newer trigram false positives fill a page', async () => {
+        const database = openMigratedDatabase();
+        routeQueriesTo(database);
+        seedSession(database, 1);
+        seedMessage(database, {
+            id: 1,
+            sessionId: 1,
+            role: 'user',
+            content: 'valid abcdefghi anchor',
+        });
+        for (let id = 2; id <= 31; id += 1) {
+            seedMessage(database, {
+                id,
+                sessionId: 1,
+                role: 'assistant',
+                content: `abc def ghi ${id}`,
+            });
+        }
+
+        const rows = await databaseSearchConversationHistory.findMatchMessages(
+            [1],
+            ['user', 'assistant'],
+            'abcdefghi',
+            3
+        );
+
+        expect(rows.map((row) => row.id)).toEqual([1]);
+    });
+
+    it('user pages past accented trigram false positives to the real anchor', async () => {
+        const database = openMigratedDatabase();
+        routeQueriesTo(database);
+        seedSession(database, 1);
+        seedMessage(database, {
+            id: 1,
+            sessionId: 1,
+            role: 'user',
+            content: 'valid éééé anchor',
+        });
+        for (let id = 2; id <= 151; id += 1) {
+            seedMessage(database, {
+                id,
+                sessionId: 1,
+                role: 'assistant',
+                content: `ééé placeholder ${id}`,
+            });
+        }
+
+        const rows = await databaseSearchConversationHistory.findMatchMessages(
+            [1],
+            ['user', 'assistant'],
+            'éééé',
+            3
+        );
+
+        expect(rows.map((row) => row.id)).toEqual([1]);
     });
 });

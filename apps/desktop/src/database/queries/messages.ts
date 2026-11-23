@@ -156,24 +156,28 @@ export async function findConversationSearchMessagesBySessionIds(
 }
 
 /**
- * Returns the latest keyword matches per candidate session, bounded per session. The trigram
- * index narrows candidates; the caller re-validates and cleans the text, so this returns a
- * larger candidate window than the final snippet count. Unlike the ranking sample this can
- * reach a real hit from the middle of a long conversation.
+ * One keyset page of keyword candidates for anchor selection. The trigram index narrows
+ * candidates; the caller verifies the full text and requests the next page until it has
+ * enough real matches. `foldedTextOnly` applies a full ASCII/caseless substring check in
+ * SQLite, which lets the page limit apply to real matches instead of trigram false positives.
  */
-export async function findConversationSearchMatchMessages(
-    sessionIds: readonly number[],
-    roles: readonly ('user' | 'assistant')[],
-    query: string,
-    limitPerSession: number,
+export async function findConversationSearchMatchCandidates(
+    options: {
+        sessionIds: readonly number[];
+        roles: readonly ('user' | 'assistant')[];
+        query: string;
+        limit: number;
+        foldedTextOnly: boolean;
+        cursor?: { sessionId: number; messageId: number };
+    },
     database: DatabaseExecutor = db
 ): Promise<ConversationSearchMessage[]> {
-    const uniqueSessionIds = [...new Set(sessionIds)];
-    const uniqueRoles = [...new Set(roles)].filter(
+    const uniqueSessionIds = [...new Set(options.sessionIds)];
+    const uniqueRoles = [...new Set(options.roles)].filter(
         (role): role is 'user' | 'assistant' => role === 'user' || role === 'assistant'
     );
-    const normalizedQuery = query.trim().toLocaleLowerCase();
-    const perSession = Math.min(50, Math.max(1, Math.floor(limitPerSession)) * 10);
+    const normalizedQuery = options.query.trim().toLocaleLowerCase();
+    const limit = Math.max(1, Math.floor(options.limit));
     if (uniqueSessionIds.length === 0 || uniqueRoles.length === 0 || !normalizedQuery) return [];
 
     const roleValues = sql.join(
@@ -187,12 +191,18 @@ export async function findConversationSearchMatchMessages(
                 WHERE message_search_fts MATCH ${trigramExpression}
             )`
         : sql``;
-    // SQLite lower() folds ASCII only, while the caller matches with Unicode case folding.
-    // When trigram candidates are available they are already case-insensitive across scripts;
-    // otherwise keep the ASCII fallback and let the caller verify the full text.
-    const fallbackTextFilter = trigramExpression
-        ? sql``
-        : sql`AND instr(lower(content), ${normalizedQuery}) > 0`;
+    // SQLite lower() folds ASCII only. Use it only when that is equivalent to the caller's
+    // Unicode folding; otherwise the caller pages and verifies every candidate itself.
+    const foldedTextFilter = options.foldedTextOnly
+        ? sql`AND instr(lower(content), ${normalizedQuery}) > 0`
+        : sql``;
+    const cursorFilter = options.cursor
+        ? sql`AND (
+                session_id < ${options.cursor.sessionId}
+                OR (session_id = ${options.cursor.sessionId}
+                    AND id < ${options.cursor.messageId})
+            )`
+        : sql``;
 
     const rows = await database.all<[number, number, 'user' | 'assistant', string]>(sql`
         WITH candidate_sessions(session_id) AS (
@@ -218,25 +228,14 @@ export async function findConversationSearchMatchMessages(
                 ON candidate_sessions.session_id = messages.session_id
             WHERE messages.role IN (${roleValues})
               ${indexedCandidates}
-        ),
-        matched AS (
-            SELECT
-                id,
-                session_id,
-                role,
-                content,
-                ROW_NUMBER() OVER (
-                    PARTITION BY session_id
-                    ORDER BY id DESC
-                ) AS match_rank
-            FROM message_text
-            WHERE 1 = 1
-              ${fallbackTextFilter}
         )
         SELECT id, session_id, role, content
-        FROM matched
-        WHERE match_rank <= ${perSession}
-        ORDER BY session_id, id
+        FROM message_text
+        WHERE 1 = 1
+          ${foldedTextFilter}
+          ${cursorFilter}
+        ORDER BY session_id DESC, id DESC
+        LIMIT ${limit}
     `);
     return rows.map(([id, sessionId, role, content]) => ({
         id,

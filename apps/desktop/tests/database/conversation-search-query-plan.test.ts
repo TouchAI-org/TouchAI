@@ -6,7 +6,7 @@ import {
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
-    findConversationSearchMatchMessages,
+    findConversationSearchMatchCandidates,
     findConversationSearchMessagesBySessionIds,
 } from '@/database/queries/messages';
 import { listSessions } from '@/database/queries/sessions';
@@ -48,7 +48,7 @@ describe('given conversation search exposes its database access path', () => {
                         params: request.params,
                     };
                 }
-                if (request.sql.includes('match_rank')) {
+                if (request.sql.includes('FROM message_text')) {
                     matchRequest = {
                         sql: request.sql,
                         params: request.params,
@@ -101,7 +101,13 @@ describe('given conversation search exposes its database access path', () => {
             'SEARCH message_parts USING INDEX message_parts_message_id_sort_order_idx'
         );
 
-        await findConversationSearchMatchMessages([1], ['user'], 'abcdefghi', 3);
+        await findConversationSearchMatchCandidates({
+            sessionIds: [1],
+            roles: ['user'],
+            query: 'abcdefghi',
+            limit: 100,
+            foldedTextOnly: true,
+        });
         expect(matchRequest).toBeDefined();
         const matchPlan = database
             .prepare(`EXPLAIN QUERY PLAN ${matchRequest!.sql}`)
