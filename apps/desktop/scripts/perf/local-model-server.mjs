@@ -18,6 +18,7 @@ function sleep(ms) {
 
 function createJsonLineSink(file) {
     let pending = Promise.resolve();
+    let failure = null;
     return {
         write(value) {
             if (!file) return;
@@ -25,11 +26,13 @@ function createJsonLineSink(file) {
             pending = pending
                 .then(() => fs.promises.appendFile(file, line))
                 .catch((error) => {
+                    failure ??= error;
                     console.error('TOUCHAI_PERF model server could not append its log:', error);
                 });
         },
-        flush() {
-            return pending;
+        async flush() {
+            await pending;
+            if (failure) throw failure;
         },
     };
 }
@@ -370,6 +373,18 @@ export async function startPerfModelServer(options = {}) {
                     return c.json({ error: { message: history.error } }, 400);
                 }
                 const toolCount = history.count;
+                const identity = {
+                    promptId: prompt.fields.promptId,
+                    runId: prompt.fields.runId,
+                    arm: prompt.fields.arm,
+                    block: Number(prompt.fields.block),
+                    flow: prompt.fields.flow,
+                    rounds,
+                    chunks: Number(prompt.fields.chunks),
+                    chunkBytes: Number(prompt.fields.chunkBytes),
+                    chunkDelayMs: Number(prompt.fields.chunkDelayMs) || state.chunkDelayMs,
+                    alternate: prompt.fields.alternate === '1',
+                };
                 const id = `chatcmpl-perf-${createHash('sha256')
                     .update(`${prompt.fields.promptId}:${toolCount}`)
                     .digest('hex')
@@ -379,11 +394,8 @@ export async function startPerfModelServer(options = {}) {
                 state.log.write({
                     type: 'request',
                     at: Date.now(),
-                    promptId: prompt.fields.promptId ?? null,
-                    flow: prompt.fields.flow ?? null,
+                    ...identity,
                     toolCount,
-                    rounds,
-                    alternate: prompt.fields.alternate === '1',
                 });
 
                 Promise.resolve()
@@ -393,14 +405,15 @@ export async function startPerfModelServer(options = {}) {
                         state.log.write({
                             type: 'complete',
                             at: Date.now(),
-                            promptId: prompt.fields.promptId ?? null,
-                            flow: prompt.fields.flow ?? null,
+                            ...identity,
+                            toolCount,
                         });
                     })
                     .catch((error) => {
                         state.log.write({
                             type: 'error',
                             at: Date.now(),
+                            ...identity,
                             error: String(error),
                         });
                         void response.finish('stop');

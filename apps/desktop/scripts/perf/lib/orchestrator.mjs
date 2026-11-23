@@ -51,7 +51,8 @@ function ensureEvidenceLayout(resume = false) {
     }
 }
 
-export async function runMeasurements(options) {
+export async function runMeasurements(options, signal) {
+    signal?.throwIfAborted();
     const plan = buildRunPlan(options);
     const protocol = protocolForOptions(options);
     const previousPlan = options.resume
@@ -104,6 +105,7 @@ export async function runMeasurements(options) {
         port: DEFAULT_PORT,
         logFile: path.join(rawRoot, 'model-server.jsonl'),
     });
+    let runError;
     try {
         ensureEvidenceLayout(options.resume);
         writeJson(path.join(evidenceRoot, 'run-plan.json'), {
@@ -112,6 +114,7 @@ export async function runMeasurements(options) {
             plan,
         });
         for (const [index, item] of remainingPlan.entries()) {
+            signal?.throwIfAborted();
             console.log(
                 `[${index + 1}/${remainingPlan.length}] ${item.flow} ${
                     item.historyLevel || ''
@@ -123,9 +126,17 @@ export async function runMeasurements(options) {
                     `Display startup attempt limit reached for ${measurementKey(item)}.`
                 );
             }
-            await runOneMeasurement({ ...item, options, attempt: startupAttempts + 1 });
+            await runOneMeasurement({ ...item, options, attempt: startupAttempts + 1, signal });
         }
+    } catch (error) {
+        runError = error;
     } finally {
-        await server.close();
+        try {
+            await server.close();
+        } catch (error) {
+            console.error('Model server shutdown failed:', error);
+            runError ??= error;
+        }
     }
+    if (runError) throw runError;
 }

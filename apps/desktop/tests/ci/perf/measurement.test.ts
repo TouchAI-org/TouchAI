@@ -116,7 +116,11 @@ describe('user runs one performance measurement', () => {
         }
         fs.writeFileSync(
             path.join(evidenceRoot, 'source-manifest.json'),
-            JSON.stringify({ comparison })
+            JSON.stringify({
+                comparison,
+                baseline: { sha256: 'base-source' },
+                current: { sha256: 'current-source' },
+            })
         );
         fs.writeFileSync(
             path.join(evidenceRoot, 'builds.json'),
@@ -125,6 +129,7 @@ describe('user runs one performance measurement', () => {
                     arm,
                     comparison,
                     binarySha256: binaries[arm]!.sha256,
+                    sourceManifestSha256: arm === 'baseline' ? 'base-source' : 'current-source',
                 })),
             })
         );

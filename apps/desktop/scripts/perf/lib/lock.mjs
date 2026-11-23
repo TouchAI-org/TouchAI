@@ -1,13 +1,12 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 export class PerformanceHarnessLockedError extends Error {
     constructor(lockPath) {
         super(
             `Another performance harness command already owns ${lockPath}. ` +
-                'Wait for it to finish or remove the lock if its process is no longer running.'
+                'Wait for it to finish. Remove a stale lock only after its owner and all workload descendants have stopped.'
         );
         this.name = 'PerformanceHarnessLockedError';
         this.code = 'PERF_HARNESS_LOCKED';
@@ -16,20 +15,28 @@ export class PerformanceHarnessLockedError extends Error {
 }
 
 export function performanceHarnessLockPath(root) {
-    const digest = createHash('sha256').update(path.resolve(root)).digest('hex').slice(0, 24);
-    return path.join(os.tmpdir(), `touchai-perf-${digest}.lock`);
+    function canonical(file) {
+        try {
+            return fs.realpathSync(file);
+        } catch (error) {
+            if (error.code !== 'ENOENT') throw error;
+            return path.join(canonical(path.dirname(file)), path.basename(file));
+        }
+    }
+    const resource = canonical(path.resolve(root));
+    // A sibling survives resource cleanup and has one identity across TMPDIRs.
+    return path.join(path.dirname(resource), `.${path.basename(resource)}.touchai-perf.lock`);
 }
 
 export function performanceHarnessLockPaths(evidenceRoot, artifactsRoot) {
-    return [...new Set([path.resolve(evidenceRoot), path.resolve(artifactsRoot)])]
-        .sort()
-        .map(performanceHarnessLockPath);
+    return [...new Set([evidenceRoot, artifactsRoot].map(performanceHarnessLockPath))].sort();
 }
 
 function acquireFileLock(lockPath, metadata) {
     const token = randomUUID();
     let descriptor;
     try {
+        fs.mkdirSync(path.dirname(lockPath), { recursive: true });
         descriptor = fs.openSync(lockPath, 'wx');
     } catch (error) {
         if (error && typeof error === 'object' && error.code === 'EEXIST') {

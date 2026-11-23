@@ -339,7 +339,7 @@ export function installRendererMeasurement(token) {
 }
 
 // Serialized into the application renderer for native rail navigation evidence.
-export function installRailNavigationMeasurement(turnCount, maxTicks = 96, timeoutMs = 5000) {
+export function installRailNavigationMeasurement(turnCount, expectedTicks, timeoutMs = 5000) {
     const elementId = 'touchai-perf-rail-navigation';
     document.getElementById(elementId)?.remove();
 
@@ -384,7 +384,6 @@ export function installRailNavigationMeasurement(turnCount, maxTicks = 96, timeo
         if (!rail || !viewport || ticks.length < 2) {
             throw new Error('The native conversation rail is missing or too short.');
         }
-        const expectedTicks = Math.min(turnCount, maxTicks);
         if (ticks.length !== expectedTicks) {
             throw new Error(
                 `The native conversation rail has ${ticks.length} ticks; expected ${expectedTicks} for ${turnCount} turns.`

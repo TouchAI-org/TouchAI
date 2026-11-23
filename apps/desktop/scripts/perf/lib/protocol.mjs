@@ -1,6 +1,12 @@
 import path from 'node:path';
 
-import { armOrder, evidenceRoot, fixtureLevels, startupSettleMs } from './config.mjs';
+import {
+    armOrder,
+    evidenceRoot,
+    fixtureLevels,
+    modelEndpoint,
+    startupSettleMs,
+} from './config.mjs';
 import { readJsonFile } from './io.mjs';
 
 export function parseArgs(argv) {
@@ -91,6 +97,8 @@ export function protocolForOptions(options) {
         progressBlocks: options.progressBlocks,
         longBlocks: options.longBlocks,
         historyLevels: options.historyLevels,
+        railPolicies: options.railPolicies,
+        modelEndpoint,
         warmSamples: options.warmSamples,
         progressWarmups: options.progressWarmups,
         progressTasks: options.progressTasks,
@@ -138,6 +146,14 @@ export function validatePersistedPlan(protocol, plan) {
         (flow) => !['latency', 'progress', 'long-session'].includes(flow)
     );
     if (unknownFlow) return `persisted run protocol has unknown flow ${unknownFlow}`;
+    if (
+        protocol.flows.includes('long-session') &&
+        ['baseline', 'current'].some(
+            (arm) => !['all', 'sampled'].includes(protocol.railPolicies?.[arm])
+        )
+    ) {
+        return 'persisted run protocol must declare both rail policies';
+    }
     let expected;
     try {
         expected = buildRunPlan(protocol);
@@ -184,7 +200,15 @@ function parseFlows(value) {
 }
 
 export function readOptions(args) {
+    const railPolicies = {
+        baseline: args['baseline-rail'] ?? 'all',
+        current: args['candidate-rail'] ?? 'sampled',
+    };
+    if (Object.values(railPolicies).some((policy) => !['all', 'sampled'].includes(policy))) {
+        throw new Error('--baseline-rail and --candidate-rail must be all or sampled.');
+    }
     return {
+        railPolicies,
         flows: parseFlows(args.flows ?? 'latency,progress,long-session'),
         latencyBlocks: integerArg(args, 'latency-blocks', 60),
         progressBlocks: integerArg(args, 'progress-blocks', 3),

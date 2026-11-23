@@ -2,7 +2,8 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { MAX_RAIL_TICKS, startupSettleMs } from '../../scripts/perf/lib/config.mjs';
+import { evidenceRoot, startupSettleMs } from '../../scripts/perf/lib/config.mjs';
+import { railTickCount, workloadFor } from '../../scripts/perf/lib/workload.mjs';
 import { focusMain } from '../test/support/agent-ui.js';
 import { fillSearchDraft, pressEditorKey } from '../test/support/conversation-queue.js';
 import { callE2eBridge, waitForE2eBridge } from '../test/support/desktop.js';
@@ -51,7 +52,7 @@ function sleep(ms) {
 }
 
 function promptId(sample) {
-    return `${arm[0]}-${block}-${sample}-${Date.now().toString(36)}`;
+    return `${runId}-${sample}`;
 }
 
 function doneTokenFor(id) {
@@ -232,12 +233,13 @@ async function captureNativeScreenshot(name) {
     if (!fs.existsSync(file) || fs.statSync(file).size === 0) {
         throw new Error(`Native screenshot was not written: ${file}`);
     }
-    return file;
+    return path.relative(evidenceRoot, file);
 }
 
 async function measureRailNavigation() {
     const turnCount = Math.ceil(historyLevel / 2);
-    const source = `(${installRailNavigationMeasurement.toString()})(${turnCount}, ${MAX_RAIL_TICKS});`;
+    const expectedTicks = railTickCount(turnCount, process.env.TOUCHAI_PERF_RAIL_POLICY);
+    const source = `(${installRailNavigationMeasurement.toString()})(${turnCount}, ${expectedTicks});`;
     await injectAppWorldScript(
         source,
         RAIL_NAVIGATION_ELEMENT_ID,
@@ -276,6 +278,7 @@ async function measureRailNavigation() {
 }
 
 async function submitAndMeasure(sample, options = {}) {
+    options = { ...workloadFor(flow), ...options };
     const id = promptId(sample);
     const doneToken = doneTokenFor(id);
     const rounds = options.rounds ?? 12;
@@ -284,6 +287,9 @@ async function submitAndMeasure(sample, options = {}) {
     const alternate = options.alternate ? 1 : 0;
     const marker = [
         'TOUCHAI_PERF',
+        `runId=${runId}`,
+        `arm=${arm}`,
+        `block=${block}`,
         `flow=${flow}`,
         `promptId=${id}`,
         `rounds=${rounds}`,
@@ -318,6 +324,7 @@ async function submitAndMeasure(sample, options = {}) {
         rounds,
         chunks,
         chunkBytes,
+        chunkDelayMs: options.chunkDelayMs,
         alternate: Boolean(alternate),
         promptId: id,
         screenshot,
@@ -351,9 +358,6 @@ async function runLatency() {
     await sleep(startupSettleMs);
     await submitAndMeasure('cold', {
         mode: 'cold',
-        rounds: 12,
-        chunks: 24,
-        chunkBytes: 32,
     });
 
     if (warmSampleCount === 0) return;
@@ -362,18 +366,12 @@ async function runLatency() {
     await submitAndMeasure('warmup', {
         recordType: 'latency-warmup',
         mode: 'warmup',
-        rounds: 12,
-        chunks: 24,
-        chunkBytes: 32,
     });
 
     for (let sample = 0; sample < warmSampleCount; sample += 1) {
         await startNewSession();
         await submitAndMeasure(sample, {
             mode: 'warm',
-            rounds: 12,
-            chunks: 24,
-            chunkBytes: 32,
         });
     }
 }
@@ -382,11 +380,6 @@ async function runTask(sample, recordType) {
     await startNewSession();
     await submitAndMeasure(sample, {
         recordType,
-        rounds: 24,
-        chunks: 128,
-        chunkBytes: 1024,
-        alternate: true,
-        chunkDelayMs: 1,
         timeoutMs: 600000,
     });
 }
@@ -441,9 +434,6 @@ async function runLongSession() {
     await submitAndMeasure(0, {
         recordType: 'long-stream',
         mode: 'long-stream',
-        rounds: 2,
-        chunks: 32,
-        chunkBytes: 256,
         timeoutMs: 300000,
         screenshotName: `long-${historyLevel}-stream-settled`,
     });

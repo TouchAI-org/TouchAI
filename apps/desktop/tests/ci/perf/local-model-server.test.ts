@@ -118,7 +118,7 @@ describe('user runs the local performance model server', () => {
         const logFile = path.join(root, 'nested', 'model-server.jsonl');
         const running = await startPerfModelServer({ port: 0, logFile });
         const promptId = 'tool-round';
-        const marker = `TOUCHAI_PERF|promptId=${promptId}|rounds=1|chunks=1|chunkBytes=8|flow=latency`;
+        const marker = `TOUCHAI_PERF|runId=latency-b1-baseline|arm=baseline|block=1|promptId=${promptId}|rounds=1|chunks=1|chunkBytes=8|chunkDelayMs=1|alternate=0|flow=latency`;
 
         try {
             const toolResponse = await postChat(running.port, {
@@ -174,6 +174,25 @@ describe('user runs the local performance model server', () => {
                 .map((line) => JSON.parse(line));
             expect(records.filter((record) => record.type === 'request')).toHaveLength(2);
             expect(records.filter((record) => record.type === 'complete')).toHaveLength(1);
+            expect(records.map((record) => [record.type, record.toolCount])).toEqual([
+                ['request', 0],
+                ['request', 1],
+                ['complete', 1],
+            ]);
+            for (const record of records) {
+                expect(record).toMatchObject({
+                    runId: 'latency-b1-baseline',
+                    promptId,
+                    arm: 'baseline',
+                    block: 1,
+                    flow: 'latency',
+                    rounds: 1,
+                    chunks: 1,
+                    chunkBytes: 8,
+                    chunkDelayMs: 1,
+                    alternate: false,
+                });
+            }
         } finally {
             await running.close();
         }

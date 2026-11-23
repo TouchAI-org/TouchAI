@@ -10,8 +10,11 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { resolveComparison } from '../../../scripts/perf/lib/comparison.mjs';
-import { MANIFEST_VERSION } from '../../../scripts/perf/lib/config.mjs';
-import { performanceHarnessLockPath } from '../../../scripts/perf/lib/lock.mjs';
+import { MANIFEST_VERSION, modelEndpoint } from '../../../scripts/perf/lib/config.mjs';
+import {
+    acquirePerformanceHarnessLock,
+    performanceHarnessLockPath,
+} from '../../../scripts/perf/lib/lock.mjs';
 import {
     createSamplerWatch,
     measurementInvalidReasons,
@@ -77,11 +80,13 @@ function runCommand(root: string, argv: string[], env: NodeJS.ProcessEnv = {}) {
 function persistedProtocol(warmSamples: number) {
     return {
         comparison: null,
+        modelEndpoint,
         flows: ['latency'],
         latencyBlocks: 1,
         progressBlocks: 3,
         longBlocks: 6,
         historyLevels: [100, 500, 1000],
+        railPolicies: { baseline: 'all', current: 'sampled' },
         warmSamples,
         progressWarmups: 4,
         progressTasks: 8,
@@ -238,6 +243,46 @@ describe('user previews and resumes the desktop performance run', () => {
         }
     });
 
+    it.each(['temporary directory', 'symbolic link'])(
+        'user cannot overwrite locked evidence through a different %s',
+        (alias) => {
+            const root = createEvidenceRoot();
+            const evidence = path.join(root, 'evidence');
+            const artifacts = path.join(root, 'artifacts');
+            fs.mkdirSync(evidence);
+            fs.mkdirSync(artifacts);
+            const alternate = path.join(root, 'alternate');
+            const temporary = path.join(root, 'tmp');
+            fs.mkdirSync(temporary);
+            fs.symlinkSync(evidence, alternate, 'junction');
+            const summary = path.join(evidence, 'summary.md');
+            fs.writeFileSync(summary, 'preserved evidence');
+            const lock = acquirePerformanceHarnessLock({
+                command: 'run',
+                evidenceRoot: evidence,
+                artifactsRoot: artifacts,
+            });
+            try {
+                const result = runCommand(
+                    alias === 'symbolic link' ? alternate : evidence,
+                    ['stats'],
+                    {
+                        ...(alias === 'temporary directory'
+                            ? { TMPDIR: temporary, TMP: temporary, TEMP: temporary }
+                            : {}),
+                        // Do not let the artifact lock mask a missing evidence lock.
+                        TOUCHAI_PERF_ARTIFACTS: path.join(root, 'other-artifacts'),
+                    }
+                );
+                expect(result.status).toBe(1);
+                expect(result.stderr).toContain('Another performance harness command');
+                expect(fs.readFileSync(summary, 'utf8')).toBe('preserved evidence');
+            } finally {
+                lock.release();
+            }
+        }
+    );
+
     it.skipIf(process.platform === 'win32')(
         'user cannot read the previous comparison after snapshot preparation fails',
         () => {
@@ -279,52 +324,61 @@ describe('user previews and resumes the desktop performance run', () => {
         }
     );
 
-    it('user cannot build a snapshot modified after preparation', () => {
-        const root = createEvidenceRoot();
-        const snapshot = path.join(root, 'snapshots/current');
-        const source = path.join(snapshot, 'package.json');
-        fs.mkdirSync(path.dirname(source), { recursive: true });
-        fs.writeFileSync(source, '{"name":"prepared"}\n');
-        const comparison = {
-            baselineCommit: 'a'.repeat(40),
-            candidateCommit: 'b'.repeat(40),
-        };
-        const armManifest = path.join(root, 'manifests/current-source-manifest.json');
-        fs.mkdirSync(path.dirname(armManifest), { recursive: true });
-        fs.writeFileSync(
-            armManifest,
-            JSON.stringify({
-                version: MANIFEST_VERSION,
-                arm: 'current',
-                snapshot,
-                comparison,
-                entries: [
-                    {
-                        path: 'package.json',
-                        type: 'file',
-                        sha256: sha256File(source),
+    it.each(['changed', 'added configuration', 'added source'])(
+        'user cannot build a snapshot with %s inputs after preparation',
+        (change) => {
+            const root = createEvidenceRoot();
+            const snapshot = path.join(root, 'snapshots/current');
+            const source = path.join(snapshot, 'package.json');
+            fs.mkdirSync(path.dirname(source), { recursive: true });
+            fs.writeFileSync(source, '{"name":"prepared"}\n');
+            const comparison = {
+                baselineCommit: 'a'.repeat(40),
+                candidateCommit: 'b'.repeat(40),
+            };
+            const armManifest = path.join(root, 'manifests/current-source-manifest.json');
+            fs.mkdirSync(path.dirname(armManifest), { recursive: true });
+            fs.writeFileSync(
+                armManifest,
+                JSON.stringify({
+                    version: MANIFEST_VERSION,
+                    arm: 'current',
+                    snapshot,
+                    comparison,
+                    entries: [
+                        {
+                            path: 'package.json',
+                            type: 'file',
+                            sha256: sha256File(source),
+                        },
+                    ],
+                })
+            );
+            fs.writeFileSync(
+                path.join(root, 'source-manifest.json'),
+                JSON.stringify({
+                    version: MANIFEST_VERSION,
+                    comparison,
+                    current: {
+                        path: armManifest,
+                        sha256: sha256File(armManifest),
                     },
-                ],
-            })
-        );
-        fs.writeFileSync(
-            path.join(root, 'source-manifest.json'),
-            JSON.stringify({
-                version: MANIFEST_VERSION,
-                comparison,
-                current: {
-                    path: armManifest,
-                    sha256: sha256File(armManifest),
-                },
-            })
-        );
+                })
+            );
 
-        expect(() => verifyPreparedSnapshot('current', snapshot, root)).not.toThrow();
-        fs.writeFileSync(source, '{"name":"changed-after-prepare"}\n');
-        expect(() => verifyPreparedSnapshot('current', snapshot, root)).toThrow(
-            'changed package.json after prepare'
-        );
-    });
+            expect(() => verifyPreparedSnapshot('current', snapshot, root)).not.toThrow();
+            if (change !== 'changed') {
+                const added = change === 'added configuration' ? 'vite.config.js' : 'new-module.ts';
+                fs.writeFileSync(path.join(snapshot, added), 'export default {};\n');
+                expect(() => verifyPreparedSnapshot('current', snapshot, root)).toThrow(added);
+                return;
+            }
+            fs.writeFileSync(source, '{"name":"changed-after-prepare"}\n');
+            expect(() => verifyPreparedSnapshot('current', snapshot, root)).toThrow(
+                'changed package.json after prepare'
+            );
+        }
+    );
 
     it('user cannot record a startup settle that the workload does not use', () => {
         const root = createEvidenceRoot();

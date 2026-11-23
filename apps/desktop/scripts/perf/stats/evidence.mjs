@@ -1,4 +1,9 @@
-import { MANIFEST_VERSION, MAX_RAIL_TICKS, modelEndpoint } from '../lib/config.mjs';
+import fs from 'node:fs';
+import path from 'node:path';
+
+import { evidenceRoot, MANIFEST_VERSION } from '../lib/config.mjs';
+import { readJsonFile, sha256File } from '../lib/io.mjs';
+import { railTickCount, workloadFor } from '../lib/workload.mjs';
 import {
     isUsableMemory,
     nearestMemory,
@@ -6,13 +11,167 @@ import {
     nearestMemoryWithin,
 } from './statistics.mjs';
 
-function fixtureValidationError(run, fixtureManifest) {
+function evidenceFile(relative) {
+    if (typeof relative !== 'string' || !relative || path.isAbsolute(relative)) return null;
+    const root = fs.realpathSync(evidenceRoot);
+    try {
+        const file = fs.realpathSync(path.resolve(root, relative));
+        const stat = fs.statSync(file);
+        return file.startsWith(`${root}${path.sep}`) && stat.isFile() && stat.size > 0
+            ? file
+            : null;
+    } catch (error) {
+        if (error.code === 'ENOENT') return null;
+        throw error;
+    }
+}
+
+export function provenanceError(source, builds, fixtureManifest) {
+    if (source?.version !== MANIFEST_VERSION)
+        return 'source manifest version is missing or invalid';
+    if (!Array.isArray(builds?.builds) || builds.builds.length !== 2)
+        return 'build evidence is missing or duplicated';
+    for (const arm of ['baseline', 'current']) {
+        const reference = source[arm];
+        const file = evidenceFile(reference?.path);
+        if (!file || sha256File(file) !== reference.sha256)
+            return `${arm} source manifest is missing or changed`;
+        const manifest = readJsonFile(file);
+        if (
+            manifest.version !== MANIFEST_VERSION ||
+            manifest.arm !== arm ||
+            JSON.stringify(manifest.comparison) !== JSON.stringify(source.comparison)
+        ) {
+            return `${arm} source manifest comparison is inconsistent`;
+        }
+        const matches = builds.builds.filter((build) => build.arm === arm);
+        const build = matches[0];
+        const binary = evidenceFile(build?.binary);
+        if (
+            matches.length !== 1 ||
+            build.exitCode !== 0 ||
+            build.signal ||
+            !binary ||
+            build.sourceManifestSha256 !== reference.sha256 ||
+            JSON.stringify(build.comparison) !== JSON.stringify(source.comparison) ||
+            sha256File(binary) !== build.binarySha256 ||
+            build.binarySha256 !== fixtureManifest?.arms?.[arm]?.sourceBinarySha256
+        ) {
+            return `${arm} build provenance is missing or inconsistent`;
+        }
+        for (const [name, fixture] of Object.entries(fixtureManifest.arms[arm].fixtures ?? {})) {
+            const database = evidenceFile(fixture.path);
+            if (!database || sha256File(database) !== fixture.sha256)
+                return `${arm}/${name} fixture evidence is missing or changed`;
+        }
+    }
+    return null;
+}
+
+export function modelEvidenceError(records, events) {
+    const samples = events.filter((event) =>
+        ['latency', 'latency-warmup', 'progress-task', 'progress-warmup', 'long-stream'].includes(
+            event.type
+        )
+    );
+    const byPrompt = new Map();
+    for (const sample of samples) {
+        if (!sample.promptId || byPrompt.has(sample.promptId))
+            return 'model sample prompt identity is missing or duplicated';
+        byPrompt.set(sample.promptId, sample);
+    }
+    if (!records.length) return 'model server evidence is missing';
+    for (const record of records) {
+        const sample = byPrompt.get(record.promptId);
+        if (
+            !sample ||
+            !['request', 'complete'].includes(record.type) ||
+            record.runId !== sample.runId ||
+            record.arm !== sample.arm ||
+            record.flow !== sample.flow ||
+            Number(record.block) !== Number(sample.block)
+        )
+            return 'model request identity is missing or inconsistent';
+    }
+    return null;
+}
+
+function workloadEvidenceError(run, observed, protocol, modelRecords) {
+    const expected = workloadFor(run.flow);
+    const samples = observed.filter((event) =>
+        ['latency', 'latency-warmup', 'progress-task', 'progress-warmup', 'long-stream'].includes(
+            event.type
+        )
+    );
+    const slots =
+        run.flow === 'latency'
+            ? [
+                  ['latency', 'cold', 'cold'],
+                  ...(protocol.warmSamples > 0
+                      ? [
+                            ['latency-warmup', 'warmup', 'warmup'],
+                            ...Array.from({ length: protocol.warmSamples }, (_, index) => [
+                                'latency',
+                                index,
+                                'warm',
+                            ]),
+                        ]
+                      : []),
+              ]
+            : run.flow === 'progress'
+              ? [
+                    ...Array.from({ length: protocol.progressWarmups }, (_, index) => [
+                        'progress-warmup',
+                        `warmup-${index}`,
+                        null,
+                    ]),
+                    ...Array.from({ length: protocol.progressTasks }, (_, index) => [
+                        'progress-task',
+                        index,
+                        null,
+                    ]),
+                ]
+              : [['long-stream', 0, 'long-stream']];
+    if (samples.length !== slots.length) return 'workload sample count does not match the protocol';
+    for (const [index, sample] of samples.entries()) {
+        const [type, id, mode] = slots[index];
+        if (
+            sample.type !== type ||
+            sample.sample !== id ||
+            sample.mode !== mode ||
+            Object.entries(expected).some(([key, value]) => sample[key] !== value)
+        ) {
+            return 'sample workload does not match the protocol';
+        }
+        const history = modelRecords.filter((record) => record.promptId === sample.promptId);
+        const requests = history.filter((record) => record.type === 'request');
+        if (
+            history.length !== expected.rounds + 2 ||
+            requests.length !== expected.rounds + 1 ||
+            history.at(-1)?.type !== 'complete' ||
+            history.at(-1)?.toolCount !== expected.rounds ||
+            requests.some((record, index) => record.toolCount !== index) ||
+            history.some(
+                (record, index) =>
+                    !Number.isFinite(record.at) ||
+                    record.at <= 0 ||
+                    (index > 0 && record.at < history[index - 1].at) ||
+                    Object.entries(expected).some(([key, value]) => record[key] !== value)
+            )
+        ) {
+            return 'model tool execution chain is incomplete or inconsistent';
+        }
+    }
+    return null;
+}
+
+function fixtureValidationError(run, fixtureManifest, protocol) {
     if (!fixtureManifest) return 'fixture manifest is missing';
     if (fixtureManifest.version !== MANIFEST_VERSION) {
         return `fixture manifest version mismatch: expected ${MANIFEST_VERSION}, got ${fixtureManifest.version ?? 'missing'}`;
     }
-    if (fixtureManifest.modelEndpoint !== modelEndpoint) {
-        return `fixture manifest endpoint mismatch: expected ${modelEndpoint}, got ${fixtureManifest.modelEndpoint ?? 'missing'}`;
+    if (!protocol.modelEndpoint || fixtureManifest.modelEndpoint !== protocol.modelEndpoint) {
+        return `fixture manifest endpoint mismatch: expected ${protocol.modelEndpoint}, got ${fixtureManifest.modelEndpoint ?? 'missing'}`;
     }
     const arm = fixtureManifest.arms?.[run.arm];
     if (!arm) return `fixture manifest is missing arm ${run.arm ?? 'unknown'}`;
@@ -85,7 +244,7 @@ function memoryCoverageError({ run, label, samples, startAt, endAt, intervalMs }
     return null;
 }
 
-function nativeUiError(run, observed) {
+function nativeUiError(run, observed, protocol) {
     const positive = (value) => typeof value === 'number' && Number.isFinite(value) && value > 0;
     const nonNegative = (value) =>
         typeof value === 'number' && Number.isFinite(value) && value >= 0;
@@ -95,8 +254,11 @@ function nativeUiError(run, observed) {
     }
     const rail = railEvents[0];
     const expectedTurns = Math.ceil(Number(run.historyLevel) / 2);
-    const expectedTicks = Math.min(expectedTurns, MAX_RAIL_TICKS);
-    const expectedSampled = expectedTurns > MAX_RAIL_TICKS;
+    const policy = protocol.railPolicies?.[run.arm];
+    if (!['all', 'sampled'].includes(policy))
+        return 'long-session rail policy is missing or invalid';
+    const expectedTicks = railTickCount(expectedTurns, policy);
+    const expectedSampled = expectedTicks < expectedTurns;
     if (
         rail.historyLevel !== run.historyLevel ||
         rail.turnCount !== expectedTurns ||
@@ -104,7 +266,7 @@ function nativeUiError(run, observed) {
         rail.tickCount !== expectedTicks ||
         rail.sampled !== expectedSampled ||
         typeof rail.screenshot !== 'string' ||
-        rail.screenshot.length === 0
+        !evidenceFile(rail.screenshot)
     ) {
         return 'long-session rail evidence is invalid';
     }
@@ -149,7 +311,7 @@ function nativeUiError(run, observed) {
         !positive(stream.firstTextMs) ||
         stream.firstTextMs > stream.durationMs ||
         typeof stream.screenshot !== 'string' ||
-        stream.screenshot.length === 0 ||
+        !evidenceFile(stream.screenshot) ||
         !settled ||
         settled.busy !== 'false' ||
         settled.atEnd !== true ||
@@ -170,7 +332,7 @@ function nativeUiError(run, observed) {
         !positive(settled.messageCount) ||
         !positive(settled.bodyTextChars) ||
         !positive(settled.assistantTextChars) ||
-        settled.railTicks !== Math.min(expectedTurns + 1, MAX_RAIL_TICKS) ||
+        settled.railTicks !== railTickCount(expectedTurns + 1, policy) ||
         !Number.isFinite(settled.scrollTop) ||
         !Number.isFinite(settled.scrollHeight) ||
         !Number.isFinite(settled.clientHeight)
@@ -180,9 +342,19 @@ function nativeUiError(run, observed) {
     return null;
 }
 
-function sampleValidationError(run, events, memory, protocol) {
+function sampleValidationError(run, events, memory, protocol, modelRecords) {
     const observed = events.filter((event) => event.runId === run.runId);
-    if (observed.some((event) => event.arm !== run.arm)) return 'event arm identity mismatch';
+    if (
+        observed.some(
+            (event) =>
+                event.arm !== run.arm ||
+                event.flow !== run.flow ||
+                Number(event.block) !== run.block
+        )
+    )
+        return 'event measurement identity mismatch';
+    const workloadError = workloadEvidenceError(run, observed, protocol, modelRecords);
+    if (workloadError) return workloadError;
     const positive = (value) => typeof value === 'number' && Number.isFinite(value) && value > 0;
     if (run.flow === 'latency') {
         const samples = observed.filter((event) => event.type === 'latency');
@@ -225,7 +397,9 @@ function sampleValidationError(run, events, memory, protocol) {
     const intervalMs = Number(protocol.memoryIntervalMs ?? 250);
     const interval = samples.filter((sample) => sample.at >= times[0] && sample.at <= times.at(-1));
     if (
-        samples.some((sample) => !positive(sample.at) || sample.arm !== run.arm) ||
+        samples.some(
+            (sample) => !positive(sample.at) || sample.arm !== run.arm || sample.flow !== run.flow
+        ) ||
         interval.length === 0 ||
         interval.some((sample) => !isUsableMemory(sample))
     ) {
@@ -275,7 +449,7 @@ function sampleValidationError(run, events, memory, protocol) {
             });
             if (coverageError) return coverageError;
         }
-        const uiError = nativeUiError(run, observed);
+        const uiError = nativeUiError(run, observed, protocol);
         if (uiError) return uiError;
     }
     return null;
@@ -287,13 +461,14 @@ export function applyEvidenceValidation(
     evidenceError,
     events,
     memory,
-    protocol
+    protocol,
+    modelRecords
 ) {
     return runs.map((run) => {
         const reason =
             evidenceError ??
-            fixtureValidationError(run, fixtureManifest) ??
-            sampleValidationError(run, events, memory, protocol);
+            fixtureValidationError(run, fixtureManifest, protocol) ??
+            sampleValidationError(run, events, memory, protocol, modelRecords);
         if (!reason) return run;
         return {
             ...run,

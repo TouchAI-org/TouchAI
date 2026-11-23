@@ -35,6 +35,7 @@ export function samplerFailureReason(input: {
 }): string | null;
 
 export interface MeasurementOptions {
+    railPolicies?: { baseline: 'all' | 'sampled'; current: 'all' | 'sampled' };
     memoryIntervalMs: number;
     progressTasks?: number;
     progressWarmups?: number;
@@ -42,6 +43,7 @@ export interface MeasurementOptions {
 }
 
 export interface MeasurementRequest {
+    signal?: AbortSignal;
     arm: 'baseline' | 'current';
     flow: string;
     block: number;

@@ -350,6 +350,11 @@ export async function prepareFixtures() {
         arms: armManifests,
         businessOracles,
     };
+    for (const arm of arms) {
+        for (const fixture of Object.values(armManifests[arm].fixtures)) {
+            fixture.path = path.relative(evidenceRoot, fixture.path);
+        }
+    }
     writeJson(path.join(evidenceRoot, 'fixture-manifest.json'), manifest);
     return manifest;
 }

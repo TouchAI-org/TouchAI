@@ -1,6 +1,7 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -14,6 +15,7 @@ import { nearestMemoryBefore } from '../../../scripts/perf/stats/statistics.mjs'
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const RUN_CLI = path.resolve(testDirectory, '../../../scripts/perf/run.mjs');
 const cleanup: string[] = [];
+const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const comparison = {
     baselineCommit: 'a'.repeat(40),
     candidateCommit: 'b'.repeat(40),
@@ -35,7 +37,36 @@ function createEvidenceRoot(): string {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'touchai-perf-stats-'));
     cleanup.push(root);
     fs.mkdirSync(path.join(root, 'raw/formal'), { recursive: true });
-    fs.writeFileSync(path.join(root, 'source-manifest.json'), JSON.stringify({ comparison }));
+    const sources: Record<string, { path: string; sha256: string }> = {};
+    const builds = ['baseline', 'current'].map((arm) => {
+        const manifest = JSON.stringify({
+            version: MANIFEST_VERSION,
+            comparison,
+            arm,
+            entries: [],
+        });
+        const relative = `manifests/${arm}.json`;
+        fs.mkdirSync(path.join(root, 'manifests'), { recursive: true });
+        fs.writeFileSync(path.join(root, relative), manifest);
+        sources[arm] = { path: relative, sha256: hash(manifest) };
+        const binary = `binaries/${arm}/TouchAI`;
+        fs.mkdirSync(path.dirname(path.join(root, binary)), { recursive: true });
+        fs.writeFileSync(path.join(root, binary), `${arm}-binary`);
+        return {
+            arm,
+            binary,
+            comparison,
+            exitCode: 0,
+            signal: null,
+            binarySha256: hash(`${arm}-binary`),
+            sourceManifestSha256: hash(manifest),
+        };
+    });
+    fs.writeFileSync(
+        path.join(root, 'source-manifest.json'),
+        JSON.stringify({ version: MANIFEST_VERSION, comparison, ...sources })
+    );
+    fs.writeFileSync(path.join(root, 'builds.json'), JSON.stringify({ builds }));
     fs.writeFileSync(
         path.join(root, 'run-plan.json'),
         `${JSON.stringify(
@@ -56,12 +87,24 @@ function createEvidenceRoot(): string {
 }
 
 function writeFixtureManifest(root: string, historyLevels = [100]): void {
+    fs.mkdirSync(path.join(root, 'fixtures'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'fixtures/base.db'), 'base-fixture');
+    for (const level of historyLevels)
+        fs.writeFileSync(path.join(root, `fixtures/long-${level}.db`), 'long-fixture');
     const fixtures = {
-        base: { sha256: 'base-fixture-sha', businessOracleSha256: 'base-oracle' },
+        base: {
+            path: 'fixtures/base.db',
+            sha256: hash('base-fixture'),
+            businessOracleSha256: 'base-oracle',
+        },
         ...Object.fromEntries(
             historyLevels.map((level) => [
                 `long-${level}`,
-                { sha256: 'long-fixture-sha', businessOracleSha256: 'long-oracle' },
+                {
+                    path: `fixtures/long-${level}.db`,
+                    sha256: hash('long-fixture'),
+                    businessOracleSha256: 'long-oracle',
+                },
             ])
         ),
     };
@@ -74,12 +117,12 @@ function writeFixtureManifest(root: string, historyLevels = [100]): void {
                 modelEndpoint,
                 arms: {
                     baseline: {
-                        sourceBinarySha256: 'baseline-binary-sha',
+                        sourceBinarySha256: hash('baseline-binary'),
                         migrationTags: ['0000_lyrical_toad', '0004_ordinary_solo'],
                         fixtures,
                     },
                     current: {
-                        sourceBinarySha256: 'current-binary-sha',
+                        sourceBinarySha256: hash('current-binary'),
                         migrationTags: ['0000_lyrical_toad', '0004_ordinary_solo'],
                         fixtures,
                     },
@@ -151,7 +194,88 @@ function writeRunPlan(
                 .map((item) => item.historyLevel)
         ),
     ];
+    plan.protocol.modelEndpoint = modelEndpoint;
     fs.writeFileSync(planFile, `${JSON.stringify(plan, null, 4)}\n`);
+    writeModelEvidence(root);
+}
+
+function writeModelEvidence(root: string): void {
+    const raw = path.join(root, 'raw/formal');
+    const runs = fs
+        .readFileSync(path.join(raw, 'runs.jsonl'), 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line));
+    const events = fs
+        .readFileSync(path.join(raw, 'events.jsonl'), 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line));
+    const model = [];
+    for (const event of events) {
+        const run = runs.find((run) => run.runId === event.runId);
+        event.flow ??= run.flow;
+        event.block ??= run.block;
+        if (!['latency', 'long-stream', 'progress-task', 'progress-warmup'].includes(event.type))
+            continue;
+        Object.assign(
+            event,
+            event.flow === 'latency'
+                ? {
+                      rounds: 12,
+                      chunks: 24,
+                      chunkBytes: 32,
+                      chunkDelayMs: 8,
+                      alternate: false,
+                      sample: 'cold',
+                  }
+                : event.flow === 'progress'
+                  ? { rounds: 24, chunks: 128, chunkBytes: 1024, chunkDelayMs: 1, alternate: true }
+                  : {
+                        rounds: 2,
+                        chunks: 32,
+                        chunkBytes: 256,
+                        chunkDelayMs: 8,
+                        alternate: false,
+                        sample: 0,
+                    }
+        );
+        event.promptId = `${run.runId}-${event.sample}`;
+        const identity = {
+            runId: event.runId,
+            arm: event.arm,
+            block: event.block,
+            flow: event.flow,
+            promptId: event.promptId,
+            rounds: event.rounds,
+            chunks: event.chunks,
+            chunkBytes: event.chunkBytes,
+            chunkDelayMs: event.chunkDelayMs,
+            alternate: event.alternate,
+        };
+        for (let toolCount = 0; toolCount <= event.rounds; toolCount++) {
+            model.push({ ...identity, type: 'request', toolCount, at: 1000 + toolCount });
+        }
+        model.push({ ...identity, type: 'complete', toolCount: event.rounds, at: 2000 });
+        if (event.screenshot) {
+            event.screenshot = `logs/${event.runId}-stream.png`;
+            fs.mkdirSync(path.join(root, 'logs'), { recursive: true });
+            fs.writeFileSync(path.join(root, event.screenshot), 'test screenshot');
+        }
+    }
+    for (const event of events.filter((event) => event.type === 'long-rail')) {
+        event.screenshot = `logs/${event.runId}-rail.png`;
+        fs.mkdirSync(path.join(root, 'logs'), { recursive: true });
+        fs.writeFileSync(path.join(root, event.screenshot), 'test screenshot');
+    }
+    fs.writeFileSync(
+        path.join(raw, 'events.jsonl'),
+        events.map((event) => JSON.stringify(event)).join('\n') + '\n'
+    );
+    fs.writeFileSync(
+        path.join(raw, 'model-server.jsonl'),
+        model.map((event) => JSON.stringify(event)).join('\n') + '\n'
+    );
 }
 
 function writeSyntheticRuns(root: string, runs: SyntheticRun[], plannedRuns = runs): void {
@@ -164,8 +288,8 @@ function writeSyntheticRuns(root: string, runs: SyntheticRun[], plannedRuns = ru
             sequenceIndex: run.sequenceIndex,
             historyLevel: null,
             fixture: 'base',
-            fixtureSha256: 'base-fixture-sha',
-            binarySha256: `${run.arm}-binary-sha`,
+            fixtureSha256: hash('base-fixture'),
+            binarySha256: hash(`${run.arm}-binary`),
             attempt: 1,
         };
         return [
@@ -215,7 +339,6 @@ function writeSyntheticRuns(root: string, runs: SyntheticRun[], plannedRuns = ru
 function writeSyntheticLongSessionRuns(root: string, historyLevel = 100): void {
     const fixture = `long-${historyLevel}`;
     const turnCount = Math.ceil(historyLevel / 2);
-    const tickCount = Math.min(turnCount, 96);
     fs.writeFileSync(
         path.join(root, 'run-plan.json'),
         `${JSON.stringify(
@@ -226,6 +349,7 @@ function writeSyntheticLongSessionRuns(root: string, historyLevel = 100): void {
                     historyLevels: [historyLevel],
                     warmSamples: 0,
                     memoryIntervalMs: 250,
+                    railPolicies: { baseline: 'all', current: 'sampled' },
                 },
             },
             null,
@@ -242,6 +366,7 @@ function writeSyntheticLongSessionRuns(root: string, historyLevel = 100): void {
             const runId = `long-session-h${historyLevel}-b${block}-s${sequenceIndex}-${arm}`;
             const at = block * 100_000 + sequenceIndex * 10_000;
             const isBaseline = arm === 'baseline';
+            const tickCount = isBaseline ? turnCount : Math.min(turnCount, 96);
             const baselinePss = isBaseline ? 1_000_000 : 980_000;
             const retainedPss = isBaseline ? 1_100_000 : 1_080_000;
             const settledPss = isBaseline ? 1_050_000 : 1_040_000;
@@ -254,8 +379,8 @@ function writeSyntheticLongSessionRuns(root: string, historyLevel = 100): void {
                 sequenceIndex,
                 historyLevel,
                 fixture,
-                fixtureSha256: 'long-fixture-sha',
-                binarySha256: `${arm}-binary-sha`,
+                fixtureSha256: hash('long-fixture'),
+                binarySha256: hash(`${arm}-binary`),
                 attempt: 1,
             });
             runs.push({
@@ -272,8 +397,8 @@ function writeSyntheticLongSessionRuns(root: string, historyLevel = 100): void {
                 valid: true,
                 invalidReasons: [],
                 fixture,
-                fixtureSha256: 'long-fixture-sha',
-                binarySha256: `${arm}-binary-sha`,
+                fixtureSha256: hash('long-fixture'),
+                binarySha256: hash(`${arm}-binary`),
                 attempt: 1,
             });
             events.push(
@@ -399,7 +524,7 @@ function writeSyntheticLongSessionRuns(root: string, historyLevel = 100): void {
                         messageCount: 100,
                         bodyTextChars: 20_000,
                         assistantTextChars: 1_000,
-                        railTicks: Math.min(turnCount + 1, 96),
+                        railTicks: isBaseline ? turnCount + 1 : Math.min(turnCount + 1, 96),
                         scrollTop: 5_000,
                         scrollHeight: 5_400,
                         clientHeight: 400,
@@ -487,7 +612,7 @@ function coldOnlyRuns(blocks = 4): SyntheticRun[] {
     ).flat();
 }
 
-function writeSyntheticProgressRuns(root: string): void {
+function writeSyntheticProgressRuns(root: string, sparse = true): void {
     fs.writeFileSync(
         path.join(root, 'run-plan.json'),
         `${JSON.stringify(
@@ -497,7 +622,8 @@ function writeSyntheticProgressRuns(root: string): void {
                     flows: ['progress'],
                     historyLevels: [],
                     warmSamples: 0,
-                    progressTasks: 0,
+                    progressWarmups: 1,
+                    progressTasks: 1,
                     memoryIntervalMs: 250,
                 },
             },
@@ -524,8 +650,8 @@ function writeSyntheticProgressRuns(root: string): void {
                 sequenceIndex,
                 historyLevel: 0,
                 fixture: 'base',
-                fixtureSha256: 'base-fixture-sha',
-                binarySha256: `${arm}-binary-sha`,
+                fixtureSha256: hash('base-fixture'),
+                binarySha256: hash(`${arm}-binary`),
                 attempt: 1,
             };
             records.push(
@@ -542,18 +668,30 @@ function writeSyntheticProgressRuns(root: string): void {
             );
             events.push(
                 { type: 'run-start', ...identity },
+                {
+                    type: 'progress-warmup',
+                    runId,
+                    arm,
+                    sample: 'warmup-0',
+                    mode: null,
+                    durationMs: 1000,
+                },
                 { type: 'progress-window', runId, arm, phase: 'start', at: startAt },
+                { type: 'progress-task', runId, arm, sample: 0, mode: null, durationMs: 1000 },
                 { type: 'progress-window', runId, arm, phase: 'end', at: endAt }
             );
-            memory.push({
-                type: 'memory',
-                at: startAt + (endAt - startAt) / 2,
-                runId,
-                arm,
-                flow: 'progress',
-                processes: [{ pid: 1, name: 'TouchAI', pssKb: 1_000_000 }],
-                totalPssKb: 1_000_000,
-            });
+            for (const at of sparse
+                ? [startAt + 60_000]
+                : Array.from({ length: 481 }, (_, index) => startAt + index * 250))
+                memory.push({
+                    type: 'memory',
+                    at,
+                    runId,
+                    arm,
+                    flow: 'progress',
+                    processes: [{ pid: 1, name: 'TouchAI', pssKb: 1_000_000 }],
+                    totalPssKb: 1_000_000,
+                });
             plan.push(identity);
         }
     }
@@ -603,6 +741,132 @@ describe('user reads the desktop performance statistics', () => {
         expect(stats.invalidRuns[0].invalidReasons[0]).toContain(
             'fixture manifest endpoint mismatch'
         );
+    });
+
+    it.each([
+        ['builds.json', 'missing'],
+        ['builds.json', 'malformed'],
+        ['raw/formal/model-server.jsonl', 'missing'],
+        ['raw/formal/model-server.jsonl', 'malformed'],
+        ['manifests/baseline.json', 'missing'],
+        ['binaries/current/TouchAI', 'changed'],
+    ])('user cannot pass when required evidence %s is %s', (file, damage) => {
+        const root = createEvidenceRoot();
+        writeFixtureManifest(root);
+        writeSyntheticRuns(root, coldOnlyRuns());
+        runStats(root);
+        expect(readStats(root).overallStatus).toBe('PASS');
+        if (damage === 'missing') fs.rmSync(path.join(root, file), { force: true });
+        else fs.writeFileSync(path.join(root, file), 'changed or malformed');
+        const result = spawnSync(process.execPath, [RUN_CLI, 'gate'], {
+            encoding: 'utf8',
+            env: { ...process.env, TOUCHAI_PERF_EVIDENCE: root },
+            timeout: 30000,
+        });
+        expect(result.status).toBe(1);
+        if (fs.existsSync(path.join(root, 'stats.json'))) {
+            expect(readStats(root).overallStatus).not.toBe('PASS');
+        }
+    });
+
+    it.each([
+        'missing completion',
+        'duplicate request',
+        'wrong rounds',
+        'wrong identity',
+        'failed tool history',
+    ])('user rejects model evidence with %s', (damage) => {
+        const root = createEvidenceRoot();
+        writeFixtureManifest(root);
+        writeSyntheticRuns(root, coldOnlyRuns());
+        const file = path.join(root, 'raw/formal/model-server.jsonl');
+        const records = fs
+            .readFileSync(file, 'utf8')
+            .trim()
+            .split('\n')
+            .map((line) => JSON.parse(line));
+        if (damage === 'missing completion')
+            records.splice(
+                records.findIndex((record) => record.type === 'complete'),
+                1
+            );
+        if (damage === 'duplicate request') records.push(records[0]);
+        if (damage === 'wrong rounds') records[0].rounds = 0;
+        if (damage === 'wrong identity') records[0].runId = 'other-run';
+        if (damage === 'failed tool history') records[0].type = 'invalid-tool-history';
+        fs.writeFileSync(file, records.map((record) => JSON.stringify(record)).join('\n') + '\n');
+        runStats(root);
+        expect(readStats(root).overallStatus).toBe('BLOCKED');
+    });
+
+    it('user validates a downloaded evidence package without the original machine paths', () => {
+        const root = createEvidenceRoot();
+        writeFixtureManifest(root, [500]);
+        writeSyntheticLongSessionRuns(root, 500);
+        const relocated = createEvidenceRoot();
+        fs.cpSync(root, relocated, { recursive: true });
+        fs.rmSync(root, { recursive: true });
+        const result = spawnSync(process.execPath, [RUN_CLI, 'gate'], {
+            encoding: 'utf8',
+            env: { ...process.env, TOUCHAI_PERF_EVIDENCE: relocated, TOUCHAI_PERF_PORT: '4445' },
+            timeout: 30000,
+        });
+        expect(result.status, result.stderr).toBe(0);
+        expect(readStats(relocated).overallStatus).toBe('PASS');
+    });
+
+    it('user cannot validate long-session screenshots missing from the downloaded package', () => {
+        const root = createEvidenceRoot();
+        writeFixtureManifest(root, [500]);
+        writeSyntheticLongSessionRuns(root, 500);
+        fs.rmSync(path.join(root, 'logs'), { recursive: true });
+        runStats(root);
+        expect(readStats(root).overallStatus).toBe('BLOCKED');
+        expect(readStats(root).rawCounts.invalidRuns).toBe(12);
+    });
+
+    it.each(['binarySha256', 'fixtureSha256'])(
+        'user cannot pass when a launch changes its %s before completion',
+        (field) => {
+            const root = createEvidenceRoot();
+            writeFixtureManifest(root);
+            writeSyntheticRuns(root, coldOnlyRuns());
+            const file = path.join(root, 'raw/formal/runs.jsonl');
+            const records = fs
+                .readFileSync(file, 'utf8')
+                .trim()
+                .split('\n')
+                .map((line) => JSON.parse(line));
+            records[0][field] = '0'.repeat(64);
+            fs.writeFileSync(
+                file,
+                records.map((record) => JSON.stringify(record)).join('\n') + '\n'
+            );
+            runStats(root);
+            expect(readStats(root).overallStatus).toBe('BLOCKED');
+            expect(readStats(root).lifecycleErrors.join('\n')).toContain(field);
+        }
+    );
+
+    it.each([
+        ['flow', 'progress'],
+        ['block', 99],
+        ['rounds', 0],
+    ])('user cannot pass a sample whose %s contradicts its workload', (field, value) => {
+        const root = createEvidenceRoot();
+        writeFixtureManifest(root);
+        writeSyntheticRuns(root, coldOnlyRuns());
+        const file = path.join(root, 'raw/formal/events.jsonl');
+        const events = fs
+            .readFileSync(file, 'utf8')
+            .trim()
+            .split('\n')
+            .map((line) => JSON.parse(line));
+        events.find((event) => event.type === 'latency')[field] = value;
+        fs.writeFileSync(file, events.map((event) => JSON.stringify(event)).join('\n') + '\n');
+        runStats(root);
+        expect(readStats(root).overallStatus).toBe('BLOCKED');
+        expect(readStats(root).rawCounts.invalidRuns).toBe(1);
     });
 
     it('user cannot pass when an extra invalid launch exists beside enough complete blocks', () => {
@@ -730,8 +994,8 @@ describe('user reads the desktop performance statistics', () => {
             sequenceIndex: first.sequenceIndex,
             historyLevel: null,
             fixture: 'base',
-            fixtureSha256: 'base-fixture-sha',
-            binarySha256: `${first.arm}-binary-sha`,
+            fixtureSha256: hash('base-fixture'),
+            binarySha256: hash(`${first.arm}-binary`),
             attempt: 2,
         };
         fs.appendFileSync(
@@ -798,6 +1062,16 @@ describe('user reads the desktop performance statistics', () => {
                 run.invalidReasons.some((reason) => reason.includes('memory coverage'))
             )
         ).toBe(true);
+    });
+
+    it('user can validate a complete progress workload and adequately sampled memory window', () => {
+        const root = createEvidenceRoot();
+        writeFixtureManifest(root);
+        writeSyntheticProgressRuns(root, false);
+
+        runStats(root);
+        expect(readStats(root).overallStatus).toBe('PASS');
+        expect(readStats(root).rawCounts.validRuns).toBe(12);
     });
 
     it('user sees the selected baseline and candidate instead of a historical hardcoded commit', () => {
@@ -956,27 +1230,31 @@ describe('user reads the desktop performance statistics', () => {
         ).toBe(true);
     });
 
-    it('user sees sampled rail metrics bounded to 96 ticks for a long history', () => {
-        const root = createEvidenceRoot();
-        writeFixtureManifest(root, [500]);
-        writeSyntheticLongSessionRuns(root, 500);
+    it.each([500, 1000])(
+        'user compares an unsampled baseline with a sampled candidate at %s messages',
+        (level) => {
+            const root = createEvidenceRoot();
+            writeFixtureManifest(root, [level]);
+            writeSyntheticLongSessionRuns(root, level);
 
-        runStats(root);
-        const stats = readStats(root);
+            runStats(root);
+            const stats = readStats(root);
 
-        expect(stats.rawCounts.invalidRuns).toBe(0);
-        expect(stats.longSession.status).toBe('PASS');
-        const metrics = stats.longSession.levels[0].uiMetrics;
-        const railTicks = metrics.find(
-            (metric: { id: string }) => metric.id === 'long-500.rail.ticks'
-        );
-        const frameGap = metrics.find(
-            (metric: { id: string }) => metric.id === 'long-500.stream.frame-gap.p95'
-        );
-        expect(railTicks.armStats.current.median).toBe(96);
-        expect(frameGap.gate).toBe(false);
-        expect(frameGap.status).toBe('AUX');
-    });
+            expect(stats.rawCounts.invalidRuns).toBe(0);
+            expect(stats.longSession.status).toBe('PASS');
+            const metrics = stats.longSession.levels[0].uiMetrics;
+            const railTicks = metrics.find(
+                (metric: { id: string }) => metric.id === `long-${level}.rail.ticks`
+            );
+            const frameGap = metrics.find(
+                (metric: { id: string }) => metric.id === `long-${level}.stream.frame-gap.p95`
+            );
+            expect(railTicks.armStats.current.median).toBe(96);
+            expect(railTicks.armStats.baseline.median).toBe(level / 2);
+            expect(frameGap.gate).toBe(false);
+            expect(frameGap.status).toBe('AUX');
+        }
+    );
 
     it('user cannot pass rail evidence above the 96-tick rendering bound', () => {
         const root = createEvidenceRoot();
@@ -988,7 +1266,7 @@ describe('user reads the desktop performance statistics', () => {
             .trim()
             .split('\n')
             .map((line) => JSON.parse(line));
-        const rail = events.find((event) => event.type === 'long-rail');
+        const rail = events.find((event) => event.type === 'long-rail' && event.arm === 'current');
         rail.tickCount = 97;
         rail.steps[1].targetIndex = 96;
         fs.writeFileSync(
@@ -1003,6 +1281,34 @@ describe('user reads the desktop performance statistics', () => {
         expect(stats.invalidRuns[0].invalidReasons).toContain(
             'long-session rail evidence is invalid'
         );
+    });
+
+    it('user compares two sampled rails when the declared baseline already has sampling', () => {
+        const root = createEvidenceRoot();
+        writeFixtureManifest(root, [500]);
+        writeSyntheticLongSessionRuns(root, 500);
+        const planFile = path.join(root, 'run-plan.json');
+        const plan = JSON.parse(fs.readFileSync(planFile, 'utf8'));
+        plan.protocol.railPolicies.baseline = 'sampled';
+        fs.writeFileSync(planFile, JSON.stringify(plan));
+        const file = path.join(root, 'raw/formal/events.jsonl');
+        const events = fs
+            .readFileSync(file, 'utf8')
+            .trim()
+            .split('\n')
+            .map((line) => JSON.parse(line));
+        for (const event of events.filter((event) => event.arm === 'baseline')) {
+            if (event.type === 'long-rail') {
+                event.tickCount = 96;
+                event.sampled = true;
+                event.steps[1].targetIndex = 95;
+            }
+            if (event.type === 'long-stream') event.settled.railTicks = 96;
+        }
+        fs.writeFileSync(file, events.map((event) => JSON.stringify(event)).join('\n') + '\n');
+
+        runStats(root);
+        expect(readStats(root).overallStatus).toBe('PASS');
     });
 
     it('user cannot pass a native long-session run without a final streaming snapshot', () => {
@@ -1217,7 +1523,7 @@ describe('user reads the desktop performance statistics', () => {
 
             expect(stats.rawCounts.validRuns).toBe(0);
             expect(stats.invalidRuns[0].invalidReasons).toContain(
-                'fixture hash is missing for baseline/base'
+                'baseline/base fixture evidence is missing or changed'
             );
         });
     });

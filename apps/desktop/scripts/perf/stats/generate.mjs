@@ -5,7 +5,7 @@ import { evidenceRoot, rawRoot } from '../lib/config.mjs';
 import { readJsonFile, readJsonLines } from '../lib/io.mjs';
 import { validatePersistedPlan } from '../lib/protocol.mjs';
 import { isValidRun, measurementKey, validateRunHistory } from '../lib/records.mjs';
-import { applyEvidenceValidation } from './evidence.mjs';
+import { applyEvidenceValidation, modelEvidenceError, provenanceError } from './evidence.mjs';
 import { writeSamplesCsv, writeSummaryMarkdown } from './report.mjs';
 import {
     bootstrapIterations,
@@ -18,6 +18,9 @@ import {
 } from './statistics.mjs';
 
 export async function generateStats() {
+    for (const file of ['stats.json', 'summary.md', 'samples.csv']) {
+        fs.rmSync(path.join(evidenceRoot, file), { force: true });
+    }
     const runPlanFile = path.join(evidenceRoot, 'run-plan.json');
     const runPlan = readJsonFile(runPlanFile) ?? {};
     const protocol = runPlan.protocol ?? {};
@@ -40,7 +43,10 @@ export async function generateStats() {
     const history = validateRunHistory(records, events, plannedRuns);
     const planError = validatePersistedPlan(protocol, plannedRuns);
     const lifecycleErrors = [...(planError ? [planError] : []), ...history.errors];
-    const comparison = readJsonFile(path.join(evidenceRoot, 'source-manifest.json'))?.comparison;
+    const source = readJsonFile(path.join(evidenceRoot, 'source-manifest.json'));
+    const comparison = source?.comparison;
+    const builds = readJsonFile(path.join(evidenceRoot, 'builds.json'));
+    const modelRecords = readJsonLines(path.join(rawRoot, 'model-server.jsonl'));
     const evidenceError =
         !comparison ||
         !/^[a-f0-9]{40}$/.test(comparison.baselineCommit ?? '') ||
@@ -48,14 +54,21 @@ export async function generateStats() {
         JSON.stringify(comparison) !== JSON.stringify(protocol.comparison) ||
         JSON.stringify(comparison) !== JSON.stringify(fixtureManifest?.comparison)
             ? 'baseline/candidate comparison identity is missing or inconsistent'
-            : null;
+            : provenanceError(source, builds, fixtureManifest);
+    const modelError = modelEvidenceError(modelRecords, events);
+    if (modelError) lifecycleErrors.push(modelError);
+    const runIds = new Set(records.map((record) => record.runId));
+    if ([...events, ...memory].some((record) => !runIds.has(record.runId))) {
+        lifecycleErrors.push('Raw observations refer to an unknown run.');
+    }
     const runs = applyEvidenceValidation(
         recordedRuns,
         fixtureManifest,
         evidenceError,
         events,
         memory,
-        protocol
+        protocol,
+        modelRecords
     );
     const validRuns = runs.filter(isValidRun);
     const invalidRuns = runs.filter((run) => !isValidRun(run));

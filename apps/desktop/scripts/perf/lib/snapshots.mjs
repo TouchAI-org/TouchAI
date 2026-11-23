@@ -25,15 +25,15 @@ import {
 } from './io.mjs';
 import { runSync } from './process.mjs';
 
-function listSnapshotEntries(root) {
+function listSnapshotEntries(root, excludedDirectories = new Set()) {
     const entries = [];
     const walk = (directory) => {
         for (const entry of fs
             .readdirSync(directory, { withFileTypes: true })
             .sort((a, b) => a.name.localeCompare(b.name))) {
-            if (entry.name === '.git') continue;
             const absolute = path.join(directory, entry.name);
             const relative = path.relative(root, absolute);
+            if (entry.isDirectory() && excludedDirectories.has(relative)) continue;
             if (entry.isSymbolicLink()) {
                 const target = fs.readlinkSync(absolute);
                 entries.push({
@@ -66,14 +66,15 @@ export function verifyPreparedSnapshot(arm, snapshot, preparedRoot = evidenceRoo
         !reference ||
         typeof reference.path !== 'string' ||
         typeof reference.sha256 !== 'string' ||
-        !fs.existsSync(reference.path)
+        !fs.existsSync(path.resolve(preparedRoot, reference.path))
     ) {
         throw new Error(`Prepared ${arm} snapshot manifest is missing or invalid.`);
     }
-    if (sha256File(reference.path) !== reference.sha256) {
+    const manifestPath = path.resolve(preparedRoot, reference.path);
+    if (sha256File(manifestPath) !== reference.sha256) {
         throw new Error(`Prepared ${arm} snapshot manifest changed after prepare.`);
     }
-    const manifest = readJsonFile(reference.path);
+    const manifest = readJsonFile(manifestPath);
     if (
         manifest?.version !== MANIFEST_VERSION ||
         manifest.arm !== arm ||
@@ -101,6 +102,21 @@ export function verifyPreparedSnapshot(arm, snapshot, preparedRoot = evidenceRoo
             );
         }
     }
+    const generatedDirectories = new Set([
+        'node_modules',
+        'apps/desktop/node_modules',
+        ...manifest.entries
+            .filter((entry) => /^packages\/[^/]+\/package\.json$/.test(entry.path))
+            .map((entry) => `${path.dirname(entry.path)}/node_modules`),
+    ]);
+    const registered = new Set(manifest.entries.map((entry) => entry.path));
+    for (const entry of listSnapshotEntries(snapshot, generatedDirectories)) {
+        if (!registered.has(entry.path)) {
+            throw new Error(
+                `Prepared ${arm} snapshot added ${entry.path} after prepare; prepare again.`
+            );
+        }
+    }
 }
 
 function writeSourceManifest(arm, snapshot, comparison) {
@@ -116,7 +132,7 @@ function writeSourceManifest(arm, snapshot, comparison) {
     const manifestPath = path.join(manifestsRoot, `${arm}-source-manifest.json`);
     writeJson(manifestPath, manifest);
     return {
-        path: manifestPath,
+        path: path.relative(evidenceRoot, manifestPath),
         sha256: sha256File(manifestPath),
     };
 }

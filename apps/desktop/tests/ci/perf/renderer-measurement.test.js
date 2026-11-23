@@ -58,7 +58,7 @@ function appendConversationLog(busy = 'true') {
     return log;
 }
 
-function appendRail() {
+function appendRail(count = 2) {
     const scroller = document.createElement('div');
     scroller.setAttribute('data-slot', 'message-scroller');
     const viewport = document.createElement('section');
@@ -67,7 +67,7 @@ function appendRail() {
     viewport.scrollTop = 600;
     const rail = document.createElement('nav');
     rail.setAttribute('data-slot', 'message-scroller-rail');
-    const buttons = [0, 1].map((index) => {
+    const buttons = Array.from({ length: count }, (_, index) => index).map((index) => {
         const button = document.createElement('button');
         button.setAttribute('data-slot', 'message-scroller-rail-item');
         button.addEventListener('click', () => {
@@ -80,7 +80,7 @@ function appendRail() {
         rail.append(button);
         return button;
     });
-    buttons[1].setAttribute('aria-current', 'location');
+    buttons[count - 1].setAttribute('aria-current', 'location');
     scroller.append(viewport, rail);
     document.body.append(scroller);
 }
@@ -169,7 +169,7 @@ describe('user measures renderer latency in the application world', () => {
     it('user measures navigation to both ends of the native rail', async () => {
         appendRail();
         const installer = Function(`return (${installRailNavigationMeasurement.toString()});`)();
-        installer(2, 96, 1000);
+        installer(2, 2, 1000);
 
         await new Promise((resolve) => setTimeout(resolve, 300));
         const result = JSON.parse(
@@ -197,5 +197,27 @@ describe('user measures renderer latency in the application world', () => {
             focusedAfter: true,
             activeTarget: true,
         });
+    });
+
+    it.each([
+        [250, 250],
+        [500, 500],
+        [250, 96],
+        [500, 96],
+    ])('user navigates %s turns using the declared %s destinations', async (turns, ticks) => {
+        appendRail(ticks);
+        const installer = Function(`return (${installRailNavigationMeasurement.toString()});`)();
+        installer(turns, ticks, 1000);
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        const measurement = JSON.parse(
+            document.getElementById(RAIL_NAVIGATION_ELEMENT_ID).textContent
+        );
+        expect(measurement.error).toBeFalsy();
+        expect(measurement.result.tickCount).toBe(ticks);
+        expect(
+            measurement.result.steps.every(
+                (step) => step.moved && step.focusedAfter && step.activeTarget
+            )
+        ).toBe(true);
     });
 });

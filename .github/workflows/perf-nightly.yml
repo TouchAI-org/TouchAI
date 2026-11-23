@@ -29,6 +29,16 @@ on:
                 description: Symmetric startup settle before the cold prompt
                 required: false
                 default: '12000'
+            baseline-rail:
+                description: Expected baseline rail (all before sampling, sampled after sampling lands)
+                type: choice
+                default: all
+                options: [all, sampled]
+            candidate-rail:
+                description: Expected candidate rail
+                type: choice
+                default: sampled
+                options: [all, sampled]
             performance-scope:
                 description: Which desktop performance flows to measure
                 required: true
@@ -69,6 +79,8 @@ jobs:
             PERF_SCOPE: ${{ inputs['performance-scope'] || (github.event_name == 'schedule' && 'full') || 'cold-latency' }}
             PERF_BASELINE_REQUEST: ${{ github.event.pull_request.base.sha || inputs.baseline }}
             PERF_CANDIDATE_REQUEST: ${{ inputs.candidate || github.sha }}
+            BASELINE_RAIL: ${{ inputs['baseline-rail'] || (github.event_name == 'schedule' && 'sampled') || 'all' }}
+            CANDIDATE_RAIL: ${{ inputs['candidate-rail'] || 'sampled' }}
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
@@ -116,6 +128,10 @@ jobs:
                       echo "performance-scope must be cold-latency, steady-state-memory or full" >&2
                       exit 1
                       ;;
+                  esac
+                  case "$BASELINE_RAIL:$CANDIDATE_RAIL" in
+                    all:all|all:sampled|sampled:all|sampled:sampled) ;;
+                    *) echo "rail policies must be all or sampled" >&2; exit 1 ;;
                   esac
                   case "$LONG_BLOCKS" in
                     ''|*[!0-9]*)
@@ -194,6 +210,8 @@ jobs:
                     --progress-blocks "$PROGRESS_BLOCKS" \
                     --long-blocks "$LONG_BLOCKS" \
                     --history-levels "$HISTORY_LEVELS" \
+                    --baseline-rail "$BASELINE_RAIL" \
+                    --candidate-rail "$CANDIDATE_RAIL" \
                     --warm-samples 0
 
             - name: Enforce desktop performance gate

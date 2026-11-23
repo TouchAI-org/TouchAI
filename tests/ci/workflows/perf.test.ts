@@ -1,6 +1,7 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -16,6 +17,7 @@ const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(testDirectory, '../../..');
 const workflowPath = path.resolve(repositoryRoot, '.github/workflows/perf-nightly.yml');
 const perfRunner = path.resolve(repositoryRoot, 'apps/desktop/scripts/perf/run.mjs');
+const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const comparison = {
     baselineCommit: 'a'.repeat(40),
     candidateCommit: 'b'.repeat(40),
@@ -61,6 +63,8 @@ function runInputValidation(workflow: PerformanceWorkflow, overrides: Record<str
             LONG_BLOCKS: '6',
             HISTORY_LEVELS: '100,500,1000',
             PERF_SCOPE: 'full',
+            BASELINE_RAIL: 'all',
+            CANDIDATE_RAIL: 'sampled',
             ...overrides,
         },
     });
@@ -85,7 +89,34 @@ function runGate(setup?: (root: string) => void) {
 
 function writePassingEvidence(root: string): void {
     mkdirSync(path.join(root, 'raw/formal'), { recursive: true });
-    writeFileSync(path.join(root, 'source-manifest.json'), JSON.stringify({ comparison }));
+    const sources: Record<string, { path: string; sha256: string }> = {};
+    const builds = ['baseline', 'current'].map((arm) => {
+        const source = JSON.stringify({ version: MANIFEST_VERSION, arm, comparison, entries: [] });
+        const file = `manifests/${arm}.json`;
+        mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+        writeFileSync(path.join(root, file), source);
+        sources[arm] = { path: file, sha256: hash(source) };
+        const binary = `binaries/${arm}/TouchAI`;
+        mkdirSync(path.dirname(path.join(root, binary)), { recursive: true });
+        writeFileSync(path.join(root, binary), `${arm}-binary`);
+        return {
+            arm,
+            comparison,
+            binary,
+            binarySha256: hash(`${arm}-binary`),
+            sourceManifestSha256: hash(source),
+            exitCode: 0,
+            signal: null,
+        };
+    });
+    writeFileSync(
+        path.join(root, 'source-manifest.json'),
+        JSON.stringify({ version: MANIFEST_VERSION, comparison, ...sources })
+    );
+    writeFileSync(path.join(root, 'builds.json'), JSON.stringify({ builds }));
+    mkdirSync(path.join(root, 'fixtures'));
+    writeFileSync(path.join(root, 'fixtures/base.db'), 'base-fixture');
+    const model = [];
     const order = ['baseline', 'current', 'current', 'baseline'] as const;
     const runs = [];
     const events = [];
@@ -102,8 +133,8 @@ function writePassingEvidence(root: string): void {
                 sequenceIndex,
                 historyLevel: 0,
                 fixture: 'base',
-                fixtureSha256: 'base-fixture-sha',
-                binarySha256: `${arm}-binary-sha`,
+                fixtureSha256: hash('base-fixture'),
+                binarySha256: hash(`${arm}-binary`),
                 attempt: 1,
             };
             runs.push(
@@ -128,10 +159,32 @@ function writePassingEvidence(root: string): void {
                     block,
                     sequenceIndex,
                     mode: 'cold',
+                    sample: 'cold',
+                    promptId: `${runId}-cold`,
+                    rounds: 12,
+                    chunks: 24,
+                    chunkBytes: 32,
+                    alternate: false,
+                    chunkDelayMs: 8,
                     durationMs: 1000,
                     firstTextMs: 400,
                 }
             );
+            const request = {
+                runId,
+                arm,
+                flow: 'latency',
+                block,
+                promptId: `${runId}-cold`,
+                rounds: 12,
+                chunks: 24,
+                chunkBytes: 32,
+                alternate: false,
+                chunkDelayMs: 8,
+            };
+            for (let toolCount = 0; toolCount <= 12; toolCount++)
+                model.push({ ...request, type: 'request', toolCount, at: 1000 + toolCount });
+            model.push({ ...request, type: 'complete', toolCount: 12, at: 2000 });
             plan.push(identity);
         }
     }
@@ -140,6 +193,7 @@ function writePassingEvidence(root: string): void {
         JSON.stringify({
             protocol: {
                 comparison,
+                modelEndpoint,
                 flows: ['latency'],
                 latencyBlocks: 3,
                 progressBlocks: 3,
@@ -154,7 +208,11 @@ function writePassingEvidence(root: string): void {
         })
     );
     const fixtures = {
-        base: { sha256: 'base-fixture-sha', businessOracleSha256: 'base-oracle' },
+        base: {
+            path: 'fixtures/base.db',
+            sha256: hash('base-fixture'),
+            businessOracleSha256: 'base-oracle',
+        },
     };
     writeFileSync(
         path.join(root, 'fixture-manifest.json'),
@@ -164,12 +222,12 @@ function writePassingEvidence(root: string): void {
             modelEndpoint,
             arms: {
                 baseline: {
-                    sourceBinarySha256: 'baseline-binary-sha',
+                    sourceBinarySha256: hash('baseline-binary'),
                     migrationTags: [],
                     fixtures,
                 },
                 current: {
-                    sourceBinarySha256: 'current-binary-sha',
+                    sourceBinarySha256: hash('current-binary'),
                     migrationTags: [],
                     fixtures,
                 },
@@ -188,6 +246,10 @@ function writePassingEvidence(root: string): void {
         `${events.map((record) => JSON.stringify(record)).join('\n')}\n`
     );
     writeFileSync(path.join(root, 'raw/formal/pss.jsonl'), '');
+    writeFileSync(
+        path.join(root, 'raw/formal/model-server.jsonl'),
+        model.map((record) => JSON.stringify(record)).join('\n') + '\n'
+    );
 }
 
 describe('user runs desktop performance on GitHub Actions', () => {
@@ -296,6 +358,8 @@ describe('user runs desktop performance on GitHub Actions', () => {
         expect(runStep?.run).toContain('node apps/desktop/scripts/perf/run.mjs all');
         expect(runStep?.run).toContain('--baseline "$PERF_BASELINE"');
         expect(runStep?.run).toContain('--candidate "$PERF_CANDIDATE"');
+        expect(runStep?.run).toContain('--baseline-rail "$BASELINE_RAIL"');
+        expect(runStep?.run).toContain('--candidate-rail "$CANDIDATE_RAIL"');
         expect(source).not.toContain('github.event.pull_request.head.sha');
     });
 

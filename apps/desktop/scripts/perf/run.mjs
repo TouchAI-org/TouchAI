@@ -24,7 +24,8 @@ function performanceGateError(stats) {
     return null;
 }
 
-async function executeCommand(command, args, options) {
+async function executeCommand(command, args, options, signal) {
+    signal?.throwIfAborted();
     if (command === 'prepare') {
         ensureDirectory(evidenceRoot);
         const manifest = prepareSnapshots(args);
@@ -35,7 +36,7 @@ async function executeCommand(command, args, options) {
     }
     if (command === 'build') {
         ensureDirectory(evidenceRoot);
-        const builds = await buildBoth();
+        const builds = await buildBoth(signal);
         for (const build of builds) {
             console.log(
                 `${build.arm}: ${build.binarySha256} (${build.binarySize} bytes, ${build.elapsedMs}ms)`
@@ -51,7 +52,7 @@ async function executeCommand(command, args, options) {
     }
     if (command === 'run') {
         if (!options.dryRun) ensureDirectory(evidenceRoot);
-        await runMeasurements(options);
+        await runMeasurements(options, signal);
         return;
     }
     if (command === 'stats') {
@@ -70,14 +71,27 @@ async function executeCommand(command, args, options) {
     if (command === 'all') {
         ensureDirectory(evidenceRoot);
         prepareSnapshots(args);
-        await buildBoth();
+        await buildBoth(signal);
+        signal?.throwIfAborted();
         await prepareFixtures();
+        signal?.throwIfAborted();
         try {
-            await runMeasurements(options);
-        } finally {
-            const stats = await generateStats();
-            if (stats.overallStatus !== 'PASS') process.exitCode = 1;
+            await runMeasurements(options, signal);
+        } catch (error) {
+            if (
+                error.code !== 'PERF_CLEANUP_FAILED' &&
+                error.cause?.code !== 'PERF_CLEANUP_FAILED'
+            ) {
+                try {
+                    await generateStats();
+                } catch (statsError) {
+                    console.error('Cannot summarize interrupted evidence:', statsError);
+                }
+            }
+            throw error;
         }
+        const stats = await generateStats();
+        if (stats.overallStatus !== 'PASS') process.exitCode = 1;
         return;
     }
 
@@ -115,10 +129,22 @@ async function main() {
         evidenceRoot,
         artifactsRoot,
     });
+    const controller = new AbortController();
+    const cancel = () => controller.abort(new Error('Performance command cancelled.'));
+    process.on('SIGINT', cancel);
+    process.on('SIGTERM', cancel);
+    let safeToRelease = true;
     try {
-        await executeCommand(command, args, options);
+        await executeCommand(command, args, options, controller.signal);
+        controller.signal.throwIfAborted();
+    } catch (error) {
+        safeToRelease =
+            error.code !== 'PERF_CLEANUP_FAILED' && error.cause?.code !== 'PERF_CLEANUP_FAILED';
+        throw error;
     } finally {
-        lock.release();
+        if (safeToRelease) lock.release();
+        process.removeListener('SIGINT', cancel);
+        process.removeListener('SIGTERM', cancel);
     }
 }
 

@@ -1,4 +1,5 @@
 export interface RunMeasurementsOptions {
+    railPolicies?: { baseline: 'all' | 'sampled'; current: 'all' | 'sampled' };
     flows: string[];
     latencyBlocks: number;
     progressBlocks: number;
@@ -12,4 +13,7 @@ export interface RunMeasurementsOptions {
     resume: boolean;
 }
 
-export function runMeasurements(options: RunMeasurementsOptions): Promise<void>;
+export function runMeasurements(
+    options: RunMeasurementsOptions,
+    signal?: AbortSignal
+): Promise<void>;

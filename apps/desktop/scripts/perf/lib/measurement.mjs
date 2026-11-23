@@ -42,16 +42,23 @@ export function shouldRetryDisplayStartupFailure({ runStarted, exitCode, signal,
 }
 
 function stopChild(child, signal = 'SIGTERM') {
-    return new Promise((resolve) => {
-        if (!child || child.exitCode !== null || child.signalCode !== null) {
+    return new Promise((resolve, reject) => {
+        if (!child?.pid || child.exitCode !== null || child.signalCode !== null) {
             resolve();
             return;
         }
+        let killTimeout;
         const timeout = setTimeout(() => {
             child.kill('SIGKILL');
+            killTimeout = setTimeout(() => {
+                const error = new Error('Memory sampler did not stop; preserve its lock.');
+                error.code = 'PERF_CLEANUP_FAILED';
+                reject(error);
+            }, 3000);
         }, 5000);
         child.once('exit', () => {
             clearTimeout(timeout);
+            clearTimeout(killTimeout);
             resolve();
         });
         child.kill(signal);
@@ -151,7 +158,9 @@ export async function runOneMeasurement({
     historyLevel,
     options,
     attempt = 1,
+    signal,
 }) {
+    signal?.throwIfAborted();
     const binary = binaryPathByArm[arm];
     if (!fs.existsSync(binary)) throw new Error(`Missing ${arm} release binary.`);
     const fixtureFile = fixturePathByArm[arm]?.[fixture];
@@ -180,6 +189,22 @@ export async function runOneMeasurement({
     const fixtureSha256 = sha256File(runDatabase);
     const binarySha256 = sha256File(binary);
     const pssLog = path.join(runLogDir, 'pss-sampler.log');
+    const wdioLog = path.join(runLogDir, 'wdio.log');
+    const identity = {
+        arm,
+        flow,
+        block,
+        sequenceIndex,
+        runId,
+        historyLevel: historyLevel || null,
+        fixture,
+        fixtureSha256,
+        binary,
+        binarySha256,
+        attempt,
+        log: wdioLog,
+    };
+    appendRunRecord({ type: 'run-launch', at: nowIso(), ...identity });
     const samplerStdout = fs.openSync(pssLog, 'a');
     const samplerStderr = fs.openSync(pssLog, 'a');
     let samplerLogClosed = false;
@@ -224,7 +249,6 @@ export async function runOneMeasurement({
     });
     await new Promise((resolve) => setTimeout(resolve, 250));
 
-    const wdioLog = path.join(runLogDir, 'wdio.log');
     const env = {
         ...process.env,
         GDK_BACKEND: 'x11',
@@ -242,6 +266,7 @@ export async function runOneMeasurement({
         TOUCHAI_PERF_EVENTS: path.join(rawRoot, 'events.jsonl'),
         TOUCHAI_PERF_FLOW: flow,
         TOUCHAI_PERF_HISTORY_LEVEL: String(historyLevel || 0),
+        TOUCHAI_PERF_RAIL_POLICY: options.railPolicies?.[arm],
         TOUCHAI_PERF_PROGRESS_TASKS: String(options.progressTasks),
         TOUCHAI_PERF_PROGRESS_WARMUPS: String(options.progressWarmups),
         TOUCHAI_PERF_RUN_ID: runId,
@@ -249,22 +274,6 @@ export async function runOneMeasurement({
         TOUCHAI_PERF_RUN_TOKEN: runId,
         TOUCHAI_PERF_WARM_SAMPLES: String(options.warmSamples),
     };
-    appendRunRecord({
-        type: 'run-launch',
-        at: nowIso(),
-        arm,
-        flow,
-        block,
-        sequenceIndex,
-        runId,
-        historyLevel: historyLevel || null,
-        fixture,
-        fixtureSha256,
-        binary,
-        binarySha256,
-        attempt,
-        log: wdioLog,
-    });
     let result = {
         exitCode: null,
         signal: null,
@@ -282,6 +291,7 @@ export async function runOneMeasurement({
             cwd: wdioConfigRoot,
             env,
             log: wdioLog,
+            signal,
         });
     } catch (error) {
         launchError = error;
@@ -289,9 +299,15 @@ export async function runOneMeasurement({
         // Any sampler exit before WebDriver returns leaves the memory series
         // truncated, even when WebDriver itself eventually finishes cleanly.
         samplerEarlyExit = samplerWatch.earlyExit();
-        await stopChild(sampler, 'SIGINT');
+        try {
+            await stopChild(sampler, 'SIGINT');
+        } catch (error) {
+            launchError = error;
+        }
     }
-    copyIfExists(path.join(appRoot, 'logs'), path.join(runLogDir, 'app-logs'));
+    if (launchError?.code !== 'PERF_CLEANUP_FAILED') {
+        copyIfExists(path.join(appRoot, 'logs'), path.join(runLogDir, 'app-logs'));
+    }
     const notificationFailures = countNotificationFailures(runLogDir);
     const samplerFailure = samplerFailureReason({
         earlyExit: samplerEarlyExit,
@@ -306,6 +322,7 @@ export async function runOneMeasurement({
     });
     const valid = invalidReasons.length === 0;
     const retryDisplayStartup =
+        !signal?.aborted &&
         !launchError &&
         !valid &&
         attempt < MAX_DISPLAY_STARTUP_ATTEMPTS &&
@@ -319,17 +336,7 @@ export async function runOneMeasurement({
     const record = {
         type: retryDisplayStartup ? 'run-attempt' : 'run',
         at: nowIso(),
-        arm,
-        flow,
-        block,
-        sequenceIndex,
-        runId,
-        historyLevel: historyLevel || null,
-        fixture,
-        fixtureSha256,
-        binary,
-        binarySha256,
-        attempt,
+        ...identity,
         exitCode: result.exitCode,
         signal: result.signal,
         elapsedMs: launchError ? Date.now() - launchStartedAt : result.elapsedMs,
@@ -341,6 +348,7 @@ export async function runOneMeasurement({
         log: wdioLog,
     };
     appendRunRecord(record);
+    if (launchError?.code === 'PERF_CLEANUP_FAILED') throw launchError;
 
     if (retryDisplayStartup) {
         const failureRoot = path.join(evidenceRoot, 'failures', runId);
@@ -359,6 +367,7 @@ export async function runOneMeasurement({
             historyLevel,
             options,
             attempt: attempt + 1,
+            signal,
         });
     }
 

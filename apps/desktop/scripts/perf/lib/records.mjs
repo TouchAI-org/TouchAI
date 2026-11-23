@@ -117,6 +117,11 @@ export function validateRunHistory(records, events, plan) {
             if (launch.record.fixture !== terminal.record.fixture) {
                 errors.add(`Run ${runId} changes fixture between launch and result.`);
             }
+            for (const field of ['binarySha256', 'fixtureSha256']) {
+                if (launch.record[field] !== terminal.record[field]) {
+                    errors.add(`Run ${runId} changes ${field} between launch and result.`);
+                }
+            }
         }
         if (!Number.isInteger(terminal.record.attempt) || terminal.record.attempt < 1) {
             errors.add(`Run ${runId} has an invalid attempt number.`);
