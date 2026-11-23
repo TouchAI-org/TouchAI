@@ -67,12 +67,12 @@ an icon package directly.
   weight globally.
 - **Adding an icon:** add the semantic name to `appIconMap`, then use it through
   `AppIcon`. Do not import `~icons/*` in a component.
-- **Window glyphs:** `maximize-square` / `restore-square` are the OS-chrome square
-  pair; `maximize` / `restore` are the expand/collapse brackets used by the floating
-  conversation toolbar.
+- **Window glyphs:** `maximize` / `restore` are the expand/collapse brackets, shared
+  by the floating conversation toolbar and the OS window chrome. Both mean "expand"
+  and "collapse", so no second square pair exists.
 - **Conversation controls:** `session-history` uses the overlapping-message glyph
-  rather than a clock. `copy` uses the clipboard glyph so it cannot be mistaken for
-  restore. The four controls use separate 36px targets without an enclosing capsule.
+  rather than a clock. `copy` uses the clipboard glyph rather than two sheets. The
+  four controls use separate 36px targets without an enclosing capsule.
 - **Attribution:** Lucide, licensed ISC (<https://lucide.dev>).
 
 Replacing the icon set is `breaking`: every glyph and the stroke width change.

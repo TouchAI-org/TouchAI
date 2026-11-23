@@ -16,7 +16,6 @@ import IconChevronUp from '~icons/lucide/chevron-up';
 import IconCheckCircle from '~icons/lucide/circle-check';
 import IconXCircle from '~icons/lucide/circle-x';
 import IconClipboardCopy from '~icons/lucide/clipboard-copy';
-import IconCopy from '~icons/lucide/copy';
 import IconData from '~icons/lucide/database';
 import IconDownload from '~icons/lucide/download';
 import IconLinkExternal from '~icons/lucide/external-link';
@@ -82,7 +81,6 @@ export const appIconMap = {
     file: IconFile,
     folder: IconFolderOpen,
     'folder-open': IconFolderOpen,
-    'maximize-square': IconSquare,
     github: IconGithub,
     'grid-alt': IconGridAlt,
     globe: IconGlobe,
@@ -118,7 +116,6 @@ export const appIconMap = {
     wrench: IconWrench,
     x: IconX,
     'x-circle': IconXCircle,
-    'restore-square': IconCopy,
 } satisfies Record<string, Component>;
 
 export const appIconFallback = IconInfoCircle;

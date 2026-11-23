@@ -41,6 +41,11 @@ describe('user controls the settings window', () => {
             expect(
                 wrapper.get('[data-testid="settings-window-maximize"]').attributes('aria-label')
             ).toBe('还原');
+            expect(
+                wrapper
+                    .get('[data-testid="settings-window-maximize"] [data-name]')
+                    .attributes('data-name')
+            ).toBe('restore');
         } finally {
             wrapper.unmount();
         }
@@ -59,6 +64,11 @@ describe('user controls the settings window', () => {
         expect(
             wrapper.get('[data-testid="settings-window-maximize"]').attributes('aria-label')
         ).toBe('最大化');
+        expect(
+            wrapper
+                .get('[data-testid="settings-window-maximize"] [data-name]')
+                .attributes('data-name')
+        ).toBe('maximize');
 
         windowApiMock.currentWindow.isMaximized.mockResolvedValue(true);
         notifyResized?.();
@@ -66,6 +76,11 @@ describe('user controls the settings window', () => {
         expect(
             wrapper.get('[data-testid="settings-window-maximize"]').attributes('aria-label')
         ).toBe('还原');
+        expect(
+            wrapper
+                .get('[data-testid="settings-window-maximize"] [data-name]')
+                .attributes('data-name')
+        ).toBe('restore');
 
         wrapper.unmount();
         expect(unlisten).toHaveBeenCalledOnce();
@@ -95,6 +110,11 @@ describe('user controls the settings window', () => {
             expect(
                 wrapper.get('[data-testid="settings-window-maximize"]').attributes('aria-label')
             ).toBe('最大化');
+            expect(
+                wrapper
+                    .get('[data-testid="settings-window-maximize"] [data-name]')
+                    .attributes('data-name')
+            ).toBe('maximize');
 
             await wrapper.get('[data-testid="settings-window-maximize"]').trigger('click');
             await flushPromises();
@@ -103,6 +123,11 @@ describe('user controls the settings window', () => {
             expect(
                 wrapper.get('[data-testid="settings-window-maximize"]').attributes('aria-label')
             ).toBe('还原');
+            expect(
+                wrapper
+                    .get('[data-testid="settings-window-maximize"] [data-name]')
+                    .attributes('data-name')
+            ).toBe('restore');
 
             windowApiMock.currentWindow.isMaximized.mockResolvedValue(true);
             await wrapper.get('[data-testid="settings-window-maximize"]').trigger('click');
@@ -123,6 +148,11 @@ describe('user controls the settings window', () => {
             expect(
                 wrapper.get('[data-testid="settings-window-maximize"]').attributes('aria-label')
             ).toBe('最大化');
+            expect(
+                wrapper
+                    .get('[data-testid="settings-window-maximize"] [data-name]')
+                    .attributes('data-name')
+            ).toBe('maximize');
         } finally {
             wrapper.unmount();
         }
@@ -138,6 +168,11 @@ describe('user controls the settings window', () => {
             expect(
                 wrapper.get('[data-testid="settings-window-maximize"]').attributes('aria-label')
             ).toBe('最大化');
+            expect(
+                wrapper
+                    .get('[data-testid="settings-window-maximize"] [data-name]')
+                    .attributes('data-name')
+            ).toBe('maximize');
         } finally {
             wrapper.unmount();
         }
