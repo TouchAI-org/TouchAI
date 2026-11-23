@@ -186,6 +186,6 @@ export function buildComputerUsePresentation(
     }
     return {
         verb: t(STATUS_KEYS[status], { operation }),
-        content: details.join(' · '),
+        content: details.join(' '),
     };
 }

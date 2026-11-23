@@ -10,6 +10,7 @@ import { log } from './log';
 import * as mcp from './mcp';
 import { observability } from './observability';
 import { paths } from './paths';
+import { privacyFilter } from './privacyFilter';
 import { quickSearch } from './quickSearch';
 import { runtime } from './runtime';
 import { shortcut } from './shortcut';
@@ -88,6 +89,7 @@ export {
     mcp,
     observability,
     paths,
+    privacyFilter,
     quickSearch,
     runtime,
     shortcut,
@@ -111,6 +113,7 @@ export const native = {
     database,
     font,
     paths,
+    privacyFilter,
     mcp,
     quickSearch,
     runtime,

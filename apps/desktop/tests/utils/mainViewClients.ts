@@ -3,6 +3,7 @@ import { productAnalyticsApiKey } from '@/app/api/analytics/product';
 import { clipboardDraftApiKey } from '@/app/api/attachments/drafts';
 import { modelDiscoveryApiKey } from '@/app/api/models/discovery';
 import { modelMetadataApiKey } from '@/app/api/models/metadata';
+import { privacyApiKey } from '@/app/api/privacy';
 import { searchApiKey } from '@/app/api/search/queries';
 import { startupNoticesApiKey } from '@/app/api/search/startup';
 import { settingsApiKey } from '@/app/api/settings/preferences';
@@ -19,6 +20,7 @@ export function createMainViewClients(window: ReturnType<typeof initializeAgentW
             [agentApiKey as symbol]: window.api,
             [productAnalyticsApiKey as symbol]: window.productAnalytics,
             [settingsApiKey as symbol]: window.settings,
+            [privacyApiKey as symbol]: window.privacy,
             [modelDiscoveryApiKey as symbol]: window.models,
             [modelMetadataApiKey as symbol]: window.metadata,
             [mcpApiKey as symbol]: window.mcp,

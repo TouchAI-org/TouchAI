@@ -11,6 +11,7 @@ export type NavigationSection =
     | 'computer-use'
     | 'search'
     | 'browser'
+    | 'privacy-filter'
     | 'mcp-tools'
     | 'skills'
     | 'data-management';
@@ -113,6 +114,12 @@ const settingsNavigationDefinitions: SettingsNavigationGroupDefinition[] = [
     {
         labelKey: 'settings.nav.group.system',
         items: [
+            {
+                id: 'privacy-filter',
+                icon: 'shield-check',
+                labelKey: 'settings.nav.privacyFilter.label',
+                descriptionKey: 'settings.nav.privacyFilter.description',
+            },
             {
                 id: 'data-management',
                 icon: 'database',

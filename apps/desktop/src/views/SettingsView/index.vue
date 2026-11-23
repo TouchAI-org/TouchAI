@@ -68,6 +68,10 @@
         () => import('./components/ComputerUse/index.vue')
     );
     const SearchView = defineSectionView('search', () => import('./components/Search/index.vue'));
+    const PrivacyFilterView = defineSectionView(
+        'privacy-filter',
+        () => import('./components/PrivacyFilter/index.vue')
+    );
     const BrowserView = defineSectionView(
         'browser',
         () => import('./components/Browser/index.vue')
@@ -123,6 +127,10 @@
             component: BrowserView,
             scrollable: true,
         },
+        'privacy-filter': {
+            component: PrivacyFilterView,
+            scrollable: true,
+        },
         'mcp-tools': {
             component: McpToolsView,
         },
@@ -152,6 +160,7 @@
         'SettingsGeneralSection',
         'SettingsShortcutsSection',
         'SettingsSearchSection',
+        'SettingsPrivacyFilterSection',
         'SettingsBrowserSection',
         'SettingsMcpToolsSection',
         'SettingsSkillsSection',

@@ -303,6 +303,8 @@ export function getInputHistorySnapshotKey(snapshot: InputHistorySnapshot): stri
 
 export interface SessionMessage {
     id: string;
+    /** Local presentation binding; never serialized into message parts. */
+    sourceMessageId?: number;
     role: 'user' | 'assistant';
     content: string;
     reasoning?: string;

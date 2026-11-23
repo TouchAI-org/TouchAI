@@ -39,17 +39,21 @@
                 icon: 'flex h-8 w-8 items-center justify-center rounded-action transition-colors disabled:cursor-not-allowed disabled:opacity-50',
             },
             variant: {
-                default: 'bg-primary-500 text-white hover:bg-primary-600',
-                strong: 'bg-primary-700 text-white hover:bg-primary-600',
-                destructive: 'bg-red-500 text-white hover:bg-red-600',
-                danger: 'bg-red-600 text-white hover:bg-red-700',
-                outline: 'border border-gray-200 bg-white text-gray-600 hover:border-gray-300',
+                default:
+                    'bg-primary-500 text-white hover:bg-primary-600 focus-visible:bg-primary-hover',
+                strong: 'bg-primary-700 text-white hover:bg-primary-600 focus-visible:bg-primary-hover',
+                destructive: 'bg-red-500 text-white hover:bg-red-600 focus-visible:bg-danger-hover',
+                danger: 'bg-red-600 text-white hover:bg-red-700 focus-visible:bg-danger-hover',
+                outline:
+                    'border border-gray-200 bg-white text-gray-600 hover:border-gray-300 focus-visible:border-border-strong focus-visible:bg-surface-hover',
                 'outline-neutral':
-                    'border border-neutral-200/80 bg-white text-neutral-700 hover:border-neutral-300/80 hover:bg-neutral-50',
-                secondary: 'bg-gray-100 text-gray-900 hover:bg-gray-200',
-                ghost: 'text-gray-600 hover:bg-gray-100',
-                'ghost-neutral': 'text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700',
-                link: 'text-primary-600 underline-offset-4 hover:underline',
+                    'border border-neutral-200/80 bg-white text-neutral-700 hover:border-neutral-300/80 hover:bg-neutral-50 focus-visible:border-border-strong focus-visible:bg-surface-hover',
+                secondary:
+                    'bg-gray-100 text-gray-900 hover:bg-gray-200 focus-visible:bg-surface-active-strong',
+                ghost: 'text-gray-600 hover:bg-gray-100 focus-visible:bg-surface-hover focus-visible:text-text-primary',
+                'ghost-neutral':
+                    'text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 focus-visible:bg-surface-hover focus-visible:text-text-primary',
+                link: 'text-primary-600 underline-offset-4 hover:underline focus-visible:underline',
             },
             size: {
                 default: 'h-9 px-4 py-2',

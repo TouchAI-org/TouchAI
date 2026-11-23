@@ -1,3 +1,7 @@
+import { useTestPrivacyWindow } from '@tests/utils/privacyWindow';
+
+useTestPrivacyWindow();
+
 import { mockTauriCommand } from '@tests/utils/tauri';
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -120,6 +124,35 @@ describe('user reads why a request did not finish', () => {
         const wrapper = render({ content: 'Retrying', isRetrying: true });
 
         expect(wrapper.text()).toContain('Retrying');
+    });
+
+    it('user sees the retry state in the pending answer row instead of the typing dots', () => {
+        const wrapper = render({
+            content: '',
+            isStreaming: true,
+            statusText: 'Retrying (2/5)',
+        });
+
+        const requestStatus = wrapper.get('[data-request-status]');
+        expect(requestStatus.text()).toBe('Retrying (2/5)');
+        expect(requestStatus.findAll('.dot')).toHaveLength(0);
+        expect(wrapper.text().split('Retrying (2/5)')).toHaveLength(2);
+    });
+
+    it('user sees the typing dots again once the retry starts answering', () => {
+        const wrapper = render({ content: 'Recovered text', isStreaming: true });
+
+        expect(wrapper.get('[data-request-status]').findAll('.dot')).toHaveLength(3);
+    });
+
+    it('user sees no rotating hint while the retry state owns the pending row', async () => {
+        vi.useFakeTimers();
+        const wrapper = render({ isStreaming: true, statusText: 'Retrying (1/5)' });
+
+        await vi.advanceTimersByTimeAsync(25_000);
+
+        expect(wrapper.find('.loading-tip').exists()).toBe(false);
+        expect(wrapper.get('[data-request-status]').text()).toBe('Retrying (1/5)');
     });
 
     it('user gets no copy or regenerate action for a failed request', () => {

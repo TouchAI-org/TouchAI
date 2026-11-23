@@ -1,11 +1,13 @@
-import { createTestWindowPresentation } from '@tests/utils/windowPresentation';
 import { mount } from '@vue/test-utils';
-import { beforeEach as beforePresentation } from 'vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick } from 'vue';
 
 import { setLocale } from '@/i18n';
 import SettingsSearch from '@/views/SettingsView/components/SettingsSearch.vue';
+
+import { useTestPrivacyApi } from '../../utils/privacyApi';
+
+useTestPrivacyApi();
 
 /*
  * The sidebar search is a keyboard-first combobox: a user types a word, walks the
@@ -387,8 +389,4 @@ describe('user opens the search from a collapsed sidebar', () => {
 
         expect(wrapper.emitted('expand')).toHaveLength(1);
     });
-});
-
-beforePresentation(async () => {
-    (await createTestWindowPresentation('settings')).install();
 });

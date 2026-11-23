@@ -1,7 +1,7 @@
 <!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
-    import AnimatedCounter from '@components/ui/animated-counter/AnimatedCounter.vue';
+    import MetricCards, { type MetricCard } from '@components/ui/metric-cards/MetricCards.vue';
     import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
     import {
@@ -15,11 +15,10 @@
         UsageSummary,
         UsageTrendPoint,
     } from '@/app/api/usage/queries';
-    import { getLocale, t } from '@/i18n';
+    import { t } from '@/i18n';
 
     import {
         costCounter,
-        type CounterSpec,
         formatActiveDuration,
         formatCost,
         formatDuration,
@@ -94,25 +93,6 @@
     );
     const activityParts = computed(() => formatActiveDuration(summary.value?.totalDurationMs ?? 0));
 
-    /**
-     * Card values split into number and unit.
-     *
-     * Same rule as the active duration: serif digits, unit one step down and
-     * dimmed, so all six cards read with the same rhythm. Without it one card
-     * carries `42分 32秒` while another shows a bare `577.1万`.
-     */
-    interface Card {
-        key: string;
-        label: string;
-        value: string;
-        prefix?: string;
-        note: string;
-        warn?: boolean;
-        valueParts?: Array<{ value: string; unit: string }>;
-        /** Counter config; when absent the plain `value` is shown. */
-        counter?: CounterSpec;
-        description?: string;
-    }
     function tokenParts(tokens: number): Array<{ value: string; unit: string }> {
         const parts = tokensParts(tokens);
         return parts.unit
@@ -120,7 +100,7 @@
             : [{ value: parts.value, unit: '' }];
     }
 
-    const cards = computed<Card[]>(() => {
+    const cards = computed<MetricCard[]>(() => {
         const value = summary.value;
         return [
             {
@@ -753,49 +733,7 @@
 
 <template>
     <section class="pb-1" data-testid="settings-usage-dashboard">
-        <div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            <div
-                v-for="card in cards"
-                :key="card.key"
-                :data-testid="`settings-usage-card-${card.key}`"
-                :title="card.description"
-                class="flex min-w-0 flex-col gap-1 rounded-control bg-neutral-50/80 px-4 py-3"
-            >
-                <span class="truncate text-xs text-neutral-500">{{ card.label }}</span>
-                <span
-                    class="truncate font-serif text-title leading-tight font-semibold text-neutral-950 tabular-nums"
-                    :title="`${card.prefix ?? ''}${card.value}`"
-                >
-                    <template v-if="card.counter">
-                        <span v-if="card.prefix" class="mr-0.5">{{ card.prefix }}</span>
-                        <AnimatedCounter
-                            v-bind="card.counter"
-                            :animate-on-view="true"
-                            :locale="getLocale()"
-                        />
-                    </template>
-                    <template v-else-if="card.valueParts">
-                        <span
-                            v-for="part in card.valueParts"
-                            :key="part.unit"
-                            class="mr-1.5 inline-flex items-baseline gap-0.5 last:mr-0"
-                        >
-                            {{ part.value }}
-                            <span class="text-reading font-normal text-neutral-400">
-                                {{ part.unit }}
-                            </span>
-                        </span>
-                    </template>
-                    <template v-else>{{ card.prefix }}{{ card.value }}</template>
-                </span>
-                <span
-                    class="truncate text-caption"
-                    :class="card.warn ? 'text-amber-600' : 'text-neutral-400'"
-                >
-                    {{ card.note }}
-                </span>
-            </div>
-        </div>
+        <MetricCards :cards="cards" test-id-prefix="settings-usage-card-" />
 
         <div
             v-if="secondaryMetrics.length"

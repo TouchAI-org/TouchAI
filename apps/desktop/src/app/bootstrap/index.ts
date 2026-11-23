@@ -12,6 +12,7 @@ import { clipboardDraftApiKey } from '@/app/api/attachments/drafts';
 import { modelAdministrationApiKey } from '@/app/api/models/administration';
 import { modelDiscoveryApiKey } from '@/app/api/models/discovery';
 import { type ModelMetadataApi, modelMetadataApiKey } from '@/app/api/models/metadata';
+import { privacyApiKey } from '@/app/api/privacy';
 import { searchApiKey } from '@/app/api/search/queries';
 import { startupNoticesApiKey } from '@/app/api/search/startup';
 import { dataManagementApiKey } from '@/app/api/settings/dataManagement';
@@ -237,6 +238,7 @@ export async function initializeApp() {
     if (searchWindow.api) app.provide(searchApiKey, searchWindow.api);
     if (searchWindow.clipboard) app.provide(clipboardDraftApiKey, searchWindow.clipboard);
     app.provide(agentApiKey, agentWindow.api);
+    app.provide(privacyApiKey, agentWindow.privacy);
     if (agentWindow.startup) app.provide(startupNoticesApiKey, agentWindow.startup);
     app.provide(updatesApiKey, agentWindow.updates);
     if (agentWindow.updatePreferences)

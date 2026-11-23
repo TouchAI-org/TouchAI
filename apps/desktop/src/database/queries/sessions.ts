@@ -177,6 +177,18 @@ export const findSessionByPublicId = async (
         .where(eq(sessions.session_id, sessionId))
         .get();
 
+/** Titles for the privacy protection summaries; labels only, no message content. */
+export const findSessionTitlesByIds = async (
+    ids: number[]
+): Promise<Array<{ id: number; title: string }>> => {
+    const unique = [...new Set(ids.filter((id) => Number.isSafeInteger(id) && id > 0))];
+    if (unique.length === 0) return [];
+    return await db
+        .select({ id: sessions.id, title: sessions.title })
+        .from(sessions)
+        .where(inArray(sessions.id, unique));
+};
+
 /**
  * 列出会话。
  */

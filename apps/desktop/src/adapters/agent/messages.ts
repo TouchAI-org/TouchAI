@@ -14,6 +14,7 @@ import type {
 } from '@/modules/agent/contracts';
 import type { AttachmentContentPart } from '@/modules/attachments';
 import { toProviderMedia } from '@/modules/attachments';
+import { sha256Text } from '@/utils/hash';
 
 import type { DesktopModelMessage as AiMessage } from '../models/input';
 
@@ -23,6 +24,10 @@ type Media = Extract<AttachmentContentPart, { type: 'image' | 'file' }>;
 export function createAgentMessageAdapter() {
     const messageKeys = new Map<number, string>();
     const messageSources = new Map<string, ContextMessageSource>();
+    const userSources = new Map<
+        number,
+        { digest: Promise<string>; source: ContextMessageSource }
+    >();
     const partKeys = new Map<number, string>();
     const partIds = new Map<string, number>();
     const mediaKeys = new WeakMap<Media, string>();
@@ -126,6 +131,14 @@ export function createAgentMessageAdapter() {
     return Object.freeze({
         toCore(messages: readonly AiMessage[]): AgentMessage[] {
             if (disposed) throw new Error('RESOURCE_BINDING_NOT_FOUND');
+            for (const message of messages) {
+                if (message.role === 'user' && message.contextSource) {
+                    userSources.set(message.contextSource.id, {
+                        digest: sha256Text(JSON.stringify(message.content)),
+                        source: { ...message.contextSource },
+                    });
+                }
+            }
             return messages.map((message) => ({
                 role: message.role,
                 content: toCoreContent(message.content),
@@ -155,6 +168,30 @@ export function createAgentMessageAdapter() {
         toCoreContent,
         toDesktopContent,
         toCoreSource,
+        bindUserMessageSource(content: AiMessage['content'], source: ContextMessageSource) {
+            assertActive();
+            userSources.set(source.id, {
+                digest: sha256Text(JSON.stringify(content)),
+                source: { ...source },
+            });
+        },
+        async resolveUserMessageSource(
+            content: AiMessage['content']
+        ): Promise<ContextMessageSource | undefined> {
+            assertActive();
+            const digest = await sha256Text(JSON.stringify(content));
+            const candidates = await Promise.all(
+                [...userSources.values()].map(async (value) => ({
+                    digest: await value.digest,
+                    source: value.source,
+                }))
+            );
+            assertActive();
+            const matches = candidates.filter((value) => value.digest === digest);
+            // Core intentionally strips provenance from transport. Ambiguous duplicates cannot
+            // prove which saved message was sent, so they receive no review attribution.
+            return matches.length === 1 ? { ...matches[0]!.source } : undefined;
+        },
         toDesktopSource,
         toCoreSummary,
         toDesktopSummary,
@@ -169,6 +206,13 @@ export function createAgentMessageAdapter() {
         },
         retain(messages: readonly AgentMessage[]) {
             assertActive();
+            const retainedSources = new Set(
+                messages.flatMap((message) =>
+                    message.origin ? [sourceId(message.origin.key)] : []
+                )
+            );
+            for (const id of userSources.keys())
+                if (!retainedSources.has(id)) userSources.delete(id);
             const retained = new Set(
                 messages.flatMap((message) =>
                     typeof message.content === 'string'
@@ -187,6 +231,7 @@ export function createAgentMessageAdapter() {
             media.clear();
             messageKeys.clear();
             messageSources.clear();
+            userSources.clear();
             partKeys.clear();
             partIds.clear();
         },

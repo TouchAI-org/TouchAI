@@ -6,7 +6,7 @@ import {
     type BuiltInToolExecutionResult,
     type BuiltInToolGroup,
 } from '../../contracts/builtin';
-import type { ShowWidgetEventPayload } from '../../contracts/events';
+import type { ShowWidgetEventPayload, ToolEventStructuredPayload } from '../../contracts/events';
 import type { ToolMessages } from '../../contracts/host';
 import { buildShowWidgetSummary, parseShowWidgetArgs } from './arguments';
 import {
@@ -99,10 +99,24 @@ export function createShowWidgetTools(options: {
                     widgetId: parsed.widgetId,
                 });
             else context.emitToolEvent?.({ type: 'widget_upsert', ...payload });
+            /**
+             * The audit copy of `widget_code` is redacted and truncated, so the reopened
+             * conversation reads the artifact back from this snapshot instead.
+             * `parseShowWidgetArgs` already caps a render at MAX_WIDGET_HTML_CHARS.
+             */
+            const structuredPayload: ToolEventStructuredPayload = {
+                kind: 'show_widget_snapshot',
+                widgetId: parsed.widgetId,
+                title: parsed.title,
+                description: parsed.description,
+                html: parsed.mode === 'render' ? parsed.html : '',
+                mode: parsed.mode,
+            };
             return {
                 result: buildShowWidgetSummary(payload, messages),
                 isError: false,
                 status: 'success',
+                structuredPayload,
             };
         }
     }

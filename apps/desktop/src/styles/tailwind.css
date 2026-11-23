@@ -29,6 +29,11 @@
         box-sizing: border-box;
     }
 
+    /* Shared by every native window; components own their keyboard focus feedback. */
+    :focus {
+        outline: none;
+    }
+
     html,
     body,
     #app {
@@ -268,7 +273,7 @@
         @apply border-transparent bg-transparent hover:border-transparent hover:bg-surface-hover;
     }
 
-    /* 全局滚动条样式 */
+    /* Shared scrollbar skin for explicit scroll containers. */
     .custom-scrollbar::-webkit-scrollbar {
         width: 6px;
         height: 6px;

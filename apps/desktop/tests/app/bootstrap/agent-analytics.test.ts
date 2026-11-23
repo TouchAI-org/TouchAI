@@ -79,7 +79,7 @@ describe('given typed analytics observes the real production main task', () => {
         expect(events('agent.first_output_received')).toEqual([]);
         channel.delta({ content: 'display-ready answer' });
         await vi.advanceTimersByTimeAsync(0);
-        expect(events('agent.first_output_received')).toHaveLength(1);
+        await vi.waitFor(() => expect(events('agent.first_output_received')).toHaveLength(1));
         const cancelled = expect(started.completion).rejects.toMatchObject({
             code: 'REQUEST_CANCELLED',
         });
@@ -669,7 +669,7 @@ describe('given typed analytics observes the real production main task', () => {
                 expect(
                     fixture.window.api
                         .getTaskSnapshot(started.taskId)
-                        ?.sessionHistory.some((message) => message.isRetrying)
+                        ?.sessionHistory.some((message) => Boolean(message.statusText))
                 ).toBe(true),
             { timeout: 400, interval: 10 }
         );

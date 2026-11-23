@@ -25,6 +25,7 @@
                             <MarkdownContent
                                 v-else-if="part.type === 'text'"
                                 :content="part.content"
+                                :privacy-annotations="part.privacyAnnotations"
                                 :final="!message.isStreaming"
                             />
                             <ToolCallItem
@@ -52,7 +53,7 @@
                     </div>
 
                     <div
-                        v-if="message.statusText"
+                        v-if="message.statusText && !message.isStreaming"
                         class="mt-3 font-serif text-sm leading-[1.6] text-message-muted"
                     >
                         {{ message.statusText }}
@@ -67,6 +68,7 @@
                     data-request-status
                 >
                     <span v-if="isRequestStateMessage">{{ message.content }}</span>
+                    <span v-else-if="message.statusText">{{ message.statusText }}</span>
                     <template v-else>
                         <div class="flex shrink-0 items-center gap-1">
                             <span class="dot"></span>
@@ -114,12 +116,14 @@
     } from '@/app/api/agent/history';
     import { useProductAnalyticsApi } from '@/app/api/analytics/product';
     import { log } from '@/app/api/diagnostics';
+    import { type PrivacyReviewAnnotation } from '@/app/api/privacy';
     import type { WebSearchSource } from '@/app/api/tools/results';
     import { SHOW_WIDGET_TOOL_NAME } from '@/app/api/tools/widgets';
     import { writeClipboardText } from '@/app/api/windows/clipboard';
     import { notify } from '@/app/api/windows/notifications';
     import { type MessageKey, t, tt } from '@/i18n';
     import { useAskUserStore } from '@/stores/askUser';
+    import { usePrivacyStore } from '@/stores/privacy';
     import {
         normalizeCitationUrl,
         normalizeWrappedCitations,
@@ -157,6 +161,7 @@
               id: string;
               type: 'text';
               content: string;
+              privacyAnnotations: PrivacyReviewAnnotation[];
           }
         | {
               id: string;
@@ -196,6 +201,7 @@
     const currentTip = computed(() => t(TIPS[currentTipIndex.value] ?? DEFAULT_LOADING_TIP_KEY));
 
     const askUserStore = useAskUserStore();
+    const privacy = usePrivacyStore();
     const isCompacting = computed(() =>
         props.message.parts.some(
             (part) => part.type === 'context_compaction' && part.state === 'compacting'
@@ -240,7 +246,7 @@
     }
 
     function handleVisibilityChange() {
-        if (!props.message.isStreaming || isCompacting.value) {
+        if (!props.message.isStreaming || isCompacting.value || props.message.statusText) {
             return;
         }
 
@@ -254,9 +260,9 @@
 
     watch(windowVisible, handleVisibilityChange);
 
-    // 跟随 streaming 状态启停轮播（组件生命周期可能跨多次请求）
+    // 跟随 streaming 状态启停轮播（组件生命周期可能跨多次请求）；重试状态占用同一行时不轮播
     watch(
-        () => props.message.isStreaming && !isCompacting.value,
+        () => props.message.isStreaming && !isCompacting.value && !props.message.statusText,
         (streaming) => {
             if (streaming) {
                 startTipRotation();
@@ -349,6 +355,20 @@
                         id: part.id,
                         type: 'text',
                         content: normalizeContent(part.content),
+                        privacyAnnotations: privacy.privacyFilterSettings.enabled
+                            ? privacy
+                                  .selectRestoredPrivacyAnnotations(part.id, part.content)
+                                  .map((annotation) => {
+                                      const start = normalizeContent(
+                                          part.content.slice(0, annotation.start)
+                                      ).length;
+                                      return {
+                                          ...annotation,
+                                          start,
+                                          end: start + annotation.original.length,
+                                      };
+                                  })
+                            : [],
                     });
                 }
                 continue;

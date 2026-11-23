@@ -142,6 +142,7 @@ describe('when the app restarts with durable pending messages', () => {
                 (payload as { paths: string[] }).paths.join('/')
             );
             mockTauriCommand('plugin:fs|mkdir', undefined);
+            mockTauriCommand('plugin:fs|exists', true);
             const message = queuedMessage('image-order', 'Before after', {
                 attachments: [
                     {
@@ -210,6 +211,7 @@ describe('when the app restarts with durable pending messages', () => {
             (payload as { paths: string[] }).paths.join('/')
         );
         mockTauriCommand('plugin:fs|mkdir', undefined);
+        mockTauriCommand('plugin:fs|exists', true);
         const persistence = createPendingMessagePersistence();
         persistence.enqueue(
             1,

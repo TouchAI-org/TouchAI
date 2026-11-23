@@ -2,6 +2,7 @@ import { createAgent } from '@touchai/agent-core';
 import type { AgentEvent, AgentHost, AgentStartInput } from '@touchai/agent-core/contracts';
 
 import { AiError, AiErrorCode } from '@/app/api/agent/errors';
+import type { PrivacyApi } from '@/app/api/privacy';
 import { createAgentAnalytics } from '@/app/workflows/agent/analytics';
 import { createAgentHistoryQueries } from '@/app/workflows/agent/history';
 import { createMainAgentWorkflow } from '@/app/workflows/agent/host';
@@ -104,6 +105,7 @@ export function assembleAgentHost(input: MainAgentAssembly) {
 
 /** Production assembly. The bootstrap path and every session command use this same host. */
 export function assembleDesktopMainAgent(input: {
+    privacy: PrivacyApi;
     analytics: AnalyticsSink;
     beforeStart(): Promise<void>;
     settings: Pick<SettingsApi, 'initialize' | 'readEffectiveValue' | 'mutate'>;
@@ -151,6 +153,7 @@ export function assembleDesktopMainAgent(input: {
     const notifications = createTaskStatusPublisher();
     const analytics = createAgentAnalytics(input.analytics);
     const workflow = createMainAgentWorkflow({
+        privacy: input.privacy,
         models: bindings,
         disposeModels: bindings.dispose,
         tools: tools.tools,

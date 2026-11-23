@@ -105,6 +105,7 @@
 
 <template>
     <div
+        data-slot="conversation-toolbar"
         class="toolbar-fade-overlay pointer-events-auto absolute top-0 right-0 left-0 z-100 flex h-18 cursor-grab items-start px-10 pt-3 active:cursor-grabbing"
         @mousedown="handleToolbarDragMouseDown"
         @wheel.passive="emit('wheel', $event.deltaY)"
@@ -200,6 +201,7 @@
     }
 
     .toolbar-button:hover,
+    .toolbar-button:focus-visible,
     .toolbar-button--active {
         background: var(--color-conversation-toolbar-hover);
         color: var(--color-conversation-toolbar-hover-text);
@@ -212,7 +214,8 @@
         box-shadow: var(--shadow-conversation-toolbar-pinned);
     }
 
-    .toolbar-button--pinned:hover {
+    .toolbar-button--pinned:hover,
+    .toolbar-button--pinned:focus-visible {
         background: var(--color-conversation-toolbar-pinned-hover);
         color: var(--color-text-primary);
     }

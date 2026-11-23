@@ -15,6 +15,9 @@ import {
 } from '@/views/SettingsView/settingsSidebarLayout';
 
 import desktopPackageJson from '../../../package.json';
+import { useTestPrivacyApi } from '../../utils/privacyApi';
+
+useTestPrivacyApi();
 
 const openUrlMock = vi.hoisted(() => vi.fn());
 

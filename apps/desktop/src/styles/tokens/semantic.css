@@ -48,6 +48,13 @@
     --color-surface-active-strong: var(--color-ui-800);
     --color-surface-selected: var(--color-ui-700);
     --color-settings-surface: var(--color-white);
+    --color-metric-surface: var(--color-neutral-50);
+    --color-privacy-mark: var(--color-annotation-100);
+    --color-metric-detail: var(--color-neutral-400);
+    --color-metric-warning: var(--color-amber-600);
+    --shadow-hover-preview: var(--shadow-preview-soft);
+    --shadow-preview-compact: var(--shadow-preview-outlined);
+    --container-tooltip-available: var(--reka-tooltip-content-available-width);
 
     /*
      * `card`, `hover` and `active` were used in templates while no `@theme` entry
@@ -71,12 +78,14 @@
     --color-text-tertiary: #968b7d;
     --color-settings-text: var(--color-neutral-950);
     --color-text-inverse: var(--color-white);
+    --text-decoration-thickness-subtle: var(--stroke-hairline);
 
     /* ── Borders ─────────────────────────────────────────────────────────── */
 
     --color-border: #e5e5e5;
     --color-border-subtle: rgba(74, 64, 57, 0.12);
     --color-border-strong: rgba(74, 64, 57, 0.28);
+    --color-border-selected: var(--color-logo-blue-start);
     --color-window-border: var(--color-window-stroke);
     --color-model-logo-border: var(--color-gray-300);
     --color-model-logo-border-hover: var(--color-gray-400);
@@ -92,6 +101,8 @@
     /* ── Interactive ─────────────────────────────────────────────────────── */
 
     --color-primary: var(--color-primary-700);
+    --color-primary-hover: var(--color-primary-600);
+    --color-danger-hover: var(--color-danger-700);
     --color-secondary: var(--color-primary-100);
     --color-accent: var(--color-primary-100);
 

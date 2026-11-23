@@ -20,6 +20,18 @@ import type {
 type UnlistenFn = () => void;
 export type AppUpdateCheckSource = 'manual' | 'automatic' | 'settings-open';
 
+/**
+ * One check decision. Only the attempt the controller still owns may commit
+ * state, persist a checked time, or finish the update operation, so a reply
+ * that arrives after a channel switch or a newer check is discarded.
+ */
+interface UpdateCheckAttempt {
+    readonly id: number;
+    readonly channel: AppUpdateChannel;
+    /** The channel decision this attempt was built from. */
+    readonly generation: number;
+}
+
 interface AppUpdateNativeAdapter {
     checkForUpdates: (channel: AppUpdateChannel) => Promise<AppUpdateCheckResult>;
     downloadUpdate: (
@@ -104,7 +116,14 @@ export class AppUpdateController<Operation extends UpdateOperation = UpdateOpera
     private readonly diagnostics: AppUpdateControllerDeps<Operation>['diagnostics'];
     private readonly checkEvents: AppUpdateControllerDeps<Operation>['checkEvents'];
     private initialization: UpdateInitialization | null = null;
+    private activeCheck: UpdateCheckAttempt | null = null;
+    private channelGeneration = 0;
+    private channelSwitch: Promise<void> | null = null;
+    private settleChannelSwitchSignal: (() => void) | null = null;
+    private pendingChannelSwitches = 0;
+    private checkSequence = 0;
     private checkPromise: Promise<boolean> | null = null;
+    private preferenceWrites: Promise<void> = Promise.resolve();
     private downloadPromise: Promise<boolean> | null = null;
     private installPromise: Promise<boolean> | null = null;
     private lastCheckAttemptAt: string | null = null;
@@ -113,6 +132,7 @@ export class AppUpdateController<Operation extends UpdateOperation = UpdateOpera
     private updateOperationPromise: Promise<Operation | null> | null = null;
     private updateOperation: Operation | null = null;
     private updateOperationId: string | null = null;
+    private updateOperationOwner: number | null = null;
     private updateSource: UpdateSource = 'user';
 
     constructor(deps: AppUpdateControllerDeps<Operation>) {
@@ -209,6 +229,7 @@ export class AppUpdateController<Operation extends UpdateOperation = UpdateOpera
     }
 
     async dispose(): Promise<void> {
+        this.supersedeCheck();
         this.releaseUpdateOperation();
         if (this.initialization) {
             this.releaseInitialization(this.initialization);
@@ -218,7 +239,7 @@ export class AppUpdateController<Operation extends UpdateOperation = UpdateOpera
     async setAutoCheckEnabled(enabled: boolean): Promise<void> {
         await this.initialize();
         if (!this.initialization || !this.isInitializationActive(this.initialization)) return;
-        await this.settings.updateAppUpdateAutoCheck(enabled);
+        await this.writePreference(() => this.settings.updateAppUpdateAutoCheck(enabled));
         if (!this.isInitializationActive(this.initialization)) return;
         this.commit({ type: 'auto-check-updated', enabled });
 
@@ -228,67 +249,221 @@ export class AppUpdateController<Operation extends UpdateOperation = UpdateOpera
     }
 
     async setChannel(channel: AppUpdateChannel): Promise<void> {
-        await this.initialize();
-        if (!this.initialization || !this.isInitializationActive(this.initialization)) return;
-        await this.settings.updateAppUpdateChannel(channel);
-        if (!this.isInitializationActive(this.initialization)) return;
-        await this.settings.updateAppUpdateLastCheckedAt(null);
-        this.lastCheckAttemptAt = null;
-        this.consecutiveCheckFailures = 0;
-        this.commit({ type: 'channel-updated', channel });
+        // The switch is a decision before its first save: a check that arrives
+        // while the save is pending belongs to the new channel, so the signal is
+        // installed in the same turn as the call.
+        this.beginChannelSwitch();
+        try {
+            await this.initialize();
+            if (!this.initialization || !this.isInitializationActive(this.initialization)) return;
+            this.lastCheckAttemptAt = null;
+            this.consecutiveCheckFailures = 0;
+            await this.writePreference(() => this.settings.updateAppUpdateChannel(channel));
+            if (!this.isInitializationActive(this.initialization)) return;
+            await this.writePreference(() => this.settings.updateAppUpdateLastCheckedAt(null));
+            if (!this.isInitializationActive(this.initialization)) return;
+            this.commit({ type: 'channel-updated', channel });
+        } catch (error) {
+            // The switch superseded the running check before it saved, so no
+            // check can settle the request state any more. Until a later sync
+            // applies a channel the switch already saved, the state still
+            // describes the previous channel, and `checking` blocks download
+            // and install. The reducer ignores this when the switch committed.
+            if (this.initialization && this.isInitializationActive(this.initialization)) {
+                this.commit({ type: 'check-abandoned' });
+            }
+            throw error;
+        } finally {
+            this.endChannelSwitch();
+        }
+    }
+
+    /**
+     * Marks a switch as the current decision before its first save, and keeps
+     * the signal up until the last pending switch has been saved and committed.
+     * Every check decided from this turn waits for it instead of running against
+     * the channel it replaces.
+     */
+    private beginChannelSwitch(): void {
+        this.channelGeneration++;
+        this.supersedeCheck();
+        if (!this.channelSwitch) {
+            let settleSwitch!: () => void;
+            this.channelSwitch = new Promise<void>((resolve) => {
+                settleSwitch = resolve;
+            });
+            this.settleChannelSwitchSignal = settleSwitch;
+        }
+        this.pendingChannelSwitches++;
+    }
+
+    private endChannelSwitch(): void {
+        this.pendingChannelSwitches = Math.max(0, this.pendingChannelSwitches - 1);
+        if (this.pendingChannelSwitches > 0) return;
+        const settleSwitch = this.settleChannelSwitchSignal;
+        this.channelSwitch = null;
+        this.settleChannelSwitchSignal = null;
+        settleSwitch?.();
+    }
+
+    /**
+     * Resolves once every channel switch already requested has been saved and
+     * committed. The signal never rejects, so a failed save cannot leave a check
+     * waiting forever; the switch's own caller still sees the failure.
+     */
+    private async waitForChannelSwitch(): Promise<void> {
+        while (this.channelSwitch) {
+            await this.channelSwitch;
+        }
+    }
+
+    private beginCheck(channel: AppUpdateChannel): UpdateCheckAttempt {
+        const attempt = {
+            id: ++this.checkSequence,
+            channel,
+            generation: this.channelGeneration,
+        };
+        this.activeCheck = attempt;
+        return attempt;
+    }
+
+    private isCurrentCheck(attempt: UpdateCheckAttempt): boolean {
+        return this.activeCheck === attempt;
+    }
+
+    /**
+     * Ends the running check without letting it report anything. The decision
+     * that supersedes it, a channel switch or a newer check, owns the state and
+     * the saved preferences from then on.
+     */
+    private supersedeCheck(): void {
+        this.activeCheck = null;
+    }
+
+    private ownsCheck(initialization: UpdateInitialization, attempt: UpdateCheckAttempt): boolean {
+        return (
+            this.isInitializationActive(initialization) &&
+            this.isCurrentCheck(attempt) &&
+            attempt.generation === this.channelGeneration &&
+            this.state.channel === attempt.channel &&
+            this.settings.getChannel() === attempt.channel
+        );
+    }
+
+    /**
+     * Drops a superseded check. Its update operation is only released while the
+     * attempt still owns it, so a newer check keeps its own telemetry handle.
+     */
+    private abandonCheck(initialization: UpdateInitialization, attempt: UpdateCheckAttempt): void {
+        if (this.updateOperationOwner === attempt.id) {
+            this.updateOperationOwner = null;
+            this.releaseUpdateOperation();
+        }
+        if (this.isInitializationActive(initialization)) {
+            this.syncSettings();
+        }
+    }
+
+    /**
+     * Settings writes apply in decision order. A slow save from a check the user
+     * already replaced therefore lands before the newer decision's save instead
+     * of overwriting it.
+     */
+    private writePreference<T>(write: () => Promise<T>): Promise<T> {
+        const result = this.preferenceWrites.then(write, write);
+        this.preferenceWrites = result.then(
+            () => undefined,
+            () => undefined
+        );
+        return result;
     }
 
     async checkNow(source: AppUpdateCheckSource = 'manual'): Promise<boolean> {
         await this.initialize();
         if (!this.initialization || !this.isInitializationActive(this.initialization)) return false;
-        this.syncSettings();
-        const reportErrors =
-            source === 'manual' ||
-            (source === 'settings-open' && this.state.currentVersion === null);
 
-        if (this.checkPromise) {
-            this.reportCheckErrors ||= reportErrors;
-            return this.checkPromise;
-        }
+        for (;;) {
+            // A check decided while a switch is saving belongs to the channel the
+            // user chose, so wait instead of checking the channel being replaced.
+            await this.waitForChannelSwitch();
+            if (!this.initialization || !this.isInitializationActive(this.initialization))
+                return false;
+            // A switch can be requested while the wait resolves; the decision only
+            // starts from a synchronous observation that no switch is pending.
+            if (this.channelSwitch) continue;
 
-        if (
-            ['downloading', 'installing'].includes(this.state.status) ||
-            // A manual recheck may refresh release metadata while a package is
-            // downloaded; the reducer keeps the package when the target is
-            // unchanged. Background and settings checks leave it untouched.
-            (source !== 'manual' &&
-                (this.state.status === 'downloaded' ||
-                    Boolean(getInstallableAppUpdate(this.state))))
-        ) {
-            return false;
-        }
+            this.syncSettings();
+            // A settings listener can request a switch synchronously while
+            // syncSettings notifies it; that decision starts in the next turn
+            // instead of checking the channel it replaces.
+            if (this.channelSwitch) continue;
+            const reportErrors =
+                source === 'manual' ||
+                (source === 'settings-open' && this.state.currentVersion === null);
 
-        if (source === 'automatic' && !this.shouldRunAutomaticCheck()) {
-            return false;
-        }
+            // Only a check that still owns the decision for the selected channel
+            // is shared. A superseded check would swallow this request without
+            // checking the current channel.
+            const active = this.activeCheck;
+            if (
+                this.checkPromise &&
+                active &&
+                active.generation === this.channelGeneration &&
+                active.channel === this.state.channel &&
+                active.channel === this.settings.getChannel()
+            ) {
+                this.reportCheckErrors ||= reportErrors;
+                return this.checkPromise;
+            }
 
-        // A new decision replaces any previous chain that never reached a
-        // terminal phase (for example a check that offered an update the user
-        // did not download).
-        this.releaseUpdateOperation();
-        this.updateOperationId = crypto.randomUUID();
-        this.reportCheckErrors = reportErrors;
-        this.lastCheckAttemptAt = this.now();
-        this.updateSource = mapUpdateSource(source);
-        this.checkPromise = this.performCheck();
-        try {
-            return await this.checkPromise;
-        } finally {
-            this.checkPromise = null;
+            if (
+                ['downloading', 'installing'].includes(this.state.status) ||
+                // A manual recheck may refresh release metadata while a package is
+                // downloaded; the reducer keeps the package when the target is
+                // unchanged. Background and settings checks leave it untouched.
+                (source !== 'manual' &&
+                    (this.state.status === 'downloaded' ||
+                        Boolean(getInstallableAppUpdate(this.state))))
+            ) {
+                return false;
+            }
+
+            if (source === 'automatic' && !this.shouldRunAutomaticCheck()) {
+                return false;
+            }
+
+            // A new decision replaces any previous chain that never reached a
+            // terminal phase (for example a check that offered an update the user
+            // did not download).
+            this.releaseUpdateOperation();
+            this.updateOperationId = crypto.randomUUID();
+            this.reportCheckErrors = reportErrors;
+            this.lastCheckAttemptAt = this.now();
+            this.updateSource = mapUpdateSource(source);
+            const attempt = this.beginCheck(this.state.channel);
+            this.updateOperationOwner = attempt.id;
+            const check = this.performCheck(attempt);
+            this.checkPromise = check;
+            const releaseCheck = () => {
+                if (this.checkPromise === check) {
+                    this.checkPromise = null;
+                }
+            };
+            void check.then(releaseCheck, releaseCheck);
+            return check;
         }
     }
 
-    private async performCheck(): Promise<boolean> {
+    private async performCheck(attempt: UpdateCheckAttempt): Promise<boolean> {
         const initialization = this.initialization!;
-        const previousState = this.state;
-        const channel = this.state.channel;
+        const channel = attempt.channel;
         const source = this.updateSource;
         const fromVersion = this.state.currentVersion;
+        const previousOutcome = {
+            status: this.state.status,
+            error: this.state.error,
+            unsupportedReason: this.state.unsupportedReason,
+        };
         this.queueUpdateTransition('check_started', {
             result: 'success',
             source,
@@ -298,19 +473,30 @@ export class AppUpdateController<Operation extends UpdateOperation = UpdateOpera
 
         try {
             const result = await this.native.checkForUpdates(channel);
-            if (!this.isInitializationActive(initialization)) return false;
-            if (this.state.channel !== channel || this.settings.getChannel() !== channel) {
-                // The check cannot proceed for this decision; release without
-                // reporting a result that belongs to a superseded channel.
-                this.releaseUpdateOperation();
-                this.syncSettings();
+            if (!this.ownsCheck(initialization, attempt)) {
+                // The reply belongs to a decision that has already been replaced.
+                this.abandonCheck(initialization, attempt);
                 return false;
             }
 
             const checkedAt = this.now();
+            // The write may queue behind an earlier preference save, so it
+            // re-checks ownership when it starts; a superseded check must not
+            // persist a time for a decision that replaced it.
+            await this.writePreference(async () => {
+                if (!this.ownsCheck(initialization, attempt)) return;
+                await this.settings.updateAppUpdateLastCheckedAt(checkedAt);
+            });
+            if (!this.ownsCheck(initialization, attempt)) {
+                // The save only landed now; the switch queued its own save for
+                // after it, and this check may not report anything any more.
+                this.abandonCheck(initialization, attempt);
+                return false;
+            }
             this.consecutiveCheckFailures = 0;
+            // Commit after the save so a rejected write leaves the request in
+            // `checking` and the quiet-failure path can still revert it.
             this.commit({ type: 'check-completed', channel, result, checkedAt });
-            await this.settings.updateAppUpdateLastCheckedAt(checkedAt);
             void this.checkEvents?.publish(result, checkedAt).catch((error) => {
                 this.diagnostics.warn('[AppUpdateService] Failed to share update check:', error);
             });
@@ -325,16 +511,21 @@ export class AppUpdateController<Operation extends UpdateOperation = UpdateOpera
             }
             return true;
         } catch (error) {
-            if (!this.isInitializationActive(initialization)) return false;
-            if (this.state.channel !== channel || this.settings.getChannel() !== channel) {
-                this.releaseUpdateOperation();
-                this.syncSettings();
+            if (!this.ownsCheck(initialization, attempt)) {
+                this.abandonCheck(initialization, attempt);
                 return false;
             }
 
             this.consecutiveCheckFailures = Math.min(this.consecutiveCheckFailures + 1, 7);
             if (!this.reportCheckErrors) {
-                this.replaceState(previousState);
+                // Only the fields the check itself changed go back; a preference
+                // the user changed meanwhile must survive the quiet failure.
+                this.commit({
+                    type: 'check-reverted',
+                    status: previousOutcome.status,
+                    error: previousOutcome.error,
+                    unsupportedReason: previousOutcome.unsupportedReason,
+                });
                 this.queueUpdateTransition('check_finished', {
                     result: 'failure',
                     source,
@@ -534,6 +725,7 @@ export class AppUpdateController<Operation extends UpdateOperation = UpdateOpera
      * next decision starts a fresh handle.
      */
     private releaseUpdateOperation(): void {
+        this.updateOperationOwner = null;
         const operationPromise = this.updateOperationPromise;
         if (!operationPromise) {
             return;
@@ -581,6 +773,10 @@ export class AppUpdateController<Operation extends UpdateOperation = UpdateOpera
         const lastCheckedAt = this.settings.getLastCheckedAt();
 
         if (channel !== this.state.channel) {
+            // Another owner changed the channel: the running check, and every
+            // decision built on the previous channel, is now stale.
+            this.channelGeneration++;
+            this.supersedeCheck();
             this.lastCheckAttemptAt = null;
             this.consecutiveCheckFailures = 0;
             this.commit({ type: 'channel-updated', channel });

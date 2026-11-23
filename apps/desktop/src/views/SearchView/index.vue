@@ -21,6 +21,11 @@
     import type { ClipboardPayload } from '@/app/api/attachments/drafts';
     import { useClipboardDraftApi } from '@/app/api/attachments/drafts';
     import { log } from '@/app/api/diagnostics';
+    import {
+        type PrivacyFilterSettings,
+        type PrivacyReviewAnnotation,
+        usePrivacyApi,
+    } from '@/app/api/privacy';
     import type {
         SearchSurfaceCommandEvent,
         SessionStatusReminderActionEvent,
@@ -38,6 +43,8 @@
         SEARCH_SURFACE_MOTION,
         SEARCH_SURFACE_REVEAL_EASING,
     } from '@/config/searchWindow';
+    const privacyApi = usePrivacyApi();
+    const { publishPrivacyReview, clearPrivacyReview } = privacyApi;
     import { type AppLocale, t } from '@/i18n';
     const searchWindow = useSearchWindowApi();
     const clipboardService = useClipboardDraftApi();
@@ -396,6 +403,9 @@
             resetSearchWindowBounds: () => Promise<void>;
             setSearchFixture: (query: string, results: QuickShortcutItem[]) => void;
             setConversation: (messages: SessionMessage[]) => Promise<void>;
+            setPrivacyReviewAnnotations: (annotations: PrivacyReviewAnnotation[]) => void;
+            setPrivacyFilterSettings: (settings: Partial<PrivacyFilterSettings>) => Promise<void>;
+            clearPrivacyReview: () => void;
             setAskUserRequest: (request: E2eAskUserRequest) => void;
             clearAskUser: () => void;
             setLanguage: (locale: AppLocale) => Promise<void>;
@@ -2283,13 +2293,22 @@
         await updateSessionSearchQuery(value);
     }
 
+    async function resetBoundsToIdle(isCurrent = () => !searchViewListenersDisposed) {
+        try {
+            return (await resetSearchWindowBounds()) && isCurrent();
+        } catch (error) {
+            log.error('[SearchView] Failed to restore compact bounds:', error);
+            return false;
+        }
+    }
+
     async function collapseBeforeClearing(isCurrent = () => !searchViewListenersDisposed) {
         if (effectiveWindowMaximized.value) return true;
         try {
             const collapsed = await collapseSessionToIdle();
             if (!isCurrent()) return false;
             if (collapsed) return true;
-            return (await resetSearchWindowBounds()) && isCurrent();
+            return resetBoundsToIdle(isCurrent);
         } catch (error) {
             log.error('[SearchView] Failed to restore compact bounds:', error);
             return false;
@@ -2299,7 +2318,14 @@
     async function clearSessionToIdle() {
         cancelSessionExpansion();
         suppressQuickSearchAutoOpenOnce.value = true;
-        if (!(await collapseBeforeClearing())) return;
+        // A conversation owns the full-bleed surface while it is maximized. Exiting it
+        // leaves that mode too, so the compact bar keeps its elevation and radius
+        // instead of leaving an empty sheet behind.
+        if (effectiveWindowMaximized.value) {
+            if (!(await resetBoundsToIdle())) return;
+        } else if (!(await collapseBeforeClearing())) {
+            return;
+        }
         clearSession();
         await nextTick();
         await controller.focusSearchInput();
@@ -2667,6 +2693,19 @@
                 await playSessionExpandAnimation(contentHeight).catch((error) => {
                     log.error('[SearchView] Failed to expand the E2E conversation fixture:', error);
                 });
+            },
+            setPrivacyReviewAnnotations(annotations: PrivacyReviewAnnotation[]) {
+                publishPrivacyReview(annotations);
+            },
+            async setPrivacyFilterSettings(settings: Partial<PrivacyFilterSettings>) {
+                await privacyApi.initialize();
+                await privacyApi.updatePrivacyFilterSettings({
+                    ...privacyApi.getPrivacyFilterSettings(),
+                    ...settings,
+                });
+            },
+            clearPrivacyReview() {
+                clearPrivacyReview();
             },
             setAskUserRequest(request: E2eAskUserRequest) {
                 if (request.kind === 'confirm') {

@@ -1,6 +1,9 @@
+import MarkdownContent from '@components/MarkdownContent.vue';
 import { mockTauriCommand } from '@tests/utils/tauri';
 import { flushPromises, mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { setLocale } from '@/i18n';
 const clipboardWriteTextMock = vi.fn();
 
 /*
@@ -36,10 +39,8 @@ vi.mock('markstream-vue', () => ({
 
 vi.mock('@/app/api/windows/notifications', () => ({ notify: notifyMock }));
 
-async function mountContent(content = '`pnpm test`') {
-    const { setLocale } = await import('@/i18n');
+function mountContent(content = '`pnpm test`') {
     setLocale('zh-CN');
-    const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
     return mount(MarkdownContent, {
         props: { content },
         attachTo: document.body,

@@ -31,7 +31,9 @@ afterEach(async () => {
 });
 
 const text = (snapshot: TaskViewSnapshot | null) =>
-    snapshot?.sessionHistory.map((message) => message.content).join('\n') ?? '';
+    snapshot?.sessionHistory
+        .map((message) => [message.content, message.statusText].filter(Boolean).join('\n'))
+        .join('\n') ?? '';
 
 describe('given a production main task with actual Provider, Core and committed history', () => {
     it('user sees the new conversation and turn saved before the network request begins', async () => {
@@ -182,7 +184,8 @@ describe('given a production main task with actual Provider, Core and committed 
             expect(
                 snapshots.some((snapshot) =>
                     snapshot.sessionHistory.some(
-                        (message) => message.isRetrying && /Retrying/.test(message.content)
+                        (message) =>
+                            message.isStreaming && /Retrying/.test(message.statusText ?? '')
                     )
                 )
             ).toBe(true);
