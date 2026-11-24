@@ -1025,14 +1025,30 @@ describe('useSearchWindowResize', () => {
         const { mounted } = await mount();
         await flushLifecycle();
         await mounted.result.toggleMaximize();
-        nativeMock.window.resetSearchWindowBounds.mockRejectedValueOnce(new Error('Host failed'));
+        nativeMock.window.resetSearchWindowBounds.mockClear();
+        nativeMock.window.resetSearchWindowBounds.mockRejectedValue(new Error('Host failed'));
 
         await mounted.result.resetSearchWindowBounds();
 
         expect(mounted.result.effectiveWindowMaximized.value).toBe(true);
+        expect(nativeMock.window.resetSearchWindowBounds).toHaveBeenCalledTimes(2);
         await mounted.result.toggleMaximize();
         expect(lastCommit()?.placement).toBe('restore');
         expect(mounted.result.effectiveWindowMaximized.value).toBe(false);
+        mounted.unmount();
+    });
+
+    it('user recovers when the first idle bounds reset is interrupted', async () => {
+        const { mounted } = await mount();
+        await flushLifecycle();
+        await mounted.result.playSessionExpandAnimation(290);
+        nativeMock.window.resetSearchWindowBounds.mockClear();
+        nativeMock.window.resetSearchWindowBounds.mockRejectedValueOnce(new Error('Host failed'));
+
+        expect(await mounted.result.resetSearchWindowBounds()).toBe(true);
+
+        expect(nativeMock.window.resetSearchWindowBounds).toHaveBeenCalledTimes(2);
+        expect(mounted.result.cardHeight.value).toBe(60);
         mounted.unmount();
     });
 

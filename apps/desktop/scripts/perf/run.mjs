@@ -91,12 +91,12 @@ async function executeCommand(command, args, options, signal) {
             throw error;
         }
         const stats = await generateStats();
-        if (stats.overallStatus !== 'PASS') process.exitCode = 1;
+        if (stats.overallStatus !== 'PASS' && !options.advisory) process.exitCode = 1;
         return;
     }
 
     throw new Error(
-        'Usage: run.mjs <prepare|build|fixture|run|stats|gate|all> [--flows ...] [--dry-run] [--resume]'
+        'Usage: run.mjs <prepare|build|fixture|run|stats|gate|all> [--flows ...] [--dry-run] [--resume] [--advisory]'
     );
 }
 

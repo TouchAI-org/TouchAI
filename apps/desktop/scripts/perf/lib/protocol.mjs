@@ -223,6 +223,7 @@ export function readOptions(args) {
         memoryIntervalMs: integerArg(args, 'memory-interval-ms', 250),
         dryRun: args['dry-run'] === 'true',
         resume: args.resume === 'true',
+        advisory: args.advisory === 'true',
     };
 }
 

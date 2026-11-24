@@ -334,10 +334,11 @@ describe('user runs desktop performance on GitHub Actions', () => {
         expect(gateIndex).toBeGreaterThan(-1);
         expect(gateIndex).toBeLessThan(summaryIndex);
         expect(summaryIndex).toBeLessThan(uploadIndex);
-        expect(job.steps[gateIndex]?.if).toBe('always()');
+        expect(job.steps[gateIndex]?.if).toBe("always() && env.PERF_SCOPE != 'progress-smoke'");
         expect(job.steps[summaryIndex]?.if).toBe('always()');
         expect(job.steps[uploadIndex]?.if).toBe('always()');
         expect(runStep?.run).toContain('steady-state-memory) flows=progress,long-session');
+        expect(runStep?.run).toContain('progress-smoke) flows=progress');
         expect(job.steps[gateIndex]?.run).toContain('apps/desktop/scripts/perf/run.mjs gate');
         expect(job.steps.some((step) => step['continue-on-error'] === true)).toBe(false);
         expect(source).not.toContain('continue-on-error');
@@ -354,13 +355,36 @@ describe('user runs desktop performance on GitHub Actions', () => {
         expect(job.env.PERF_CANDIDATE_REQUEST).toContain('inputs.candidate || github.sha');
         expect(checkout?.with?.ref).toContain('inputs.candidate || github.sha');
         expect(job.env.LATENCY_BLOCKS).toContain("inputs['latency-blocks'] || '60'");
-        expect(job.env.PROGRESS_BLOCKS).toBe('3');
+        expect(job.env.PROGRESS_BLOCKS).toContain(
+            "inputs['performance-scope'] == 'progress-smoke'"
+        );
+        expect(job.env.PROGRESS_WARMUPS).toContain("'1' || '4'");
+        expect(job.env.PROGRESS_TASKS).toContain("'9' || '8'");
+        expect(job.env.PERF_ADVISORY).toContain("'true' || 'false'");
         expect(runStep?.run).toContain('node apps/desktop/scripts/perf/run.mjs all');
         expect(runStep?.run).toContain('--baseline "$PERF_BASELINE"');
         expect(runStep?.run).toContain('--candidate "$PERF_CANDIDATE"');
         expect(runStep?.run).toContain('--baseline-rail "$BASELINE_RAIL"');
         expect(runStep?.run).toContain('--candidate-rail "$CANDIDATE_RAIL"');
+        expect(runStep?.run).toContain('--advisory "$PERF_ADVISORY"');
         expect(source).not.toContain('github.event.pull_request.head.sha');
+    });
+
+    it('user sees a short progress smoke run fail for workload errors but not for missing statistics', async () => {
+        const workflow = await readPerformanceWorkflow();
+        const job = workflow.jobs.performance;
+        const runStep = job.steps.find((step) => step.name === 'Run desktop performance protocol');
+        const gate = job.steps.find((step) => step.name === 'Enforce desktop performance gate');
+        const smoke = runInputValidation(workflow, {
+            PERF_SCOPE: 'progress-smoke',
+            LONG_BLOCKS: '1',
+            PROGRESS_BLOCKS: '1',
+        });
+
+        expect(smoke.status).toBe(0);
+        expect(runStep?.run).toContain('--progress-warmups "$PROGRESS_WARMUPS"');
+        expect(runStep?.run).toContain('--progress-tasks "$PROGRESS_TASKS"');
+        expect(gate?.if).toContain("env.PERF_SCOPE != 'progress-smoke'");
     });
 
     it('user sees the performance gate pass from complete current evidence', () => {

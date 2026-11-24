@@ -2321,9 +2321,13 @@
         // A conversation owns the full-bleed surface while it is maximized. Exiting it
         // leaves that mode too, so the compact bar keeps its elevation and radius
         // instead of leaving an empty sheet behind.
-        if (effectiveWindowMaximized.value) {
-            if (!(await resetBoundsToIdle())) return;
-        } else if (!(await collapseBeforeClearing())) {
+        const returnedToIdle = effectiveWindowMaximized.value
+            ? await resetBoundsToIdle()
+            : await collapseBeforeClearing();
+        if (!returnedToIdle) {
+            log.error(
+                '[SearchView] Failed to return the search surface to idle; keeping the conversation mounted.'
+            );
             return;
         }
         clearSession();
@@ -2339,7 +2343,12 @@
 
         controller.closeQuickSearch();
         await hideAllOverlays();
-        if (!(await collapseBeforeClearing())) return;
+        if (!(await collapseBeforeClearing())) {
+            log.error(
+                '[SearchView] Failed to return the search surface to idle; keeping the conversation mounted.'
+            );
+            return;
+        }
         startNewSession();
         resetSessionInputHistoryTracking();
         await nextTick();
@@ -2747,6 +2756,11 @@
             },
             async clearSessionToIdle() {
                 await clearSessionToIdle();
+                if (sessionHistory.value.length > 0) {
+                    throw new Error(
+                        `The search surface did not return to idle (messages=${sessionHistory.value.length}, height=${cardPixelHeight.value}, maximized=${effectiveWindowMaximized.value}, hiding=${surfaceHiding.value}).`
+                    );
+                }
             },
             getSessionExpandDebug() {
                 return (

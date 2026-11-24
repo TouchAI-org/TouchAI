@@ -665,6 +665,14 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         }, MEASURE_COALESCE_MS);
     }
 
+    function cancelScheduledMeasurement() {
+        if (measureTimer !== null) {
+            clearTimeout(measureTimer);
+            measureTimer = null;
+        }
+        pendingMeasureTarget = null;
+    }
+
     function observeTargetHeight(el: HTMLElement) {
         resizeObserver?.disconnect();
         resizeObserver = new ResizeObserver(() => scheduleMeasurement(el));
@@ -701,11 +709,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     }
 
     function disposeObservers() {
-        if (measureTimer !== null) {
-            clearTimeout(measureTimer);
-            measureTimer = null;
-        }
-        pendingMeasureTarget = null;
+        cancelScheduledMeasurement();
         resizeObserver?.disconnect();
         resizeObserver = null;
         mutationObserver?.disconnect();
@@ -790,11 +794,24 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     async function resetSearchWindowBounds() {
         logicalPanelResizeStart = null;
         isLogicalPanelResizing.value = false;
-        const committed = await commitPanelHeight(options.defaultSize.value.height, {
-            placement: 'idle',
-            reset: true,
-        });
-        return committed && (await finishCompactTransition());
+        cancelScheduledMeasurement();
+
+        const commitIdleBounds = async () => {
+            const committed = await commitPanelHeight(options.defaultSize.value.height, {
+                placement: 'idle',
+                reset: true,
+            });
+            return committed && (await finishCompactTransition());
+        };
+
+        if (await commitIdleBounds()) return true;
+
+        // A geometry completion can supersede the reset while the native host is still
+        // settling. Retry once after Vue flushes that completion so a transient fold
+        // cannot leave the conversation mounted and make "new session" a silent no-op.
+        await nextTick();
+        cancelScheduledMeasurement();
+        return commitIdleBounds();
     }
 
     /** Measure the live content after Vue has applied the layout. */
@@ -835,6 +852,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     }
 
     async function collapseSessionToIdle() {
+        cancelScheduledMeasurement();
         const compactHeight = options.defaultSize.value.height;
         const fromHeight = currentHeight.value || compactHeight;
         if (fromHeight <= compactHeight + 1) {

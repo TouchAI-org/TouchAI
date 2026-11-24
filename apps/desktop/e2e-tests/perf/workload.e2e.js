@@ -335,6 +335,7 @@ async function submitAndMeasure(sample, options = {}) {
 }
 
 async function startNewSession() {
+    await focusMain();
     await callE2eBridge('clearSessionToIdle');
     await callE2eBridge('resetDraft');
     await browser.waitUntil(

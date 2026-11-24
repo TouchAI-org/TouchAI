@@ -1189,7 +1189,7 @@ describe('SearchView async overlay and listener lifecycle', () => {
             const setup = getSetupState(mountSearchView());
             resizeState.collapseSessionToIdle.mockResolvedValueOnce(false);
             const reset = deferred<boolean>();
-            resizeState.resetSearchWindowBounds.mockReturnValueOnce(reset.promise);
+            resizeState.resetSearchWindowBounds.mockReturnValue(reset.promise);
             const clear = setup.clearSessionToIdle();
             await flushPromises();
             expect(requestFlowState.current!.clearSession).not.toHaveBeenCalled();
@@ -1562,6 +1562,31 @@ describe('SearchView async overlay and listener lifecycle', () => {
         bridge.resetDraft();
 
         expect(draftState.clearDraft).toHaveBeenCalledOnce();
+    });
+
+    it('user sees the E2E bridge reject when a conversation cannot return to idle', async () => {
+        runtimeModeState.isE2eTestMode.mockResolvedValue(true);
+        mountSearchView();
+        await flushPromises();
+        await flushPromises();
+        requestFlowState.current!.sessionHistory.value = [
+            { id: 'user', role: 'user', content: 'Keep me', parts: [], timestamp: 1 },
+        ];
+        resizeState.collapseSessionToIdle.mockResolvedValueOnce(false);
+        resizeState.resetSearchWindowBounds.mockResolvedValueOnce(false);
+
+        const bridge = (
+            window as Window & {
+                __TOUCHAI_E2E__?: {
+                    clearSessionToIdle: () => Promise<void>;
+                };
+            }
+        ).__TOUCHAI_E2E__!;
+
+        await expect(bridge.clearSessionToIdle()).rejects.toThrow(
+            'The search surface did not return to idle'
+        );
+        expect(requestFlowState.current!.clearSession).not.toHaveBeenCalled();
     });
 
     it('user submitting from idle waits for response content before the window expands', async () => {
