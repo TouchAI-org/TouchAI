@@ -1,6 +1,7 @@
 import { mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { t } from '@/i18n';
 import ConversationToolbar from '@/views/SearchView/components/ConversationPanel/components/ConversationToolbar.vue';
 
 /**
@@ -31,6 +32,10 @@ function buttonByIcon(wrapper: ReturnType<typeof mountToolbar>, icon: string) {
         .find((button) => button.find(`[data-icon="${icon}"]`).exists());
 }
 
+function buttonByLabel(wrapper: ReturnType<typeof mountToolbar>, label: string) {
+    return wrapper.findAll('button').find((button) => button.attributes('aria-label') === label);
+}
+
 beforeEach(() => {
     vi.clearAllMocks();
 });
@@ -39,7 +44,7 @@ describe('user uses the conversation toolbar', () => {
     it('user clicks new session and the action is reported', async () => {
         const wrapper = mountToolbar();
 
-        await buttonByIcon(wrapper, 'new-session')!.trigger('click');
+        await buttonByLabel(wrapper, t('conversation.toolbar.newSession'))!.trigger('click');
 
         expect(wrapper.emitted('newSession')).toHaveLength(1);
         wrapper.unmount();
@@ -48,7 +53,7 @@ describe('user uses the conversation toolbar', () => {
     it('user clicks new session on a disabled toolbar and nothing happens', async () => {
         const wrapper = mountToolbar({ disabled: true });
 
-        await buttonByIcon(wrapper, 'new-session')!.trigger('click');
+        await buttonByLabel(wrapper, t('conversation.toolbar.newSession'))!.trigger('click');
 
         // A disabled toolbar must not act at all, not act and then look disabled.
         expect(wrapper.emitted('newSession')).toBeUndefined();
@@ -58,7 +63,7 @@ describe('user uses the conversation toolbar', () => {
     it('user opens the history and the new open state is reported', async () => {
         const wrapper = mountToolbar({ historyOpen: false });
 
-        await buttonByIcon(wrapper, 'session-history')!.trigger('click');
+        await buttonByLabel(wrapper, t('conversation.toolbar.openHistory'))!.trigger('click');
 
         const events = wrapper.emitted('historyOpenChange')!;
         expect(events[0]![0]).toMatchObject({ open: true });
@@ -68,7 +73,7 @@ describe('user uses the conversation toolbar', () => {
     it('user closes an open history and the new open state is reported', async () => {
         const wrapper = mountToolbar({ historyOpen: true });
 
-        await buttonByIcon(wrapper, 'session-history')!.trigger('click');
+        await buttonByLabel(wrapper, t('conversation.toolbar.openHistory'))!.trigger('click');
 
         expect(wrapper.emitted('historyOpenChange')![0]![0]).toMatchObject({ open: false });
         wrapper.unmount();
@@ -77,7 +82,7 @@ describe('user uses the conversation toolbar', () => {
     it('user hovers the history button and the prefetch is requested once', async () => {
         const wrapper = mountToolbar();
 
-        await buttonByIcon(wrapper, 'session-history')!.trigger('mouseenter');
+        await buttonByLabel(wrapper, t('conversation.toolbar.openHistory'))!.trigger('mouseenter');
 
         expect(wrapper.emitted('historyPrefetch')).toHaveLength(1);
         wrapper.unmount();
@@ -86,7 +91,7 @@ describe('user uses the conversation toolbar', () => {
     it('user hovers a disabled toolbar and no prefetch is requested', async () => {
         const wrapper = mountToolbar({ disabled: true });
 
-        await buttonByIcon(wrapper, 'session-history')!.trigger('mouseenter');
+        await buttonByLabel(wrapper, t('conversation.toolbar.openHistory'))!.trigger('mouseenter');
 
         expect(wrapper.emitted('historyPrefetch')).toBeUndefined();
         wrapper.unmount();
@@ -106,7 +111,7 @@ describe('user uses the conversation toolbar', () => {
 
     it('user drags from a button and the window does not move', async () => {
         const wrapper = mountToolbar();
-        const button = buttonByIcon(wrapper, 'new-session')!.element;
+        const button = buttonByLabel(wrapper, t('conversation.toolbar.newSession'))!.element;
 
         // The buttons stop the event themselves; this checks the toolbar's own guard too.
         const event = new MouseEvent('mousedown', { button: 0, bubbles: true });
@@ -143,7 +148,7 @@ describe('user uses the conversation toolbar', () => {
         const wrapper = mountToolbar({ isMaximized: false });
 
         expect(buttonByIcon(wrapper, 'maximize-square')).toBeTruthy();
-        await buttonByIcon(wrapper, 'maximize-square')!.trigger('click');
+        await buttonByLabel(wrapper, t('conversation.toolbar.maximizeWindow'))!.trigger('click');
         expect(wrapper.emitted('maximizeToggle')).toHaveLength(1);
 
         await wrapper.setProps({ isMaximized: true });
