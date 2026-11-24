@@ -24,6 +24,7 @@ import IconHide from '~icons/lucide/eye-off';
 import IconFile from '~icons/lucide/file';
 import IconFileBlank from '~icons/lucide/file-text';
 import IconFolderOpen from '~icons/lucide/folder-open';
+import IconFullscreen from '~icons/lucide/fullscreen';
 import IconGithub from '~icons/lucide/github';
 import IconGlobe from '~icons/lucide/globe';
 import IconGridAlt from '~icons/lucide/grid-2x2';
@@ -80,6 +81,7 @@ export const appIconMap = {
     file: IconFile,
     folder: IconFolderOpen,
     'folder-open': IconFolderOpen,
+    fullscreen: IconFullscreen,
     github: IconGithub,
     'grid-alt': IconGridAlt,
     globe: IconGlobe,

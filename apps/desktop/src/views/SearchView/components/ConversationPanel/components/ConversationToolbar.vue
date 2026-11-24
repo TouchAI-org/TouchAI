@@ -106,7 +106,7 @@
 <template>
     <div
         data-slot="conversation-toolbar"
-        class="toolbar-fade-overlay pointer-events-auto absolute top-0 right-0 left-0 z-100 flex h-18 cursor-grab items-start px-10 pt-3 active:cursor-grabbing"
+        class="toolbar-fade-overlay pointer-events-auto absolute top-0 right-0 left-0 z-100 flex h-18 cursor-grab items-start pt-3 pr-10 pl-7.5 active:cursor-grabbing"
         @mousedown="handleToolbarDragMouseDown"
         @wheel.passive="emit('wheel', $event.deltaY)"
     >
@@ -178,7 +178,7 @@
                 @click.stop="toggleMaximized"
             >
                 <AppIcon
-                    :name="isMaximized ? 'restore-square' : 'maximize-square'"
+                    :name="isMaximized ? 'restore-square' : 'fullscreen'"
                     class="h-4 w-4"
                     :class="isMaximized ? '-scale-x-100' : ''"
                 />
