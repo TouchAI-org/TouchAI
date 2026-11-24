@@ -73,10 +73,11 @@ an icon package directly.
   actions; they read as resize handles rather than window state.
 - **Conversation controls:** `new-session` uses the square-pen glyph, and
   `session-history` uses the overlapping-message glyph rather than a clock. `copy`
-  uses the clipboard glyph rather than two sheets. Session actions sit on the left and
-  window controls on the right; the four controls use separate 36px targets without an
-  enclosing capsule, the window control stays at the far right, and the pinned state
-  changes icon colour only rather than adding a raised container.
+  uses the simple overlapping-sheet glyph rather than a clipboard with an extra mark.
+  Session actions sit on the left and window controls on the right; the four controls
+  use separate 36px targets without an enclosing capsule, the window control stays at
+  the far right, and the pinned state changes icon colour only rather than adding a
+  raised container.
 - **Attribution:** Lucide, licensed ISC (<https://lucide.dev>).
 
 Replacing the icon set is `breaking`: every glyph and the stroke width change.

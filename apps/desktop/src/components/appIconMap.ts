@@ -15,7 +15,6 @@ import IconChevronRight from '~icons/lucide/chevron-right';
 import IconChevronUp from '~icons/lucide/chevron-up';
 import IconCheckCircle from '~icons/lucide/circle-check';
 import IconXCircle from '~icons/lucide/circle-x';
-import IconClipboardCopy from '~icons/lucide/clipboard-copy';
 import IconCopy from '~icons/lucide/copy';
 import IconData from '~icons/lucide/database';
 import IconDownload from '~icons/lucide/download';
@@ -69,7 +68,7 @@ export const appIconMap = {
     close: IconX,
     compress: IconCompress,
     cursor: IconPointer,
-    copy: IconClipboardCopy,
+    copy: IconCopy,
     database: IconData,
     delete: IconTrash,
     'document-text': IconFileBlank,

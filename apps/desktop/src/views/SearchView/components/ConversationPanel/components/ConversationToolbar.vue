@@ -125,7 +125,7 @@
 
             <div
                 ref="historyAnchorRef"
-                class="relative"
+                class="relative flex"
                 data-drag-exclude="true"
                 data-history-trigger="true"
             >
