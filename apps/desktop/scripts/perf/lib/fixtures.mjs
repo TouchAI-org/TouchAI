@@ -246,9 +246,14 @@ function businessOracleSha256(database, projection, log) {
     return sha256Text(dumps.join('\n'));
 }
 
-export async function prepareFixtures() {
+export function preparedFixtureNames(includeLongFixtures = true) {
+    return ['base', ...(includeLongFixtures ? fixtureLevels.map((level) => `long-${level}`) : [])];
+}
+
+export async function prepareFixtures({ includeLongFixtures = true } = {}) {
     verifyBuiltArms();
     ensureDirectory(fixturesRoot);
+    const fixtureNames = preparedFixtureNames(includeLongFixtures);
     // Fixtures and their manifest are one generation. Make the old manifest
     // unreadable before replacing any database so a partial regeneration cannot
     // be mistaken for the previous complete generation.
@@ -276,7 +281,7 @@ export async function prepareFixtures() {
         if (integrity !== 'ok') {
             throw new Error(`${arm} base fixture integrity check failed: ${integrity}`);
         }
-        for (const level of fixtureLevels) {
+        for (const level of includeLongFixtures ? fixtureLevels : []) {
             const destination = fixturePathByArm[arm][`long-${level}`];
             createLongFixture(base, level, destination);
             const counts = runSync(
@@ -301,11 +306,11 @@ export async function prepareFixtures() {
             sourceBinarySha256: sha256File(binaryPathByArm[arm]),
             migrationTags,
             fixtures: Object.fromEntries(
-                Object.entries(fixturePathByArm[arm]).map(([name, file]) => [
+                fixtureNames.map((name) => [
                     name,
                     {
-                        path: file,
-                        sha256: sha256File(file),
+                        path: fixturePathByArm[arm][name],
+                        sha256: sha256File(fixturePathByArm[arm][name]),
                     },
                 ])
             ),
@@ -327,7 +332,7 @@ export async function prepareFixtures() {
         }
     }
     const businessOracles = Object.fromEntries(
-        Object.keys(armManifests.baseline.fixtures).map((name) => [
+        fixtureNames.map((name) => [
             name,
             {
                 baseline: armManifests.baseline.fixtures[name].businessOracleSha256,

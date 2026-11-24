@@ -73,7 +73,9 @@ async function executeCommand(command, args, options, signal) {
         prepareSnapshots(args);
         await buildBoth(signal);
         signal?.throwIfAborted();
-        await prepareFixtures();
+        await prepareFixtures({
+            includeLongFixtures: options.flows.includes('long-session'),
+        });
         signal?.throwIfAborted();
         try {
             await runMeasurements(options, signal);

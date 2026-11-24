@@ -6,7 +6,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { DEFAULT_PORT } from '../../../scripts/perf/lib/config.mjs';
-import { configureBaseFixture } from '../../../scripts/perf/lib/fixtures.mjs';
+import { configureBaseFixture, preparedFixtureNames } from '../../../scripts/perf/lib/fixtures.mjs';
 
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require('node:sqlite');
@@ -18,6 +18,17 @@ afterEach(() => {
 });
 
 describe('user prepares the current desktop performance workload', () => {
+    it('user generates only fixtures required by the selected flows', () => {
+        expect(preparedFixtureNames(false)).toEqual(['base']);
+        expect(preparedFixtureNames(true)).toEqual([
+            'base',
+            'long-100',
+            'long-500',
+            'long-1000',
+            'long-1500',
+        ]);
+    });
+
     it('user gets one local model and the real setting tool from the shared isolated database fixture', () => {
         root = fs.mkdtempSync(path.join(os.tmpdir(), 'touchai-perf-fixture-'));
         const file = path.join(root, 'data/touchai.db');

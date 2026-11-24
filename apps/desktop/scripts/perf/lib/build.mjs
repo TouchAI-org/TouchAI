@@ -115,14 +115,47 @@ async function buildArm(arm, signal) {
 export async function buildBoth(signal) {
     ensureDirectory(logsRoot);
     fs.rmSync(path.join(evidenceRoot, 'builds.json'), { force: true });
-    const results = [];
-    for (const arm of arms) {
-        const result = await buildArm(arm, signal);
-        results.push(result);
+    const comparison = readComparison();
+    const baseline = await buildArm('baseline', signal);
+    const results = [baseline];
+    writeJson(path.join(evidenceRoot, 'builds.json'), {
+        generatedAt: nowIso(),
+        builds: results,
+    });
+
+    if (comparison.baselineCommit === comparison.candidateCommit) {
+        verifyPreparedSnapshot('current', currentSnapshot);
+        signal?.throwIfAborted();
+        const currentBinary = binaryPathByArm.current;
+        ensureDirectory(path.dirname(currentBinary));
+        fs.copyFileSync(binaryPathByArm.baseline, currentBinary);
+        fs.chmodSync(currentBinary, 0o755);
+        const currentLog = path.join(logsRoot, 'build-current.log');
+        fs.copyFileSync(baseline.log, currentLog);
+        results.push({
+            ...baseline,
+            arm: 'current',
+            binary: path.relative(evidenceRoot, currentBinary),
+            sourceManifestSha256: readJsonFile(path.join(evidenceRoot, 'source-manifest.json'))
+                .current.sha256,
+            binarySha256: sha256File(currentBinary),
+            binarySize: fs.statSync(currentBinary).size,
+            elapsedMs: 0,
+            log: currentLog,
+            reusedFrom: 'baseline',
+        });
         writeJson(path.join(evidenceRoot, 'builds.json'), {
             generatedAt: nowIso(),
             builds: results,
         });
+        return results;
     }
+
+    const current = await buildArm('current', signal);
+    results.push(current);
+    writeJson(path.join(evidenceRoot, 'builds.json'), {
+        generatedAt: nowIso(),
+        builds: results,
+    });
     return results;
 }
