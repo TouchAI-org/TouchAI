@@ -64,7 +64,8 @@ an icon package directly.
 
 - **Set:** Lucide (`@iconify-json/lucide`). Change the single `--app-icon-stroke`
   custom property in `styles/tailwind.css` to adjust the product's `1.8` stroke
-  weight globally.
+  weight globally. The two conversation-toolbar glyphs below are Lucide paths with
+  a larger corner radius, kept local because Lucide ships only the sharper original.
 - **Adding an icon:** add the semantic name to `appIconMap`, then use it through
   `AppIcon`. Do not import `~icons/*` in a component.
 - **Window glyphs:** `maximize-square` / `restore-square` are the conventional plain
@@ -73,9 +74,11 @@ an icon package directly.
   outward arrows) for the unmaximized state and `restore-square` for restore. The
   arrows read as expanding this floating window without implying fullscreen. Do not
   use `fullscreen` or bare expand/collapse brackets for this control.
-- **Conversation controls:** `new-session` uses the square-pen glyph, and
-  `session-history` uses the overlapping-message glyph rather than a clock. `copy`
-  uses the simple overlapping-sheet glyph rather than a clipboard with an extra mark.
+- **Conversation controls:** `new-session` uses a rounded square-pen glyph, and
+  `session-history` uses a rounded overlapping-message glyph rather than a clock.
+  The larger corner radius keeps both readable and soft at 14px, where Lucide's
+  default 2px radius reads as a sharp box. `copy` uses the simple overlapping-sheet
+  glyph rather than a clipboard with an extra mark.
   Session actions sit on the left and window controls on the right; the four controls
   use separate 36px targets without an enclosing capsule, 4px between targets, and
   14px glyphs on the conversation text column. Their light chrome tone keeps them

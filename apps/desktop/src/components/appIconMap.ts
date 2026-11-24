@@ -1,3 +1,5 @@
+import RoundedMessagesSquareIcon from '@components/icons/RoundedMessagesSquareIcon.vue';
+import RoundedSquarePenIcon from '@components/icons/RoundedSquarePenIcon.vue';
 import type { Component } from 'vue';
 
 import IconArrowBigUp from '~icons/lucide/arrow-big-up';
@@ -35,7 +37,6 @@ import IconLeaf from '~icons/lucide/leaf';
 import IconLoader from '~icons/lucide/loader-circle';
 import IconMaximizeWindow from '~icons/lucide/maximize-2';
 import IconMenu from '~icons/lucide/menu';
-import IconMessagesSquare from '~icons/lucide/messages-square';
 import IconCompress from '~icons/lucide/minimize-2';
 import IconMinus from '~icons/lucide/minus';
 import IconPointer from '~icons/lucide/mouse-pointer-2';
@@ -48,7 +49,6 @@ import IconSearch from '~icons/lucide/search';
 import IconCog from '~icons/lucide/settings';
 import IconShieldCheck from '~icons/lucide/shield-check';
 import IconSquare from '~icons/lucide/square';
-import IconSquarePen from '~icons/lucide/square-pen';
 import IconTerminal from '~icons/lucide/terminal';
 import IconTrash from '~icons/lucide/trash-2';
 import IconError from '~icons/lucide/triangle-alert';
@@ -87,7 +87,7 @@ export const appIconMap = {
     history: IconHistory,
     inbox: IconInbox,
     'list-ul': IconMenu,
-    'session-history': IconMessagesSquare,
+    'session-history': RoundedMessagesSquareIcon,
     'maximize-square': IconSquare,
     'maximize-window': IconMaximizeWindow,
     'restore-square': IconCopy,
@@ -100,7 +100,7 @@ export const appIconMap = {
     'external-link': IconLinkExternal,
     mcp: IconBlocks,
     minimize: IconMinus,
-    'new-session': IconSquarePen,
+    'new-session': RoundedSquarePenIcon,
     pin: IconPin,
     play: IconPlay,
     plus: IconPlus,
