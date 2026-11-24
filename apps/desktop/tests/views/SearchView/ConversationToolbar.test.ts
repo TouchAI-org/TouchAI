@@ -144,10 +144,10 @@ describe('user uses the conversation toolbar', () => {
         wrapper.unmount();
     });
 
-    it('user sees fullscreen and restore glyphs on the window control', async () => {
+    it('user sees maximize-window and restore glyphs on the window control', async () => {
         const wrapper = mountToolbar({ isMaximized: false });
 
-        expect(buttonByIcon(wrapper, 'fullscreen')).toBeTruthy();
+        expect(buttonByIcon(wrapper, 'maximize-window')).toBeTruthy();
         await buttonByLabel(wrapper, t('conversation.toolbar.maximizeWindow'))!.trigger('click');
         expect(wrapper.emitted('maximizeToggle')).toHaveLength(1);
 
@@ -161,7 +161,7 @@ describe('user uses the conversation toolbar', () => {
         const wrapper = mountToolbar({ isPinned: true, isMaximized: false });
 
         const buttons = wrapper.findAll('button');
-        expect(buttons.at(-1)!.find('[data-icon="fullscreen"]').exists()).toBe(true);
+        expect(buttons.at(-1)!.find('[data-icon="maximize-window"]').exists()).toBe(true);
 
         wrapper.unmount();
     });
@@ -174,7 +174,7 @@ describe('user uses the conversation toolbar', () => {
         expect(groups[0]!.querySelector('[data-icon="new-session"]')).toBeTruthy();
         expect(groups[0]!.querySelector('[data-icon="session-history"]')).toBeTruthy();
         expect(groups[1]!.querySelector('[data-icon="pin"]')).toBeTruthy();
-        expect(groups[1]!.querySelector('[data-icon="fullscreen"]')).toBeTruthy();
+        expect(groups[1]!.querySelector('[data-icon="maximize-window"]')).toBeTruthy();
 
         wrapper.unmount();
     });

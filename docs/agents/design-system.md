@@ -69,18 +69,18 @@ an icon package directly.
   `AppIcon`. Do not import `~icons/*` in a component.
 - **Window glyphs:** `maximize-square` / `restore-square` are the conventional plain
   square and offset-square pair shared by the OS window chrome. The floating
-  conversation toolbar uses `fullscreen` (a window inside corner brackets) for the
-  unmaximized state and `restore-square` for restore; the fullscreen glyph reads as
-  window expansion at 16px. Do not use diagonal arrows or bare expand/collapse
-  brackets for these actions; they read as resize handles rather than window state.
+  conversation toolbar uses `maximize-window` (Lucide `maximize-2`, two diagonal
+  outward arrows) for the unmaximized state and `restore-square` for restore. The
+  arrows read as expanding this floating window without implying fullscreen. Do not
+  use `fullscreen` or bare expand/collapse brackets for this control.
 - **Conversation controls:** `new-session` uses the square-pen glyph, and
   `session-history` uses the overlapping-message glyph rather than a clock. `copy`
   uses the simple overlapping-sheet glyph rather than a clipboard with an extra mark.
   Session actions sit on the left and window controls on the right; the four controls
-  use separate 36px targets without an enclosing capsule, and the 30px left inset
-  puts the 16px glyphs on the conversation text edge. The window control stays at the
-  far right, and the pinned state changes icon colour only rather than adding a raised
-  container.
+  use separate 36px targets without an enclosing capsule, 4px between targets, and
+  14px glyphs on the conversation text column. Their light chrome tone keeps them
+  secondary to the conversation. The window control stays at the far right, and the
+  pinned state changes icon colour only rather than adding a raised container.
 - **Attribution:** Lucide, licensed ISC (<https://lucide.dev>).
 
 Replacing the icon set is `breaking`: every glyph and the stroke width change.

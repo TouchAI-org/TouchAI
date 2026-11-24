@@ -124,7 +124,7 @@
     --color-message-action: var(--color-gray-400);
     --color-message-action-hover: var(--color-gray-600);
     --color-message-action-surface: var(--color-gray-100);
-    --color-conversation-toolbar: var(--color-chrome-gray-400);
+    --color-conversation-toolbar: var(--color-chrome-gray-350);
     --color-conversation-toolbar-hover-text: var(--color-chrome-gray-600);
     --color-conversation-toolbar-pinned-text: var(--color-primary-600);
 

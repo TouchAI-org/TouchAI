@@ -24,7 +24,6 @@ import IconHide from '~icons/lucide/eye-off';
 import IconFile from '~icons/lucide/file';
 import IconFileBlank from '~icons/lucide/file-text';
 import IconFolderOpen from '~icons/lucide/folder-open';
-import IconFullscreen from '~icons/lucide/fullscreen';
 import IconGithub from '~icons/lucide/github';
 import IconGlobe from '~icons/lucide/globe';
 import IconGridAlt from '~icons/lucide/grid-2x2';
@@ -34,6 +33,7 @@ import IconInfoCircle from '~icons/lucide/info';
 import IconKeyboard from '~icons/lucide/keyboard';
 import IconLeaf from '~icons/lucide/leaf';
 import IconLoader from '~icons/lucide/loader-circle';
+import IconMaximizeWindow from '~icons/lucide/maximize-2';
 import IconMenu from '~icons/lucide/menu';
 import IconMessagesSquare from '~icons/lucide/messages-square';
 import IconCompress from '~icons/lucide/minimize-2';
@@ -81,7 +81,6 @@ export const appIconMap = {
     file: IconFile,
     folder: IconFolderOpen,
     'folder-open': IconFolderOpen,
-    fullscreen: IconFullscreen,
     github: IconGithub,
     'grid-alt': IconGridAlt,
     globe: IconGlobe,
@@ -90,6 +89,7 @@ export const appIconMap = {
     'list-ul': IconMenu,
     'session-history': IconMessagesSquare,
     'maximize-square': IconSquare,
+    'maximize-window': IconMaximizeWindow,
     'restore-square': IconCopy,
     'information-circle': IconInfoCircle,
     keyboard: IconKeyboard,

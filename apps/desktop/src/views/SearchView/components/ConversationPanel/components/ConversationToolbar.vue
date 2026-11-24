@@ -110,7 +110,7 @@
         @mousedown="handleToolbarDragMouseDown"
         @wheel.passive="emit('wheel', $event.deltaY)"
     >
-        <div class="flex items-center gap-2.5">
+        <div class="flex items-center gap-1">
             <button
                 type="button"
                 class="toolbar-button"
@@ -120,7 +120,7 @@
                 @mousedown.stop
                 @click.stop="handleNewSession"
             >
-                <AppIcon name="new-session" class="h-4 w-4" />
+                <AppIcon name="new-session" class="h-3.5 w-3.5" />
             </button>
 
             <div
@@ -143,12 +143,12 @@
                     @mouseenter="handleHistoryPrefetch"
                     @click.stop="toggleHistory"
                 >
-                    <AppIcon name="session-history" class="h-4 w-4" />
+                    <AppIcon name="session-history" class="h-3.5 w-3.5" />
                 </button>
             </div>
         </div>
 
-        <div class="ml-auto flex items-center gap-2.5">
+        <div class="ml-auto flex items-center gap-1">
             <button
                 v-if="canPin"
                 type="button"
@@ -160,7 +160,7 @@
                 @mousedown.stop
                 @click.stop="togglePinned"
             >
-                <AppIcon name="pin" class="h-4 w-4" />
+                <AppIcon name="pin" class="h-3.5 w-3.5" />
             </button>
 
             <button
@@ -178,8 +178,8 @@
                 @click.stop="toggleMaximized"
             >
                 <AppIcon
-                    :name="isMaximized ? 'restore-square' : 'fullscreen'"
-                    class="h-4 w-4"
+                    :name="isMaximized ? 'restore-square' : 'maximize-window'"
+                    class="h-3.5 w-3.5"
                     :class="isMaximized ? '-scale-x-100' : ''"
                 />
             </button>
