@@ -134,7 +134,7 @@ describe('user has a native agent with an isolated local MCP server', function (
     });
 
     it('user given a saved tool result when the model fails once receives the answer without repeating the effect', async () => {
-        const marker = `mcp-retry-${mcp.serverId}`;
+        const marker = `rfc710-retry-${mcp.serverId}`;
         const prompt = `E2E record the MCP retry marker ${marker}`;
         const callId = `call-${marker}`;
         const answer = `E2E MCP retry completed ${marker}`;
@@ -223,7 +223,7 @@ describe('user has a native agent with an isolated local MCP server', function (
     });
 
     it('user given a connection lost after an effect when submitting a prompt sees failure without a blind replay and can recover', async () => {
-        const marker = `mcp-disconnect-${mcp.serverId}`;
+        const marker = `rfc710-disconnect-${mcp.serverId}`;
         const prompt = `E2E record the MCP disconnect marker ${marker}`;
         const callId = `call-${marker}`;
         mcp.injectOnce({ kind: 'disconnect', marker, callId });
@@ -267,7 +267,7 @@ describe('user has a native agent with an isolated local MCP server', function (
     });
 
     it('user given a completed effect when saving its audit fails sees a save error without replay and can submit a fresh prompt', async () => {
-        const marker = `mcp-save-failure-${mcp.serverId}`;
+        const marker = `rfc710-save-failure-${mcp.serverId}`;
         const prompt = `E2E record the MCP save failure marker ${marker}`;
         const callId = `call-${marker}`;
         mcp.injectOnce({ kind: 'write-lock', marker, callId });
@@ -307,7 +307,7 @@ describe('user has a native agent with an isolated local MCP server', function (
     });
 
     async function recoverWithNewEffect(reason) {
-        const marker = `mcp-recovery-${reason}-${mcp.serverId}`;
+        const marker = `rfc710-recovery-${reason}-${mcp.serverId}`;
         const prompt = `E2E record a fresh MCP recovery marker ${marker}`;
         const callId = `call-${marker}`;
         const answer = `E2E MCP recovered ${marker}`;

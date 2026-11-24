@@ -213,7 +213,7 @@ describe('user manages independently saved history in Settings with main running
         const unrelated = await scenario.unrelated();
         const counts = await readDataStatistics(database);
         const previousNotice = await readImportNotice(database);
-        await writeFile(scenario.corruptPath, 'Deliberately invalid SQLite backup\n', {
+        await writeFile(scenario.corruptPath, 'RFC710 deliberately invalid SQLite backup\n', {
             flag: 'wx',
         });
         const reply = await requestDataManagement({
