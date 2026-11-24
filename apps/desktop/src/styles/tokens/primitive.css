@@ -102,7 +102,7 @@
     --color-ui-800: #e2e2df;
 
     /* Existing conversation toolbar shades, independent of Tailwind's OKLCH ramp. */
-    --color-chrome-gray-350: #b6bcc6;
+    --color-chrome-gray-350: #a6a6a3;
     --color-chrome-gray-400: #9ca3af;
     --color-chrome-scrollbar: rgba(156, 163, 175, 0.25);
     --color-chrome-scrollbar-hover: rgba(156, 163, 175, 0.4);
