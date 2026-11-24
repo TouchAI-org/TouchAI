@@ -1187,14 +1187,25 @@ describe('SearchView async overlay and listener lifecycle', () => {
         'user clears a conversation only after fallback geometry succeeds (%s)',
         async (accepted) => {
             const setup = getSetupState(mountSearchView());
-            resizeState.collapseSessionToIdle.mockResolvedValueOnce(false);
+            let foldPausedMeasurement = false;
+            resizeState.collapseSessionToIdle.mockImplementationOnce(async () => {
+                foldPausedMeasurement = setup.surfaceMeasurementHold;
+                return false;
+            });
             const reset = deferred<boolean>();
-            resizeState.resetSearchWindowBounds.mockReturnValue(reset.promise);
+            let fallbackPausedMeasurement = false;
+            resizeState.resetSearchWindowBounds.mockImplementationOnce(async () => {
+                fallbackPausedMeasurement = setup.surfaceMeasurementHold;
+                return reset.promise;
+            });
             const clear = setup.clearSessionToIdle();
             await flushPromises();
+            expect(foldPausedMeasurement).toBe(true);
             expect(requestFlowState.current!.clearSession).not.toHaveBeenCalled();
             reset.resolve(accepted);
             await clear;
+            expect(fallbackPausedMeasurement).toBe(true);
+            expect(setup.surfaceMeasurementHold).toBe(false);
             expect(requestFlowState.current!.clearSession).toHaveBeenCalledTimes(accepted ? 1 : 0);
         }
     );

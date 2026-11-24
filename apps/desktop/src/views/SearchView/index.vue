@@ -2317,22 +2317,30 @@
 
     async function clearSessionToIdle() {
         cancelSessionExpansion();
+        // The collapse itself resizes the content and would normally schedule a
+        // measurement that can re-expand the surface before the conversation is
+        // cleared. Keep automatic measurement paused until the idle state is committed.
+        surfaceMeasurementHold.value = true;
         suppressQuickSearchAutoOpenOnce.value = true;
-        // A conversation owns the full-bleed surface while it is maximized. Exiting it
-        // leaves that mode too, so the compact bar keeps its elevation and radius
-        // instead of leaving an empty sheet behind.
-        const returnedToIdle = effectiveWindowMaximized.value
-            ? await resetBoundsToIdle()
-            : await collapseBeforeClearing();
-        if (!returnedToIdle) {
-            log.error(
-                '[SearchView] Failed to return the search surface to idle; keeping the conversation mounted.'
-            );
-            return;
+        try {
+            // A conversation owns the full-bleed surface while it is maximized. Exiting it
+            // leaves that mode too, so the compact bar keeps its elevation and radius
+            // instead of leaving an empty sheet behind.
+            const returnedToIdle = effectiveWindowMaximized.value
+                ? await resetBoundsToIdle()
+                : await collapseBeforeClearing();
+            if (!returnedToIdle) {
+                log.error(
+                    '[SearchView] Failed to return the search surface to idle; keeping the conversation mounted.'
+                );
+                return;
+            }
+            clearSession();
+            await nextTick();
+            await controller.focusSearchInput();
+        } finally {
+            surfaceMeasurementHold.value = false;
         }
-        clearSession();
-        await nextTick();
-        await controller.focusSearchInput();
     }
 
     async function handleStartNewSession() {
@@ -2343,16 +2351,21 @@
 
         controller.closeQuickSearch();
         await hideAllOverlays();
-        if (!(await collapseBeforeClearing())) {
-            log.error(
-                '[SearchView] Failed to return the search surface to idle; keeping the conversation mounted.'
-            );
-            return;
+        surfaceMeasurementHold.value = true;
+        try {
+            if (!(await collapseBeforeClearing())) {
+                log.error(
+                    '[SearchView] Failed to return the search surface to idle; keeping the conversation mounted.'
+                );
+                return;
+            }
+            startNewSession();
+            resetSessionInputHistoryTracking();
+            await nextTick();
+            await controller.focusSearchInput();
+        } finally {
+            surfaceMeasurementHold.value = false;
         }
-        startNewSession();
-        resetSessionInputHistoryTracking();
-        await nextTick();
-        await controller.focusSearchInput();
     }
 
     async function handleReopenLastClosedSession() {
