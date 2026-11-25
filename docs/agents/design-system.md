@@ -64,8 +64,8 @@ an icon package directly.
 
 - **Set:** Lucide (`@iconify-json/lucide`). Change the single `--app-icon-stroke`
   custom property in `styles/tailwind.css` to adjust the product's `1.8` stroke
-  weight globally. The two conversation-toolbar glyphs below are Lucide paths with
-  a larger corner radius, kept local because Lucide ships only the sharper original.
+  weight globally. The conversation-toolbar glyphs below are Lucide paths with
+  softer geometry, kept local because Lucide ships only the sharper originals.
 - **Adding an icon:** add the semantic name to `appIconMap`, then use it through
   `AppIcon`. Do not import `~icons/*` in a component.
 - **Window glyphs:** `maximize-square` / `restore-square` are the conventional plain
@@ -79,6 +79,9 @@ an icon package directly.
   The larger corner radius keeps both readable and soft at 14px, where Lucide's
   default 2px radius reads as a sharp box. `copy` uses the simple overlapping-sheet
   glyph rather than a clipboard with an extra mark.
+  `pin` uses a local pushpin with a capsule head and a rounded flange; Lucide's
+  stock pushpin has a square head and sharp flange that collapse into a dense blob
+  at 14px. The needle still carries the always-on-top meaning.
   Session actions sit on the left and window controls on the right; the four controls
   use separate 36px targets without an enclosing capsule, 4px between targets, and
   14px glyphs on the conversation text column. Their light chrome tone keeps them

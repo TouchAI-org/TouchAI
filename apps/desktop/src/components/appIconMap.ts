@@ -1,5 +1,6 @@
 import RoundedMessagesSquareIcon from '@components/icons/RoundedMessagesSquareIcon.vue';
 import RoundedSquarePenIcon from '@components/icons/RoundedSquarePenIcon.vue';
+import SoftPinIcon from '@components/icons/SoftPinIcon.vue';
 import type { Component } from 'vue';
 
 import IconArrowBigUp from '~icons/lucide/arrow-big-up';
@@ -41,7 +42,6 @@ import IconCompress from '~icons/lucide/minimize-2';
 import IconMinus from '~icons/lucide/minus';
 import IconPointer from '~icons/lucide/mouse-pointer-2';
 import IconEdit from '~icons/lucide/pencil';
-import IconPin from '~icons/lucide/pin';
 import IconPlay from '~icons/lucide/play';
 import IconPlus from '~icons/lucide/plus';
 import IconRefresh from '~icons/lucide/refresh-cw';
@@ -101,7 +101,7 @@ export const appIconMap = {
     mcp: IconBlocks,
     minimize: IconMinus,
     'new-session': RoundedSquarePenIcon,
-    pin: IconPin,
+    pin: SoftPinIcon,
     play: IconPlay,
     plus: IconPlus,
     refresh: IconRefresh,
