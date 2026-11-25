@@ -22,11 +22,11 @@ TouchAI is a local-first desktop AI agent built with Tauri 2 + Vue 3 + Rust + SQ
 
 ## Working rules
 
-- Issue first; maintainer-authored PRs may write `N/A` instead of linking an issue. → [development.md § Issue and worktree](docs/agents/development.md#issue-and-worktree)
-- One fresh worktree per task, never the main workspace; one issue per PR when linked.
+- Issue first; no code without an issue number. → [development.md § Issue and worktree](docs/agents/development.md#issue-and-worktree)
+- One fresh worktree per task, never the main workspace; one issue per PR.
 - Keep heavy build and temp output outside the repository and off the system drive.
 - Read the source in full; BDD then TDD for `feat` and `fix`: acceptance scenario first, then the failing test, then the code. → [testing.md § BDD and TDD](docs/testing/testing.md#bdd-and-tdd)
-- Keep the diff inside the linked issue or maintainer PR scope; a side fix gets its own issue.
+- Keep the diff inside the issue; a side fix gets its own issue.
 - Ask when a requirement is ambiguous, when a check cannot run and the risk is unclear, or before any irreversible action. → [development.md § Stop and ask](docs/agents/development.md#stop-and-ask)
 
 ## Documentation

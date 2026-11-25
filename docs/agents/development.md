@@ -42,8 +42,8 @@ When you hand-roll, say so in the PR risk notes: what you checked, what you reje
 
 ## Issue and worktree
 
-1. **Issue first.** Classify the work (feature, bug, refactor, docs, RFC, CI/tooling, release). Search existing issues and reuse the matching one; otherwise create one from the repository template with the right labels (`kind:bug`, `kind:feature`, `status:triage`, or an architecture RFC for high-risk work). A maintainer-authored PR (`OWNER`, `MEMBER`, or `COLLABORATOR`) may write `N/A` in `Related issue or RFC` instead. Only pure wording, link, or comment-only docs changes may otherwise skip this, and only when the user scopes them that way. This exception never waives an RFC-first requirement.
-2. **Worktree.** Every feature, bug fix, refactor, and similar task uses a fresh worktree, never the main workspace. One worktree, one issue when applicable, one PR.
+1. **Issue first.** Classify the work (feature, bug, refactor, docs, RFC, CI/tooling, release). Search existing issues and reuse the matching one; otherwise create one from the repository template with the right labels (`kind:bug`, `kind:feature`, `status:triage`, or an architecture RFC for high-risk work). No code without an issue number; only pure wording, link, or comment-only docs changes may skip this, and only when the user scopes them that way.
+2. **Worktree.** Every feature, bug fix, refactor, and similar task uses a fresh worktree, never the main workspace. One worktree, one issue, one PR.
 
 ```powershell
 git fetch origin
