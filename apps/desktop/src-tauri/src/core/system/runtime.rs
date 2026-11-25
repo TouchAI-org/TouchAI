@@ -148,6 +148,30 @@ pub fn webview_additional_browser_args() -> Option<String> {
     None
 }
 
+/// The search window is declared in `tauri.conf.json`, so it is created before
+/// any code can hand it browser arguments. WebView2 reads this variable when it
+/// builds the shared environment, and the first window builds that environment,
+/// so setting it before the app starts is what actually keeps the launcher's
+/// renderer from being backgrounded. An existing value still wins, which is how
+/// E2E and manual overrides keep working.
+pub fn apply_webview_browser_arguments_env() {
+    let Some(arguments) = browser_arguments_to_apply(
+        std::env::var_os("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").as_deref(),
+    ) else {
+        return;
+    };
+    std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", arguments);
+}
+
+/// Browser arguments to export for the shared WebView2 environment. Returns
+/// `None` when the environment already defines its own arguments.
+fn browser_arguments_to_apply(existing: Option<&std::ffi::OsStr>) -> Option<String> {
+    if existing.is_some_and(|value| !value.is_empty()) {
+        return None;
+    }
+    webview_additional_browser_args().filter(|arguments| !arguments.trim().is_empty())
+}
+
 pub fn should_enable_single_instance() -> bool {
     !is_e2e_test_mode()
         && !matches!(
@@ -170,11 +194,13 @@ pub fn resolve_app_root_override() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::{
-        can_show_startup_failure_dialog, e2e_webview_additional_browser_args, has_linux_display,
-        is_e2e_test_mode, is_ui_preview_mode, should_enable_single_instance,
-        webview_additional_browser_args, DEFAULT_E2E_WEBVIEW_ADDITIONAL_BROWSER_ARGS,
-        TOUCHAI_E2E_DISABLE_SINGLE_INSTANCE_ENV, TOUCHAI_E2E_ENV, TOUCHAI_UI_PREVIEW_ENV,
+        browser_arguments_to_apply, can_show_startup_failure_dialog,
+        e2e_webview_additional_browser_args, has_linux_display, is_e2e_test_mode,
+        is_ui_preview_mode, should_enable_single_instance, webview_additional_browser_args,
+        DEFAULT_E2E_WEBVIEW_ADDITIONAL_BROWSER_ARGS, TOUCHAI_E2E_DISABLE_SINGLE_INSTANCE_ENV,
+        TOUCHAI_E2E_ENV, TOUCHAI_UI_PREVIEW_ENV,
     };
+    use std::ffi::OsStr;
     use std::sync::Mutex;
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
@@ -229,6 +255,30 @@ mod tests {
         assert!(args.contains("--disable-background-timer-throttling"));
         assert!(args.contains("--disable-backgrounding-occluded-windows"));
         assert!(args.contains("--disable-renderer-backgrounding"));
+    }
+
+    #[test]
+    fn user_keeps_webview_arguments_the_environment_already_defines() {
+        assert_eq!(
+            browser_arguments_to_apply(Some(OsStr::new("--remote-debugging-port=9333"))),
+            None
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn user_gets_anti_throttling_arguments_exported_when_the_environment_defines_none() {
+        let _guard = ENV_LOCK.lock().expect("env lock");
+        std::env::remove_var(TOUCHAI_E2E_ENV);
+        std::env::remove_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS");
+
+        let args = browser_arguments_to_apply(None).expect("arguments to export");
+        assert!(args.contains("--disable-renderer-backgrounding"));
+        assert!(args.contains("CalculateNativeWinOcclusion"));
+        assert_eq!(
+            browser_arguments_to_apply(Some(OsStr::new(""))).as_deref(),
+            Some(&args[..])
+        );
     }
 
     #[test]
