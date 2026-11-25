@@ -3,12 +3,52 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick } from 'vue';
 
-import { settleSearchSurfaceViewport } from '@/views/SearchView/searchSurfacePreparation';
+import type { SearchSurfacePreparation } from '@/app/api/windows/contracts';
+import {
+    createSearchSurfacePreparationController,
+    settleSearchSurfaceViewport,
+} from '@/views/SearchView/searchSurfacePreparation';
 
 const originalPlatform = navigator.platform;
 
 function setPlatform(platform: string): void {
     Object.defineProperty(navigator, 'platform', { configurable: true, value: platform });
+}
+
+function preparation(showEpoch = 1): SearchSurfacePreparation {
+    return {
+        rendererEpoch: 1,
+        showEpoch,
+        hostEpoch: 1,
+        source: 'shortcut',
+        physicalViewport: { x: 0, y: 0, width: 750, height: 60 },
+        scaleFactor: 1,
+    };
+}
+
+function preparationController(
+    calls: string[],
+    overrides: Partial<Parameters<typeof createSearchSurfacePreparationController>[0]> = {}
+) {
+    return createSearchSurfacePreparationController({
+        listenPrepare: async () => () => undefined,
+        listenShown: async () => () => undefined,
+        listenHidden: async () => () => undefined,
+        getRendererEpoch: async () => 1,
+        markRendererReady: async () => preparation(),
+        getViewport: async () => ({
+            physicalViewport: { x: 0, y: 0, width: 750, height: 60 },
+            scaleFactor: 1,
+        }),
+        settle: async () => undefined,
+        flush: async () => {
+            calls.push('flush');
+            return true;
+        },
+        onShown: async () => undefined,
+        onHidden: async () => undefined,
+        ...overrides,
+    });
 }
 
 describe('search surface preparation', () => {
@@ -20,6 +60,49 @@ describe('search surface preparation', () => {
         setPlatform(originalPlatform);
         vi.useRealTimers();
         vi.unstubAllGlobals();
+    });
+
+    it('user_does_not_watch_the_previous_session_close_because_it_is_dropped_before_the_surface_is_measured', async () => {
+        const calls: string[] = [];
+        const controller = preparationController(calls, {
+            beforeMeasure: async () => {
+                calls.push('beforeMeasure');
+            },
+            getViewport: async () => {
+                calls.push('getViewport');
+                return {
+                    physicalViewport: { x: 0, y: 0, width: 750, height: 60 },
+                    scaleFactor: 1,
+                };
+            },
+        });
+
+        await controller.start();
+
+        expect(calls).toEqual(['beforeMeasure', 'getViewport', 'getViewport', 'flush']);
+        controller.dispose();
+    });
+
+    it('user_does_not_get_a_reveal_when_the_surface_is_hidden_while_the_previous_session_is_dropped', async () => {
+        const calls: string[] = [];
+        let hide: (() => Promise<void>) | undefined;
+        const controller = preparationController(calls, {
+            listenHidden: async (handler) => {
+                hide = async () => {
+                    await handler({ reason: 'app-blur-hide', sequence: 1 });
+                };
+                return () => undefined;
+            },
+            beforeMeasure: async () => {
+                calls.push('beforeMeasure');
+                await hide?.();
+            },
+        });
+
+        expect(await controller.start()).toBe(false);
+
+        expect(calls).toEqual(['beforeMeasure']);
+        controller.dispose();
     });
 
     it('user_sees_the_prepared_layout_only_after_two_frames_on_macos', async () => {

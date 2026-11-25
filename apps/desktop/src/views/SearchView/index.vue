@@ -1222,6 +1222,7 @@
         hideSearchWindow: hideSearchWindowBase,
         handleSearchSurfaceShown,
         handleSearchSurfaceHidden,
+        clearIdleSessionOnEntry,
     } = useSearchPageLifecycle({
         controller,
         viewReady,
@@ -1234,7 +1235,7 @@
         interactionContext: searchInteractionContext,
         syncWindowPinState,
         requestSearchSurfaceBlurPolicy: requestBlurPolicy,
-        clearSession: clearSessionToIdle,
+        clearSession: (options) => clearSessionToIdle(options),
         shouldClearSessionAfterTimeout,
         reconcileSearchOverlays: hideAllOverlays,
         remeasureSearchWindowHeight: remeasureTargetHeight,
@@ -1275,6 +1276,7 @@
             };
         },
         settle: settleSearchSurfaceViewport,
+        beforeMeasure: (isCurrent) => clearIdleSessionOnEntry(isCurrent, false),
         flush: (preparation) =>
             searchWindowRegionReporter.flush('surface-preparation', true, preparation),
         onShown: handleSearchSurfaceShown,
@@ -2306,11 +2308,19 @@
         }
     }
 
-    async function clearSessionToIdle() {
+    async function clearSessionToIdle(options: { animate?: boolean } = {}) {
         cancelSessionExpansion();
         suppressQuickSearchAutoOpenOnce.value = true;
-        if (!(await collapseBeforeClearing())) return;
-        clearSession();
+        if (options.animate === false) {
+            // Nobody can see this clear, so the conversation is dropped first: the card
+            // is already compact and the bounds commit below has nothing to animate.
+            clearSession();
+            await nextTick();
+            await collapseBeforeClearing();
+        } else {
+            if (!(await collapseBeforeClearing())) return;
+            clearSession();
+        }
         await nextTick();
         await controller.focusSearchInput();
     }

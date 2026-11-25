@@ -32,6 +32,12 @@ export interface SearchSurfacePreparationControllerOptions {
     getRendererEpoch: () => Promise<number>;
     markRendererReady: (rendererEpoch: number) => Promise<SearchSurfacePreparation | null>;
     getViewport: () => Promise<SearchSurfaceViewportSnapshot>;
+    /**
+     * Content work that must finish before the surface is measured, such as
+     * dropping a session that outlived the hide timeout. The window is still
+     * hidden here, so whatever this does cannot be watched by the user.
+     */
+    beforeMeasure?: (isCurrent: () => boolean) => void | Promise<void>;
     settle: (waitForPaint: boolean) => Promise<void>;
     flush: (preparation: SearchSurfacePreparation) => Promise<boolean>;
     onShown: (payload: SearchSurfaceShownEvent) => void | Promise<void>;
@@ -161,6 +167,10 @@ export function createSearchSurfacePreparationController(
         const capturedIntent = intentEpoch;
         const capturedAttempt = ++attemptEpoch;
         void (async () => {
+            const isAttemptCurrent = () => isCurrent(preparation, capturedIntent, capturedAttempt);
+            await options.beforeMeasure?.(isAttemptCurrent);
+            if (!isAttemptCurrent()) return;
+
             const viewport = await options.getViewport();
             if (!isCurrent(preparation, capturedIntent, capturedAttempt)) return;
             if (!viewportMatchesPreparation(viewport, preparation)) return;
