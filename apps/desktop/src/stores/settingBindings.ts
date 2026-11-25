@@ -11,7 +11,11 @@ import type { AppUpdateChannel } from '@/config/appUpdate';
 import type { AppLocale } from '@/config/locales';
 import type { AnimationSpeed } from '@/config/motion';
 import type { SearchKeybindings } from '@/config/searchKeybindings';
-import type { SearchWindowDefaultSize, SearchWindowSizePreset } from '@/config/searchWindow';
+import type {
+    SearchWindowAutoHideDelay,
+    SearchWindowDefaultSize,
+    SearchWindowSizePreset,
+} from '@/config/searchWindow';
 
 export interface GeneralSettingsComputedRefs {
     animationSpeed: ComputedRef<AnimationSpeed>;
@@ -22,6 +26,7 @@ export interface GeneralSettingsComputedRefs {
     searchKeybindings: ComputedRef<SearchKeybindings>;
     searchWindowSizePreset: ComputedRef<SearchWindowSizePreset>;
     searchWindowDefaultSize: ComputedRef<SearchWindowDefaultSize>;
+    searchWindowAutoHideDelay: ComputedRef<SearchWindowAutoHideDelay>;
     language: ComputedRef<AppLocale>;
     appUpdateChannel: ComputedRef<AppUpdateChannel>;
     appUpdateAutoCheck: ComputedRef<boolean>;

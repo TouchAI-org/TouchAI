@@ -234,6 +234,12 @@ pub fn run() {
             }
 
             if matches!(event, WindowEvent::Focused(true)) && window.label() == "main" {
+                if let Some(runtime) = window
+                    .app_handle()
+                    .try_state::<core::window::search::surface::SearchWindowRuntime>(
+                ) {
+                    runtime.cancel_pending_app_blur_hide();
+                }
                 // The main search window reached the foreground: complete the
                 // pending native activation once. Focus on an already completed
                 // activation is deduplicated inside the runtime.
@@ -267,6 +273,12 @@ pub fn run() {
                 let window_label = window.label().to_string();
                 core::window::webview_recovery::forget_window(window.app_handle(), &window_label);
                 if window_label == "main" {
+                    if let Some(runtime) = window
+                        .app_handle()
+                        .try_state::<core::window::search::surface::SearchWindowRuntime>(
+                    ) {
+                        runtime.cancel_pending_app_blur_hide();
+                    }
                     if let Err(error) = core::window::computer_use_glow::clear(window.app_handle())
                     {
                         warn!("Failed to clear computer-use feedback on window close: {error}");

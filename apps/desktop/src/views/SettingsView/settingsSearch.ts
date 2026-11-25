@@ -43,6 +43,7 @@ const settingDefinitions: Partial<Record<NavigationSection, SearchItemDefinition
         { labelKey: 'settings.general.startOnBoot', targetId: 'start-on-boot' },
         { labelKey: 'settings.general.startMinimized', targetId: 'start-minimized' },
         { labelKey: 'settings.general.windowSize', targetId: 'window-size' },
+        { labelKey: 'settings.general.windowAutoHide.label', targetId: 'window-auto-hide' },
         {
             labelKey: 'settings.general.sendShortcut',
             descriptionKey: 'settings.general.sendShortcutDescription',

@@ -30,6 +30,7 @@ const settingsStoreMock = await vi.hoisted(async () => {
         outputScrollBehavior: 'follow_output',
         searchWindowSizePreset: 'normal',
         searchWindowDefaultSize: { width: 720, height: 520 },
+        searchWindowAutoHideDelay: 'immediate',
         appUpdateChannel: 'stable',
         appUpdateAutoCheck: true,
         appUpdateLastCheckedAt: null,
@@ -45,6 +46,7 @@ const settingsStoreMock = await vi.hoisted(async () => {
         updateOutputScrollBehavior: vi.fn().mockResolvedValue(undefined),
         updateSearchKeybindings: vi.fn().mockResolvedValue(undefined),
         updateSearchWindowSizePreset: vi.fn().mockResolvedValue(undefined),
+        updateSearchWindowAutoHideDelay: vi.fn().mockResolvedValue(undefined),
         updateLanguage: vi.fn().mockResolvedValue(undefined),
         updateAppUpdateChannel: vi.fn().mockResolvedValue(undefined),
         updateAppUpdateAutoCheck: vi.fn().mockResolvedValue(undefined),
@@ -216,6 +218,50 @@ describe('user changes general settings', () => {
                 .get('[data-settings-search-target="start-on-boot"] [role="switch"]')
                 .attributes('aria-checked')
         ).toBe('false');
+    });
+
+    it('user sees the auto-hide presets and can choose a different delay', async () => {
+        setLocale('en-US');
+        await updatesBoundary.synchronize();
+        const wrapper = mount(GeneralSection, updatesBoundary.viewOptions);
+        const row = wrapper.get('[data-settings-search-target="window-auto-hide"]');
+        const select = row.findComponent({ name: 'CustomSelectStub' });
+
+        expect(row.get('label').text()).toBe('Hide session window after losing focus');
+        expect(row.get('label').attributes('for')).toBe(select.attributes('id'));
+        expect(select.props('modelValue')).toBe('immediate');
+        for (const option of [
+            'Immediately (default)',
+            '15 seconds',
+            '30 seconds',
+            '60 seconds',
+            'Until manually hidden',
+        ]) {
+            expect(select.text()).toContain(option);
+        }
+
+        select.vm.$emit('update:modelValue', '30s');
+        await flushPromises();
+
+        expect(settingsStoreMock.updateSearchWindowAutoHideDelay).toHaveBeenCalledWith('30s');
+        expect(alertMessageMock.success).toHaveBeenCalledWith('Saved', 2000);
+    });
+
+    it('user sees an error and the previous selection when auto-hide cannot be saved', async () => {
+        await updatesBoundary.synchronize();
+        const wrapper = mount(GeneralSection, updatesBoundary.viewOptions);
+        const select = wrapper
+            .get('[data-settings-search-target="window-auto-hide"]')
+            .findComponent({ name: 'CustomSelectStub' });
+        settingsStoreMock.updateSearchWindowAutoHideDelay.mockRejectedValueOnce(
+            new Error('database locked')
+        );
+
+        select.vm.$emit('update:modelValue', 'manual');
+        await flushPromises();
+
+        expect(alertMessageMock.error).toHaveBeenCalledWith('保存设置失败', 3000);
+        expect(select.props('modelValue')).toBe('immediate');
     });
 
     it('user chooses Ctrl+Enter as the send shortcut and both run actions swap', async () => {

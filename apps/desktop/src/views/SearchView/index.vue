@@ -42,6 +42,7 @@
         SEARCH_SURFACE_EASING,
         SEARCH_SURFACE_MOTION,
         SEARCH_SURFACE_REVEAL_EASING,
+        SEARCH_WINDOW_AUTO_HIDE_DELAY_MS,
     } from '@/config/searchWindow';
     const privacyApi = usePrivacyApi();
     const { publishPrivacyReview, clearPrivacyReview } = privacyApi;
@@ -375,8 +376,11 @@
     const mcpStore = useMcpStore();
     const toolsStartup = useMainToolsStartupApi();
     const settingsStore = useSettingsStore();
-    const { searchWindowDefaultSize, searchKeybindings } = storeToRefs(settingsStore);
+    const { searchWindowAutoHideDelay, searchWindowDefaultSize, searchKeybindings } =
+        storeToRefs(settingsStore);
     const { sessionStatuses, refreshAllStatuses: refreshSessionStatuses } = useSessionStatus();
+    const getSearchWindowAutoHideDelayMs = () =>
+        SEARCH_WINDOW_AUTO_HIDE_DELAY_MS[searchWindowAutoHideDelay.value] ?? 0;
     const {
         isPinned,
         pinnedForPolicy,
@@ -386,7 +390,11 @@
         toggleWindowPin,
     } = useSearchWindowPin({
         shouldHideOnAppBlur: (pinned) =>
-            !pinned && !isDragging.value && !effectiveWindowMaximized.value,
+            !pinned &&
+            !isDragging.value &&
+            !effectiveWindowMaximized.value &&
+            SEARCH_WINDOW_AUTO_HIDE_DELAY_MS[searchWindowAutoHideDelay.value] !== null,
+        getAutoHideDelayMs: getSearchWindowAutoHideDelayMs,
     });
     type E2eAskUserRequest =
         | { kind: 'confirm'; options: AskUserConfirmOptions }

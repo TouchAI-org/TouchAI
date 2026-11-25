@@ -6,7 +6,11 @@ import {
     normalizeSearchKeybindings,
     type SearchKeybindings,
 } from '@/config/searchKeybindings';
-import type { SearchWindowDefaultSize, SearchWindowSizePreset } from '@/config/searchWindow';
+import type {
+    SearchWindowAutoHideDelay,
+    SearchWindowDefaultSize,
+    SearchWindowSizePreset,
+} from '@/config/searchWindow';
 
 import {
     GENERAL_DERIVED_COMPUTED_BINDINGS,
@@ -30,6 +34,7 @@ export interface GeneralSettingsData {
     conversationContentWidth: number;
     searchWindowSizePreset: SearchWindowSizePreset;
     searchWindowDefaultSize: SearchWindowDefaultSize;
+    searchWindowAutoHideDelay: SearchWindowAutoHideDelay;
     language: AppLocale;
     appUpdateChannel: AppUpdateChannel;
     appUpdateAutoCheck: boolean;
@@ -81,6 +86,7 @@ export interface GeneralSettingUpdaters {
     updateOutputScrollBehavior(mode: OutputScrollBehavior): Promise<void>;
     updateConversationContentWidth(width: number): Promise<void>;
     updateSearchWindowSizePreset(preset: SearchWindowSizePreset): Promise<void>;
+    updateSearchWindowAutoHideDelay(preset: SearchWindowAutoHideDelay): Promise<void>;
     updateLanguage(language: AppLocale): Promise<void>;
     updateAppUpdateChannel(channel: AppUpdateChannel): Promise<void>;
     updateAppUpdateAutoCheck(enabled: boolean): Promise<void>;
@@ -298,6 +304,7 @@ export function cloneGeneralSettingsSnapshot(source: GeneralSettingsData): Gener
         outputScrollBehavior: source.outputScrollBehavior,
         conversationContentWidth: source.conversationContentWidth,
         searchWindowSizePreset: source.searchWindowSizePreset,
+        searchWindowAutoHideDelay: source.searchWindowAutoHideDelay,
         language: source.language,
         appUpdateChannel: source.appUpdateChannel,
         appUpdateAutoCheck: source.appUpdateAutoCheck,

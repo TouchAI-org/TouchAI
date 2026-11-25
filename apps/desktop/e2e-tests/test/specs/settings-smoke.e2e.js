@@ -198,6 +198,37 @@ describe('user works in the settings window', () => {
                 throw new Error('The start-minimized switch did not return to its original state.');
             }
         });
+
+        it('user keeps the chosen session window auto-hide delay after leaving the section', async () => {
+            const trigger = await waitForTestIdDisplayed('settings-window-auto-hide-trigger');
+            await trigger.click();
+            const option = await waitForTestIdDisplayed('settings-window-auto-hide-option-30s');
+            await option.click();
+            await browser.waitUntil(async () => (await trigger.getText()).includes('30 seconds'));
+
+            const shortcutsNav = await waitForTestIdDisplayed('settings-nav-shortcuts');
+            await shortcutsNav.click();
+            await waitForTestIdDisplayed('settings-shortcuts-section');
+
+            const generalNav = await waitForTestIdDisplayed('settings-nav-general');
+            await generalNav.click();
+            await waitForTestIdDisplayed('settings-general-section');
+
+            const restored = await waitForTestIdDisplayed('settings-window-auto-hide-trigger');
+            assertVisible(
+                (await restored.getText()).includes('30 seconds'),
+                'The session window auto-hide delay was not persisted.'
+            );
+
+            await restored.click();
+            const defaultOption = await waitForTestIdDisplayed(
+                'settings-window-auto-hide-option-immediate'
+            );
+            await defaultOption.click();
+            await browser.waitUntil(async () =>
+                (await restored.getText()).includes('Immediately (default)')
+            );
+        });
     });
 
     describe('given a skill is installed in the isolated user home', () => {

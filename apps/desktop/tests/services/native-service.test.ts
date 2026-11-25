@@ -297,10 +297,10 @@ describe('user works with app windows', () => {
             payload: undefined,
         },
         {
-            name: 'user syncs app blur policy for the search surface',
-            call: () => windowCommands.setSearchSurfaceHideOnAppBlur(true),
+            name: 'user chooses a 30-second wait before the search window hides on blur',
+            call: () => windowCommands.setSearchSurfaceHideOnAppBlur(true, 30_000),
             cmd: 'set_search_surface_hide_on_app_blur',
-            payload: { shouldHide: true },
+            payload: { shouldHide: true, delayMs: 30_000 },
         },
         {
             name: 'user syncs manual height override policy',

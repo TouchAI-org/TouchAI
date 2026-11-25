@@ -51,7 +51,7 @@ export interface SearchWindowApi extends WindowChromeApi {
     openSettingsWindow(): Promise<void>;
     getSearchWindowRendererEpoch(): Promise<number>;
     markSearchWindowReady(rendererEpoch: number): Promise<SearchSurfacePreparation | null>;
-    setSearchSurfaceHideOnAppBlur(value: boolean): Promise<void>;
+    setSearchSurfaceHideOnAppBlur(value: boolean, delayMs?: number): Promise<void>;
     setSearchWindowRegions(
         regions: SearchWindowRegion[],
         generation: number,
