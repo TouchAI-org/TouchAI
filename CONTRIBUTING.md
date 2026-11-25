@@ -19,7 +19,7 @@ pnpm site:dev # Offical Website
 Use one of these paths before you write code:
 
 - Documentation wording, link fixes, or comment-only cleanups: you can open a pull request directly.
-- Any code fix or feature work: open an issue first, then send a pull request.
+- Any code fix or feature work: open an issue first, then send a pull request. Maintainers (`OWNER`, `MEMBER`, `COLLABORATOR`) may write `N/A` in `Related issue or RFC` instead.
 - High-risk architecture or schema changes: open an RFC issue first, wait for agreement, then send a pull request.
 
 The following areas are always `RFC-first`:
@@ -175,7 +175,7 @@ pnpm test:pr
 
 A good pull request should:
 
-- link the related issue or RFC
+- link the related issue or RFC, or write `N/A` as a maintainer
 - explain the user-facing impact
 - stay focused on one problem
 - include the acceptance scenario (Given / When / Then) for feature and fix work

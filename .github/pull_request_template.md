@@ -1,5 +1,5 @@
 > First external contributors may need to complete the `CLA Assistant` check before merge.
-> For code changes, this PR must link the related issue or RFC in the section below.
+> For code changes, link the related issue or RFC in the section below. Maintainers may write `N/A`.
 
 ## Summary
 
@@ -12,7 +12,7 @@ Link the issue or RFC:
 - Closes #
 - Related to #
 
-For code changes, link the tracking issue. Only documentation wording, link fixes, or comment-only cleanups may skip the issue-first flow.
+For code changes, link the tracking issue. Maintainers (`OWNER`, `MEMBER`, `COLLABORATOR`) may write `N/A` when no issue applies. Only documentation wording, link fixes, or comment-only cleanups may otherwise skip the issue-first flow. RFC-first areas still require an accepted RFC.
 
 ## AI assistance disclosure
 

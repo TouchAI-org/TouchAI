@@ -13,13 +13,13 @@ Conventional Commits in English, imperative mood, lowercase type, no trailing pe
 
 ## Pull requests
 
-1. Link exactly one issue or RFC: `Closes #123` for a fix or feature, `Related to #123` for an RFC.
+1. Link exactly one issue or RFC: `Closes #123` for a fix or feature, `Related to #123` for an RFC. A maintainer-authored PR may write `N/A` when no issue applies, except in RFC-first areas.
 2. Title follows Conventional Commits and is valid for squash merge.
 3. Fill every section of `.github/pull_request_template.md`: Summary, Related issue or RFC, AI assistance disclosure, Testing evidence, Risk notes, Screenshots or recordings, Checklist.
 4. Stay on one problem; split unrelated changes. State the exact commands run and their results, and list anything not run and why.
 5. Include screenshots or a recording for UI changes.
 6. Use Draft PR for work in progress; never `[WIP]` or `[DO NOT MERGE]` title prefixes.
-7. One PR per issue. Do not open, merge, or reply on repository surfaces without explicit user approval.
+7. One PR per issue when an issue is linked. Do not open, merge, or reply on repository surfaces without explicit user approval.
 
 ## AI assistance disclosure
 
@@ -61,7 +61,7 @@ If a change cannot be rolled back safely, say so in the PR before it ships.
 
 ## Definition of done
 
-- [ ] One issue/RFC linked; the diff stays inside it.
+- [ ] One issue/RFC linked, or a maintainer PR records `N/A`; the diff stays inside that scope.
 - [ ] Fix at the owning layer with a regression test that fails without it, or a feature covering happy path, edge case, and error path.
 - [ ] Required checks passed; anything not run is listed with the reason.
 - [ ] Performance budget measured; before/after numbers for existing flows.
