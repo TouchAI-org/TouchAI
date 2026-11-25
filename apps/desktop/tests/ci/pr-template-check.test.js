@@ -86,6 +86,30 @@ describe('validatePrTemplateBody', () => {
         );
     });
 
+    it('user sees a maintainer pull request pass when the related issue is N/A', () => {
+        const body = buildBody({ '## Related issue or RFC': 'N/A' });
+
+        for (const authorAssociation of ['OWNER', 'MEMBER', 'COLLABORATOR']) {
+            expect(
+                validatePrTemplateBody(body, {
+                    headRef: 'feature/maintainer-pr',
+                    authorAssociation,
+                })
+            ).toBeNull();
+        }
+    });
+
+    it('user still needs an issue when a contributor marks the related issue N/A', () => {
+        const body = buildBody({ '## Related issue or RFC': 'N/A' });
+
+        expect(
+            validatePrTemplateBody(body, {
+                headRef: 'feature/contributor-pr',
+                authorAssociation: 'CONTRIBUTOR',
+            })
+        ).toBe('"## Related issue or RFC" must include an issue, RFC, or repository link.');
+    });
+
     it('accepts a regular PR that fills the design system section', () => {
         const body = buildBody({
             '## Design system': [
@@ -292,6 +316,17 @@ describe('PR template check workflow', () => {
         expect(workflow).toContain('PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}');
         expect(workflow).toContain(
             'PR_HEAD_REPO_FULL_NAME: ${{ github.event.pull_request.head.repo.full_name }}'
+        );
+    });
+
+    it('user gets maintainer pull request checks based on the author association', async () => {
+        const workflow = await readFile(
+            resolve(repositoryRoot, '.github/workflows/pr-template-check.yml'),
+            'utf8'
+        );
+
+        expect(workflow).toContain(
+            'PR_AUTHOR_ASSOCIATION: ${{ github.event.pull_request.author_association }}'
         );
     });
 });
