@@ -34,6 +34,7 @@ import {
     type GeneralSettingDefinition,
     type GeneralSettingsData,
     type GeneralSettingValue,
+    PROMPT_SNIPPET_SETTING_KEY,
 } from './domain';
 import {
     SettingsRejection,
@@ -53,6 +54,7 @@ const MAX_PREVIOUS_EPOCHS = 8;
 interface AuthorityContext {
     lifecycle: number;
     hostEpoch: string | null;
+    expectedRevision: number | null;
 }
 
 interface PendingRequest {
@@ -68,6 +70,7 @@ interface DedupedMutation {
     from: string;
     key: string;
     value: GeneralSettingValue;
+    expectedRevision: number | null;
     promise: Promise<SettingsMutationResult>;
     settled: boolean;
 }
@@ -82,6 +85,7 @@ interface SettingDefinition {
     read(source: GeneralSettingsData): unknown;
     serializeValue(value: unknown): string;
     eventValue(value: unknown): GeneralSettingValue;
+    canUpdate?(source: GeneralSettingsData): boolean;
     shouldRewritePersisted?(raw: string | null): boolean;
 }
 
@@ -335,6 +339,7 @@ export class SettingsService {
 
     async mutate(key: string, value: GeneralSettingValue): Promise<SettingsMutationResult> {
         this.assertNotDisposed();
+        const expectedRevision = key === PROMPT_SNIPPET_SETTING_KEY ? this.revision : null;
         if (this.role === 'owner') {
             if (!this.ready) {
                 throw new SettingsServiceError(
@@ -344,7 +349,7 @@ export class SettingsService {
             }
             return this.enqueueAuthority(
                 (context) => this.runMutation(key, value, context),
-                this.captureContext()
+                this.captureContext(expectedRevision)
             );
         }
 
@@ -371,6 +376,7 @@ export class SettingsService {
                     requestId: newRequestId(),
                     from: this.transport.label,
                     hostEpoch: this.hostEpoch,
+                    ...(expectedRevision === null ? {} : { expectedRevision }),
                     key,
                     value,
                 },
@@ -659,7 +665,8 @@ export class SettingsService {
                 message.requestId,
                 message.from,
                 message.key,
-                message.value
+                message.value,
+                message.expectedRevision ?? null
             );
             await this.reply(message.requestId, message.from, { ok: true, result });
         } catch (error) {
@@ -699,8 +706,12 @@ export class SettingsService {
 
     // ---- mutation pipeline ----
 
-    private captureContext(): AuthorityContext {
-        return { lifecycle: this.lifecycle, hostEpoch: this.hostEpoch };
+    private captureContext(expectedRevision: number | null = null): AuthorityContext {
+        return {
+            lifecycle: this.lifecycle,
+            hostEpoch: this.hostEpoch,
+            expectedRevision,
+        };
     }
 
     private isAlive(context: AuthorityContext): boolean {
@@ -741,13 +752,15 @@ export class SettingsService {
         requestId: string,
         from: string,
         key: string,
-        value: GeneralSettingValue
+        value: GeneralSettingValue,
+        expectedRevision: number | null
     ): Promise<SettingsMutationResult> {
         const existing = this.recentMutations.get(requestId);
         if (existing) {
             if (
                 existing.from !== from ||
                 existing.key !== key ||
+                existing.expectedRevision !== expectedRevision ||
                 !sameMutationValue(existing.value, value)
             ) {
                 // A re-used request id for a different command must not receive another
@@ -763,9 +776,16 @@ export class SettingsService {
         }
         const promise = this.enqueueAuthority(
             (context) => this.runMutation(key, value, context),
-            this.captureContext()
+            this.captureContext(expectedRevision)
         );
-        const entry: DedupedMutation = { from, key, value, promise, settled: false };
+        const entry: DedupedMutation = {
+            from,
+            key,
+            value,
+            expectedRevision,
+            promise,
+            settled: false,
+        };
         const markSettled = () => {
             entry.settled = true;
         };
@@ -822,6 +842,24 @@ export class SettingsService {
                 status: 'rejected',
                 key,
                 code: SettingsErrorCode.UnknownKey,
+                message: this.messages.mutationFailedMessage(),
+            };
+        }
+
+        if (definition.canUpdate && !definition.canUpdate(this.committed)) {
+            return {
+                status: 'rejected',
+                key,
+                code: SettingsErrorCode.InvalidValue,
+                message: this.messages.mutationFailedMessage(),
+            };
+        }
+
+        if (context.expectedRevision !== null && context.expectedRevision !== this.revision) {
+            return {
+                status: 'rejected',
+                key,
+                code: SettingsErrorCode.Rejected,
                 message: this.messages.mutationFailedMessage(),
             };
         }

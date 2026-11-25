@@ -393,6 +393,41 @@ describe('user changes a setting through the single owner', () => {
         expect(owner.getSnapshot().globalShortcut).toBe('Alt+Space');
     });
 
+    it('user saves prompt snippets from two windows at once and sees the stale collection rejected', async () => {
+        const effects = createEffects();
+        const owner = createOwner(effects);
+        await owner.initialize();
+        const windowA = createClient('win-a', effects);
+        const windowB = createClient('win-b', effects);
+        await windowA.initialize();
+        await windowB.initialize();
+        const makeSnippet = (id: string) => ({
+            id,
+            title: id,
+            body: `Body for ${id}`,
+            isFavorite: false,
+            sortOrder: 0,
+            lastUsedAt: null,
+            createdAt: '2026-11-22T01:00:00.000Z',
+            updatedAt: '2026-11-22T01:00:00.000Z',
+        });
+
+        const [firstResult, secondResult] = await Promise.all([
+            windowA.mutate('prompt_snippets_v1', {
+                schemaVersion: 1,
+                items: [makeSnippet('first')],
+            }),
+            windowB.mutate('prompt_snippets_v1', {
+                schemaVersion: 1,
+                items: [makeSnippet('second')],
+            }),
+        ]);
+
+        expect([firstResult.status, secondResult.status].sort()).toEqual(['committed', 'rejected']);
+        expect(owner.getSnapshot().promptSnippets.items).toHaveLength(1);
+        expect(['first', 'second']).toContain(owner.getSnapshot().promptSnippets.items[0]?.id);
+    });
+
     it('user still gets settings when the ready broadcast is missed', async () => {
         bus.dropNotices = true;
         const effects = createEffects();

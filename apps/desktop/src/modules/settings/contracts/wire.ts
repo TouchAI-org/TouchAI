@@ -40,6 +40,7 @@ export interface SettingsWireMutateRequest {
     requestId: string;
     from: string;
     hostEpoch: string | null;
+    expectedRevision?: number;
     key: string;
     value: GeneralSettingValue;
 }
@@ -94,6 +95,7 @@ const mutateRequestSchema = z
         requestId: requestIdSchema,
         from: requesterSchema,
         hostEpoch: hostEpochSchema,
+        expectedRevision: nonNegativeRevision.optional(),
         key: settingKeySchema,
         value: z.unknown(),
     })

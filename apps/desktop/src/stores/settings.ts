@@ -6,11 +6,13 @@ import { computed, onScopeDispose, ref, shallowRef } from 'vue';
 
 import {
     applyGeneralSettingValue,
+    canWritePromptSnippetStorage,
     createDefaultGeneralSettings,
     createGeneralSettingUpdaters,
     type GeneralSettingKey,
     type GeneralSettingsData,
     type GeneralSettingValue,
+    PROMPT_SNIPPET_SETTING_KEY,
 } from '@/app/api/settings/preferences';
 import {
     SettingsErrorCode,
@@ -122,6 +124,12 @@ export const useSettingsStore = defineStore('settings', () => {
         key: GeneralSettingKey,
         value: GeneralSettingValue
     ): Promise<void> {
+        if (
+            key === PROMPT_SNIPPET_SETTING_KEY &&
+            !canWritePromptSnippetStorage(settings.value.promptSnippets.storageIssue)
+        ) {
+            throw new SettingsServiceError(SettingsErrorCode.Rejected, '');
+        }
         const source = service();
         const token = ++pendingMutationToken;
         pendingMutations.set(key, { token, value });

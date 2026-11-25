@@ -6,6 +6,8 @@ import {
     GENERAL_SETTING_COMPUTED_BINDINGS,
     type GeneralSettingsData,
     type OutputScrollBehavior,
+    type PromptSnippetInsertionMode,
+    type PromptSnippetSettings,
 } from '@/app/api/settings/preferences';
 import type { AppUpdateChannel } from '@/config/appUpdate';
 import type { AppLocale } from '@/config/locales';
@@ -20,6 +22,8 @@ export interface GeneralSettingsComputedRefs {
     conversationContentWidth: ComputedRef<number>;
     globalShortcut: ComputedRef<string>;
     searchKeybindings: ComputedRef<SearchKeybindings>;
+    promptSnippetInsertionMode: ComputedRef<PromptSnippetInsertionMode>;
+    promptSnippets: ComputedRef<PromptSnippetSettings>;
     searchWindowSizePreset: ComputedRef<SearchWindowSizePreset>;
     searchWindowDefaultSize: ComputedRef<SearchWindowDefaultSize>;
     language: ComputedRef<AppLocale>;
