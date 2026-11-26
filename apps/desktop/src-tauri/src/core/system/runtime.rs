@@ -127,24 +127,46 @@ const DEFAULT_PRODUCTION_WEBVIEW_ADDITIONAL_BROWSER_ARGS: &str = concat!(
     "--disable-renderer-backgrounding"
 );
 
+/// The arguments this build asks for when nobody else configured any. Leaf of
+/// the precedence chain: it reads nothing, so callers cannot recurse through it.
+fn default_webview_browser_arguments() -> Option<String> {
+    #[cfg(target_os = "windows")]
+    {
+        if is_e2e_test_mode() {
+            return e2e_webview_additional_browser_args();
+        }
+        Some(DEFAULT_PRODUCTION_WEBVIEW_ADDITIONAL_BROWSER_ARGS.to_string())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        None
+    }
+}
+
 /// Browser arguments applied to the shared WebView2 environment.
 /// `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` still wins, matching wry's behavior.
-#[cfg(target_os = "windows")]
 pub fn webview_additional_browser_args() -> Option<String> {
-    if is_e2e_test_mode() {
-        return e2e_webview_additional_browser_args();
-    }
-    if let Ok(configured) = std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS") {
-        let trimmed = configured.trim();
-        if !trimmed.is_empty() {
-            return Some(trimmed.to_string());
+    #[cfg(target_os = "windows")]
+    {
+        if is_e2e_test_mode() {
+            return e2e_webview_additional_browser_args();
+        }
+        if let Ok(configured) = std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS") {
+            let trimmed = configured.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
+            }
         }
     }
     browser_arguments_to_apply(None, webview2_policy_arguments().as_deref())
 }
 
-/// Additional browser arguments an administrator configured through the
-/// WebView2 `AdditionalBrowserArguments` policy.
+/// Additional browser arguments an administrator configured through the WebView2
+/// `AdditionalBrowserArguments` policy.
+///
+/// The policy is a subkey under `Edge\\WebView2` whose value names are the
+/// executable file name, an app id, or `*`, so the arguments have to be looked up
+/// by name rather than read as a single value.
 ///
 /// WebView2 checks the environment variable before the registry, so exporting
 /// our defaults would shadow a policy that exists to be obeyed. The policy stays
@@ -154,29 +176,49 @@ fn webview2_policy_arguments() -> Option<String> {
     use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
     use winreg::RegKey;
 
-    const POLICY_KEY: &str = "Software\\Policies\\Microsoft\\Edge\\WebView2";
-    const VALUE: &str = "AdditionalBrowserArguments";
+    const POLICY_KEY: &str =
+        "Software\\Policies\\Microsoft\\Edge\\WebView2\\AdditionalBrowserArguments";
+
+    let executable = std::env::current_exe().ok().and_then(|path| {
+        path.file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+    });
 
     [HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE]
         .into_iter()
         .find_map(|hive| {
-            RegKey::predef(hive)
-                .open_subkey(POLICY_KEY)
-                .ok()?
-                .get_value::<String, _>(VALUE)
-                .ok()
+            let key = RegKey::predef(hive).open_subkey(POLICY_KEY).ok()?;
+            let named: Vec<String> = key
+                .enum_values()
+                .filter_map(Result::ok)
+                .map(|(name, _)| name)
+                .collect();
+            let name = policy_entry_for(&named, executable.as_deref())?;
+            key.get_value::<String, _>(name).ok()
         })
         .map(|arguments| arguments.trim().to_string())
         .filter(|arguments| !arguments.is_empty())
 }
 
-#[cfg(not(target_os = "windows"))]
-fn webview2_policy_arguments() -> Option<String> {
-    None
+/// Which policy entry applies to this process.
+///
+/// The policy names its entries by executable file name, app id, or `*`, so the
+/// executable wins over the wildcard and an entry for anything else does not
+/// apply at all.
+fn policy_entry_for(named: &[String], executable: Option<&str>) -> Option<String> {
+    if let Some(executable) = executable {
+        if named.iter().any(|entry| entry == executable) {
+            return Some(executable.to_string());
+        }
+    }
+    named
+        .iter()
+        .any(|entry| entry == "*")
+        .then(|| "*".to_string())
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn webview_additional_browser_args() -> Option<String> {
+fn webview2_policy_arguments() -> Option<String> {
     None
 }
 
@@ -210,7 +252,7 @@ fn browser_arguments_to_apply(
     if policy.is_some_and(|value| !value.trim().is_empty()) {
         return None;
     }
-    webview_additional_browser_args().filter(|arguments| !arguments.trim().is_empty())
+    default_webview_browser_arguments().filter(|arguments| !arguments.trim().is_empty())
 }
 
 pub fn should_enable_single_instance() -> bool {
@@ -237,9 +279,9 @@ mod tests {
     use super::{
         browser_arguments_to_apply, can_show_startup_failure_dialog,
         e2e_webview_additional_browser_args, has_linux_display, is_e2e_test_mode,
-        is_ui_preview_mode, should_enable_single_instance, webview_additional_browser_args,
-        DEFAULT_E2E_WEBVIEW_ADDITIONAL_BROWSER_ARGS, TOUCHAI_E2E_DISABLE_SINGLE_INSTANCE_ENV,
-        TOUCHAI_E2E_ENV, TOUCHAI_UI_PREVIEW_ENV,
+        is_ui_preview_mode, policy_entry_for, should_enable_single_instance,
+        webview_additional_browser_args, DEFAULT_E2E_WEBVIEW_ADDITIONAL_BROWSER_ARGS,
+        TOUCHAI_E2E_DISABLE_SINGLE_INSTANCE_ENV, TOUCHAI_E2E_ENV, TOUCHAI_UI_PREVIEW_ENV,
     };
     use std::ffi::OsStr;
     use std::sync::Mutex;
@@ -307,6 +349,26 @@ mod tests {
     }
 
     #[test]
+    fn user_gets_the_policy_entry_for_this_executable_or_the_wildcard() {
+        let named = vec!["*".to_string()];
+        assert_eq!(
+            policy_entry_for(&named, Some("TouchAI.exe")).as_deref(),
+            Some("*")
+        );
+
+        let named = vec!["TouchAI.exe".to_string(), "*".to_string()];
+        assert_eq!(
+            policy_entry_for(&named, Some("TouchAI.exe")).as_deref(),
+            Some("TouchAI.exe")
+        );
+
+        // An entry for another program is that program's policy, not ours.
+        let named = vec!["other.exe".to_string()];
+        assert_eq!(policy_entry_for(&named, Some("TouchAI.exe")), None);
+        assert_eq!(policy_entry_for(&[], Some("TouchAI.exe")), None);
+    }
+
+    #[test]
     fn user_keeps_webview_arguments_an_administrator_policy_defines() {
         assert_eq!(
             browser_arguments_to_apply(None, Some("--remote-debugging-port=9333")),
@@ -326,6 +388,13 @@ mod tests {
         assert!(args.contains("CalculateNativeWinOcclusion"));
         assert_eq!(
             browser_arguments_to_apply(Some(OsStr::new("")), None).as_deref(),
+            Some(&args[..])
+        );
+        // The per-window path must also terminate on the no-override startup
+        // path: it used to call `browser_arguments_to_apply`, which called it
+        // back without a base case.
+        assert_eq!(
+            webview_additional_browser_args().as_deref(),
             Some(&args[..])
         );
     }
