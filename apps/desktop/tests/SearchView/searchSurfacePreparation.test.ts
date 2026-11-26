@@ -64,10 +64,13 @@ describe('search surface preparation', () => {
 
     it('user_does_not_watch_the_previous_session_close_because_it_is_dropped_before_the_surface_is_measured', async () => {
         const calls: string[] = [];
+        let approveClear!: () => void;
         const controller = preparationController(calls, {
-            beforeMeasure: async () => {
-                calls.push('beforeMeasure');
-            },
+            beforeMeasure: () =>
+                new Promise<void>((resolve) => {
+                    calls.push('beforeMeasure');
+                    approveClear = resolve;
+                }),
             getViewport: async () => {
                 calls.push('getViewport');
                 return {
@@ -77,8 +80,13 @@ describe('search surface preparation', () => {
             },
         });
 
-        await controller.start();
+        const starting = controller.start();
+        // Nothing may be measured or committed while the clear is still running.
+        for (let index = 0; index < 20; index += 1) await Promise.resolve();
+        expect(calls).toEqual(['beforeMeasure']);
 
+        approveClear();
+        await expect(starting).resolves.toBe(true);
         expect(calls).toEqual(['beforeMeasure', 'getViewport', 'getViewport', 'flush']);
         controller.dispose();
     });
@@ -86,6 +94,7 @@ describe('search surface preparation', () => {
     it('user_does_not_get_a_reveal_when_the_surface_is_hidden_while_the_previous_session_is_dropped', async () => {
         const calls: string[] = [];
         let hide: (() => Promise<void>) | undefined;
+        let finishClear!: () => void;
         const controller = preparationController(calls, {
             listenHidden: async (handler) => {
                 hide = async () => {
@@ -93,14 +102,21 @@ describe('search surface preparation', () => {
                 };
                 return () => undefined;
             },
-            beforeMeasure: async () => {
-                calls.push('beforeMeasure');
-                await hide?.();
-            },
+            beforeMeasure: () =>
+                new Promise<void>((resolve) => {
+                    calls.push('beforeMeasure');
+                    finishClear = resolve;
+                }),
         });
 
-        expect(await controller.start()).toBe(false);
+        const starting = controller.start();
+        for (let index = 0; index < 20; index += 1) await Promise.resolve();
+        // The surface hides while the clear is still running, so the clear that
+        // finishes afterwards must not reach a commit.
+        await hide?.();
+        finishClear();
 
+        await expect(starting).resolves.toBe(false);
         expect(calls).toEqual(['beforeMeasure']);
         controller.dispose();
     });

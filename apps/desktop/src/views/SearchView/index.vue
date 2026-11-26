@@ -2311,6 +2311,19 @@
         }
     }
 
+    /**
+     * The idle clear is approved while the surface is still hidden. Anything the
+     * user did since — typing, sending, or starting another session — makes that
+     * approval stale, and clearing would throw their work away.
+     */
+    function idleClearStillAppropriate(sessionBeforeClear: number | null) {
+        return () => {
+            if (currentSessionId.value !== sessionBeforeClear) return false;
+            if (controller.hasInputContent()) return false;
+            return !isLoading.value && !pendingRequest.value;
+        };
+    }
+
     async function clearSessionToIdle(options: { animate?: boolean } = {}) {
         cancelSessionExpansion();
         suppressQuickSearchAutoOpenOnce.value = true;
@@ -2321,7 +2334,12 @@
             await nextTick();
             await collapseBeforeClearing();
         } else {
+            const clearIsCurrent = idleClearStillAppropriate(currentSessionId.value);
             if (!(await collapseBeforeClearing())) return;
+            // The reveal no longer waits for the whole collapse: it can finish
+            // after the bounded wait, with the window already shown. Clearing
+            // then would drop what the user typed or started in the meantime.
+            if (!clearIsCurrent()) return;
             clearSession();
         }
         await nextTick();
