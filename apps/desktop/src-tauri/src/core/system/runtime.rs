@@ -179,10 +179,13 @@ fn webview2_policy_arguments() -> Option<String> {
     const POLICY_KEY: &str =
         "Software\\Policies\\Microsoft\\Edge\\WebView2\\AdditionalBrowserArguments";
 
-    let executable = std::env::current_exe().ok().and_then(|path| {
-        path.file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-    });
+    // WebView2 resolves an entry by the process's app user model id first, then
+    // by the executable file name, then `*`. Read the id it will see: this runs
+    // before anything sets an explicit one on this process.
+    let candidates: Vec<String> = [process_app_user_model_id(), executable_file_name()]
+        .into_iter()
+        .flatten()
+        .collect();
 
     // WebView2 reads machine policy before the user's.
     let hives = [HKEY_LOCAL_MACHINE, HKEY_CURRENT_USER].map(|hive| {
@@ -201,7 +204,33 @@ fn webview2_policy_arguments() -> Option<String> {
             })
             .unwrap_or_default()
     });
-    policy_arguments_from(&hives, executable.as_deref())
+    policy_arguments_from(&hives, &candidates)
+}
+
+/// The process's explicit app user model id, if one is already set.
+#[cfg(target_os = "windows")]
+fn process_app_user_model_id() -> Option<String> {
+    use windows::Win32::System::Com::CoTaskMemFree;
+    use windows::Win32::UI::Shell::GetCurrentProcessExplicitAppUserModelID;
+
+    unsafe {
+        let id = GetCurrentProcessExplicitAppUserModelID().ok()?;
+        if id.0.is_null() {
+            return None;
+        }
+        let value = id.to_string().ok();
+        CoTaskMemFree(Some(id.0 as *const core::ffi::c_void));
+        value.filter(|value| !value.trim().is_empty())
+    }
+}
+
+/// The file name WebView2 uses to resolve a policy entry.
+#[cfg(target_os = "windows")]
+fn executable_file_name() -> Option<String> {
+    std::env::current_exe().ok().and_then(|path| {
+        path.file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+    })
 }
 
 /// Arguments of the first policy entry that applies to this process.
@@ -209,12 +238,9 @@ fn webview2_policy_arguments() -> Option<String> {
 /// Hives are searched in the order WebView2 reads them, and a blank value is not
 /// an argument string, so it must not stop the search: a blank machine entry
 /// cannot hide a user entry.
-fn policy_arguments_from(
-    hives: &[Vec<(String, String)>],
-    executable: Option<&str>,
-) -> Option<String> {
+fn policy_arguments_from(hives: &[Vec<(String, String)>], candidates: &[String]) -> Option<String> {
     hives.iter().find_map(|entries| {
-        let name = policy_entry_for(entries, executable)?;
+        let name = policy_entry_for(entries, candidates)?;
         entries
             .iter()
             .find(|(entry, _)| *entry == name)
@@ -225,16 +251,14 @@ fn policy_arguments_from(
 
 /// Which policy entry applies to this process.
 ///
-/// The policy names its entries by executable file name, app id, or `*`. Registry
-/// value names are case-insensitive, so the executable is matched that way, it
-/// wins over the wildcard, and an entry for another program does not apply. An
-/// app-id entry cannot apply either: neither wry nor this app passes a WebView2
-/// app id when the environment is created.
-fn policy_entry_for(entries: &[(String, String)], executable: Option<&str>) -> Option<String> {
-    if let Some(executable) = executable {
+/// The policy names its entries by app user model id, executable file name, or
+/// `*`. Registry value names are case-insensitive, so candidates are matched that
+/// way, in order, and an entry naming anything else does not apply.
+fn policy_entry_for(entries: &[(String, String)], candidates: &[String]) -> Option<String> {
+    for candidate in candidates {
         if let Some((name, _)) = entries
             .iter()
-            .find(|(entry, _)| entry.eq_ignore_ascii_case(executable))
+            .find(|(entry, _)| entry.eq_ignore_ascii_case(candidate))
         {
             return Some(name.clone());
         }
@@ -383,13 +407,31 @@ mod tests {
             .collect()
     }
 
+    fn candidates(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| value.to_string()).collect()
+    }
+
     #[test]
     fn user_gets_the_policy_entry_that_names_this_executable_in_any_case() {
         let hives = vec![policy_hive(&[("TOUCHAI.EXE", "--from-machine")])];
 
         assert_eq!(
-            policy_arguments_from(&hives, Some("TouchAI.exe")).as_deref(),
+            policy_arguments_from(&hives, &candidates(&["TouchAI.exe"])).as_deref(),
             Some("--from-machine")
+        );
+    }
+
+    #[test]
+    fn user_gets_the_policy_entry_for_the_process_identity_before_the_executable() {
+        let hives = vec![policy_hive(&[
+            ("TouchAI.Desktop", "--from-identity"),
+            ("TouchAI.exe", "--from-executable"),
+        ])];
+
+        assert_eq!(
+            policy_arguments_from(&hives, &candidates(&["touchai.desktop", "TouchAI.exe"]))
+                .as_deref(),
+            Some("--from-identity")
         );
     }
 
@@ -401,7 +443,7 @@ mod tests {
         ];
 
         assert_eq!(
-            policy_arguments_from(&hives, Some("TouchAI.exe")).as_deref(),
+            policy_arguments_from(&hives, &candidates(&["TouchAI.exe"])).as_deref(),
             Some("--from-machine")
         );
     }
@@ -414,7 +456,7 @@ mod tests {
         ];
 
         assert_eq!(
-            policy_arguments_from(&hives, Some("TouchAI.exe")).as_deref(),
+            policy_arguments_from(&hives, &candidates(&["TouchAI.exe"])).as_deref(),
             Some("--from-user")
         );
     }
@@ -427,17 +469,20 @@ mod tests {
         ])];
 
         assert_eq!(
-            policy_arguments_from(&hives, Some("TouchAI.exe")).as_deref(),
+            policy_arguments_from(&hives, &candidates(&["TouchAI.exe"])).as_deref(),
             Some("--anywhere")
         );
         assert_eq!(
             policy_arguments_from(
                 &[policy_hive(&[("other.exe", "--elsewhere")])],
-                Some("TouchAI.exe")
+                &candidates(&["TouchAI.exe"])
             ),
             None
         );
-        assert_eq!(policy_arguments_from(&[], Some("TouchAI.exe")), None);
+        assert_eq!(
+            policy_arguments_from(&[], &candidates(&["TouchAI.exe"])),
+            None
+        );
     }
 
     #[test]
