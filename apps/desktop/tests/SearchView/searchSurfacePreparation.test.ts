@@ -233,6 +233,37 @@ describe('search surface preparation', () => {
         controller.dispose();
     });
 
+    it('user_gets_the_reveal_when_the_refresh_publishes_a_replacement', async () => {
+        const calls: string[] = [];
+        let deliver: ((payload: SearchSurfacePreparation) => Promise<void>) | undefined;
+        let flushes = 0;
+        const controller = preparationController(calls, {
+            listenPrepare: async (handler) => {
+                deliver = handler as (payload: SearchSurfacePreparation) => Promise<void>;
+                return () => undefined;
+            },
+            flush: async () => {
+                flushes += 1;
+                calls.push(`flush:${flushes}`);
+                return flushes === 1 ? ('superseded' as const) : ('committed' as const);
+            },
+            // The host answers the refresh by republishing the pending
+            // preparation with a new epoch instead of reporting no change.
+            requestHostRefresh: async () => {
+                calls.push('refresh');
+                void deliver?.(preparation(2));
+            },
+            onError: (error) => {
+                calls.push(`error:${(error as Error).message}`);
+            },
+        });
+
+        await expect(controller.start()).resolves.toBe(true);
+
+        expect(calls).toEqual(['flush:1', 'refresh', 'flush:2']);
+        controller.dispose();
+    });
+
     it('user_sees_the_prepared_layout_only_after_two_frames_on_macos', async () => {
         const frames: FrameRequestCallback[] = [];
         vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {

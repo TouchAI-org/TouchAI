@@ -878,7 +878,15 @@ pub(crate) fn refresh_visible_host_on_main_thread<R: Runtime>(
                 request,
                 target_frame,
             } => (request, target_frame),
-            HostRefreshOutcome::Current | HostRefreshOutcome::NotApplicable => return Ok(false),
+            // The frame is unchanged, so there is nothing to rebuild — but the
+            // renderer asked because it cannot commit the preparation it holds.
+            // Answering "nothing to do" would end the show on a token the host
+            // has already replaced, so publish the pending preparation again.
+            HostRefreshOutcome::Current => {
+                drop(state);
+                return republish_preparation_after_host_resize(&window);
+            }
+            HostRefreshOutcome::NotApplicable => return Ok(false),
         }
     };
     Ok(prepare_show_locked(
