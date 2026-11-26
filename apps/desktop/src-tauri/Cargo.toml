@@ -146,6 +146,7 @@ windows = { version = "0.62", features = [
 ] }
 webview2-com = "0.39.1"
 windows-core = "0.62"
+winreg = "0.55"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6"

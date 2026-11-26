@@ -2330,8 +2330,13 @@
     function idleClearStillAppropriate(sessionBeforeClear: number | null) {
         const hasInputBeforeClear = controller.hasInputContent();
         const wasBusyBeforeClear = isLoading.value || pendingRequest.value !== null;
+        // A turn sent after approval lands as messages in this same session and
+        // can finish before the fold does, which leaves every other signal idle
+        // again. The message count is what still shows that the user sent it.
+        const messageCountBeforeClear = sessionHistory.value.length;
         return () => {
             if (currentSessionId.value !== sessionBeforeClear) return false;
+            if (sessionHistory.value.length !== messageCountBeforeClear) return false;
             if (!hasInputBeforeClear && controller.hasInputContent()) return false;
             return wasBusyBeforeClear || (!isLoading.value && !pendingRequest.value);
         };

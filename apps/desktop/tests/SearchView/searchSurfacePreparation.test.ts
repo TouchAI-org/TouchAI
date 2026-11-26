@@ -210,6 +210,29 @@ describe('search surface preparation', () => {
         controller.dispose();
     });
 
+    it('user_gets_a_fresh_preparation_when_a_superseded_commit_has_no_replacement', async () => {
+        const calls: string[] = [];
+        const controller = preparationController(calls, {
+            flush: async () => {
+                calls.push('flush');
+                return 'superseded' as const;
+            },
+            // The host replaced the preparation but the replacement never reached
+            // the renderer, so nothing arrives to take over from the stale token.
+            requestHostRefresh: async () => {
+                calls.push('refresh');
+            },
+            onError: (error) => {
+                calls.push(`error:${(error as Error).message}`);
+            },
+        });
+
+        await expect(controller.start()).resolves.toBe(false);
+
+        expect(calls).toEqual(['flush', 'refresh']);
+        controller.dispose();
+    });
+
     it('user_sees_the_prepared_layout_only_after_two_frames_on_macos', async () => {
         const frames: FrameRequestCallback[] = [];
         vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {

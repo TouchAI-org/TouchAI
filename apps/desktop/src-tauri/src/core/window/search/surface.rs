@@ -832,9 +832,18 @@ pub(crate) fn republish_preparation_after_host_resize<R: Runtime>(
         });
         payload
     };
-    app_handle
-        .emit("search-surface-prepare", payload)
-        .map_err(|error| format!("Failed to emit search surface preparation: {error}"))?;
+    // The renderer is waiting on this epoch: it holds a token the protocol has
+    // already replaced, so a dropped event leaves its commit obsolete with no
+    // replacement to switch to. Retry once before reporting the failure.
+    if let Err(first_error) = app_handle.emit("search-surface-prepare", payload.clone()) {
+        app_handle
+            .emit("search-surface-prepare", payload)
+            .map_err(|error| {
+                format!(
+                "Failed to emit search surface preparation: {error} (first attempt: {first_error})"
+            )
+            })?;
+    }
     Ok(true)
 }
 

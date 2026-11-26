@@ -1355,13 +1355,22 @@ describe('useSearchPageLifecycle', () => {
         // timeout was already consumed, and must not start a second one.
         const first = mounted.result.clearIdleSessionOnEntry(() => true, false);
         await flushLifecycle();
-        const retry = mounted.result.clearIdleSessionOnEntry(() => true, false);
+        let retrySettled = false;
+        const retry = mounted.result
+            .clearIdleSessionOnEntry(() => true, false)
+            .then(() => {
+                retrySettled = true;
+            });
         await flushLifecycle();
 
+        // The retry joins the clear that is already running, so it cannot settle
+        // before that clear does.
+        expect(retrySettled).toBe(false);
         expect(clearSession).toHaveBeenCalledTimes(1);
         finishClear();
         await Promise.all([first, retry]);
 
+        expect(retrySettled).toBe(true);
         expect(clearSession).toHaveBeenCalledTimes(1);
         mounted.unmount();
     });

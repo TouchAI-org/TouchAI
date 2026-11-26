@@ -1221,6 +1221,37 @@ describe('SearchView async overlay and listener lifecycle', () => {
         expect(requestFlowState.current!.clearSession).not.toHaveBeenCalled();
     });
 
+    it('user keeps a turn that finished while the bounded idle clear was folding', async () => {
+        mountSearchView();
+        requestFlowState.current!.currentSessionId.value = 17;
+        requestFlowState.current!.sessionHistory.value = [
+            { id: 'prior', role: 'user', content: 'earlier question', parts: [], timestamp: 1 },
+        ];
+        await nextTick();
+        const fold = deferred<boolean>();
+        resizeState.collapseSessionToIdle.mockReturnValueOnce(fold.promise);
+        const clearSession = lifecycleState.options!.clearSession as (options?: {
+            animate?: boolean;
+            revalidate?: boolean;
+        }) => Promise<void>;
+
+        const clear = clearSession({ animate: true, revalidate: true });
+        await flushPromises();
+        expect(requestFlowState.current!.clearSession).not.toHaveBeenCalled();
+
+        // The turn sent after approval arrives and finishes during the fold, so
+        // the busy flags are idle again by the time the approval is re-checked.
+        requestFlowState.current!.sessionHistory.value = [
+            { id: 'prior', role: 'user', content: 'earlier question', parts: [], timestamp: 1 },
+            { id: 'sent', role: 'user', content: 'asked during the fold', parts: [], timestamp: 2 },
+            { id: 'answer', role: 'assistant', content: 'answer', parts: [], timestamp: 3 },
+        ];
+        fold.resolve(true);
+        await clear;
+
+        expect(requestFlowState.current!.clearSession).not.toHaveBeenCalled();
+    });
+
     it('user gets the requested conversation dropped when the idle clear is explicit', async () => {
         const setup = getSetupState(mountSearchView());
         // An explicit reset carries the user's current intent, so it does not

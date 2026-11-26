@@ -140,7 +140,39 @@ pub fn webview_additional_browser_args() -> Option<String> {
             return Some(trimmed.to_string());
         }
     }
-    Some(DEFAULT_PRODUCTION_WEBVIEW_ADDITIONAL_BROWSER_ARGS.to_string())
+    browser_arguments_to_apply(None, webview2_policy_arguments().as_deref())
+}
+
+/// Additional browser arguments an administrator configured through the
+/// WebView2 `AdditionalBrowserArguments` policy.
+///
+/// WebView2 checks the environment variable before the registry, so exporting
+/// our defaults would shadow a policy that exists to be obeyed. The policy stays
+/// authoritative for every window: it is machine configuration, not ours.
+#[cfg(target_os = "windows")]
+fn webview2_policy_arguments() -> Option<String> {
+    use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
+    use winreg::RegKey;
+
+    const POLICY_KEY: &str = "Software\\Policies\\Microsoft\\Edge\\WebView2";
+    const VALUE: &str = "AdditionalBrowserArguments";
+
+    [HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE]
+        .into_iter()
+        .find_map(|hive| {
+            RegKey::predef(hive)
+                .open_subkey(POLICY_KEY)
+                .ok()?
+                .get_value::<String, _>(VALUE)
+                .ok()
+        })
+        .map(|arguments| arguments.trim().to_string())
+        .filter(|arguments| !arguments.is_empty())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn webview2_policy_arguments() -> Option<String> {
+    None
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -157,16 +189,25 @@ pub fn webview_additional_browser_args() -> Option<String> {
 pub fn apply_webview_browser_arguments_env() {
     let Some(arguments) = browser_arguments_to_apply(
         std::env::var_os("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").as_deref(),
+        webview2_policy_arguments().as_deref(),
     ) else {
         return;
     };
     std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", arguments);
 }
 
-/// Browser arguments to export for the shared WebView2 environment. Returns
-/// `None` when the environment already defines its own arguments.
-fn browser_arguments_to_apply(existing: Option<&std::ffi::OsStr>) -> Option<String> {
+/// Browser arguments to export for the shared WebView2 environment.
+///
+/// `None` means "leave WebView2 alone": the environment already defines its own
+/// arguments, or an administrator policy does, and either outranks our defaults.
+fn browser_arguments_to_apply(
+    existing: Option<&std::ffi::OsStr>,
+    policy: Option<&str>,
+) -> Option<String> {
     if existing.is_some_and(|value| !value.is_empty()) {
+        return None;
+    }
+    if policy.is_some_and(|value| !value.trim().is_empty()) {
         return None;
     }
     webview_additional_browser_args().filter(|arguments| !arguments.trim().is_empty())
@@ -260,7 +301,15 @@ mod tests {
     #[test]
     fn user_keeps_webview_arguments_the_environment_already_defines() {
         assert_eq!(
-            browser_arguments_to_apply(Some(OsStr::new("--remote-debugging-port=9333"))),
+            browser_arguments_to_apply(Some(OsStr::new("--remote-debugging-port=9333")), None),
+            None
+        );
+    }
+
+    #[test]
+    fn user_keeps_webview_arguments_an_administrator_policy_defines() {
+        assert_eq!(
+            browser_arguments_to_apply(None, Some("--remote-debugging-port=9333")),
             None
         );
     }
@@ -272,11 +321,11 @@ mod tests {
         std::env::remove_var(TOUCHAI_E2E_ENV);
         std::env::remove_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS");
 
-        let args = browser_arguments_to_apply(None).expect("arguments to export");
+        let args = browser_arguments_to_apply(None, None).expect("arguments to export");
         assert!(args.contains("--disable-renderer-backgrounding"));
         assert!(args.contains("CalculateNativeWinOcclusion"));
         assert_eq!(
-            browser_arguments_to_apply(Some(OsStr::new(""))).as_deref(),
+            browser_arguments_to_apply(Some(OsStr::new("")), None).as_deref(),
             Some(&args[..])
         );
     }

@@ -251,6 +251,11 @@ export function createSearchSurfacePreparationController(
             if (outcome === 'superseded') {
                 await waitForSupersedingPreparation();
                 if (!isCurrent(preparation, capturedIntent, capturedAttempt)) return;
+                // Nothing arrived, so the replacement never reached the renderer
+                // (a dropped prepare event). Waiting again would strand the show,
+                // so ask the host for the frame it now has.
+                await requestFreshPreparation(isAttemptCurrent, isPreparationCurrent);
+                if (!isCurrent(preparation, capturedIntent, capturedAttempt)) return;
                 resolvePendingCommit(false);
                 return;
             }
