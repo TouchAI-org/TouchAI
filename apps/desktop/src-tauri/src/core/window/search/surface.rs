@@ -798,38 +798,9 @@ pub(crate) fn republish_preparation_after_host_resize<R: Runtime>(
             .surface
             .lock()
             .unwrap_or_else(|error| error.into_inner());
-        if !matches!(
-            state.protocol.phase(),
-            SearchSurfacePhase::Preparing | SearchSurfacePhase::Activating
-        ) {
-            return Ok(false);
-        }
-        // `accept_host_resize_for_current_surface` already rebased the accepted
-        // viewport, so the pending state describes the frame the host will show.
-        let Some(pending) = state.pending_preparation.as_ref() else {
+        let Some(payload) = republish_pending_preparation(&mut state) else {
             return Ok(false);
         };
-        let viewport = pending.payload.physical_viewport;
-        let scale_factor = pending.payload.scale_factor;
-        let target_frame = pending.target_frame;
-        let Some(request) = state.protocol.request_host_refresh() else {
-            return Ok(false);
-        };
-        let Some(preparation) = state.protocol.host_prepared(request) else {
-            return Ok(false);
-        };
-        let payload = SearchSurfacePreparationPayload {
-            renderer_epoch: preparation.renderer_epoch,
-            show_epoch: preparation.show_epoch,
-            host_epoch: preparation.host_epoch,
-            source: preparation.source.as_str(),
-            physical_viewport: viewport,
-            scale_factor,
-        };
-        state.pending_preparation = Some(SearchSurfacePreparationState {
-            payload: payload.clone(),
-            target_frame,
-        });
         payload
     };
     // The renderer is waiting on this epoch: it holds a token the protocol has
@@ -845,6 +816,44 @@ pub(crate) fn republish_preparation_after_host_resize<R: Runtime>(
             })?;
     }
     Ok(true)
+}
+
+/// Publish the pending show again with a new host epoch.
+///
+/// The renderer's commit failed on a token the protocol already replaced, so the
+/// host restates the same show against the viewport it will really use. Only a
+/// preparation the renderer has not committed yet can be restated: a visible
+/// surface has nothing pending, so it publishes nothing.
+fn republish_pending_preparation(
+    state: &mut SearchSurfaceState,
+) -> Option<SearchSurfacePreparationPayload> {
+    if !matches!(
+        state.protocol.phase(),
+        SearchSurfacePhase::Preparing | SearchSurfacePhase::Activating
+    ) {
+        return None;
+    }
+    // `accept_host_resize_for_current_surface` already rebased the accepted
+    // viewport, so the pending state describes the frame the host will show.
+    let pending = state.pending_preparation.as_ref()?;
+    let viewport = pending.payload.physical_viewport;
+    let scale_factor = pending.payload.scale_factor;
+    let target_frame = pending.target_frame;
+    let request = state.protocol.request_host_refresh()?;
+    let preparation = state.protocol.host_prepared(request)?;
+    let payload = SearchSurfacePreparationPayload {
+        renderer_epoch: preparation.renderer_epoch,
+        show_epoch: preparation.show_epoch,
+        host_epoch: preparation.host_epoch,
+        source: preparation.source.as_str(),
+        physical_viewport: viewport,
+        scale_factor,
+    };
+    state.pending_preparation = Some(SearchSurfacePreparationState {
+        payload: payload.clone(),
+        target_frame,
+    });
+    Some(payload)
 }
 
 pub(crate) fn refresh_visible_host_on_main_thread<R: Runtime>(
@@ -922,6 +931,11 @@ fn host_refresh_answer(
             request,
             target_frame,
         },
+        // Nothing is pending once the surface is visible, so a refresh there has
+        // no preparation to restate and ends the attempt like any other no-op.
+        HostRefreshOutcome::Current if state.protocol.phase() == SearchSurfacePhase::Visible => {
+            HostRefreshAnswer::Nothing
+        }
         HostRefreshOutcome::Current => HostRefreshAnswer::Republish,
         HostRefreshOutcome::NotApplicable => HostRefreshAnswer::Nothing,
     }
@@ -1269,10 +1283,10 @@ mod tests {
     use super::{
         accept_host_resize_for_current_surface, foreground_belongs_to_main_hwnd_family,
         hide_surface_state_transaction, host_refresh_answer, refresh_host_if_needed,
-        should_hide_on_focus_lost, FocusLostDecisionInput, HostRefreshAnswer, HostRefreshOutcome,
-        SearchSurfacePreparationPayload, SearchSurfacePreparationState,
-        SearchSurfacePreparationToken, SearchSurfaceShowStatus, SearchSurfaceState,
-        SearchWindowRuntime,
+        republish_pending_preparation, should_hide_on_focus_lost, FocusLostDecisionInput,
+        HostRefreshAnswer, HostRefreshOutcome, SearchSurfacePreparationPayload,
+        SearchSurfacePreparationState, SearchSurfacePreparationToken, SearchSurfaceShowStatus,
+        SearchSurfaceState, SearchWindowRuntime,
     };
     use crate::core::window::search_host::{PhysicalHostFrame, PreparedSearchHost};
 
@@ -1718,28 +1732,68 @@ mod tests {
             host_refresh_answer(&mut state, unchanged),
             HostRefreshAnswer::Republish
         );
-        // A visible surface with the same frame also gets the pending show
-        // republished rather than "nothing to do".
+        // A visible surface has nothing pending to restate, so the decision has to
+        // agree with the publication it dispatches to instead of promising one.
         let mut visible = visible_surface_state();
         assert_eq!(
             host_refresh_answer(&mut visible, unchanged),
-            HostRefreshAnswer::Republish
+            HostRefreshAnswer::Nothing
         );
+        assert!(republish_pending_preparation(&mut visible).is_none());
 
-        // Republishing is what gives the renderer a token it can commit: the show
-        // stays the same, the host epoch moves on.
-        let request = state
+        let republished =
+            republish_pending_preparation(&mut state).expect("the pending show should be restated");
+        assert_eq!(republished.show_epoch, old_preparation.show_epoch);
+        assert_eq!(republished.renderer_epoch, old_preparation.renderer_epoch);
+        assert!(republished.host_epoch > old_preparation.host_epoch);
+        // The restated preparation keeps the viewport the host will really use.
+        assert_eq!(republished.physical_viewport, host_frame(1920));
+        assert_eq!(republished.scale_factor, 1.25);
+        assert_eq!(
+            state
+                .pending_preparation
+                .as_ref()
+                .expect("the restated preparation stays pending")
+                .payload,
+            republished
+        );
+        let current = state
             .protocol
-            .request_host_refresh()
-            .expect("the pending show should ask the host again");
-        let republished = state
+            .preparation()
+            .expect("the restated preparation is current");
+        assert_eq!(current.show_epoch, republished.show_epoch);
+        assert_eq!(current.host_epoch, republished.host_epoch);
+        assert!(state.protocol.region_applied(old_preparation, 11).is_none());
+        assert!(state.protocol.region_applied(current, 12).is_some());
+    }
+
+    #[test]
+    fn user_gets_a_republished_preparation_while_the_surface_is_activating() {
+        let (mut state, old_preparation) = preparing_surface_state();
+        let _activation = state
             .protocol
-            .host_prepared(request)
-            .expect("the host should prepare the same show again");
+            .region_applied(old_preparation, 41)
+            .expect("prepared region should activate");
+        assert_eq!(state.protocol.phase(), SearchSurfacePhase::Activating);
+
+        let republished =
+            republish_pending_preparation(&mut state).expect("the pending show should be restated");
+
         assert_eq!(republished.show_epoch, old_preparation.show_epoch);
         assert!(republished.host_epoch > old_preparation.host_epoch);
-        assert!(state.protocol.region_applied(old_preparation, 11).is_none());
-        assert!(state.protocol.region_applied(republished, 12).is_some());
+        let current = state
+            .protocol
+            .preparation()
+            .expect("the restated preparation is current");
+        assert!(state.protocol.region_applied(old_preparation, 42).is_none());
+        assert!(state.protocol.region_applied(current, 43).is_some());
+    }
+
+    #[test]
+    fn user_gets_nothing_republished_without_a_pending_preparation() {
+        let mut visible = visible_surface_state();
+
+        assert!(republish_pending_preparation(&mut visible).is_none());
     }
 
     #[test]
