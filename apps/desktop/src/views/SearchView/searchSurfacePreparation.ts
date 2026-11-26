@@ -186,16 +186,23 @@ export function createSearchSurfacePreparationController(
      * `notifyViewportChanged` retries. Waiting is the contract. But when the host
      * frame itself moved while hidden, no later viewport will ever match that
      * preparation, so ask the host once for a fresh one. A refresh that fails is
-     * a real fault: the show cannot complete and the attempt must not hang.
+     * a real fault: the show cannot complete and the preparation must not hang.
      */
-    async function requestFreshPreparation(isAttemptCurrent: () => boolean) {
+    async function requestFreshPreparation(
+        isAttemptCurrent: () => boolean,
+        isPreparationCurrent: () => boolean
+    ) {
         if (!isAttemptCurrent()) return;
         if (!options.requestHostRefresh || refreshRequests >= 1) return;
         refreshRequests += 1;
         try {
             await options.requestHostRefresh();
         } catch (error) {
-            if (!isAttemptCurrent()) return;
+            // The refresh can outlive the attempt that started it: a viewport
+            // notification retries while it is in flight, and that retry may not
+            // ask again. The preparation is still waiting, so the failure has to
+            // end it here rather than leave the show pending forever.
+            if (!isPreparationCurrent()) return;
             resolvePendingCommit(false);
             options.onError?.(error);
         }
@@ -209,13 +216,15 @@ export function createSearchSurfacePreparationController(
         const capturedAttempt = ++attemptEpoch;
         void (async () => {
             const isAttemptCurrent = () => isCurrent(preparation, capturedIntent, capturedAttempt);
+            const isPreparationCurrent = () =>
+                !disposed && capturedIntent === intentEpoch && pendingPreparation === preparation;
             await options.beforeMeasure?.(isAttemptCurrent);
             if (!isAttemptCurrent()) return;
 
             const viewport = await options.getViewport();
             if (!isCurrent(preparation, capturedIntent, capturedAttempt)) return;
             if (!viewportMatchesPreparation(viewport, preparation)) {
-                await requestFreshPreparation(isAttemptCurrent);
+                await requestFreshPreparation(isAttemptCurrent, isPreparationCurrent);
                 return;
             }
 
@@ -225,7 +234,7 @@ export function createSearchSurfacePreparationController(
             const settledViewport = await options.getViewport();
             if (!isCurrent(preparation, capturedIntent, capturedAttempt)) return;
             if (!viewportMatchesPreparation(settledViewport, preparation)) {
-                await requestFreshPreparation(isAttemptCurrent);
+                await requestFreshPreparation(isAttemptCurrent, isPreparationCurrent);
                 return;
             }
 

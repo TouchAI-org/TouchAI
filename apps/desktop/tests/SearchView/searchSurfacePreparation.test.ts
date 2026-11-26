@@ -156,6 +156,42 @@ describe('search surface preparation', () => {
         controller.dispose();
     });
 
+    it('user_gets_an_error_instead_of_a_stalled_reveal_when_the_refresh_fails_during_a_retry', async () => {
+        const calls: string[] = [];
+        let failRefresh!: (error: Error) => void;
+        const controller = preparationController(calls, {
+            // The measured frame never matches the preparation, so the host is
+            // asked for a fresh one and the answer is still outstanding.
+            getViewport: async () => ({
+                physicalViewport: { x: 0, y: 0, width: 750, height: 240 },
+                scaleFactor: 1,
+            }),
+            requestHostRefresh: () =>
+                new Promise<void>((_resolve, reject) => {
+                    calls.push('refresh');
+                    failRefresh = reject;
+                }),
+            onError: (error) => {
+                calls.push(`error:${(error as Error).message}`);
+            },
+        });
+
+        const starting = controller.start();
+        for (let index = 0; index < 20; index += 1) await Promise.resolve();
+        expect(calls).toEqual(['refresh']);
+
+        // A viewport notification retries while the refresh is in flight. That
+        // retry cannot ask for another refresh, so the failing one must still
+        // end the show instead of leaving it pending.
+        controller.notifyViewportChanged();
+        for (let index = 0; index < 20; index += 1) await Promise.resolve();
+
+        failRefresh(new Error('host refresh failed'));
+        await expect(starting).resolves.toBe(false);
+        expect(calls).toEqual(['refresh', 'error:host refresh failed']);
+        controller.dispose();
+    });
+
     it('user_gets_no_error_and_no_retry_when_the_host_already_replaced_the_preparation', async () => {
         const calls: string[] = [];
         const controller = preparationController(calls, {
