@@ -377,6 +377,8 @@ pub fn resolve_app_root_override() -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_os = "windows")]
+    use super::webview_additional_browser_args;
     use super::{
         browser_arguments_to_apply, can_show_startup_failure_dialog,
         e2e_webview_additional_browser_args, has_linux_display, is_e2e_test_mode,
