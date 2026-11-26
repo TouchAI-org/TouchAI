@@ -353,7 +353,7 @@ describe('user runs desktop performance on GitHub Actions', () => {
 
         expect(job.env.PERF_BASELINE_REQUEST).toContain('github.event.pull_request.base.sha');
         expect(job.env.PERF_CANDIDATE_REQUEST).toContain('inputs.candidate || github.sha');
-        expect(checkout?.with?.ref).toContain('inputs.candidate || github.sha');
+        expect(checkout?.with?.ref).toBeUndefined();
         expect(job.env.LATENCY_BLOCKS).toContain("inputs['latency-blocks'] || '60'");
         expect(job.env.PROGRESS_BLOCKS).toContain(
             "inputs['performance-scope'] == 'progress-smoke'"

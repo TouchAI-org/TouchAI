@@ -90,7 +90,6 @@ jobs:
               with:
                   fetch-depth: 0
                   persist-credentials: false
-                  ref: ${{ inputs.candidate || github.sha }}
 
             # This measures the selected change, not the old pre-refactor RFC acceptance.
             # Both arms must have identical dependency and database artifacts.
