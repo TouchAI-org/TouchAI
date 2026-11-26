@@ -9,6 +9,7 @@ import { onUnmounted, type Ref, watch } from 'vue';
  */
 export function useScrollbarStabilizer(containerRef: Ref<HTMLElement | null>) {
     let observer: ResizeObserver | null = null;
+    let frame: number | null = null;
     let scrollbarWidth = 0;
     let basePaddingRight = 0;
     let hadScrollbar: boolean | null = null;
@@ -37,6 +38,27 @@ export function useScrollbarStabilizer(containerRef: Ref<HTMLElement | null>) {
         }
     }
 
+    function cancelScheduledUpdate() {
+        if (frame === null) return;
+        cancelAnimationFrame(frame);
+        frame = null;
+    }
+
+    // 在 ResizeObserver 回调里直接写 padding 会改变被观察元素的宽度，浏览器因此
+    // 再排一次通知，并在达到投递上限时报告 “ResizeObserver loop completed with
+    // undelivered notifications”。把写入推迟到下一帧，回调本身不再触发观察。
+    function scheduleUpdate(el: HTMLElement) {
+        if (typeof requestAnimationFrame !== 'function') {
+            update(el);
+            return;
+        }
+        if (frame !== null) return;
+        frame = requestAnimationFrame(() => {
+            frame = null;
+            update(el);
+        });
+    }
+
     function setup(el: HTMLElement) {
         cleanup();
 
@@ -47,7 +69,7 @@ export function useScrollbarStabilizer(containerRef: Ref<HTMLElement | null>) {
         basePaddingRight = parseFloat(getComputedStyle(el).paddingRight) || 0;
         hadScrollbar = null;
 
-        observer = new ResizeObserver(() => update(el));
+        observer = new ResizeObserver(() => scheduleUpdate(el));
         observer.observe(el);
         // 观察直接子元素以捕获内容高度变化
         for (const child of el.children) {
@@ -61,6 +83,7 @@ export function useScrollbarStabilizer(containerRef: Ref<HTMLElement | null>) {
         observer?.disconnect();
         observer = null;
         hadScrollbar = null;
+        cancelScheduledUpdate();
         if (containerRef.value) {
             containerRef.value.style.paddingRight = '';
         }

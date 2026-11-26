@@ -1222,6 +1222,7 @@
         hideSearchWindow: hideSearchWindowBase,
         handleSearchSurfaceShown,
         handleSearchSurfaceHidden,
+        clearIdleSessionOnEntry,
     } = useSearchPageLifecycle({
         controller,
         viewReady,
@@ -1234,7 +1235,7 @@
         interactionContext: searchInteractionContext,
         syncWindowPinState,
         requestSearchSurfaceBlurPolicy: requestBlurPolicy,
-        clearSession: clearSessionToIdle,
+        clearSession: (options) => clearSessionToIdle(options),
         shouldClearSessionAfterTimeout,
         reconcileSearchOverlays: hideAllOverlays,
         remeasureSearchWindowHeight: remeasureTargetHeight,
@@ -1275,8 +1276,12 @@
             };
         },
         settle: settleSearchSurfaceViewport,
+        beforeMeasure: (isCurrent) => clearIdleSessionOnEntry(isCurrent, false),
         flush: (preparation) =>
-            searchWindowRegionReporter.flush('surface-preparation', true, preparation),
+            searchWindowRegionReporter.flushPrepared('surface-preparation', preparation),
+        requestHostRefresh: async () => {
+            await searchWindow.requestSearchSurfaceRefresh();
+        },
         onShown: handleSearchSurfaceShown,
         onHidden: handleSearchSurfaceHidden,
         onError: (error) => {
@@ -2315,18 +2320,59 @@
         }
     }
 
-    async function clearSessionToIdle() {
+    /**
+     * The idle clear is approved while the surface is still hidden. Anything the
+     * user did since — typing, sending, or starting another session — makes that
+     * approval stale, and clearing would throw their work away. Only changes
+     * count: content or a pending request that was already there when the clear
+     * was approved is the state being cleared, not new work.
+     */
+    function idleClearStillAppropriate(sessionBeforeClear: number | null) {
+        const hasInputBeforeClear = controller.hasInputContent();
+        const wasBusyBeforeClear = isLoading.value || pendingRequest.value !== null;
+        // A turn sent after approval lands as messages in this same session and
+        // can finish before the fold does, which leaves every other signal idle
+        // again. The message count is what still shows that the user sent it.
+        const messageCountBeforeClear = sessionHistory.value.length;
+        return () => {
+            if (currentSessionId.value !== sessionBeforeClear) return false;
+            if (sessionHistory.value.length !== messageCountBeforeClear) return false;
+            if (!hasInputBeforeClear && controller.hasInputContent()) return false;
+            return wasBusyBeforeClear || (!isLoading.value && !pendingRequest.value);
+        };
+    }
+
+    async function clearSessionToIdle(options: { animate?: boolean; revalidate?: boolean } = {}) {
         cancelSessionExpansion();
         suppressQuickSearchAutoOpenOnce.value = true;
         // A conversation owns the full-bleed surface while it is maximized. Exiting it
         // leaves that mode too, so the compact bar keeps its elevation and radius
         // instead of leaving an empty sheet behind.
-        if (effectiveWindowMaximized.value) {
-            if (!(await resetBoundsToIdle())) return;
-        } else if (!(await collapseBeforeClearing())) {
-            return;
+        if (options.animate === false) {
+            // Nobody can see this clear, so the conversation is dropped first: the card
+            // is already compact and the bounds commit below has nothing to animate.
+            clearSession();
+            await nextTick();
+            if (effectiveWindowMaximized.value) {
+                await resetBoundsToIdle();
+            } else {
+                await collapseBeforeClearing();
+            }
+        } else {
+            const clearIsCurrent = options.revalidate
+                ? idleClearStillAppropriate(currentSessionId.value)
+                : null;
+            if (effectiveWindowMaximized.value) {
+                if (!(await resetBoundsToIdle())) return;
+            } else if (!(await collapseBeforeClearing())) {
+                return;
+            }
+            // The reveal no longer waits for the whole collapse, so the bounded
+            // idle clear can finish with the window already shown. Clearing then
+            // would drop what the user typed or started in the meantime.
+            if (clearIsCurrent && !clearIsCurrent()) return;
+            clearSession();
         }
-        clearSession();
         await nextTick();
         await controller.focusSearchInput();
     }
@@ -2444,7 +2490,7 @@
                 log.error('[SearchView] Failed to animate session expand:', error);
             });
             if (expansion.signal.aborted) return;
-            await settleSearchSurfaceViewport();
+            await settleSearchSurfaceViewport(false);
             if (expansion.signal.aborted) return;
             // playSessionExpandAnimation already commits the measured target
             // height. A second synchronous native resize here used to move the

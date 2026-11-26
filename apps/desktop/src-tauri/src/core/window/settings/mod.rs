@@ -57,8 +57,7 @@ async fn build_settings_window_at<R: Runtime>(
     .transparent(true)
     .center();
 
-    if let Some(browser_args) = crate::core::system::runtime::e2e_webview_additional_browser_args()
-    {
+    if let Some(browser_args) = crate::core::system::runtime::webview_additional_browser_args() {
         builder = builder.additional_browser_args(&browser_args);
     }
 

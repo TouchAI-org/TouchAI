@@ -242,6 +242,14 @@ pub fn setup_app(app: &mut tauri::App) -> Result<(), String> {
             warn!("Failed to apply webview runtime defaults: {}", error);
         }
 
+        if let Err(error) = crate::core::window::surface_recovery::install(&window) {
+            warn!("Failed to install window surface recovery: {}", error);
+        }
+
+        if let Err(error) = crate::core::window::search::visibility::install(&window) {
+            warn!("Failed to install search window visibility: {}", error);
+        }
+
         if let Err(error) = crate::core::window::rounded_corners::apply_window_corner_style(&window)
         {
             warn!("Failed to set rounded corners: {}", error);
