@@ -33,6 +33,7 @@ export interface SearchWindowApi extends WindowChromeApi {
     isAlwaysOnTop(): Promise<boolean>;
     setAlwaysOnTop(value: boolean): Promise<void>;
     isVisible(): Promise<boolean>;
+    requestSearchSurfaceRefresh(): Promise<boolean>;
     isFocused(): Promise<boolean>;
     startDragging(): Promise<void>;
     outerPosition(): Promise<{ x: number; y: number }>;

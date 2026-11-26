@@ -555,6 +555,9 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
     let searchSurfaceShortcutSync: Promise<void> = Promise.resolve();
     let lifecycleInitialized = false;
     let restoredActivationEpoch: number | null = null;
+    // One timeout clear per show. Surface preparation and window activation both
+    // ask for it; the second must join the first instead of no-opping.
+    let idleClearTransaction: { visibilityEpoch: number; done: Promise<void> } | null = null;
     let latestSurfaceSequence = 0;
     let surfaceLifecycleEpoch = 0;
     let blurReconcileTimer: ReturnType<typeof setTimeout> | null = null;
@@ -657,14 +660,34 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
      * The hide timeout is armed once per hide, so the later activation is a no-op.
      */
     async function clearIdleSessionOnEntry(isCurrent: () => boolean = () => true, animate = true) {
+        if (!isCurrent()) return;
+        const visibilityEpoch = interactionContext.state.visibilityEpoch;
+        // The preparation can be superseded while the clear is in flight. The
+        // transaction belongs to the show, not to one attempt, so a retry joins
+        // the clear already running instead of consuming the timeout a second
+        // time (which would skip it) or starting a competing one.
+        if (idleClearTransaction?.visibilityEpoch === visibilityEpoch) {
+            await idleClearTransaction.done;
+            return;
+        }
         const timedOut = interactionContext.shouldRunTimeoutClearOnFocus(
-            interactionContext.state.visibilityEpoch,
+            visibilityEpoch,
             Date.now(),
             HIDE_TIMEOUT_MS
         );
         if (!timedOut) return;
+        const transaction = {
+            visibilityEpoch,
+            done: runIdleSessionClear(animate),
+        };
+        idleClearTransaction = transaction;
+        await transaction.done;
+        if (idleClearTransaction === transaction) idleClearTransaction = null;
+    }
+
+    async function runIdleSessionClear(animate: boolean) {
         const shouldClear = await Promise.resolve(shouldClearSessionAfterTimeout?.() ?? true);
-        if (!isCurrent() || !shouldClear) return;
+        if (!shouldClear) return;
         // A collapse animation that never finishes must not keep the window hidden,
         // so the clear is bounded and the reveal proceeds either way.
         await Promise.race([

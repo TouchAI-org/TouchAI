@@ -45,6 +45,8 @@ pub fn invoke_handler<R: tauri::Runtime>(
         window::show_session_status_reminder_notification,
         window::clear_session_status_reminder_notifications,
         window::set_search_surface_hide_on_app_blur,
+        window::is_search_surface_visible,
+        window::request_search_surface_refresh,
         window::set_search_window_regions,
         window::set_search_window_allow_height_override,
         window::open_settings_window,

@@ -90,6 +90,20 @@ impl SearchSurfaceShowStatus {
             generation: activation.region_generation,
         }
     }
+
+    /// The renderer acknowledged a preparation the host had already replaced.
+    /// Reporting `obsolete` lets it end that attempt and wait for the newer
+    /// preparation, instead of treating the acknowledgement as broken native
+    /// state and hiding a healthy window.
+    fn obsolete(token: SearchSurfacePreparationToken) -> Self {
+        Self {
+            status: "obsolete",
+            renderer_epoch: token.renderer_epoch,
+            show_epoch: token.show_epoch,
+            host_epoch: token.host_epoch,
+            generation: 0,
+        }
+    }
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -631,14 +645,13 @@ pub(crate) fn commit_prepared_region_on_main_thread<R: Runtime>(
         let Some(preparation) = state.protocol.preparation() else {
             return Ok(None);
         };
-        if token
-            != (SearchSurfacePreparationToken {
-                renderer_epoch: preparation.renderer_epoch,
-                show_epoch: preparation.show_epoch,
-                host_epoch: preparation.host_epoch,
-            })
-        {
-            return Ok(None);
+        let current = SearchSurfacePreparationToken {
+            renderer_epoch: preparation.renderer_epoch,
+            show_epoch: preparation.show_epoch,
+            host_epoch: preparation.host_epoch,
+        };
+        if token != current {
+            return Ok(Some(SearchSurfaceShowStatus::obsolete(current)));
         }
     }
     let inspected = inspect_host(runtime.inner(), window)?;
@@ -650,14 +663,13 @@ pub(crate) fn commit_prepared_region_on_main_thread<R: Runtime>(
         let Some(preparation) = state.protocol.preparation() else {
             return Ok(None);
         };
-        if token
-            != (SearchSurfacePreparationToken {
-                renderer_epoch: preparation.renderer_epoch,
-                show_epoch: preparation.show_epoch,
-                host_epoch: preparation.host_epoch,
-            })
-        {
-            return Ok(None);
+        let current = SearchSurfacePreparationToken {
+            renderer_epoch: preparation.renderer_epoch,
+            show_epoch: preparation.show_epoch,
+            host_epoch: preparation.host_epoch,
+        };
+        if token != current {
+            return Ok(Some(SearchSurfaceShowStatus::obsolete(current)));
         }
         match refresh_host_if_needed(&mut state, inspected) {
             HostRefreshOutcome::Current => None,
@@ -687,17 +699,25 @@ pub(crate) fn commit_prepared_region_on_main_thread<R: Runtime>(
         let Some(preparation) = state.protocol.preparation() else {
             return Ok(None);
         };
-        if token
-            != (SearchSurfacePreparationToken {
-                renderer_epoch: preparation.renderer_epoch,
-                show_epoch: preparation.show_epoch,
-                host_epoch: preparation.host_epoch,
-            })
-        {
-            return Ok(None);
+        let current = SearchSurfacePreparationToken {
+            renderer_epoch: preparation.renderer_epoch,
+            show_epoch: preparation.show_epoch,
+            host_epoch: preparation.host_epoch,
+        };
+        if token != current {
+            return Ok(Some(SearchSurfaceShowStatus::obsolete(current)));
         }
         let Some(activation) = state.protocol.region_applied(preparation, generation) else {
-            return Ok(None);
+            // The protocol no longer accepts this preparation (a newer show
+            // replaced it, or the surface was hidden meanwhile). That is a
+            // superseded attempt, not a broken acknowledgement.
+            return Ok(Some(SearchSurfaceShowStatus::obsolete(
+                SearchSurfacePreparationToken {
+                    renderer_epoch: preparation.renderer_epoch,
+                    show_epoch: preparation.show_epoch,
+                    host_epoch: preparation.host_epoch,
+                },
+            )));
         };
         activation
     };
@@ -756,7 +776,69 @@ pub(crate) fn commit_prepared_region_on_main_thread<R: Runtime>(
     Ok(Some(SearchSurfaceShowStatus::shown(activation)))
 }
 
-pub(in crate::core::window) fn refresh_visible_host_on_main_thread<R: Runtime>(
+/// Re-emit the pending preparation after the hidden host changed size.
+///
+/// The renderer measures the host before revealing it. A hidden resize (the
+/// idle-session clear collapsing the window back to its compact height) invalidates
+/// that measurement, and the host that emitted it can no longer describe the frame
+/// it will show. Publishing a new host epoch is what lets the renderer measure
+/// again instead of waiting forever on a viewport that can never match.
+pub(crate) fn republish_preparation_after_host_resize<R: Runtime>(
+    window: &tauri::WebviewWindow<R>,
+) -> Result<bool, String> {
+    let app_handle = window.app_handle();
+    let runtime = app_handle
+        .try_state::<SearchWindowRuntime>()
+        .ok_or_else(|| "Search window runtime is not initialized".to_string())?;
+    if !runtime.native_enabled {
+        return Ok(false);
+    }
+    let payload = {
+        let mut state = runtime
+            .surface
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if !matches!(
+            state.protocol.phase(),
+            SearchSurfacePhase::Preparing | SearchSurfacePhase::Activating
+        ) {
+            return Ok(false);
+        }
+        // `accept_host_resize_for_current_surface` already rebased the accepted
+        // viewport, so the pending state describes the frame the host will show.
+        let Some(pending) = state.pending_preparation.as_ref() else {
+            return Ok(false);
+        };
+        let viewport = pending.payload.physical_viewport;
+        let scale_factor = pending.payload.scale_factor;
+        let target_frame = pending.target_frame;
+        let Some(request) = state.protocol.request_host_refresh() else {
+            return Ok(false);
+        };
+        let Some(preparation) = state.protocol.host_prepared(request) else {
+            return Ok(false);
+        };
+        let payload = SearchSurfacePreparationPayload {
+            renderer_epoch: preparation.renderer_epoch,
+            show_epoch: preparation.show_epoch,
+            host_epoch: preparation.host_epoch,
+            source: preparation.source.as_str(),
+            physical_viewport: viewport,
+            scale_factor,
+        };
+        state.pending_preparation = Some(SearchSurfacePreparationState {
+            payload: payload.clone(),
+            target_frame,
+        });
+        payload
+    };
+    app_handle
+        .emit("search-surface-prepare", payload)
+        .map_err(|error| format!("Failed to emit search surface preparation: {error}"))?;
+    Ok(true)
+}
+
+pub(crate) fn refresh_visible_host_on_main_thread<R: Runtime>(
     app_handle: &AppHandle<R>,
 ) -> Result<bool, String> {
     let runtime = app_handle
@@ -1144,7 +1226,8 @@ mod tests {
         accept_host_resize_for_current_surface, foreground_belongs_to_main_hwnd_family,
         hide_surface_state_transaction, refresh_host_if_needed, should_hide_on_focus_lost,
         FocusLostDecisionInput, HostRefreshOutcome, SearchSurfacePreparationPayload,
-        SearchSurfacePreparationState, SearchSurfaceState, SearchWindowRuntime,
+        SearchSurfacePreparationState, SearchSurfacePreparationToken, SearchSurfaceShowStatus,
+        SearchSurfaceState, SearchWindowRuntime,
     };
     use crate::core::window::search_host::{PhysicalHostFrame, PreparedSearchHost};
 
@@ -1417,6 +1500,24 @@ mod tests {
             first_preparation.show_epoch
         );
         assert!(refreshed_preparation.host_epoch > first_preparation.host_epoch);
+    }
+
+    #[test]
+    fn user_gets_an_obsolete_acknowledgement_when_the_host_replaced_the_preparation() {
+        // The renderer is told the commit no longer describes the current
+        // preparation, instead of receiving no acknowledgement at all: a missing
+        // status is indistinguishable from a protocol violation.
+        let status = SearchSurfaceShowStatus::obsolete(SearchSurfacePreparationToken {
+            renderer_epoch: 3,
+            show_epoch: 7,
+            host_epoch: 11,
+        });
+        let json = serde_json::to_value(&status).expect("status serializes");
+
+        assert_eq!(json["status"], "obsolete");
+        assert_eq!(json["rendererEpoch"], 3);
+        assert_eq!(json["showEpoch"], 7);
+        assert_eq!(json["hostEpoch"], 11);
     }
 
     #[test]

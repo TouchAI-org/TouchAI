@@ -1278,7 +1278,10 @@
         settle: settleSearchSurfaceViewport,
         beforeMeasure: (isCurrent) => clearIdleSessionOnEntry(isCurrent, false),
         flush: (preparation) =>
-            searchWindowRegionReporter.flush('surface-preparation', true, preparation),
+            searchWindowRegionReporter.flushPrepared('surface-preparation', preparation),
+        requestHostRefresh: async () => {
+            await searchWindow.requestSearchSurfaceRefresh();
+        },
         onShown: handleSearchSurfaceShown,
         onHidden: handleSearchSurfaceHidden,
         onError: (error) => {

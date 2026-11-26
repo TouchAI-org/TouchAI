@@ -443,11 +443,46 @@ pub fn commit_search_panel_resize<R: Runtime>(
                     .rollback_failed_resize(previous, snapshot);
                 return Err(error);
             }
+            // The renderer commits panel geometry while the window is still
+            // hidden. That resize invalidates the viewport its pending
+            // preparation describes, so publish a fresh host epoch or the next
+            // measurement can never match and the reveal stalls.
+            if let Err(error) =
+                crate::core::window::search::surface::republish_preparation_after_host_resize(
+                    &window,
+                )
+            {
+                log::warn!("Failed to republish the search surface preparation: {error}");
+            }
         }
     }
     Ok(search_window_state_payload(
         runtime.window_state().snapshot(),
     ))
+}
+
+/// Ask the host to publish a fresh preparation for its current frame.
+///
+/// The renderer measures the host before revealing it. If the frame changed
+/// while it was hidden, the preparation it holds describes a viewport that no
+/// longer exists and can never be committed; this is how it asks for a new one.
+#[tauri::command]
+pub fn request_search_surface_refresh<R: Runtime>(app: AppHandle<R>) -> Result<bool, String> {
+    crate::core::window::search::surface::refresh_visible_host_on_main_thread(&app)
+}
+
+/// Whether the search surface is logically on screen.
+///
+/// Platform visibility alone is not the answer: a warm-parked macOS window
+/// stays ordered in and reports visible while the launcher is hidden. The
+/// renderer must see the same truth the host acts on, or it treats a hidden
+/// window as shown and drops reminders and blur handling.
+#[tauri::command]
+pub fn is_search_surface_visible<R: Runtime>(app: AppHandle<R>) -> Result<bool, String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "Failed to get main window".to_string())?;
+    Ok(crate::core::window::search::visibility::is_visible(&window))
 }
 
 #[tauri::command]

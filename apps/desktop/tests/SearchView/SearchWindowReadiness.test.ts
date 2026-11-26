@@ -69,7 +69,7 @@ function createHarness(overrides: Partial<SearchSurfacePreparationControllerOpti
         markRendererReady: vi.fn(async () => null),
         getViewport: vi.fn(async () => viewport),
         settle: vi.fn(async () => undefined),
-        flush: vi.fn(async () => true),
+        flush: vi.fn(async () => 'committed' as const),
         onShown: vi.fn(),
         onHidden: vi.fn(),
         onError: vi.fn(),
@@ -500,7 +500,7 @@ describe('search surface preparation controller', () => {
 
     it('user sees startup succeed when native visibility is confirmed before the commit returns', async () => {
         const initial = preparation(7);
-        const flushResult = deferred<boolean>();
+        const flushResult = deferred<'committed' | 'failed'>();
         const harness = createHarness({
             markRendererReady: vi.fn(async () => initial),
             flush: vi.fn(() => flushResult.promise),
@@ -515,7 +515,7 @@ describe('search surface preparation controller', () => {
             await expect(starting).resolves.toBe(true);
             expect(harness.options.onShown).toHaveBeenCalledWith(shown);
         } finally {
-            flushResult.resolve(true);
+            flushResult.resolve('committed');
             controller.dispose();
         }
     });
@@ -523,7 +523,7 @@ describe('search surface preparation controller', () => {
     it('user keeps a natively shown window when the readiness request returns its preparation later', async () => {
         const initial = preparation(7);
         const markReadyResult = deferred<SearchSurfacePreparation | null>();
-        const flush = vi.fn(async () => true);
+        const flush = vi.fn(async () => 'committed' as const);
         const harness = createHarness({
             markRendererReady: vi.fn(() => markReadyResult.promise),
             flush,
@@ -546,11 +546,11 @@ describe('search surface preparation controller', () => {
     it('user hides a window while readiness is pending and its late preparation cannot revive it', async () => {
         const initial = preparation(7);
         const markReadyResult = deferred<SearchSurfacePreparation | null>();
-        const firstFlush = deferred<boolean>();
+        const firstFlush = deferred<'committed' | 'failed'>();
         const flush = vi
-            .fn<() => Promise<boolean>>()
+            .fn<() => Promise<'committed' | 'failed'>>()
             .mockReturnValueOnce(firstFlush.promise)
-            .mockResolvedValueOnce(true);
+            .mockResolvedValueOnce('committed');
         const harness = createHarness({
             markRendererReady: vi.fn(() => markReadyResult.promise),
             flush,
@@ -570,7 +570,7 @@ describe('search surface preparation controller', () => {
             expect(flush).toHaveBeenCalledOnce();
             expect(harness.options.onError).not.toHaveBeenCalled();
         } finally {
-            firstFlush.resolve(false);
+            firstFlush.resolve('failed');
             controller.dispose();
         }
     });

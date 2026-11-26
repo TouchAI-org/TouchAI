@@ -43,7 +43,7 @@ function preparationController(
         settle: async () => undefined,
         flush: async () => {
             calls.push('flush');
-            return true;
+            return 'committed' as const;
         },
         onShown: async () => undefined,
         onHidden: async () => undefined,
@@ -102,6 +102,59 @@ describe('search surface preparation', () => {
         expect(await controller.start()).toBe(false);
 
         expect(calls).toEqual(['beforeMeasure']);
+        controller.dispose();
+    });
+
+    it('user_gets_a_fresh_preparation_when_the_host_resized_while_it_was_hidden', async () => {
+        const calls: string[] = [];
+        let prepare: ((payload: SearchSurfacePreparation) => void | Promise<void>) | undefined;
+        const resized: SearchSurfacePreparation = {
+            ...preparation(),
+            hostEpoch: 2,
+            physicalViewport: { x: 0, y: 0, width: 750, height: 240 },
+        };
+        const controller = preparationController(calls, {
+            listenPrepare: async (handler) => {
+                prepare = handler;
+                return () => undefined;
+            },
+            getViewport: async () => ({
+                physicalViewport: { x: 0, y: 0, width: 750, height: 240 },
+                scaleFactor: 1,
+            }),
+            beforeMeasure: async () => {
+                calls.push('beforeMeasure');
+            },
+            requestHostRefresh: async () => {
+                calls.push('refresh');
+                await prepare?.(resized);
+            },
+            onError: (error) => {
+                calls.push(`error:${(error as Error).message}`);
+            },
+        });
+
+        expect(await controller.start()).toBe(true);
+
+        expect(calls).toEqual(['beforeMeasure', 'refresh', 'beforeMeasure', 'flush']);
+        controller.dispose();
+    });
+
+    it('user_gets_no_error_and_no_retry_when_the_host_already_replaced_the_preparation', async () => {
+        const calls: string[] = [];
+        const controller = preparationController(calls, {
+            flush: async () => {
+                calls.push('flush');
+                return 'superseded' as const;
+            },
+            onError: (error) => {
+                calls.push(`error:${(error as Error).message}`);
+            },
+        });
+
+        await expect(controller.start()).resolves.toBe(false);
+
+        expect(calls).toEqual(['flush']);
         controller.dispose();
     });
 

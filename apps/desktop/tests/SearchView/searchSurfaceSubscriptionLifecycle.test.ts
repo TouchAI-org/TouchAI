@@ -44,7 +44,7 @@ function createHarness() {
             scaleFactor: 1,
         }),
         settle: async () => undefined,
-        flush: vi.fn(async () => true),
+        flush: vi.fn(async () => 'committed' as const),
         onShown: (value) => {
             shownFacts.push(value);
         },

@@ -48,6 +48,8 @@ pub(crate) fn restore_transparent_surface<R: Runtime>(
     #[cfg(target_os = "windows")]
     {
         let hwnd = window_hwnd(window)?;
+        // 马上要重建一次，就别让已经排队的定时器 100 毫秒后再重建一次。
+        claim_pending_recovery(hwnd);
         // SAFETY: `hwnd` 来自仍然存活的顶层窗口，调用均只作用于该窗口。
         let dwm = unsafe { restore_transparency_for_hwnd(hwnd) };
         // DWM 失败时仍尝试修复 WebView2 自身的背景色，两条路径互为兜底。
@@ -64,9 +66,41 @@ pub(crate) fn restore_transparent_surface<R: Runtime>(
     }
 }
 
+/// 已安装子类化的窗口，以及回调数据指针，用于在立即恢复时取消排队中的恢复。
 #[cfg(target_os = "windows")]
-static INSTALLED: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<isize>>> =
+static INSTALLED: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<isize, usize>>> =
     std::sync::OnceLock::new();
+
+/// 取消该窗口排队中的恢复，返回是否真的取消了一个。
+#[cfg(target_os = "windows")]
+fn claim_pending_recovery(hwnd: windows::Win32::Foundation::HWND) -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::KillTimer;
+
+    let Some(installed) = INSTALLED.get() else {
+        return false;
+    };
+    let address = {
+        let installed = match installed.lock() {
+            Ok(installed) => installed,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        installed.get(&(hwnd.0 as isize)).copied()
+    };
+    let Some(address) = address else {
+        return false;
+    };
+    // SAFETY: 指针在 WM_NCDESTROY 前一直有效；这里只清除标志并停表，
+    // 不触碰 `window` 字段，避免在 UI 线程外克隆窗口句柄。
+    unsafe {
+        let data = &mut *(address as *mut SurfaceRecoveryData);
+        if !data.pending {
+            return false;
+        }
+        data.pending = false;
+        let _ = KillTimer(Some(hwnd), SURFACE_RECOVERY_TIMER_ID);
+    }
+    true
+}
 
 #[cfg(target_os = "windows")]
 pub(crate) fn install(window: &WebviewWindow<tauri::Wry>) -> Result<(), String> {
@@ -75,12 +109,12 @@ pub(crate) fn install(window: &WebviewWindow<tauri::Wry>) -> Result<(), String> 
     let hwnd = window_hwnd(window)?;
     let key = hwnd.0 as isize;
     let installed =
-        INSTALLED.get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()));
+        INSTALLED.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()));
     {
         let mut installed = installed
             .lock()
             .map_err(|_| "Surface recovery registry is poisoned".to_string())?;
-        if !installed.insert(key) {
+        if installed.contains_key(&key) {
             return Ok(());
         }
     }
@@ -108,6 +142,9 @@ pub(crate) fn install(window: &WebviewWindow<tauri::Wry>) -> Result<(), String> 
             installed.remove(&key);
         }
         return Err("Failed to install the window surface recovery subclass".to_string());
+    }
+    if let Ok(mut installed) = installed.lock() {
+        installed.insert(key, data_ptr as usize);
     }
 
     Ok(())
