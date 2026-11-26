@@ -1314,7 +1314,8 @@ describe('useSearchPageLifecycle', () => {
 
         await mounted.result.clearIdleSessionOnEntry(() => true, false);
 
-        expect(clearSession).toHaveBeenCalledWith({ animate: false });
+        // The bounded idle clear asks the owner to re-check the approval.
+        expect(clearSession).toHaveBeenCalledWith({ animate: false, revalidate: true });
         mounted.unmount();
     });
 
@@ -1397,7 +1398,7 @@ describe('useSearchPageLifecycle', () => {
         await mounted.result.handleSearchSurfaceShown(createShownEvent(1, 'shortcut'));
         await flushLifecycle();
 
-        expect(clearSession).toHaveBeenCalledWith({ animate: true });
+        expect(clearSession).toHaveBeenCalledWith({ animate: true, revalidate: true });
         mounted.unmount();
     });
 

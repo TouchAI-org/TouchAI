@@ -1196,12 +1196,16 @@ describe('SearchView async overlay and listener lifecycle', () => {
         }
     );
 
-    it('user keeps what they typed when the fold finishes after the reveal', async () => {
-        const setup = getSetupState(mountSearchView());
+    it('user keeps what they typed when the bounded idle clear finishes after the reveal', async () => {
+        mountSearchView();
         const fold = deferred<boolean>();
         resizeState.collapseSessionToIdle.mockReturnValueOnce(fold.promise);
+        const clearSession = lifecycleState.options!.clearSession as (options?: {
+            animate?: boolean;
+            revalidate?: boolean;
+        }) => Promise<void>;
 
-        const clear = setup.clearSessionToIdle();
+        const clear = clearSession({ animate: true, revalidate: true });
         await flushPromises();
         expect(requestFlowState.current!.clearSession).not.toHaveBeenCalled();
 
@@ -1212,6 +1216,17 @@ describe('SearchView async overlay and listener lifecycle', () => {
         await clear;
 
         expect(requestFlowState.current!.clearSession).not.toHaveBeenCalled();
+    });
+
+    it('user gets the requested conversation dropped when the idle clear is explicit', async () => {
+        const setup = getSetupState(mountSearchView());
+        // An explicit reset carries the user's current intent, so it does not
+        // re-check the approval: content present at request time is dropped too.
+        controllerMock.hasInputContent.mockReturnValue(true);
+
+        await setup.clearSessionToIdle();
+
+        expect(requestFlowState.current!.clearSession).toHaveBeenCalledTimes(1);
     });
 
     it('user retains the results while a failed fold recovers its native bounds', async () => {

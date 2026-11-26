@@ -486,6 +486,12 @@ export function useSearchPanelFocusRestore(options: UseSearchPanelFocusRestoreOp
 export interface ClearSessionOptions {
     /** A clear nobody can see does not need to animate the collapse. */
     animate?: boolean;
+    /**
+     * The idle clear is bounded, so it can reach the session after the surface is
+     * already revealed. Only that path asks for the approval to be re-checked
+     * right before clearing; an explicit clear is the user's current intent.
+     */
+    revalidate?: boolean;
 }
 
 interface UseSearchPageLifecycleOptions {
@@ -692,7 +698,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         // so the clear is bounded and the reveal proceeds either way.
         await Promise.race([
             Promise.resolve()
-                .then(() => clearSession({ animate }))
+                .then(() => clearSession({ animate, revalidate: true }))
                 .catch((error) => {
                     log.error('[SearchView] Failed to clear the idle session:', error);
                 }),

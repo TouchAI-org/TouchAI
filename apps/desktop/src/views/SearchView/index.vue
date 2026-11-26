@@ -2314,17 +2314,21 @@
     /**
      * The idle clear is approved while the surface is still hidden. Anything the
      * user did since — typing, sending, or starting another session — makes that
-     * approval stale, and clearing would throw their work away.
+     * approval stale, and clearing would throw their work away. Only changes
+     * count: content or a pending request that was already there when the clear
+     * was approved is the state being cleared, not new work.
      */
     function idleClearStillAppropriate(sessionBeforeClear: number | null) {
+        const hasInputBeforeClear = controller.hasInputContent();
+        const wasBusyBeforeClear = isLoading.value || pendingRequest.value !== null;
         return () => {
             if (currentSessionId.value !== sessionBeforeClear) return false;
-            if (controller.hasInputContent()) return false;
-            return !isLoading.value && !pendingRequest.value;
+            if (!hasInputBeforeClear && controller.hasInputContent()) return false;
+            return wasBusyBeforeClear || (!isLoading.value && !pendingRequest.value);
         };
     }
 
-    async function clearSessionToIdle(options: { animate?: boolean } = {}) {
+    async function clearSessionToIdle(options: { animate?: boolean; revalidate?: boolean } = {}) {
         cancelSessionExpansion();
         suppressQuickSearchAutoOpenOnce.value = true;
         if (options.animate === false) {
@@ -2334,12 +2338,14 @@
             await nextTick();
             await collapseBeforeClearing();
         } else {
-            const clearIsCurrent = idleClearStillAppropriate(currentSessionId.value);
+            const clearIsCurrent = options.revalidate
+                ? idleClearStillAppropriate(currentSessionId.value)
+                : null;
             if (!(await collapseBeforeClearing())) return;
-            // The reveal no longer waits for the whole collapse: it can finish
-            // after the bounded wait, with the window already shown. Clearing
-            // then would drop what the user typed or started in the meantime.
-            if (!clearIsCurrent()) return;
+            // The reveal no longer waits for the whole collapse, so the bounded
+            // idle clear can finish with the window already shown. Clearing then
+            // would drop what the user typed or started in the meantime.
+            if (clearIsCurrent && !clearIsCurrent()) return;
             clearSession();
         }
         await nextTick();
