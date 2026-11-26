@@ -184,37 +184,65 @@ fn webview2_policy_arguments() -> Option<String> {
             .map(|name| name.to_string_lossy().into_owned())
     });
 
-    [HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE]
-        .into_iter()
-        .find_map(|hive| {
-            let key = RegKey::predef(hive).open_subkey(POLICY_KEY).ok()?;
-            let named: Vec<String> = key
-                .enum_values()
-                .filter_map(Result::ok)
-                .map(|(name, _)| name)
-                .collect();
-            let name = policy_entry_for(&named, executable.as_deref())?;
-            key.get_value::<String, _>(name).ok()
-        })
-        .map(|arguments| arguments.trim().to_string())
-        .filter(|arguments| !arguments.is_empty())
+    // WebView2 reads machine policy before the user's.
+    let hives = [HKEY_LOCAL_MACHINE, HKEY_CURRENT_USER].map(|hive| {
+        RegKey::predef(hive)
+            .open_subkey(POLICY_KEY)
+            .ok()
+            .map(|key| {
+                key.enum_values()
+                    .filter_map(Result::ok)
+                    .filter_map(|(name, _)| {
+                        key.get_value::<String, _>(&name)
+                            .ok()
+                            .map(|value| (name, value))
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+    });
+    policy_arguments_from(&hives, executable.as_deref())
+}
+
+/// Arguments of the first policy entry that applies to this process.
+///
+/// Hives are searched in the order WebView2 reads them, and a blank value is not
+/// an argument string, so it must not stop the search: a blank machine entry
+/// cannot hide a user entry.
+fn policy_arguments_from(
+    hives: &[Vec<(String, String)>],
+    executable: Option<&str>,
+) -> Option<String> {
+    hives.iter().find_map(|entries| {
+        let name = policy_entry_for(entries, executable)?;
+        entries
+            .iter()
+            .find(|(entry, _)| *entry == name)
+            .map(|(_, value)| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    })
 }
 
 /// Which policy entry applies to this process.
 ///
-/// The policy names its entries by executable file name, app id, or `*`, so the
-/// executable wins over the wildcard and an entry for anything else does not
-/// apply at all.
-fn policy_entry_for(named: &[String], executable: Option<&str>) -> Option<String> {
+/// The policy names its entries by executable file name, app id, or `*`. Registry
+/// value names are case-insensitive, so the executable is matched that way, it
+/// wins over the wildcard, and an entry for another program does not apply. An
+/// app-id entry cannot apply either: neither wry nor this app passes a WebView2
+/// app id when the environment is created.
+fn policy_entry_for(entries: &[(String, String)], executable: Option<&str>) -> Option<String> {
     if let Some(executable) = executable {
-        if named.iter().any(|entry| entry == executable) {
-            return Some(executable.to_string());
+        if let Some((name, _)) = entries
+            .iter()
+            .find(|(entry, _)| entry.eq_ignore_ascii_case(executable))
+        {
+            return Some(name.clone());
         }
     }
-    named
+    entries
         .iter()
-        .any(|entry| entry == "*")
-        .then(|| "*".to_string())
+        .find(|(entry, _)| entry == "*")
+        .map(|(name, _)| name.clone())
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -279,7 +307,7 @@ mod tests {
     use super::{
         browser_arguments_to_apply, can_show_startup_failure_dialog,
         e2e_webview_additional_browser_args, has_linux_display, is_e2e_test_mode,
-        is_ui_preview_mode, policy_entry_for, should_enable_single_instance,
+        is_ui_preview_mode, policy_arguments_from, should_enable_single_instance,
         webview_additional_browser_args, DEFAULT_E2E_WEBVIEW_ADDITIONAL_BROWSER_ARGS,
         TOUCHAI_E2E_DISABLE_SINGLE_INSTANCE_ENV, TOUCHAI_E2E_ENV, TOUCHAI_UI_PREVIEW_ENV,
     };
@@ -348,24 +376,68 @@ mod tests {
         );
     }
 
+    fn policy_hive(values: &[(&str, &str)]) -> Vec<(String, String)> {
+        values
+            .iter()
+            .map(|(name, value)| (name.to_string(), value.to_string()))
+            .collect()
+    }
+
     #[test]
-    fn user_gets_the_policy_entry_for_this_executable_or_the_wildcard() {
-        let named = vec!["*".to_string()];
-        assert_eq!(
-            policy_entry_for(&named, Some("TouchAI.exe")).as_deref(),
-            Some("*")
-        );
+    fn user_gets_the_policy_entry_that_names_this_executable_in_any_case() {
+        let hives = vec![policy_hive(&[("TOUCHAI.EXE", "--from-machine")])];
 
-        let named = vec!["TouchAI.exe".to_string(), "*".to_string()];
         assert_eq!(
-            policy_entry_for(&named, Some("TouchAI.exe")).as_deref(),
-            Some("TouchAI.exe")
+            policy_arguments_from(&hives, Some("TouchAI.exe")).as_deref(),
+            Some("--from-machine")
         );
+    }
 
-        // An entry for another program is that program's policy, not ours.
-        let named = vec!["other.exe".to_string()];
-        assert_eq!(policy_entry_for(&named, Some("TouchAI.exe")), None);
-        assert_eq!(policy_entry_for(&[], Some("TouchAI.exe")), None);
+    #[test]
+    fn user_gets_the_machine_policy_before_the_user_policy() {
+        let hives = vec![
+            policy_hive(&[("TouchAI.exe", "--from-machine")]),
+            policy_hive(&[("TouchAI.exe", "--from-user")]),
+        ];
+
+        assert_eq!(
+            policy_arguments_from(&hives, Some("TouchAI.exe")).as_deref(),
+            Some("--from-machine")
+        );
+    }
+
+    #[test]
+    fn user_gets_the_user_policy_when_the_machine_entry_is_blank() {
+        let hives = vec![
+            policy_hive(&[("TouchAI.exe", "   ")]),
+            policy_hive(&[("TouchAI.exe", "--from-user")]),
+        ];
+
+        assert_eq!(
+            policy_arguments_from(&hives, Some("TouchAI.exe")).as_deref(),
+            Some("--from-user")
+        );
+    }
+
+    #[test]
+    fn user_gets_the_wildcard_policy_when_no_entry_names_the_executable() {
+        let hives = vec![policy_hive(&[
+            ("other.exe", "--elsewhere"),
+            ("*", "--anywhere"),
+        ])];
+
+        assert_eq!(
+            policy_arguments_from(&hives, Some("TouchAI.exe")).as_deref(),
+            Some("--anywhere")
+        );
+        assert_eq!(
+            policy_arguments_from(
+                &[policy_hive(&[("other.exe", "--elsewhere")])],
+                Some("TouchAI.exe")
+            ),
+            None
+        );
+        assert_eq!(policy_arguments_from(&[], Some("TouchAI.exe")), None);
     }
 
     #[test]
