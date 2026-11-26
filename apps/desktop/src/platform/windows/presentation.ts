@@ -21,7 +21,9 @@ export function createNativeWindowPresentation() {
         search: {
             isAlwaysOnTop: () => current.isAlwaysOnTop(),
             setAlwaysOnTop: (value: boolean) => current.setAlwaysOnTop(value),
-            isVisible: () => current.isVisible(),
+            // Logical visibility, not window-server visibility: a warm-parked
+            // macOS window is ordered in but not presented to the user.
+            isVisible: () => native.window.isSearchSurfaceVisible(),
             isFocused: () => current.isFocused(),
             startDragging: () => current.startDragging(),
             outerPosition: async () => {

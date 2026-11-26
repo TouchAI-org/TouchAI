@@ -19,6 +19,13 @@ export interface SearchSurfaceViewportSnapshot {
     scaleFactor: number;
 }
 
+/**
+ * `superseded` means the host had already replaced the preparation this commit
+ * described. Retrying the same token can never succeed, so the attempt ends and
+ * the newer preparation drives the next one.
+ */
+export type SearchSurfaceFlushOutcome = 'committed' | 'superseded' | 'failed';
+
 export interface SearchSurfacePreparationControllerOptions {
     listenPrepare: (
         handler: (payload: SearchSurfacePreparation) => void | Promise<void>
@@ -32,8 +39,20 @@ export interface SearchSurfacePreparationControllerOptions {
     getRendererEpoch: () => Promise<number>;
     markRendererReady: (rendererEpoch: number) => Promise<SearchSurfacePreparation | null>;
     getViewport: () => Promise<SearchSurfaceViewportSnapshot>;
+    /**
+     * Content work that must finish before the surface is measured, such as
+     * dropping a session that outlived the hide timeout. The window is still
+     * hidden here, so whatever this does cannot be watched by the user.
+     */
+    beforeMeasure?: (isCurrent: () => boolean) => void | Promise<void>;
+    /**
+     * Ask the host to publish a fresh preparation for its current frame. Needed
+     * when the measured viewport no longer matches the preparation: the host
+     * resized while hidden, so the epoch that was sent can never be committed.
+     */
+    requestHostRefresh?: () => Promise<void>;
     settle: (waitForPaint: boolean) => Promise<void>;
-    flush: (preparation: SearchSurfacePreparation) => Promise<boolean>;
+    flush: (preparation: SearchSurfacePreparation) => Promise<SearchSurfaceFlushOutcome>;
     onShown: (payload: SearchSurfaceShownEvent) => void | Promise<void>;
     onHidden: (payload: SearchSurfaceHiddenEvent) => void | Promise<void>;
     onError?: (error: unknown) => void;
@@ -77,6 +96,9 @@ export function createSearchSurfacePreparationController(
     let intentEpoch = 0;
     let attemptEpoch = 0;
     let commitRetries = 0;
+    // A viewport mismatch means the host frame moved under us. One refresh per
+    // preparation is enough; a second mismatch is a real fault.
+    let refreshRequests = 0;
     let pendingPreparation: SearchSurfacePreparation | null = null;
     let latestShownPreparation: SearchSurfacePreparationIdentity | null = null;
     let pendingCommit: {
@@ -127,6 +149,7 @@ export function createSearchSurfacePreparationController(
         intentEpoch += 1;
         attemptEpoch += 1;
         commitRetries = 0;
+        refreshRequests = 0;
         pendingPreparation = null;
     }
 
@@ -154,6 +177,37 @@ export function createSearchSurfacePreparationController(
         );
     }
 
+    function waitForSupersedingPreparation(): Promise<void> {
+        return new Promise<void>((resolve) => setTimeout(resolve, 0));
+    }
+
+    /**
+     * A mismatching viewport is normally transient: the renderer catches up and
+     * `notifyViewportChanged` retries. Waiting is the contract. But when the host
+     * frame itself moved while hidden, no later viewport will ever match that
+     * preparation, so ask the host once for a fresh one. A refresh that fails is
+     * a real fault: the show cannot complete and the preparation must not hang.
+     */
+    async function requestFreshPreparation(
+        isAttemptCurrent: () => boolean,
+        isPreparationCurrent: () => boolean
+    ) {
+        if (!isAttemptCurrent()) return;
+        if (!options.requestHostRefresh || refreshRequests >= 1) return;
+        refreshRequests += 1;
+        try {
+            await options.requestHostRefresh();
+        } catch (error) {
+            // The refresh can outlive the attempt that started it: a viewport
+            // notification retries while it is in flight, and that retry may not
+            // ask again. The preparation is still waiting, so the failure has to
+            // end it here rather than leave the show pending forever.
+            if (!isPreparationCurrent()) return;
+            resolvePendingCommit(false);
+            options.onError?.(error);
+        }
+    }
+
     function attemptPreparation() {
         const preparation = pendingPreparation;
         if (!preparation || disposed) return;
@@ -161,21 +215,43 @@ export function createSearchSurfacePreparationController(
         const capturedIntent = intentEpoch;
         const capturedAttempt = ++attemptEpoch;
         void (async () => {
+            const isAttemptCurrent = () => isCurrent(preparation, capturedIntent, capturedAttempt);
+            const isPreparationCurrent = () =>
+                !disposed && capturedIntent === intentEpoch && pendingPreparation === preparation;
+            await options.beforeMeasure?.(isAttemptCurrent);
+            if (!isAttemptCurrent()) return;
+
             const viewport = await options.getViewport();
             if (!isCurrent(preparation, capturedIntent, capturedAttempt)) return;
-            if (!viewportMatchesPreparation(viewport, preparation)) return;
+            if (!viewportMatchesPreparation(viewport, preparation)) {
+                await requestFreshPreparation(isAttemptCurrent, isPreparationCurrent);
+                return;
+            }
 
             await options.settle(!latestShownPreparation);
             if (!isCurrent(preparation, capturedIntent, capturedAttempt)) return;
 
             const settledViewport = await options.getViewport();
             if (!isCurrent(preparation, capturedIntent, capturedAttempt)) return;
-            if (!viewportMatchesPreparation(settledViewport, preparation)) return;
+            if (!viewportMatchesPreparation(settledViewport, preparation)) {
+                await requestFreshPreparation(isAttemptCurrent, isPreparationCurrent);
+                return;
+            }
 
-            const committed = await options.flush(preparation);
+            const outcome = await options.flush(preparation);
             if (!isCurrent(preparation, capturedIntent, capturedAttempt)) return;
-            if (committed) {
+            if (outcome === 'committed') {
                 resolvePendingCommit(true);
+                return;
+            }
+            // The host already replaced this preparation, so retrying this token
+            // cannot succeed. Its replacement may be published just after the
+            // acknowledgement: if it lands, this attempt simply ends and the new
+            // one takes over.
+            if (outcome === 'superseded') {
+                await waitForSupersedingPreparation();
+                if (!isCurrent(preparation, capturedIntent, capturedAttempt)) return;
+                resolvePendingCommit(false);
                 return;
             }
             if (commitRetries >= 2) {
@@ -212,6 +288,7 @@ export function createSearchSurfacePreparationController(
         resolvePendingCommit(false);
         intentEpoch += 1;
         commitRetries = 0;
+        refreshRequests = 0;
         pendingPreparation = preparation;
         let resolveCommit!: (committed: boolean) => void;
         const commitPromise = new Promise<boolean>((resolve) => {

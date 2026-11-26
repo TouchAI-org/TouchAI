@@ -63,6 +63,7 @@ export function assembleWindowPresentation() {
                   isAlwaysOnTop: command(s.isAlwaysOnTop),
                   setAlwaysOnTop: command(s.setAlwaysOnTop),
                   isVisible: command(s.isVisible),
+                  requestSearchSurfaceRefresh: command(s.requestSearchSurfaceRefresh),
                   isFocused: command(s.isFocused),
                   startDragging: command(s.startDragging),
                   outerPosition: command(s.outerPosition),

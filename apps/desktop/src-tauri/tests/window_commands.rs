@@ -373,8 +373,17 @@ fn untokenized_or_wrong_token_regions_cannot_unlock_a_pending_show() {
         region_payload(2, Some(wrong)),
     );
 
+    // A token the host does not hold reports the current preparation as
+    // obsolete, so the renderer knows the commit did not apply and can stop
+    // waiting on a token that will never match.
     assert_eq!(untokenized, json!({ "status": "applied", "generation": 1 }));
-    assert_eq!(wrong_token, json!({ "status": "applied", "generation": 2 }));
+    assert_eq!(wrong_token["status"], json!("applied"));
+    assert_eq!(wrong_token["generation"], json!(2));
+    assert_eq!(wrong_token["showStatus"]["status"], json!("obsolete"));
+    assert_eq!(
+        wrong_token["showStatus"]["hostEpoch"],
+        preparation["hostEpoch"]
+    );
     let snapshot = testing::search_surface_protocol(&test_app.app);
     assert_eq!(snapshot.phase, "preparing");
     assert!(snapshot.last_shown.is_none());
