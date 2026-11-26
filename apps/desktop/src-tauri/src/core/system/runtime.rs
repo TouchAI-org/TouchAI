@@ -221,8 +221,10 @@ fn package_app_user_model_id() -> Option<String> {
 
     let mut length = 0u32;
     unsafe {
-        // Unpackaged installs have no package identity and fail here.
-        if GetCurrentApplicationUserModelId(&mut length, None) != WIN32_ERROR(0) || length == 0 {
+        // The size probe reports a short buffer, not success. It fails with
+        // APPMODEL_ERROR_NO_PACKAGE for an unpackaged install.
+        if !probe_grants_retry(GetCurrentApplicationUserModelId(&mut length, None).0) || length == 0
+        {
             return None;
         }
         let mut buffer = vec![0u16; length as usize];
@@ -238,6 +240,19 @@ fn package_app_user_model_id() -> Option<String> {
         Some(String::from_utf16_lossy(&buffer[..end])).filter(|value| !value.trim().is_empty())
     }
 }
+
+/// Whether a size probe reported a buffer to fill in.
+///
+/// `ERROR_INSUFFICIENT_BUFFER` is how the documented pattern reports the size it
+/// needs; any other result means there is no identity to read.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn probe_grants_retry(code: u32) -> bool {
+    code == ERROR_INSUFFICIENT_BUFFER_CODE
+}
+
+/// `ERROR_INSUFFICIENT_BUFFER`.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+const ERROR_INSUFFICIENT_BUFFER_CODE: u32 = 122;
 
 /// The process's explicit app user model id, if one is already set.
 #[cfg(target_os = "windows")]
@@ -365,9 +380,10 @@ mod tests {
     use super::{
         browser_arguments_to_apply, can_show_startup_failure_dialog,
         e2e_webview_additional_browser_args, has_linux_display, is_e2e_test_mode,
-        is_ui_preview_mode, policy_arguments_from, should_enable_single_instance,
-        webview_additional_browser_args, DEFAULT_E2E_WEBVIEW_ADDITIONAL_BROWSER_ARGS,
-        TOUCHAI_E2E_DISABLE_SINGLE_INSTANCE_ENV, TOUCHAI_E2E_ENV, TOUCHAI_UI_PREVIEW_ENV,
+        is_ui_preview_mode, policy_arguments_from, probe_grants_retry,
+        should_enable_single_instance, DEFAULT_E2E_WEBVIEW_ADDITIONAL_BROWSER_ARGS,
+        ERROR_INSUFFICIENT_BUFFER_CODE, TOUCHAI_E2E_DISABLE_SINGLE_INSTANCE_ENV, TOUCHAI_E2E_ENV,
+        TOUCHAI_UI_PREVIEW_ENV,
     };
     use std::ffi::OsStr;
     use std::sync::Mutex;
@@ -466,6 +482,24 @@ mod tests {
             policy_arguments_from(&hives, &candidates(&["touchai.desktop", "TouchAI.exe"]))
                 .as_deref(),
             Some("--from-identity")
+        );
+    }
+
+    #[test]
+    fn user_reads_the_package_identity_when_the_size_probe_reports_a_short_buffer() {
+        assert!(probe_grants_retry(ERROR_INSUFFICIENT_BUFFER_CODE));
+        // ERROR_SUCCESS means the probe wrote nothing to read.
+        assert!(!probe_grants_retry(0));
+        // APPMODEL_ERROR_NO_PACKAGE.
+        assert!(!probe_grants_retry(15700));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn user_keeps_the_probe_contract_tied_to_the_system_error() {
+        assert_eq!(
+            ERROR_INSUFFICIENT_BUFFER_CODE,
+            windows::Win32::Foundation::ERROR_INSUFFICIENT_BUFFER.0
         );
     }
 
