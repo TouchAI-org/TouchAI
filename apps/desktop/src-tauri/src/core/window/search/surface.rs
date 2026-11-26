@@ -803,19 +803,30 @@ pub(crate) fn republish_preparation_after_host_resize<R: Runtime>(
         };
         payload
     };
-    // The renderer is waiting on this epoch: it holds a token the protocol has
-    // already replaced, so a dropped event leaves its commit obsolete with no
-    // replacement to switch to. Retry once before reporting the failure.
-    if let Err(first_error) = app_handle.emit("search-surface-prepare", payload.clone()) {
-        app_handle
-            .emit("search-surface-prepare", payload)
-            .map_err(|error| {
-                format!(
+    emit_preparation_with_retry(&payload, |name, payload| app_handle.emit(name, payload))?;
+    Ok(true)
+}
+
+/// Emit the preparation, retrying once when the first emit fails.
+///
+/// The renderer is waiting on this epoch: it holds a token the protocol has
+/// already replaced, so a dropped event leaves its commit obsolete with no
+/// replacement to switch to. One retry covers a transient emit failure; past
+/// that the caller reports the error, because a silent failure would leave the
+/// surface hidden with a renderer that never commits.
+fn emit_preparation_with_retry<E: std::fmt::Display>(
+    payload: &SearchSurfacePreparationPayload,
+    mut emit: impl FnMut(&'static str, SearchSurfacePreparationPayload) -> Result<(), E>,
+) -> Result<(), String> {
+    const EVENT: &str = "search-surface-prepare";
+    if let Err(first_error) = emit(EVENT, payload.clone()) {
+        emit(EVENT, payload.clone()).map_err(|error| {
+            format!(
                 "Failed to emit search surface preparation: {error} (first attempt: {first_error})"
             )
-            })?;
+        })?;
     }
-    Ok(true)
+    Ok(())
 }
 
 /// Publish the pending show again with a new host epoch.
@@ -1281,12 +1292,13 @@ mod tests {
         SearchSurfaceSource,
     };
     use super::{
-        accept_host_resize_for_current_surface, foreground_belongs_to_main_hwnd_family,
-        hide_surface_state_transaction, host_refresh_answer, refresh_host_if_needed,
-        republish_pending_preparation, should_hide_on_focus_lost, FocusLostDecisionInput,
-        HostRefreshAnswer, HostRefreshOutcome, SearchSurfacePreparationPayload,
-        SearchSurfacePreparationState, SearchSurfacePreparationToken, SearchSurfaceShowStatus,
-        SearchSurfaceState, SearchWindowRuntime,
+        accept_host_resize_for_current_surface, emit_preparation_with_retry,
+        foreground_belongs_to_main_hwnd_family, hide_surface_state_transaction,
+        host_refresh_answer, refresh_host_if_needed, republish_pending_preparation,
+        should_hide_on_focus_lost, FocusLostDecisionInput, HostRefreshAnswer, HostRefreshOutcome,
+        SearchSurfacePreparationPayload, SearchSurfacePreparationState,
+        SearchSurfacePreparationToken, SearchSurfaceShowStatus, SearchSurfaceState,
+        SearchWindowRuntime,
     };
     use crate::core::window::search_host::{PhysicalHostFrame, PreparedSearchHost};
 
@@ -1787,6 +1799,53 @@ mod tests {
             .expect("the restated preparation is current");
         assert!(state.protocol.region_applied(old_preparation, 42).is_none());
         assert!(state.protocol.region_applied(current, 43).is_some());
+    }
+
+    #[test]
+    fn user_gets_the_preparation_emitted_again_when_the_first_emit_fails() {
+        let (state, _preparation) = preparing_surface_state();
+        let payload = state
+            .pending_preparation
+            .expect("the pending preparation")
+            .payload;
+        let attempts = std::sync::Mutex::new(Vec::new());
+
+        let result = emit_preparation_with_retry(&payload, |name, emitted| {
+            attempts.lock().unwrap().push((name, emitted.clone()));
+            if attempts.lock().unwrap().len() == 1 {
+                return Err("emit failed");
+            }
+            Ok::<(), &'static str>(())
+        });
+
+        assert!(result.is_ok());
+        let attempts = attempts.lock().unwrap();
+        assert_eq!(attempts.len(), 2);
+        // Both attempts name the event the renderer listens for, and carry the
+        // same preparation.
+        assert!(attempts
+            .iter()
+            .all(|(name, _)| *name == "search-surface-prepare"));
+        assert!(attempts.iter().all(|(_, emitted)| *emitted == payload));
+    }
+
+    #[test]
+    fn user_gets_both_emit_failures_when_the_retry_fails_too() {
+        let (state, _preparation) = preparing_surface_state();
+        let payload = state
+            .pending_preparation
+            .expect("the pending preparation")
+            .payload;
+
+        let error = emit_preparation_with_retry(&payload, |_name, _emitted| {
+            Err::<(), &'static str>("emit failed")
+        })
+        .expect_err("two failed emits should surface an error");
+
+        assert_eq!(
+            error,
+            "Failed to emit search surface preparation: emit failed (first attempt: emit failed)"
+        );
     }
 
     #[test]
