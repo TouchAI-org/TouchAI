@@ -180,12 +180,17 @@ fn webview2_policy_arguments() -> Option<String> {
         "Software\\Policies\\Microsoft\\Edge\\WebView2\\AdditionalBrowserArguments";
 
     // WebView2 resolves an entry by the process's app user model id first, then
-    // by the executable file name, then `*`. Read the id it will see: this runs
-    // before anything sets an explicit one on this process.
-    let candidates: Vec<String> = [process_app_user_model_id(), executable_file_name()]
-        .into_iter()
-        .flatten()
-        .collect();
+    // by the executable file name, then `*`. Read the ids it can see: a system
+    // assigned one from the package identity, and an explicit one, which this
+    // process has not set yet at this point.
+    let candidates: Vec<String> = [
+        package_app_user_model_id(),
+        process_app_user_model_id(),
+        executable_file_name(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
 
     // WebView2 reads machine policy before the user's.
     let hives = [HKEY_LOCAL_MACHINE, HKEY_CURRENT_USER].map(|hive| {
@@ -205,6 +210,33 @@ fn webview2_policy_arguments() -> Option<String> {
             .unwrap_or_default()
     });
     policy_arguments_from(&hives, &candidates)
+}
+
+/// The app user model id this process gets from its package identity.
+#[cfg(target_os = "windows")]
+fn package_app_user_model_id() -> Option<String> {
+    use windows::core::PWSTR;
+    use windows::Win32::Foundation::WIN32_ERROR;
+    use windows::Win32::Storage::Packaging::Appx::GetCurrentApplicationUserModelId;
+
+    let mut length = 0u32;
+    unsafe {
+        // Unpackaged installs have no package identity and fail here.
+        if GetCurrentApplicationUserModelId(&mut length, None) != WIN32_ERROR(0) || length == 0 {
+            return None;
+        }
+        let mut buffer = vec![0u16; length as usize];
+        if GetCurrentApplicationUserModelId(&mut length, Some(PWSTR(buffer.as_mut_ptr())))
+            != WIN32_ERROR(0)
+        {
+            return None;
+        }
+        let end = buffer
+            .iter()
+            .position(|unit| *unit == 0)
+            .unwrap_or(buffer.len());
+        Some(String::from_utf16_lossy(&buffer[..end])).filter(|value| !value.trim().is_empty())
+    }
 }
 
 /// The process's explicit app user model id, if one is already set.
@@ -434,6 +466,26 @@ mod tests {
             policy_arguments_from(&hives, &candidates(&["touchai.desktop", "TouchAI.exe"]))
                 .as_deref(),
             Some("--from-identity")
+        );
+    }
+
+    #[test]
+    fn user_gets_the_policy_entry_for_the_package_identity_before_the_explicit_one() {
+        let hives = vec![policy_hive(&[
+            ("TouchAI.Desktop", "--from-explicit"),
+            (
+                "TouchAI.TouchAI_8wekyb3d8bbwe!App",
+                "--from-package-identity",
+            ),
+        ])];
+
+        assert_eq!(
+            policy_arguments_from(
+                &hives,
+                &candidates(&["TouchAI.TouchAI_8wekyb3d8bbwe!App", "TouchAI.Desktop"])
+            )
+            .as_deref(),
+            Some("--from-package-identity")
         );
     }
 
