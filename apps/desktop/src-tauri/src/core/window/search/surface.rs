@@ -868,36 +868,63 @@ pub(crate) fn refresh_visible_host_on_main_thread<R: Runtime>(
         snapshot.current_width,
         snapshot.current_height,
     )?;
-    let (request, target_frame) = {
+    let answer = {
         let mut state = runtime
             .surface
             .lock()
             .unwrap_or_else(|error| error.into_inner());
-        match refresh_host_if_needed(&mut state, inspected) {
-            HostRefreshOutcome::Refreshed {
-                request,
-                target_frame,
-            } => (request, target_frame),
-            // The frame is unchanged, so there is nothing to rebuild — but the
-            // renderer asked because it cannot commit the preparation it holds.
-            // Answering "nothing to do" would end the show on a token the host
-            // has already replaced, so publish the pending preparation again.
-            HostRefreshOutcome::Current => {
-                drop(state);
-                return republish_preparation_after_host_resize(&window);
-            }
-            HostRefreshOutcome::NotApplicable => return Ok(false),
-        }
+        host_refresh_answer(&mut state, inspected)
     };
-    Ok(prepare_show_locked(
-        app_handle,
-        runtime.inner(),
-        &window,
-        request,
-        Some(target_frame),
-        false,
-    )?
-    .is_some())
+    match answer {
+        HostRefreshAnswer::Publish {
+            request,
+            target_frame,
+        } => Ok(prepare_show_locked(
+            app_handle,
+            runtime.inner(),
+            &window,
+            request,
+            Some(target_frame),
+            false,
+        )?
+        .is_some()),
+        HostRefreshAnswer::Republish => republish_preparation_after_host_resize(&window),
+        HostRefreshAnswer::Nothing => Ok(false),
+    }
+}
+
+/// What a renderer refresh request should publish.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HostRefreshAnswer {
+    Publish {
+        request: SearchHostPreparationRequest,
+        target_frame: PhysicalHostFrame,
+    },
+    Republish,
+    Nothing,
+}
+
+/// Decide what the renderer's refresh request gets for the state it found.
+///
+/// An unchanged frame needs no rebuild, but the renderer asked because it cannot
+/// commit the preparation it holds. Answering "nothing to do" would end the show
+/// on a token the host has already replaced, so the pending preparation is
+/// published again with a new host epoch.
+fn host_refresh_answer(
+    state: &mut SearchSurfaceState,
+    inspected: PreparedSearchHost,
+) -> HostRefreshAnswer {
+    match refresh_host_if_needed(state, inspected) {
+        HostRefreshOutcome::Refreshed {
+            request,
+            target_frame,
+        } => HostRefreshAnswer::Publish {
+            request,
+            target_frame,
+        },
+        HostRefreshOutcome::Current => HostRefreshAnswer::Republish,
+        HostRefreshOutcome::NotApplicable => HostRefreshAnswer::Nothing,
+    }
 }
 
 fn refresh_host_if_needed(
@@ -1241,10 +1268,11 @@ mod tests {
     };
     use super::{
         accept_host_resize_for_current_surface, foreground_belongs_to_main_hwnd_family,
-        hide_surface_state_transaction, refresh_host_if_needed, should_hide_on_focus_lost,
-        FocusLostDecisionInput, HostRefreshOutcome, SearchSurfacePreparationPayload,
-        SearchSurfacePreparationState, SearchSurfacePreparationToken, SearchSurfaceShowStatus,
-        SearchSurfaceState, SearchWindowRuntime,
+        hide_surface_state_transaction, host_refresh_answer, refresh_host_if_needed,
+        should_hide_on_focus_lost, FocusLostDecisionInput, HostRefreshAnswer, HostRefreshOutcome,
+        SearchSurfacePreparationPayload, SearchSurfacePreparationState,
+        SearchSurfacePreparationToken, SearchSurfaceShowStatus, SearchSurfaceState,
+        SearchWindowRuntime,
     };
     use crate::core::window::search_host::{PhysicalHostFrame, PreparedSearchHost};
 
@@ -1674,6 +1702,79 @@ mod tests {
 
         assert_eq!(error, "native hide failed");
         assert_eq!(state, previous);
+    }
+
+    #[test]
+    fn user_gets_a_republished_preparation_when_the_refresh_finds_an_unchanged_frame() {
+        let (mut state, old_preparation) = preparing_surface_state();
+        let unchanged = PreparedSearchHost {
+            changed: false,
+            frame: host_frame(1920),
+            target_frame: host_frame(1920),
+            scale_factor: 1.25,
+        };
+
+        assert_eq!(
+            host_refresh_answer(&mut state, unchanged),
+            HostRefreshAnswer::Republish
+        );
+        // A visible surface with the same frame also gets the pending show
+        // republished rather than "nothing to do".
+        let mut visible = visible_surface_state();
+        assert_eq!(
+            host_refresh_answer(&mut visible, unchanged),
+            HostRefreshAnswer::Republish
+        );
+
+        // Republishing is what gives the renderer a token it can commit: the show
+        // stays the same, the host epoch moves on.
+        let request = state
+            .protocol
+            .request_host_refresh()
+            .expect("the pending show should ask the host again");
+        let republished = state
+            .protocol
+            .host_prepared(request)
+            .expect("the host should prepare the same show again");
+        assert_eq!(republished.show_epoch, old_preparation.show_epoch);
+        assert!(republished.host_epoch > old_preparation.host_epoch);
+        assert!(state.protocol.region_applied(old_preparation, 11).is_none());
+        assert!(state.protocol.region_applied(republished, 12).is_some());
+    }
+
+    #[test]
+    fn user_gets_a_rebuilt_host_when_the_refresh_finds_a_changed_frame() {
+        let (mut state, _preparation) = preparing_surface_state();
+        let resized = PreparedSearchHost {
+            changed: true,
+            frame: host_frame(1918),
+            target_frame: host_frame(1918),
+            scale_factor: 1.25,
+        };
+
+        assert!(matches!(
+            host_refresh_answer(&mut state, resized),
+            HostRefreshAnswer::Publish { .. }
+        ));
+    }
+
+    #[test]
+    fn user_gets_nothing_when_the_surface_holds_no_preparation_to_republish() {
+        let (mut hidden, _) = preparing_surface_state();
+        hidden.protocol.hide();
+        hidden.pending_preparation = None;
+        assert_eq!(
+            host_refresh_answer(
+                &mut hidden,
+                PreparedSearchHost {
+                    changed: false,
+                    frame: host_frame(1920),
+                    target_frame: host_frame(1920),
+                    scale_factor: 1.25,
+                }
+            ),
+            HostRefreshAnswer::Nothing
+        );
     }
 
     #[test]
