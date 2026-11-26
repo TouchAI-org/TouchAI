@@ -247,11 +247,11 @@ describe('search surface preparation', () => {
                 calls.push(`flush:${flushes}`);
                 return flushes === 1 ? ('superseded' as const) : ('committed' as const);
             },
-            // The host answers the refresh by republishing the pending
-            // preparation with a new epoch instead of reporting no change.
+            // The host answers the refresh by republishing the same show with a
+            // newer host epoch instead of reporting no change.
             requestHostRefresh: async () => {
                 calls.push('refresh');
-                void deliver?.(preparation(2));
+                void deliver?.({ ...preparation(), hostEpoch: 2 });
             },
             onError: (error) => {
                 calls.push(`error:${(error as Error).message}`);
