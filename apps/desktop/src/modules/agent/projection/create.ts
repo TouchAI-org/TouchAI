@@ -313,6 +313,9 @@ export class SessionTaskProjection {
             return;
         }
 
+        // The retry text describes the wait, not the answer; the next attempt's output replaces it.
+        assistantMessage.statusText = undefined;
+
         if (chunk.reasoningState === 'start') {
             this.finishReasoningPart(assistantMessage);
             assistantMessage.parts.push(createReasoningPart('', true));
@@ -454,6 +457,7 @@ export class SessionTaskProjection {
             this.clearPendingCompaction(assistantMessage);
             this.finishReasoningPart(assistantMessage);
             assistantMessage.isStreaming = false;
+            assistantMessage.statusText = undefined;
         }
 
         this.snapshot.status = 'completed';
@@ -831,14 +835,17 @@ export class SessionTaskProjection {
 
     // ────────────────────── 事件路由 ──────────────────────
 
+    /**
+     * 重试是待完成 assistant 回答的请求状态，不是单独的一轮回答。
+     *
+     * 状态文字挂在待完成消息上，由该消息的请求状态行呈现，因此始终贴着正在等待的回答；
+     * 下一次尝试产出内容时清除，避免留下一条悬浮在对话里的状态记录。
+     */
     private handleRetryEvent(
         assistantMessage: SessionMessage,
         toolEvent: Extract<ToolEvent, { type: 'request_retry' }>
     ): void {
-        const retryStatusMessage = createDerivedStatusMessage(
-            this.messages.retryText(toolEvent.attempt, toolEvent.maxRetries),
-            { isRetrying: true }
-        );
+        const retryText = this.messages.retryText(toolEvent.attempt, toolEvent.maxRetries);
 
         if (toolEvent.retryScope === 'checkpoint') {
             const shouldRollbackCheckpointPresentation =
@@ -847,7 +854,8 @@ export class SessionTaskProjection {
             if (shouldRollbackCheckpointPresentation) {
                 this.restoreCheckpointPresentation();
             }
-            this.snapshot.sessionHistory.push(retryStatusMessage);
+            const pendingAssistantMessage = this.getActiveAssistantMessage() ?? assistantMessage;
+            attachStatusText(pendingAssistantMessage, retryText);
             this.snapshot.status = 'running';
             this.touch();
             this.publish();
@@ -863,8 +871,7 @@ export class SessionTaskProjection {
 
         this.response = '';
         this.reasoning = '';
-        this.snapshot.sessionHistory.push(retryStatusMessage);
-        this.createStreamingAssistantMessage();
+        attachStatusText(this.createStreamingAssistantMessage(), retryText);
         this.snapshot.status = 'running';
         this.touch();
         this.publish();

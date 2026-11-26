@@ -121,6 +121,14 @@ export type ToolEventStructuredPayload =
           pid?: number;
           route?: string;
           windowId?: number;
+      }
+    | {
+          kind: 'show_widget_snapshot';
+          widgetId: string;
+          title: string;
+          description: string;
+          html: string;
+          mode: ShowWidgetMode;
       };
 
 /**

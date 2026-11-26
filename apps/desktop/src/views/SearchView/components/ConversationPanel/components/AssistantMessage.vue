@@ -53,7 +53,7 @@
                     </div>
 
                     <div
-                        v-if="message.statusText"
+                        v-if="message.statusText && !message.isStreaming"
                         class="mt-3 font-serif text-sm leading-[1.6] text-message-muted"
                     >
                         {{ message.statusText }}
@@ -68,6 +68,7 @@
                     data-request-status
                 >
                     <span v-if="isRequestStateMessage">{{ message.content }}</span>
+                    <span v-else-if="message.statusText">{{ message.statusText }}</span>
                     <template v-else>
                         <div class="flex shrink-0 items-center gap-1">
                             <span class="dot"></span>
@@ -245,7 +246,7 @@
     }
 
     function handleVisibilityChange() {
-        if (!props.message.isStreaming || isCompacting.value) {
+        if (!props.message.isStreaming || isCompacting.value || props.message.statusText) {
             return;
         }
 
@@ -259,9 +260,9 @@
 
     watch(windowVisible, handleVisibilityChange);
 
-    // 跟随 streaming 状态启停轮播（组件生命周期可能跨多次请求）
+    // 跟随 streaming 状态启停轮播（组件生命周期可能跨多次请求）；重试状态占用同一行时不轮播
     watch(
-        () => props.message.isStreaming && !isCompacting.value,
+        () => props.message.isStreaming && !isCompacting.value && !props.message.statusText,
         (streaming) => {
             if (streaming) {
                 startTipRotation();

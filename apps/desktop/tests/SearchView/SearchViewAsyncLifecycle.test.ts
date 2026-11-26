@@ -110,6 +110,7 @@ const {
     resizeState: {
         options: null as { resizeEnabled?: Ref<boolean> } | null,
         cardHeight: { value: 60 } as Ref<number>,
+        windowMaximized: null as { effective: Ref<boolean>; settled: Ref<boolean> } | null,
         remeasureTargetHeight: vi.fn(),
         scheduleMeasurement: vi.fn(),
         playSessionExpandAnimation: vi.fn(),
@@ -366,6 +367,7 @@ vi.mock('@/views/SearchView/composables/useSearchWindowResize', async () => {
     return {
         useSearchWindowResize: (options: { resizeEnabled?: Ref<boolean> }) => {
             resizeState.options = options;
+            resizeState.windowMaximized = { effective: ref(false), settled: ref(false) };
             return {
                 contentReady: ref(true),
                 currentHeight: ref(60),
@@ -373,8 +375,8 @@ vi.mock('@/views/SearchView/composables/useSearchWindowResize', async () => {
                 cardReveal: ref(0),
                 isCardGrowing: ref(false),
                 isMaximized: ref(false),
-                effectiveWindowMaximized: ref(false),
-                settledWindowMaximized: ref(false),
+                effectiveWindowMaximized: resizeState.windowMaximized.effective,
+                settledWindowMaximized: resizeState.windowMaximized.settled,
                 fillConversationAvailableHeight: ref(false),
                 skillPickerMaxHeight: ref(299.5),
                 monitorHost: ref(false),
@@ -506,6 +508,7 @@ describe('SearchView async overlay and listener lifecycle', () => {
         resizeState.playSessionExpandAnimation.mockResolvedValue(undefined);
         resizeState.collapseSessionToIdle.mockResolvedValue(true);
         resizeState.resetSearchWindowBounds.mockResolvedValue(true);
+
         resizeState.options = null;
         resizeState.measureTargetHeight.mockReturnValue(400);
         regionState.flush.mockResolvedValue(true);
@@ -1227,6 +1230,38 @@ describe('SearchView async overlay and listener lifecycle', () => {
         await setup.clearSessionToIdle();
 
         expect(requestFlowState.current!.clearSession).toHaveBeenCalledTimes(1);
+    });
+
+    it('user exiting a maximized conversation returns to the styled compact bar', async () => {
+        const wrapper = mountSearchView();
+        await flushPromises();
+        requestFlowState.current!.sessionHistory.value = [
+            { id: 'user', role: 'user', content: 'Layout regression', parts: [], timestamp: 1 },
+        ];
+        const maximized = resizeState.windowMaximized!;
+        maximized.effective.value = true;
+        maximized.settled.value = true;
+        await nextTick();
+        const root = wrapper.element as HTMLElement;
+        // A maximized conversation owns the whole sheet, so no card height is pinned.
+        expect(root.style.getPropertyValue('--search-surface-card-height')).toBe('');
+
+        resizeState.resetSearchWindowBounds.mockImplementationOnce(async () => {
+            maximized.effective.value = false;
+            maximized.settled.value = false;
+            return true;
+        });
+
+        await getSetupState(wrapper).clearSessionToIdle();
+        await flushPromises();
+
+        // Esc leaves the conversation-only full-bleed surface, not only its messages.
+        expect(resizeState.resetSearchWindowBounds).toHaveBeenCalledOnce();
+        expect(resizeState.collapseSessionToIdle).not.toHaveBeenCalled();
+        expect(requestFlowState.current!.clearSession).toHaveBeenCalledOnce();
+        // The card is a compact, styled bar again instead of an empty full sheet.
+        expect(root.style.getPropertyValue('--search-surface-card-height')).toBe('60px');
+        expect(maximized.settled.value).toBe(false);
     });
 
     it('user retains the results while a failed fold recovers its native bounds', async () => {

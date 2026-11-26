@@ -18,21 +18,35 @@
         pageContainer = ref(null),
         searchViewCard = ref(null),
         conversationPanel = ref(null),
-        conversationContainer = ref(null);
+        conversationContainer = ref(null),
+        inputArea = ref(null),
+        pickerContainer = ref(null);
     const viewReady = ref(false),
         sessionHistory = ref([]),
         isLoading = ref(false),
         searchWindowDefaultSize = ref({ width: 750, height: 60 });
     const quickSearchOpen = ref(false),
+        skillAutocompleteOpen = ref(false),
         quickSearchHandoff = ref(false),
-        quickSearchHandoffShell = ref(null);
+        quickSearchHandoffShell = ref(null),
+        quickSearchPanel = ref(null),
+        skillPickerPanel = ref(null),
+        quickSearchEligible = ref(true),
+        fileSearchEnabled = ref(true),
+        skillPickerMaxHeight = ref(420),
+        filePickerMaxHeight = ref(420),
+        activeOverlay = ref('none');
     const quickSearchRevealPhase = ref('idle'),
         askUserStore = useAskUserStore();
+    const floatingPicker = computed(
+        () => sessionHistory.value.length > 0 && !quickSearchHandoff.value
+    );
     const {
         contentReady: searchViewContentReady,
         cardHeight: cardPixelHeight,
         measurementHold: surfaceMeasurementHold,
         fillConversationAvailableHeight,
+        isMaximized,
         effectiveWindowMaximized,
         settledWindowMaximized,
         panelStyle,
@@ -44,11 +58,16 @@
         scheduleMeasurement: scheduleContentMeasurement,
         ...resize
     } = useSearchWindowResize({
+        askUserOpen: computed(() => Boolean(askUserStore.current)),
         target: pageContent,
+        inputArea,
+        picker: pickerContainer,
+        floatingPicker,
         measureContentHeight: measurePageContentHeight,
         card: searchViewCard,
         sessionCount: computed(() => sessionHistory.value.length),
         quickSearchOpen,
+        skillAutocompleteOpen,
         defaultSize: searchWindowDefaultSize,
         ready: viewReady,
     });

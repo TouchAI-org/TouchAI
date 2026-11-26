@@ -669,7 +669,7 @@ describe('given typed analytics observes the real production main task', () => {
                 expect(
                     fixture.window.api
                         .getTaskSnapshot(started.taskId)
-                        ?.sessionHistory.some((message) => message.isRetrying)
+                        ?.sessionHistory.some((message) => Boolean(message.statusText))
                 ).toBe(true),
             { timeout: 400, interval: 10 }
         );

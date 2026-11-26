@@ -2298,13 +2298,22 @@
         await updateSessionSearchQuery(value);
     }
 
+    async function resetBoundsToIdle(isCurrent = () => !searchViewListenersDisposed) {
+        try {
+            return (await resetSearchWindowBounds()) && isCurrent();
+        } catch (error) {
+            log.error('[SearchView] Failed to restore compact bounds:', error);
+            return false;
+        }
+    }
+
     async function collapseBeforeClearing(isCurrent = () => !searchViewListenersDisposed) {
         if (effectiveWindowMaximized.value) return true;
         try {
             const collapsed = await collapseSessionToIdle();
             if (!isCurrent()) return false;
             if (collapsed) return true;
-            return (await resetSearchWindowBounds()) && isCurrent();
+            return resetBoundsToIdle(isCurrent);
         } catch (error) {
             log.error('[SearchView] Failed to restore compact bounds:', error);
             return false;
@@ -2331,17 +2340,28 @@
     async function clearSessionToIdle(options: { animate?: boolean; revalidate?: boolean } = {}) {
         cancelSessionExpansion();
         suppressQuickSearchAutoOpenOnce.value = true;
+        // A conversation owns the full-bleed surface while it is maximized. Exiting it
+        // leaves that mode too, so the compact bar keeps its elevation and radius
+        // instead of leaving an empty sheet behind.
         if (options.animate === false) {
             // Nobody can see this clear, so the conversation is dropped first: the card
             // is already compact and the bounds commit below has nothing to animate.
             clearSession();
             await nextTick();
-            await collapseBeforeClearing();
+            if (effectiveWindowMaximized.value) {
+                await resetBoundsToIdle();
+            } else {
+                await collapseBeforeClearing();
+            }
         } else {
             const clearIsCurrent = options.revalidate
                 ? idleClearStillAppropriate(currentSessionId.value)
                 : null;
-            if (!(await collapseBeforeClearing())) return;
+            if (effectiveWindowMaximized.value) {
+                if (!(await resetBoundsToIdle())) return;
+            } else if (!(await collapseBeforeClearing())) {
+                return;
+            }
             // The reveal no longer waits for the whole collapse, so the bounded
             // idle clear can finish with the window already shown. Clearing then
             // would drop what the user typed or started in the meantime.

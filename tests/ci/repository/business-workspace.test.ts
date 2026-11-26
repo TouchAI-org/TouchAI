@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, posix, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -82,6 +82,7 @@ describe('given the two extracted packages are production workspace dependencies
                     const run = spawnSync('pnpm', ['run', command], {
                         cwd: fixture,
                         encoding: 'utf8',
+                        shell: process.platform === 'win32',
                         timeout: 10_000,
                         env: { ...process.env, TOUCHAI_TEST_FAIL_OWNER: failure },
                     });
@@ -145,7 +146,11 @@ describe('given the two extracted packages are production workspace dependencies
     });
     it('user receives coverage for executed and untouched code in Desktop and both packages when running frontend checks', async () => {
         const base = (await import('../../../apps/desktop/vitest.config')).default;
-        const fixture = await mkdtemp(join(tmpdir(), 'touchai-workspace-coverage-'));
+        // A Windows 8.3 short name such as `ADMINI~1` in the temp root corrupts
+        // Vite's resolution of the fixture's relative setup file.
+        const fixture = await realpath(
+            await mkdtemp(join(tmpdir(), 'touchai-workspace-coverage-'))
+        );
         const desktop = join(fixture, 'apps/desktop');
         const owners = [
             desktop,

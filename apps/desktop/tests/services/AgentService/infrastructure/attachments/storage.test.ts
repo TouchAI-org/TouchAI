@@ -297,6 +297,8 @@ describe('user sends a message with attachments', () => {
     });
 
     it('user gets an already persisted attachment reused without touching disk', async () => {
+        // Reuse is only safe while the cached copy the row points at is still on disk.
+        mocks.exists.mockResolvedValue(true);
         const index = attachment({ attachmentId: 9, hash: 'deadbeef' });
 
         const persisted = await persistPreparedAttachment(index);
@@ -474,6 +476,8 @@ describe('user prepares an attachment before the write transaction', () => {
     });
 
     it('user gets nothing prepared for an attachment that is already persisted', async () => {
+        mocks.exists.mockResolvedValue(true);
+
         await prepareAttachmentForPersistence(attachment({ attachmentId: 4, hash: 'abc' }));
 
         expect(mocks.copyFile).not.toHaveBeenCalled();
@@ -511,6 +515,7 @@ afterAll(() => {
 
 describe('user sends an attachment through the runtime entry point', () => {
     it('user gets the same record the direct call would produce', async () => {
+        mocks.exists.mockResolvedValue(true);
         const index = attachment({ attachmentId: 21, hash: 'fff' });
 
         const record = await ensurePersistedAttachmentIndex(index);

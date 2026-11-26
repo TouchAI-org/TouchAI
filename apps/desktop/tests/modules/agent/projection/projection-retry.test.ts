@@ -64,9 +64,25 @@ describe('user sees a retry after a failure', () => {
 
         projection.handleChunk({ toolEvent: retryEvent() } as never);
 
-        const retryNotice = snapshot.sessionHistory.find((m) => m.isRetrying);
-        expect(retryNotice).toBeTruthy();
-        expect(retryNotice!.content).toContain('2');
+        const pendingAnswer = snapshot.sessionHistory[snapshot.sessionHistory.length - 1]!;
+        expect(pendingAnswer.role).toBe('assistant');
+        expect(pendingAnswer.statusText).toContain('2');
+    });
+
+    it('user gets no extra turn added when the retry is scheduled', () => {
+        const { snapshot, projection } = createProjection();
+        projection.bootstrap([], 'Hello', []);
+        projection.handleChunk({ content: 'Partial', done: false } as never);
+
+        projection.handleChunk({ toolEvent: retryEvent() } as never);
+
+        // The retry belongs to the pending answer, so it must not surface as its own turn.
+        expect(snapshot.sessionHistory).toHaveLength(3);
+        expect(snapshot.sessionHistory.map((message) => message.role)).toEqual([
+            'user',
+            'assistant',
+            'assistant',
+        ]);
     });
 
     it('user gets the task back to running so the spinner keeps going', () => {
@@ -106,7 +122,8 @@ describe('user sees a retry after a failure', () => {
 
         expect(snapshot.status).toBe('running');
         const last = snapshot.sessionHistory[snapshot.sessionHistory.length - 1]!;
-        expect(last).toMatchObject({ isRetrying: true });
+        expect(last).toMatchObject({ isStreaming: true });
+        expect(last.statusText).toContain('2');
     });
 
     it('user gets the output rolled back when the retry says it was discarded', () => {
@@ -149,6 +166,29 @@ describe('user sees a retry after a failure', () => {
 
         const assistant = snapshot.sessionHistory.find((m) => m.role === 'assistant')!;
         expect(assistant.content).toContain('Kept output');
+    });
+
+    it('user stops seeing the retry text once the retry starts answering', () => {
+        const { snapshot, projection } = createProjection();
+        projection.bootstrap([], 'Hello', []);
+        projection.handleChunk({ content: 'Old attempt', done: false } as never);
+
+        projection.handleChunk({ toolEvent: retryEvent({ retryScope: 'restart' }) } as never);
+        projection.handleChunk({ content: 'New attempt', done: false } as never);
+
+        const pendingAnswer = snapshot.sessionHistory[snapshot.sessionHistory.length - 1]!;
+        expect(pendingAnswer.content).toBe('New attempt');
+        expect(pendingAnswer.statusText).toBeUndefined();
+    });
+
+    it('user gets no stale retry text when the retry finishes without new output', () => {
+        const { snapshot, projection } = createProjection();
+        projection.bootstrap([], 'Hello', []);
+
+        projection.handleChunk({ toolEvent: retryEvent() } as never);
+        projection.markCompleted();
+
+        expect(snapshot.sessionHistory.every((message) => !message.statusText)).toBe(true);
     });
 
     it('user gets the answer started fresh after a restart retry', () => {
