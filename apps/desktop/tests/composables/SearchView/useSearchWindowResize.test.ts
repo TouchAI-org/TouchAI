@@ -198,11 +198,15 @@ function createMeasuredElement(height: number) {
 function createAnimatedCard(height: number) {
     const measured = createMeasuredElement(height);
     const animations: { finish: () => void; cancel: ReturnType<typeof vi.fn> }[] = [];
-    measured.element.animate = vi.fn(() => {
+    measured.element.animate = vi.fn((keyframes: Keyframe[]) => {
+        const targetHeight = Number.parseFloat(String(keyframes[1]?.height ?? ''));
         let finish: () => void = () => undefined;
         let rejectAnimation: (error: Error) => void = () => undefined;
         const finished = new Promise<Animation>((resolve, reject) => {
-            finish = () => resolve(animation);
+            finish = () => {
+                if (Number.isFinite(targetHeight)) measured.setHeight(targetHeight);
+                resolve(animation);
+            };
             rejectAnimation = reject;
         });
         const cancel = vi.fn(() => rejectAnimation(new DOMException('Cancelled', 'AbortError')));
@@ -850,6 +854,67 @@ describe('useSearchWindowResize', () => {
         );
         expect(mounted.result.isCardGrowing.value).toBe(false);
 
+        mounted.unmount();
+    });
+
+    it('user given stale compact native height when the card is expanded then collapses the rendered card to idle', async () => {
+        const card = createAnimatedCard(60);
+        const { mounted } = await mount({ card: ref(card.element) });
+        await flushLifecycle();
+        await mounted.result.playSessionExpandAnimation(290);
+        card.animations[0]!.finish();
+        await flushLifecycle();
+        card.setHeight(290);
+
+        nativeMock.window.getSearchWindowState.mockResolvedValue(
+            createWindowState({ currentHeight: 60 })
+        );
+        await mounted.result.syncWindowState();
+        nativeMock.window.commitSearchPanelResize.mockClear();
+
+        const collapse = mounted.result.collapseSessionToIdle();
+        await flushLifecycle();
+
+        expect(nativeMock.window.commitSearchPanelResize).toHaveBeenCalledWith(
+            expect.objectContaining({ to: { width: 750, height: 60 } })
+        );
+        card.animations[1]!.finish();
+        await collapse;
+        expect(mounted.result.currentHeight.value).toBe(60);
+        mounted.unmount();
+    });
+
+    it('user closing a conversation then delayed measurements stay folded until idle reset settles', async () => {
+        const card = createAnimatedCard(60);
+        const { mounted, target } = await mount({ card: ref(card.element) });
+        await flushLifecycle();
+        await mounted.result.playSessionExpandAnimation(290);
+        card.animations[0]!.finish();
+        await flushLifecycle();
+        card.setHeight(290);
+        nativeMock.window.commitSearchPanelResize.mockClear();
+
+        const collapse = mounted.result.collapseSessionToIdle();
+        await flushLifecycle();
+        const commitsBeforeMeasurement =
+            nativeMock.window.commitSearchPanelResize.mock.calls.length;
+
+        const staleContent = createMeasuredElement(290);
+        target.value = staleContent.element;
+        await flushLifecycle();
+        mounted.result.scheduleMeasurement(staleContent.element);
+        await advanceMeasurementTimers();
+
+        expect(nativeMock.window.commitSearchPanelResize).toHaveBeenCalledTimes(
+            commitsBeforeMeasurement
+        );
+        card.animations[card.animations.length - 1]!.finish();
+        await collapse;
+        await advanceMeasurementTimers();
+        expect(nativeMock.window.commitSearchPanelResize).toHaveBeenCalledTimes(
+            commitsBeforeMeasurement
+        );
+        expect(mounted.result.currentHeight.value).toBe(60);
         mounted.unmount();
     });
 
