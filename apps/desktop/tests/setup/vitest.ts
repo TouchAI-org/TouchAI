@@ -29,6 +29,24 @@ for (const [name, value] of Object.entries(webStreamGlobals)) {
     }
 }
 
+// jsdom has no frame clock. Libraries that debounce through nested
+// requestAnimationFrame calls (the editor does) schedule frames that outlive the
+// file that stubbed the clock, so a global fallback keeps those callbacks from
+// throwing after the stub is restored.
+if (typeof globalThis.requestAnimationFrame === 'undefined') {
+    Object.defineProperty(globalThis, 'requestAnimationFrame', {
+        configurable: true,
+        writable: true,
+        value: (callback: FrameRequestCallback) =>
+            window.setTimeout(() => callback(performance.now()), 16),
+    });
+    Object.defineProperty(globalThis, 'cancelAnimationFrame', {
+        configurable: true,
+        writable: true,
+        value: (id: number) => window.clearTimeout(id),
+    });
+}
+
 beforeEach(async () => {
     installTauriMocks();
     (await createTestWindowPresentation()).install();

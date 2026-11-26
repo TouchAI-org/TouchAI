@@ -44,10 +44,19 @@ pub(crate) fn install<R: Runtime>(window: &WebviewWindow<R>) -> Result<(), Strin
                     return;
                 }
                 unsafe {
-                    let _: () = objc2::msg_send![
+                    // Private WKWebView API. A future WebKit can remove it, and
+                    // sending an unknown selector would abort the process, so the
+                    // guard is part of the call rather than a nicety.
+                    let responds: objc2::runtime::Bool = objc2::msg_send![
                         webview,
-                        _setWindowOcclusionDetectionEnabled: objc2::runtime::Bool::NO
+                        respondsToSelector: objc2::sel!(_setWindowOcclusionDetectionEnabled:)
                     ];
+                    if responds.as_bool() {
+                        let _: () = objc2::msg_send![
+                            webview,
+                            _setWindowOcclusionDetectionEnabled: objc2::runtime::Bool::NO
+                        ];
+                    }
                 }
             })
             .map_err(|error| error.to_string())?;

@@ -49,7 +49,11 @@ export interface SearchSurfacePreparation {
 }
 
 export interface SearchSurfaceShowStatus {
-    status: 'shown';
+    /**
+     * `obsolete`: the host had already replaced the preparation this commit
+     * acknowledged. The epochs describe the preparation that is current now.
+     */
+    status: 'shown' | 'obsolete';
     rendererEpoch: number;
     showEpoch: number;
     hostEpoch: number;
