@@ -238,6 +238,7 @@ fn executable_file_name() -> Option<String> {
 /// Hives are searched in the order WebView2 reads them, and a blank value is not
 /// an argument string, so it must not stop the search: a blank machine entry
 /// cannot hide a user entry.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 fn policy_arguments_from(hives: &[Vec<(String, String)>], candidates: &[String]) -> Option<String> {
     hives.iter().find_map(|entries| {
         let name = policy_entry_for(entries, candidates)?;
@@ -254,6 +255,7 @@ fn policy_arguments_from(hives: &[Vec<(String, String)>], candidates: &[String])
 /// The policy names its entries by app user model id, executable file name, or
 /// `*`. Registry value names are case-insensitive, so candidates are matched that
 /// way, in order, and an entry naming anything else does not apply.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 fn policy_entry_for(entries: &[(String, String)], candidates: &[String]) -> Option<String> {
     for candidate in candidates {
         if let Some((name, _)) = entries
