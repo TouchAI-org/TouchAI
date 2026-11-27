@@ -264,7 +264,12 @@
     },
     "src/views/SearchView/components/WebSearch/WebSearchCitation.vue": {
         "tailwindcss/no-custom-classname": {
-            "count": 8
+            "count": 9
+        }
+    },
+    "src/views/SearchView/components/WebSearch/WebSearchCitationLink.vue": {
+        "tailwindcss/no-custom-classname": {
+            "count": 2
         }
     },
     "src/views/SearchView/index.vue": {

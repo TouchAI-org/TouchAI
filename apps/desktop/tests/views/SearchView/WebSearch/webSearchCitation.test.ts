@@ -109,7 +109,7 @@ function previewMetric(name: 'left' | 'top' | 'max-width' | 'max-height'): numbe
     return Number(match?.[1] ?? '0');
 }
 
-describe('user sees a source chip and its preview', () => {
+describe('user reads a cited source inline and sees its preview', () => {
     beforeEach(() => {
         vi.useFakeTimers();
         viewport = { width: 750, height: 600 };
@@ -126,17 +126,19 @@ describe('user sees a source chip and its preview', () => {
         document.body.innerHTML = '';
     });
 
-    it('user sees the page title capped at 8 characters on the chip', () => {
+    it('user reads the whole page title instead of a shortened marker', () => {
         const wrapper = mount(WebSearchCitation, {
             props: {
                 source: { ...source, title: 'A very long page title here' },
             },
         });
 
-        expect(wrapper.get('.web-search-citation__label').text()).toBe('A very l…');
+        expect(wrapper.get('.web-search-citation__label').text()).toBe(
+            'A very long page title here'
+        );
     });
 
-    it('user keeps a short title as-is', () => {
+    it('user sees a short title unchanged', () => {
         const wrapper = mount(WebSearchCitation, {
             props: { source: { ...source, title: 'Short' } },
         });
@@ -152,12 +154,13 @@ describe('user sees a source chip and its preview', () => {
         expect(wrapper.get('.web-search-citation__label').text()).toBe('example');
     });
 
-    it('user sees only the favicon on a circular background', () => {
+    it('user sees the site icon next to the title and opens the source in a new tab', () => {
         const wrapper = mount(WebSearchCitation, { props: { source } });
 
-        const chip = wrapper.get('.web-search-citation__chip');
-        expect(chip.find('img').exists() || chip.text() === '').toBe(true);
-        expect(wrapper.find('.web-search-citation__index').exists()).toBe(false);
+        const link = wrapper.get('.web-search-citation__link');
+        expect(link.find('.web-search-citation__icon').exists()).toBe(true);
+        expect(link.attributes('href')).toBe(source.url);
+        expect(link.attributes('target')).toBe('_blank');
     });
 
     it('user sees the preview into body so clipping ancestors cannot cut it', async () => {

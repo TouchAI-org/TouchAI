@@ -38,7 +38,7 @@
         --touchai-flow-heading-6-mt: 0.98rem;
         --touchai-flow-heading-6-mb: 0.38rem;
         --touchai-unified-border: rgba(219, 213, 207, 0.95);
-        --touchai-code-body-bg: rgba(252, 251, 249, 0.94);
+        --touchai-code-body-bg: var(--color-markdown-surface-soft);
         --touchai-markdown-surface: var(--color-markdown-surface);
         --touchai-markdown-surface-soft: var(--color-markdown-surface-soft);
         --touchai-markdown-surface-border: var(--color-markdown-surface-border);
@@ -103,9 +103,9 @@
     .touchai-markdown .code-block-container {
         @apply overflow-hidden border transition-colors;
         border-radius: 0.75rem;
-        border-color: var(--touchai-unified-border);
-        background-color: rgba(255, 255, 255, 0.96);
-        box-shadow: 0 3px 10px rgba(107, 95, 84, 0.1);
+        border-color: var(--color-content-block-border);
+        background-color: var(--color-content-block-surface);
+        box-shadow: var(--shadow-content-block);
         --markstream-code-fallback-bg: var(--touchai-code-body-bg);
         --markstream-code-fallback-fg: var(--color-primary-700);
         --markstream-code-fallback-selection-bg: var(--color-selection-bg);
@@ -115,8 +115,8 @@
     }
 
     .touchai-markdown .code-block-header {
-        background-color: rgba(255, 255, 255, 0.96) !important;
-        border-bottom-color: var(--touchai-unified-border) !important;
+        background-color: var(--color-content-block-surface) !important;
+        border-bottom-color: var(--color-content-block-border) !important;
         color: var(--color-primary-700) !important;
         min-height: 2.75rem;
         padding-top: 0.55rem !important;
@@ -512,9 +512,9 @@
 
 .touchai-markdown .markstream-vue .code-block-container {
     margin: var(--touchai-flow-codeblock-y) 0;
-    border-color: var(--touchai-unified-border);
-    background-color: rgba(255, 255, 255, 0.96);
-    box-shadow: 0 3px 10px rgba(107, 95, 84, 0.1);
+    border-color: var(--color-content-block-border);
+    background-color: var(--color-content-block-surface);
+    box-shadow: var(--shadow-content-block);
 }
 
 .touchai-markdown
@@ -524,8 +524,8 @@
 }
 
 .touchai-markdown .markstream-vue .code-block-header {
-    background-color: rgba(255, 255, 255, 0.96) !important;
-    border-bottom-color: var(--touchai-unified-border) !important;
+    background-color: var(--color-content-block-surface) !important;
+    border-bottom-color: var(--color-content-block-border) !important;
     color: var(--color-primary-700) !important;
 }
 

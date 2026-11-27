@@ -12,11 +12,13 @@
             target="_blank"
             rel="noreferrer"
             :aria-label="`${source.title}, ${hostname}`"
-            class="web-search-citation__chip"
+            class="web-search-citation__link"
             @focus="onFocus"
             @blur="onBlur"
         >
-            <SourceFavicon :source="source" :size="14" />
+            <span class="web-search-citation__icon">
+                <SourceFavicon :source="source" :size="14" />
+            </span>
             <span class="web-search-citation__label">{{ citationLabel }}</span>
         </a>
 
@@ -69,17 +71,14 @@
         webSearchSiteName,
         type WebSearchSource,
     } from '@/app/api/tools/results';
-    import { truncateText } from '@/utils/text';
 
     import SourceFavicon from './SourceFavicon.vue';
 
     const PREVIEW_DELAY_MS = 300;
     const LEAVE_DELAY_MS = 150;
-    /** 行内标记上最多显示几个字。 */
-    const CITATION_LABEL_MAX_CHARS = 8;
     const VIEWPORT_MARGIN = 12;
     const MIN_PREVIEW_WIDTH = 120;
-    /** 预览与 chip 之间的垂直间距（对应 CSS 的 padding）。 */
+    /** 预览与行内链接之间的垂直间距（对应 CSS 的 padding）。 */
     const PREVIEW_GAP = 8;
 
     interface Props {
@@ -91,7 +90,7 @@
     const rootRef = ref<HTMLElement | null>(null);
     const previewRef = ref<HTMLElement | null>(null);
     const previewOpen = ref(false);
-    /** 下方放不下时翻到 chip 上方。 */
+    /** 下方放不下时翻到链接上方。 */
     const previewAbove = ref(false);
     /** 预览的视口坐标（`position: fixed`，已 Teleport 到 body）。 */
     const previewLeft = ref(0);
@@ -110,11 +109,14 @@
 
     const hostname = computed(() => webSearchHostname(props.source.url));
 
-    /** 标题为空时退回站点短名，保证标记不会只剩一个图标。 */
+    /**
+     * 行内链接的可读标题：完整标题，标题为空时才退回站点短名。
+     *
+     * 截断只由 CSS 在行宽不足时做，长度不在这里硬切。
+     */
     const citationLabel = computed(() => {
         const title = props.source.title?.trim();
-        const base = title || webSearchSiteName(props.source.url);
-        return truncateText(base, CITATION_LABEL_MAX_CHARS, '…');
+        return title || webSearchSiteName(props.source.url);
     });
 
     const previewStyle = computed(() => ({
@@ -185,22 +187,22 @@
         }
         previewNaturalSize = size;
 
-        const chipRect = root.getBoundingClientRect();
+        const anchorRect = root.getBoundingClientRect();
         const column = resolveContentColumn(root);
         const viewportWidth = window.innerWidth;
         const viewportHeight = window.innerHeight;
 
         // 垂直：优先放下方，放不下翻上方，两边都紧张时选空间大的一侧。
-        const spaceBelow = viewportHeight - chipRect.bottom - VIEWPORT_MARGIN;
-        const spaceAbove = chipRect.top - VIEWPORT_MARGIN;
+        const spaceBelow = viewportHeight - anchorRect.bottom - VIEWPORT_MARGIN;
+        const spaceAbove = anchorRect.top - VIEWPORT_MARGIN;
         previewAbove.value = spaceBelow < size.height && spaceAbove > spaceBelow;
 
         const availableHeight = Math.max(0, previewAbove.value ? spaceAbove : spaceBelow);
         const height = Math.min(size.height, availableHeight);
         previewMaxHeight.value = height;
         previewTop.value = previewAbove.value
-            ? Math.max(VIEWPORT_MARGIN, chipRect.top - height - PREVIEW_GAP)
-            : chipRect.bottom + PREVIEW_GAP;
+            ? Math.max(VIEWPORT_MARGIN, anchorRect.top - height - PREVIEW_GAP)
+            : anchorRect.bottom + PREVIEW_GAP;
 
         // 水平：先夹左边缘再定宽度，反过来会让宽度占满可用区、左边无处可收。
         // 右边界取「视口」与「正文列」的较窄者，避免卡片伸进正文右侧留白。
@@ -210,7 +212,7 @@
             VIEWPORT_MARGIN;
         const width = Math.min(size.width, Math.max(MIN_PREVIEW_WIDTH, limitRight - limitLeft));
         const maxLeft = Math.max(limitLeft, limitRight - width);
-        const left = Math.min(Math.max(chipRect.left, limitLeft), maxLeft);
+        const left = Math.min(Math.max(anchorRect.left, limitLeft), maxLeft);
 
         previewLeft.value = left;
         previewMaxWidth.value = width;
@@ -289,7 +291,7 @@
         schedule(false, LEAVE_DELAY_MS);
     }
 
-    /** 预览区也是悬停区，从 chip 移过去时不能立刻关闭。 */
+    /** 预览区也是悬停区，从链接移过去时不能立刻关闭。 */
     function cancelLeaving(): void {
         clearTimer();
     }
@@ -324,65 +326,47 @@
 <style scoped>
     .web-search-citation {
         position: relative;
-        display: inline-flex;
-        /*
-         * `middle` 把元素垂直中心对齐到父行盒的 baseline + x-height/2。
-         * 正文是 CJK 衬线字（字号 15px / 行高 30.75px），字面重心比
-         * x-height 高，实测 chip 中心比行盒中心低 2.8px。
-         * 用 em 向上补，字号变化时同比例跟随。
-         */
-        top: -0.19em;
-        vertical-align: middle;
-
-        /* 与来源卡片用同一个色调：比页面背景略深一点即可，不要太重。 */
-        --ws-chip-bg: #f2efec;
-        --ws-chip-hover-bg: #ffffff;
-        --ws-muted: var(--color-primary-400, #968b7d);
-        --ws-ring: rgba(150, 139, 125, 0.22);
+        display: inline;
     }
 
-    .web-search-citation__chip {
-        display: inline-flex;
-        /* 行内标记：图标 + 短标题，标题超长时省略。 */
-        max-width: 11rem;
-        height: 18px;
-        align-items: center;
-        gap: 3px;
-        padding: 0 6px 0 2px;
-        border-radius: 999px;
-        background: var(--ws-chip-bg);
-        color: var(--ws-muted);
-        font-size: 11px;
+    /*
+     * 引用是正文里的内联链接：站点图标 + 完整标题，字号跟随正文。
+     * 旧实现是 11px 的胶囊标记，标题被切成 8 个字，读不出引用的是哪一页。
+     */
+    .web-search-citation__link {
+        color: var(--color-primary-700);
         font-weight: 500;
-        line-height: 1;
-        text-decoration: none;
+        text-decoration-line: underline;
+        text-decoration-thickness: var(--text-decoration-thickness-subtle);
+        text-decoration-color: var(--color-primary-300);
+        text-underline-offset: 0.18em;
         transition:
-            background-color 160ms ease,
             color 160ms ease,
-            box-shadow 160ms ease,
-            scale 160ms ease;
+            text-decoration-color 160ms ease;
     }
 
     .web-search-citation__label {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        overflow-wrap: anywhere;
     }
 
-    .web-search-citation__chip:hover,
-    .web-search-citation__chip:focus-visible {
-        background: var(--ws-chip-hover-bg);
-        color: var(--color-primary-700, #4a4039);
-        box-shadow:
-            0 0 0 1px var(--ws-ring),
-            0 1px 3px -1px rgba(107, 95, 84, 0.2);
-        scale: 1.04;
-        outline: none;
+    /* 图标带固定尺寸，是块级 flex 子项，必须自己包一层才能落在基线上。 */
+    .web-search-citation__icon {
+        display: inline-flex;
+        align-items: center;
+        margin-inline-end: 0.28em;
+        vertical-align: -0.16em;
     }
 
-    .web-search-citation__chip:focus-visible {
-        outline: 2px solid var(--color-primary-300, #b8afa5);
-        outline-offset: 1px;
+    .web-search-citation__link:hover,
+    .web-search-citation__link:focus-visible {
+        color: var(--color-primary-600);
+        text-decoration-color: var(--color-primary-500);
+    }
+
+    .web-search-citation__link:focus-visible {
+        outline: 2px solid var(--color-focus);
+        outline-offset: 2px;
+        border-radius: var(--radius-xs);
     }
 
     /*
@@ -391,11 +375,10 @@
      * 并自己声明变量。
      */
     :global(.web-search-citation__preview) {
-        --ws-muted: var(--color-primary-400, #968b7d);
-        --ws-ring: rgba(150, 139, 125, 0.22);
+        --ws-muted: var(--color-text-tertiary);
         /*
          * Teleport 到 body + fixed：完全脱离会话面板的 overflow 裁剪。
-         * 之前用 absolute 定位在 chip 内部，面板的 overflow 会直接把卡片切掉，
+         * 之前用 absolute 定位在链接内部，面板的 overflow 会直接把卡片切掉，
          * 这种情况下无论怎么算夹取都没用。坐标由 placePreview() 写入。
          */
         position: fixed;
@@ -403,7 +386,7 @@
         display: block;
         width: 288px;
         max-width: calc(100vw - 24px);
-        /* chip 在 nowrap 行内，预览需要自己恢复换行。 */
+        /* 链接在正文行内，预览需要自己恢复换行。 */
         white-space: normal;
         transform-origin: top left;
     }
@@ -442,7 +425,7 @@
         display: -webkit-box;
         overflow: hidden;
         margin-top: 6px;
-        color: var(--color-primary-700, #4a4039);
+        color: var(--color-primary-700);
         font-size: 13.5px;
         font-weight: 600;
         line-height: 18px;
@@ -475,7 +458,7 @@
     @media (prefers-reduced-motion: reduce) {
         :global(.web-search-citation-pop-enter-active),
         :global(.web-search-citation-pop-leave-active),
-        .web-search-citation__chip {
+        .web-search-citation__link {
             transition: none;
         }
     }

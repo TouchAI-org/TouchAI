@@ -45,7 +45,7 @@
             </div>
         </button>
         <MotionCollapse :open="isExpanded" lazy>
-            <div class="tool-call-inline-panel mt-2 space-y-1.5">
+            <div class="tool-call-inline-panel mt-2 space-y-2">
                 <ToolCallItem
                     v-for="toolCall in toolCalls"
                     :key="toolCall.id"
@@ -153,9 +153,9 @@
         gap: 0.75rem;
         padding: 0.45rem 0.65rem;
         border-radius: 0.75rem;
-        border: 1px solid rgba(209, 213, 219, 0.9);
-        background: rgba(249, 250, 251, 0.7);
-        color: rgb(75, 85, 99);
+        border: 1px solid var(--color-content-block-border);
+        background: var(--color-content-block-surface);
+        color: var(--color-text-secondary);
         transition:
             border-color var(--duration-quick) var(--ease-smooth-out),
             background-color var(--duration-quick) var(--ease-smooth-out),
@@ -163,9 +163,9 @@
     }
 
     .tool-call-inline-trigger:hover {
-        border-color: rgb(156, 163, 175);
-        background: rgba(243, 244, 246, 0.85);
-        color: rgb(31, 41, 55);
+        border-color: var(--color-primary-300);
+        background: var(--color-content-block-surface-hover);
+        color: var(--color-primary-700);
     }
 
     .tool-call-inline-main {
@@ -181,7 +181,7 @@
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        color: rgb(107, 114, 128);
+        color: var(--color-text-tertiary);
     }
 
     .tool-call-inline-latest {
@@ -189,7 +189,7 @@
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
-        color: rgb(107, 114, 128);
+        color: var(--color-text-tertiary);
         font-size: 12px;
     }
 
@@ -198,7 +198,7 @@
         align-items: center;
         gap: 0.35rem;
         font-size: 12px;
-        color: rgb(107, 114, 128);
+        color: var(--color-text-tertiary);
         flex-shrink: 0;
     }
 
@@ -206,30 +206,31 @@
         display: inline-flex;
         align-items: center;
         gap: 0.35rem;
-        color: rgb(37, 99, 235);
+        color: var(--color-text-info);
     }
 
     .tool-call-inline-pulse {
         width: 0.4rem;
         height: 0.4rem;
         border-radius: 999px;
-        background: rgb(59, 130, 246);
+        background: currentColor;
         animation: pulse var(--motion-status-cycle) var(--ease-in-out) infinite;
     }
 
     .tool-call-inline-error {
-        color: rgb(220, 38, 38);
+        color: var(--color-text-danger);
     }
 
     .tool-call-inline-cancelled {
-        color: rgb(107, 114, 128);
+        color: var(--color-text-tertiary);
     }
 
     .tool-call-inline-panel {
         padding: 0.45rem;
         border-radius: 0.75rem;
-        border: 1px solid rgba(229, 231, 235, 0.9);
-        background: rgba(249, 250, 251, 0.65);
+        border: 1px solid var(--color-content-block-border);
+        background: var(--color-content-block-surface);
+        box-shadow: var(--shadow-content-block);
     }
 
     @keyframes pulse {
