@@ -104,6 +104,14 @@ export const window = {
         return invoke('get_search_window_state');
     },
 
+    isSearchSurfaceVisible(): Promise<boolean> {
+        return invoke('is_search_surface_visible');
+    },
+
+    requestSearchSurfaceRefresh(): Promise<boolean> {
+        return invoke('request_search_surface_refresh');
+    },
+
     commitSearchPanelResize(resize: SearchPanelResizeCommit): Promise<SearchWindowState> {
         return invoke('commit_search_panel_resize', { resize });
     },

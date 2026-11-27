@@ -53,6 +53,8 @@ const {
                 registerGlobalShortcut: vi.fn(),
             },
             window: {
+                isSearchSurfaceVisible: vi.fn(),
+                requestSearchSurfaceRefresh: vi.fn(),
                 hideSearchWindow: vi.fn(),
                 reconcileSearchWindowBlur: vi.fn(),
                 setTrayStatusIndicator: vi.fn(),
@@ -232,7 +234,8 @@ describe('useSearchPageLifecycle', () => {
         vi.useFakeTimers();
         eventHandlers.clear();
 
-        currentWindowMock.isVisible.mockResolvedValue(true);
+        nativeMock.window.isSearchSurfaceVisible.mockResolvedValue(true);
+        nativeMock.window.requestSearchSurfaceRefresh.mockResolvedValue(true);
         currentWindowMock.isFocused.mockResolvedValue(false);
         currentWindowMock.isAlwaysOnTop.mockResolvedValue(false);
         currentWindowMock.setAlwaysOnTop.mockResolvedValue(undefined);
@@ -285,7 +288,7 @@ describe('useSearchPageLifecycle', () => {
         expect(settingsStoreMock.initialize).toHaveBeenCalledTimes(1);
         expect(nativeMock.shortcut.registerGlobalShortcut).toHaveBeenCalledWith('Alt+Space');
         expect(useAlertMock).toHaveBeenCalledTimes(1);
-        expect(currentWindowMock.isVisible).toHaveBeenCalledTimes(1);
+        expect(nativeMock.window.isSearchSurfaceVisible).toHaveBeenCalledTimes(1);
         expect(syncWindowPinState).toHaveBeenCalledTimes(1);
 
         isPinned.value = true;
@@ -1284,6 +1287,130 @@ describe('useSearchPageLifecycle', () => {
         mounted.unmount();
     });
 
+    it('user does not wait for a collapse animation when the expired session is dropped before the reveal', async () => {
+        const controller = createController();
+        const interactionContext = createSearchInteractionContext();
+        const clearSession = vi.fn().mockResolvedValue(undefined);
+        const syncWindowPinState = vi.fn().mockResolvedValue(false);
+
+        const mounted = await mountComposable(() =>
+            useSearchPageLifecycle({
+                controller: controller as never,
+                viewReady: ref(true),
+                isDragging: ref(false),
+                isPinned: ref(false),
+                interactionContext,
+                syncWindowPinState,
+                clearSession,
+            })
+        );
+
+        await flushLifecycle();
+
+        interactionContext.markWindowHidden({
+            hideReason: 'app-blur-hide',
+            hiddenAt: Date.now() - 5 * 60 * 1000 - 1,
+        });
+
+        await mounted.result.clearIdleSessionOnEntry(() => true, false);
+
+        // The bounded idle clear asks the owner to re-check the approval.
+        expect(clearSession).toHaveBeenCalledWith({ animate: false, revalidate: true });
+        mounted.unmount();
+    });
+
+    it('user does not lose the idle clear when the preparation is superseded while the clear is running', async () => {
+        const controller = createController();
+        const interactionContext = createSearchInteractionContext();
+        let finishClear!: () => void;
+        const clearSession = vi.fn(
+            () =>
+                new Promise<void>((resolve) => {
+                    finishClear = resolve;
+                })
+        );
+        const syncWindowPinState = vi.fn().mockResolvedValue(false);
+
+        const mounted = await mountComposable(() =>
+            useSearchPageLifecycle({
+                controller: controller as never,
+                viewReady: ref(true),
+                isDragging: ref(false),
+                isPinned: ref(false),
+                interactionContext,
+                syncWindowPinState,
+                clearSession,
+            })
+        );
+
+        await flushLifecycle();
+
+        interactionContext.markWindowHidden({
+            hideReason: 'app-blur-hide',
+            hiddenAt: Date.now() - 5 * 60 * 1000 - 1,
+        });
+
+        // The first attempt starts the clear, then a newer preparation arrives
+        // and invalidates it. The retry must not skip the clear because the
+        // timeout was already consumed, and must not start a second one.
+        const first = mounted.result.clearIdleSessionOnEntry(() => true, false);
+        await flushLifecycle();
+        let retrySettled = false;
+        const retry = mounted.result
+            .clearIdleSessionOnEntry(() => true, false)
+            .then(() => {
+                retrySettled = true;
+            });
+        await flushLifecycle();
+
+        // The retry joins the clear that is already running, so it cannot settle
+        // before that clear does.
+        expect(retrySettled).toBe(false);
+        expect(clearSession).toHaveBeenCalledTimes(1);
+        finishClear();
+        await Promise.all([first, retry]);
+
+        expect(retrySettled).toBe(true);
+        expect(clearSession).toHaveBeenCalledTimes(1);
+        mounted.unmount();
+    });
+
+    it('user watches the usual collapse when the expired session is cleared after the reveal', async () => {
+        const controller = createController();
+        const interactionContext = createSearchInteractionContext();
+        const clearSession = vi.fn().mockResolvedValue(undefined);
+        const reconcileSearchOverlays = vi.fn().mockResolvedValue(undefined);
+        const handleShortcutAutoPaste = vi.fn().mockResolvedValue(undefined);
+        const syncWindowPinState = vi.fn().mockResolvedValue(false);
+
+        const mounted = await mountComposable(() =>
+            useSearchPageLifecycle({
+                controller: controller as never,
+                viewReady: ref(true),
+                isDragging: ref(false),
+                isPinned: ref(false),
+                interactionContext,
+                syncWindowPinState,
+                clearSession,
+                reconcileSearchOverlays,
+                handleShortcutAutoPaste,
+            })
+        );
+
+        await flushLifecycle();
+
+        interactionContext.markWindowHidden({
+            hideReason: 'manual-dismiss',
+            hiddenAt: Date.now() - 5 * 60 * 1000 - 1,
+        });
+
+        await mounted.result.handleSearchSurfaceShown(createShownEvent(1, 'shortcut'));
+        await flushLifecycle();
+
+        expect(clearSession).toHaveBeenCalledWith({ animate: true, revalidate: true });
+        mounted.unmount();
+    });
+
     it('suppresses timed-out session clearing when the page policy says auto-shrink is not yet allowed', async () => {
         const controller = createController();
         const interactionContext = createSearchInteractionContext();
@@ -1383,6 +1510,10 @@ describe('useSearchPageLifecycle', () => {
 
 beforeEach(() => {
     mockTauriCommand('get_runtime_info', () => nativeMock.runtime.getRuntimeInfo());
+    mockTauriCommand('is_search_surface_visible', () => nativeMock.window.isSearchSurfaceVisible());
+    mockTauriCommand('request_search_surface_refresh', () =>
+        nativeMock.window.requestSearchSurfaceRefresh()
+    );
     mockTauriCommand('register_global_shortcut', (payload) =>
         nativeMock.shortcut.registerGlobalShortcut((payload as { shortcut: string }).shortcut)
     );

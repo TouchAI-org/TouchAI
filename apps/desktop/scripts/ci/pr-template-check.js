@@ -29,6 +29,7 @@ const DESIGN_SYSTEM_PATH_PATTERNS = [
 ];
 
 const NOT_APPLICABLE_PATTERN = /^n\/?a\.?$/i;
+const MAINTAINER_ASSOCIATIONS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
 
 const ISSUE_REFERENCE_PATTERN =
     /(?:\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?|related to)\s+#\d+\b|(?:^|\s)#\d+\b|TouchAI-org\/TouchAI#\d+\b|https:\/\/github\.com\/[^/\s]+\/[^/\s]+(?:\/(?:issues|pull|discussions)\/\d+)?\b)/im;
@@ -57,6 +58,10 @@ function isReleasePleasePr(body, options) {
         options?.headRef?.startsWith(RELEASE_PLEASE_HEAD_PREFIX) &&
         isReleasePleaseGeneratedBody(body)
     );
+}
+
+function isMaintainerAssociation(authorAssociation) {
+    return MAINTAINER_ASSOCIATIONS.has(String(authorAssociation ?? '').toUpperCase());
 }
 
 /**
@@ -328,7 +333,11 @@ export function validatePrTemplateBody(body, options = {}) {
         return '"## Related issue or RFC" must not be empty.';
     }
 
-    if (!ISSUE_REFERENCE_PATTERN.test(relatedSection)) {
+    const maintainerWithoutIssue =
+        isMaintainerAssociation(options.authorAssociation) &&
+        NOT_APPLICABLE_PATTERN.test(relatedSection);
+
+    if (!ISSUE_REFERENCE_PATTERN.test(relatedSection) && !maintainerWithoutIssue) {
         return '"## Related issue or RFC" must include an issue, RFC, or repository link.';
     }
 
@@ -352,6 +361,7 @@ function main() {
         headRef: process.env.PR_HEAD_REF ?? '',
         headRepoFullName: process.env.PR_HEAD_REPO_FULL_NAME ?? '',
         baseRepository: process.env.GITHUB_REPOSITORY ?? '',
+        authorAssociation: process.env.PR_AUTHOR_ASSOCIATION ?? '',
         changedFiles: parseChangedFiles(process.env.PR_FILES),
     });
 

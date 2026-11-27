@@ -103,6 +103,10 @@ fn create_privacy_filter_runtime() -> core::privacy_filter::PrivacyFilterRuntime
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     core::analytics::mark_process_start(std::time::Instant::now());
+    // The main window is declared in `tauri.conf.json`, so it is created before
+    // any code can hand it browser arguments. The shared WebView2 environment is
+    // built by that first window, so the arguments have to be exported here.
+    core::system::runtime::apply_webview_browser_arguments_env();
     velopack::VelopackApp::build().run();
 
     let builder = tauri::Builder::default().plugin(core::system::logging::build_plugin());
@@ -289,7 +293,7 @@ pub fn run() {
                 Some(tauri::utils::config::AppDirectoriesOverride::Root(app_root));
         }
     }
-    if let Some(browser_args) = core::system::runtime::e2e_webview_additional_browser_args() {
+    if let Some(browser_args) = core::system::runtime::webview_additional_browser_args() {
         for window in &mut context.config_mut().app.windows {
             window.additional_browser_args = Some(browser_args.clone());
         }

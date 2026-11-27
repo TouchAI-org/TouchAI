@@ -12,6 +12,7 @@ pub mod search_host;
 pub mod search_region;
 pub mod settings;
 pub mod status_reminder;
+pub(crate) mod surface_recovery;
 pub mod tray;
 #[cfg(target_os = "linux")]
 pub(crate) mod webkit_cors;

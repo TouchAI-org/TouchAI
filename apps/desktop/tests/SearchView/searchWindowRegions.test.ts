@@ -591,7 +591,7 @@ describe('createSearchWindowRegionReporter', () => {
         reporter.dispose();
     });
 
-    it('rejects a tokenized shown commit with mismatched causal facts', async () => {
+    it('user keeps the window when a newer show already committed the preparation', async () => {
         const preparation = surfacePreparation();
         const report = vi.fn((generation: number, context: SearchSurfacePreparation | undefined) =>
             validateSearchSurfacePreparationUpdate(
@@ -603,6 +603,65 @@ describe('createSearchWindowRegionReporter', () => {
                         rendererEpoch: preparation.rendererEpoch,
                         showEpoch: preparation.showEpoch,
                         hostEpoch: preparation.hostEpoch + 1,
+                        generation,
+                    },
+                },
+                context,
+                generation
+            )
+        );
+        const reporter = createSearchWindowRegionReporter(
+            () => ({ signature: 'prepared-geometry', context: preparation, report }),
+            100
+        );
+
+        // 更新的 preparation 已经提交，旧的 flush 没有内容可写：重试即可，不能报错。
+        await expect(reporter.flush('prepare', true)).resolves.toBe(false);
+        reporter.dispose();
+    });
+
+    it('user keeps the window when the host reports the preparation as obsolete', async () => {
+        const preparation = surfacePreparation();
+        const report = vi.fn((generation: number, context: SearchSurfacePreparation | undefined) =>
+            validateSearchSurfacePreparationUpdate(
+                {
+                    status: 'applied',
+                    generation,
+                    // The host replaced the preparation before this commit
+                    // arrived. That is a race, not a broken acknowledgement.
+                    showStatus: {
+                        status: 'obsolete',
+                        rendererEpoch: preparation.rendererEpoch,
+                        showEpoch: preparation.showEpoch,
+                        hostEpoch: preparation.hostEpoch + 1,
+                        generation: 0,
+                    },
+                },
+                context,
+                generation
+            )
+        );
+        const reporter = createSearchWindowRegionReporter(
+            () => ({ signature: 'prepared-geometry', context: preparation, report }),
+            100
+        );
+
+        await expect(reporter.flushPrepared('prepare')).resolves.toBe('superseded');
+        reporter.dispose();
+    });
+
+    it('rejects a shown commit that is older than the preparation it acknowledges', async () => {
+        const preparation = surfacePreparation();
+        const report = vi.fn((generation: number, context: SearchSurfacePreparation | undefined) =>
+            validateSearchSurfacePreparationUpdate(
+                {
+                    status: 'applied',
+                    generation,
+                    showStatus: {
+                        status: 'shown',
+                        rendererEpoch: preparation.rendererEpoch,
+                        showEpoch: preparation.showEpoch,
+                        hostEpoch: preparation.hostEpoch - 1,
                         generation,
                     },
                 },

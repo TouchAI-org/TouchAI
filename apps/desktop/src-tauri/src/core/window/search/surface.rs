@@ -90,6 +90,20 @@ impl SearchSurfaceShowStatus {
             generation: activation.region_generation,
         }
     }
+
+    /// The renderer acknowledged a preparation the host had already replaced.
+    /// Reporting `obsolete` lets it end that attempt and wait for the newer
+    /// preparation, instead of treating the acknowledgement as broken native
+    /// state and hiding a healthy window.
+    fn obsolete(token: SearchSurfacePreparationToken) -> Self {
+        Self {
+            status: "obsolete",
+            renderer_epoch: token.renderer_epoch,
+            show_epoch: token.show_epoch,
+            host_epoch: token.host_epoch,
+            generation: 0,
+        }
+    }
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -606,7 +620,7 @@ pub fn register_renderer_load_on_main_thread<R: Runtime>(
         state.active_preparation = None;
         state.protocol.page_load_started()
     };
-    window.hide().map_err(|error| error.to_string())?;
+    super::visibility::hide(&window)?;
     Ok(renderer_epoch)
 }
 
@@ -631,14 +645,13 @@ pub(crate) fn commit_prepared_region_on_main_thread<R: Runtime>(
         let Some(preparation) = state.protocol.preparation() else {
             return Ok(None);
         };
-        if token
-            != (SearchSurfacePreparationToken {
-                renderer_epoch: preparation.renderer_epoch,
-                show_epoch: preparation.show_epoch,
-                host_epoch: preparation.host_epoch,
-            })
-        {
-            return Ok(None);
+        let current = SearchSurfacePreparationToken {
+            renderer_epoch: preparation.renderer_epoch,
+            show_epoch: preparation.show_epoch,
+            host_epoch: preparation.host_epoch,
+        };
+        if token != current {
+            return Ok(Some(SearchSurfaceShowStatus::obsolete(current)));
         }
     }
     let inspected = inspect_host(runtime.inner(), window)?;
@@ -650,14 +663,13 @@ pub(crate) fn commit_prepared_region_on_main_thread<R: Runtime>(
         let Some(preparation) = state.protocol.preparation() else {
             return Ok(None);
         };
-        if token
-            != (SearchSurfacePreparationToken {
-                renderer_epoch: preparation.renderer_epoch,
-                show_epoch: preparation.show_epoch,
-                host_epoch: preparation.host_epoch,
-            })
-        {
-            return Ok(None);
+        let current = SearchSurfacePreparationToken {
+            renderer_epoch: preparation.renderer_epoch,
+            show_epoch: preparation.show_epoch,
+            host_epoch: preparation.host_epoch,
+        };
+        if token != current {
+            return Ok(Some(SearchSurfaceShowStatus::obsolete(current)));
         }
         match refresh_host_if_needed(&mut state, inspected) {
             HostRefreshOutcome::Current => None,
@@ -687,17 +699,25 @@ pub(crate) fn commit_prepared_region_on_main_thread<R: Runtime>(
         let Some(preparation) = state.protocol.preparation() else {
             return Ok(None);
         };
-        if token
-            != (SearchSurfacePreparationToken {
-                renderer_epoch: preparation.renderer_epoch,
-                show_epoch: preparation.show_epoch,
-                host_epoch: preparation.host_epoch,
-            })
-        {
-            return Ok(None);
+        let current = SearchSurfacePreparationToken {
+            renderer_epoch: preparation.renderer_epoch,
+            show_epoch: preparation.show_epoch,
+            host_epoch: preparation.host_epoch,
+        };
+        if token != current {
+            return Ok(Some(SearchSurfaceShowStatus::obsolete(current)));
         }
         let Some(activation) = state.protocol.region_applied(preparation, generation) else {
-            return Ok(None);
+            // The protocol no longer accepts this preparation (a newer show
+            // replaced it, or the surface was hidden meanwhile). That is a
+            // superseded attempt, not a broken acknowledgement.
+            return Ok(Some(SearchSurfaceShowStatus::obsolete(
+                SearchSurfacePreparationToken {
+                    renderer_epoch: preparation.renderer_epoch,
+                    show_epoch: preparation.show_epoch,
+                    host_epoch: preparation.host_epoch,
+                },
+            )));
         };
         activation
     };
@@ -706,7 +726,7 @@ pub(crate) fn commit_prepared_region_on_main_thread<R: Runtime>(
     // show()/set_focus() in that path re-enters the window and steals focus
     // from an open overlay, which is rendered in this same WebView.
     let should_activate_native_window =
-        runtime.native_enabled && !window.is_visible().unwrap_or(false);
+        runtime.native_enabled && !super::visibility::is_visible(window);
     if should_activate_native_window {
         if let Err(error) = activate_main_window(runtime.inner(), window) {
             let mut state = runtime
@@ -716,7 +736,7 @@ pub(crate) fn commit_prepared_region_on_main_thread<R: Runtime>(
             state.protocol.activation_failed(activation);
             state.pending_preparation = None;
             state.active_preparation = None;
-            let _ = window.hide();
+            let _ = super::visibility::hide(window);
             return Err(error);
         }
     }
@@ -732,7 +752,7 @@ pub(crate) fn commit_prepared_region_on_main_thread<R: Runtime>(
             state.protocol.activation_failed(activation);
             state.pending_preparation = None;
             state.active_preparation = None;
-            let _ = window.hide();
+            let _ = super::visibility::hide(window);
             return Err(error);
         }
     }
@@ -744,7 +764,7 @@ pub(crate) fn commit_prepared_region_on_main_thread<R: Runtime>(
         if state.protocol.activation_succeeded(activation).is_none() {
             state.protocol.activation_failed(activation);
             state.pending_preparation = None;
-            let _ = window.hide();
+            let _ = super::visibility::hide(window);
             return Ok(None);
         }
         state.active_preparation = state.pending_preparation.take();
@@ -756,7 +776,98 @@ pub(crate) fn commit_prepared_region_on_main_thread<R: Runtime>(
     Ok(Some(SearchSurfaceShowStatus::shown(activation)))
 }
 
-pub(in crate::core::window) fn refresh_visible_host_on_main_thread<R: Runtime>(
+/// Re-emit the pending preparation after the hidden host changed size.
+///
+/// The renderer measures the host before revealing it. A hidden resize (the
+/// idle-session clear collapsing the window back to its compact height) invalidates
+/// that measurement, and the host that emitted it can no longer describe the frame
+/// it will show. Publishing a new host epoch is what lets the renderer measure
+/// again instead of waiting forever on a viewport that can never match.
+pub(crate) fn republish_preparation_after_host_resize<R: Runtime>(
+    window: &tauri::WebviewWindow<R>,
+) -> Result<bool, String> {
+    let app_handle = window.app_handle();
+    let runtime = app_handle
+        .try_state::<SearchWindowRuntime>()
+        .ok_or_else(|| "Search window runtime is not initialized".to_string())?;
+    if !runtime.native_enabled {
+        return Ok(false);
+    }
+    let payload = {
+        let mut state = runtime
+            .surface
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let Some(payload) = republish_pending_preparation(&mut state) else {
+            return Ok(false);
+        };
+        payload
+    };
+    emit_preparation_with_retry(&payload, |name, payload| app_handle.emit(name, payload))?;
+    Ok(true)
+}
+
+/// Emit the preparation, retrying once when the first emit fails.
+///
+/// The renderer is waiting on this epoch: it holds a token the protocol has
+/// already replaced, so a dropped event leaves its commit obsolete with no
+/// replacement to switch to. One retry covers a transient emit failure; past
+/// that the caller reports the error, because a silent failure would leave the
+/// surface hidden with a renderer that never commits.
+fn emit_preparation_with_retry<E: std::fmt::Display>(
+    payload: &SearchSurfacePreparationPayload,
+    mut emit: impl FnMut(&'static str, SearchSurfacePreparationPayload) -> Result<(), E>,
+) -> Result<(), String> {
+    const EVENT: &str = "search-surface-prepare";
+    if let Err(first_error) = emit(EVENT, payload.clone()) {
+        emit(EVENT, payload.clone()).map_err(|error| {
+            format!(
+                "Failed to emit search surface preparation: {error} (first attempt: {first_error})"
+            )
+        })?;
+    }
+    Ok(())
+}
+
+/// Publish the pending show again with a new host epoch.
+///
+/// The renderer's commit failed on a token the protocol already replaced, so the
+/// host restates the same show against the viewport it will really use. Only a
+/// preparation the renderer has not committed yet can be restated: a visible
+/// surface has nothing pending, so it publishes nothing.
+fn republish_pending_preparation(
+    state: &mut SearchSurfaceState,
+) -> Option<SearchSurfacePreparationPayload> {
+    if !matches!(
+        state.protocol.phase(),
+        SearchSurfacePhase::Preparing | SearchSurfacePhase::Activating
+    ) {
+        return None;
+    }
+    // `accept_host_resize_for_current_surface` already rebased the accepted
+    // viewport, so the pending state describes the frame the host will show.
+    let pending = state.pending_preparation.as_ref()?;
+    let viewport = pending.payload.physical_viewport;
+    let scale_factor = pending.payload.scale_factor;
+    let target_frame = pending.target_frame;
+    let request = state.protocol.request_host_refresh()?;
+    let preparation = state.protocol.host_prepared(request)?;
+    let payload = SearchSurfacePreparationPayload {
+        renderer_epoch: preparation.renderer_epoch,
+        show_epoch: preparation.show_epoch,
+        host_epoch: preparation.host_epoch,
+        source: preparation.source.as_str(),
+        physical_viewport: viewport,
+        scale_factor,
+    };
+    state.pending_preparation = Some(SearchSurfacePreparationState {
+        payload: payload.clone(),
+        target_frame,
+    });
+    Some(payload)
+}
+
+pub(crate) fn refresh_visible_host_on_main_thread<R: Runtime>(
     app_handle: &AppHandle<R>,
 ) -> Result<bool, String> {
     let runtime = app_handle
@@ -777,28 +888,68 @@ pub(in crate::core::window) fn refresh_visible_host_on_main_thread<R: Runtime>(
         snapshot.current_width,
         snapshot.current_height,
     )?;
-    let (request, target_frame) = {
+    let answer = {
         let mut state = runtime
             .surface
             .lock()
             .unwrap_or_else(|error| error.into_inner());
-        match refresh_host_if_needed(&mut state, inspected) {
-            HostRefreshOutcome::Refreshed {
-                request,
-                target_frame,
-            } => (request, target_frame),
-            HostRefreshOutcome::Current | HostRefreshOutcome::NotApplicable => return Ok(false),
-        }
+        host_refresh_answer(&mut state, inspected)
     };
-    Ok(prepare_show_locked(
-        app_handle,
-        runtime.inner(),
-        &window,
-        request,
-        Some(target_frame),
-        false,
-    )?
-    .is_some())
+    match answer {
+        HostRefreshAnswer::Publish {
+            request,
+            target_frame,
+        } => Ok(prepare_show_locked(
+            app_handle,
+            runtime.inner(),
+            &window,
+            request,
+            Some(target_frame),
+            false,
+        )?
+        .is_some()),
+        HostRefreshAnswer::Republish => republish_preparation_after_host_resize(&window),
+        HostRefreshAnswer::Nothing => Ok(false),
+    }
+}
+
+/// What a renderer refresh request should publish.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HostRefreshAnswer {
+    Publish {
+        request: SearchHostPreparationRequest,
+        target_frame: PhysicalHostFrame,
+    },
+    Republish,
+    Nothing,
+}
+
+/// Decide what the renderer's refresh request gets for the state it found.
+///
+/// An unchanged frame needs no rebuild, but the renderer asked because it cannot
+/// commit the preparation it holds. Answering "nothing to do" would end the show
+/// on a token the host has already replaced, so the pending preparation is
+/// published again with a new host epoch.
+fn host_refresh_answer(
+    state: &mut SearchSurfaceState,
+    inspected: PreparedSearchHost,
+) -> HostRefreshAnswer {
+    match refresh_host_if_needed(state, inspected) {
+        HostRefreshOutcome::Refreshed {
+            request,
+            target_frame,
+        } => HostRefreshAnswer::Publish {
+            request,
+            target_frame,
+        },
+        // Nothing is pending once the surface is visible, so a refresh there has
+        // no preparation to restate and ends the attempt like any other no-op.
+        HostRefreshOutcome::Current if state.protocol.phase() == SearchSurfacePhase::Visible => {
+            HostRefreshAnswer::Nothing
+        }
+        HostRefreshOutcome::Current => HostRefreshAnswer::Republish,
+        HostRefreshOutcome::NotApplicable => HostRefreshAnswer::Nothing,
+    }
 }
 
 fn refresh_host_if_needed(
@@ -908,7 +1059,7 @@ fn prepare_show_locked<R: Runtime>(
     // matching native region. A visible host refresh is different: hiding it
     // here turns every content resize into a visible re-entry animation.
     if hide_before_prepare {
-        window.hide().map_err(|error| error.to_string())?;
+        super::visibility::hide(window)?;
     }
     let host = prepare_host(runtime, window, target_frame)?;
     let payload = {
@@ -993,7 +1144,7 @@ fn activate_main_window<R: Runtime>(
     window: &tauri::WebviewWindow<R>,
 ) -> Result<(), String> {
     // Host preparation may be deferred; count activation at the actual foreground transition.
-    if !window.is_visible().unwrap_or(false) || !window.is_focused().unwrap_or(false) {
+    if !super::visibility::is_visible(window) || !window.is_focused().unwrap_or(false) {
         if let Some(analytics) = window
             .app_handle()
             .try_state::<crate::core::analytics::AnalyticsRuntime>()
@@ -1004,7 +1155,7 @@ fn activate_main_window<R: Runtime>(
     if runtime.native_enabled {
         return super::show_and_activate_search_window(window);
     }
-    window.show().map_err(|error| error.to_string())?;
+    super::visibility::show(window)?;
     window.set_focus().map_err(|error| error.to_string())
 }
 
@@ -1045,7 +1196,7 @@ pub(crate) fn handle_focus_lost_on_main_thread<R: Runtime>(
     };
     let decision_input = FocusLostDecisionInput {
         hide_on_app_blur: runtime.should_hide_on_app_blur(),
-        main_visible: main_window.is_visible().unwrap_or(false),
+        main_visible: super::visibility::is_visible(&main_window),
         main_maximized: main_window.is_maximized().unwrap_or(false),
         app_focused: main_hwnd_family_is_foreground(&main_window),
     };
@@ -1141,10 +1292,13 @@ mod tests {
         SearchSurfaceSource,
     };
     use super::{
-        accept_host_resize_for_current_surface, foreground_belongs_to_main_hwnd_family,
-        hide_surface_state_transaction, refresh_host_if_needed, should_hide_on_focus_lost,
-        FocusLostDecisionInput, HostRefreshOutcome, SearchSurfacePreparationPayload,
-        SearchSurfacePreparationState, SearchSurfaceState, SearchWindowRuntime,
+        accept_host_resize_for_current_surface, emit_preparation_with_retry,
+        foreground_belongs_to_main_hwnd_family, hide_surface_state_transaction,
+        host_refresh_answer, refresh_host_if_needed, republish_pending_preparation,
+        should_hide_on_focus_lost, FocusLostDecisionInput, HostRefreshAnswer, HostRefreshOutcome,
+        SearchSurfacePreparationPayload, SearchSurfacePreparationState,
+        SearchSurfacePreparationToken, SearchSurfaceShowStatus, SearchSurfaceState,
+        SearchWindowRuntime,
     };
     use crate::core::window::search_host::{PhysicalHostFrame, PreparedSearchHost};
 
@@ -1420,6 +1574,24 @@ mod tests {
     }
 
     #[test]
+    fn user_gets_an_obsolete_acknowledgement_when_the_host_replaced_the_preparation() {
+        // The renderer is told the commit no longer describes the current
+        // preparation, instead of receiving no acknowledgement at all: a missing
+        // status is indistinguishable from a protocol violation.
+        let status = SearchSurfaceShowStatus::obsolete(SearchSurfacePreparationToken {
+            renderer_epoch: 3,
+            show_epoch: 7,
+            host_epoch: 11,
+        });
+        let json = serde_json::to_value(&status).expect("status serializes");
+
+        assert_eq!(json["status"], "obsolete");
+        assert_eq!(json["rendererEpoch"], 3);
+        assert_eq!(json["showEpoch"], 7);
+        assert_eq!(json["hostEpoch"], 11);
+    }
+
+    #[test]
     fn protocol_activating_host_refresh_invalidates_old_activation() {
         let mut protocol = SearchSurfaceProtocol::new();
         let renderer_epoch = protocol.renderer_epoch();
@@ -1556,6 +1728,166 @@ mod tests {
 
         assert_eq!(error, "native hide failed");
         assert_eq!(state, previous);
+    }
+
+    #[test]
+    fn user_gets_a_republished_preparation_when_the_refresh_finds_an_unchanged_frame() {
+        let (mut state, old_preparation) = preparing_surface_state();
+        let unchanged = PreparedSearchHost {
+            changed: false,
+            frame: host_frame(1920),
+            target_frame: host_frame(1920),
+            scale_factor: 1.25,
+        };
+
+        assert_eq!(
+            host_refresh_answer(&mut state, unchanged),
+            HostRefreshAnswer::Republish
+        );
+        // A visible surface has nothing pending to restate, so the decision has to
+        // agree with the publication it dispatches to instead of promising one.
+        let mut visible = visible_surface_state();
+        assert_eq!(
+            host_refresh_answer(&mut visible, unchanged),
+            HostRefreshAnswer::Nothing
+        );
+        assert!(republish_pending_preparation(&mut visible).is_none());
+
+        let republished =
+            republish_pending_preparation(&mut state).expect("the pending show should be restated");
+        assert_eq!(republished.show_epoch, old_preparation.show_epoch);
+        assert_eq!(republished.renderer_epoch, old_preparation.renderer_epoch);
+        assert!(republished.host_epoch > old_preparation.host_epoch);
+        // The restated preparation keeps the viewport the host will really use.
+        assert_eq!(republished.physical_viewport, host_frame(1920));
+        assert_eq!(republished.scale_factor, 1.25);
+        assert_eq!(
+            state
+                .pending_preparation
+                .as_ref()
+                .expect("the restated preparation stays pending")
+                .payload,
+            republished
+        );
+        let current = state
+            .protocol
+            .preparation()
+            .expect("the restated preparation is current");
+        assert_eq!(current.show_epoch, republished.show_epoch);
+        assert_eq!(current.host_epoch, republished.host_epoch);
+        assert!(state.protocol.region_applied(old_preparation, 11).is_none());
+        assert!(state.protocol.region_applied(current, 12).is_some());
+    }
+
+    #[test]
+    fn user_gets_a_republished_preparation_while_the_surface_is_activating() {
+        let (mut state, old_preparation) = preparing_surface_state();
+        let _activation = state
+            .protocol
+            .region_applied(old_preparation, 41)
+            .expect("prepared region should activate");
+        assert_eq!(state.protocol.phase(), SearchSurfacePhase::Activating);
+
+        let republished =
+            republish_pending_preparation(&mut state).expect("the pending show should be restated");
+
+        assert_eq!(republished.show_epoch, old_preparation.show_epoch);
+        assert!(republished.host_epoch > old_preparation.host_epoch);
+        let current = state
+            .protocol
+            .preparation()
+            .expect("the restated preparation is current");
+        assert!(state.protocol.region_applied(old_preparation, 42).is_none());
+        assert!(state.protocol.region_applied(current, 43).is_some());
+    }
+
+    #[test]
+    fn user_gets_the_preparation_emitted_again_when_the_first_emit_fails() {
+        let (state, _preparation) = preparing_surface_state();
+        let payload = state
+            .pending_preparation
+            .expect("the pending preparation")
+            .payload;
+        let attempts = std::sync::Mutex::new(Vec::new());
+
+        let result = emit_preparation_with_retry(&payload, |name, emitted| {
+            attempts.lock().unwrap().push((name, emitted.clone()));
+            if attempts.lock().unwrap().len() == 1 {
+                return Err("emit failed");
+            }
+            Ok::<(), &'static str>(())
+        });
+
+        assert!(result.is_ok());
+        let attempts = attempts.lock().unwrap();
+        assert_eq!(attempts.len(), 2);
+        // Both attempts name the event the renderer listens for, and carry the
+        // same preparation.
+        assert!(attempts
+            .iter()
+            .all(|(name, _)| *name == "search-surface-prepare"));
+        assert!(attempts.iter().all(|(_, emitted)| *emitted == payload));
+    }
+
+    #[test]
+    fn user_gets_both_emit_failures_when_the_retry_fails_too() {
+        let (state, _preparation) = preparing_surface_state();
+        let payload = state
+            .pending_preparation
+            .expect("the pending preparation")
+            .payload;
+
+        let error = emit_preparation_with_retry(&payload, |_name, _emitted| {
+            Err::<(), &'static str>("emit failed")
+        })
+        .expect_err("two failed emits should surface an error");
+
+        assert_eq!(
+            error,
+            "Failed to emit search surface preparation: emit failed (first attempt: emit failed)"
+        );
+    }
+
+    #[test]
+    fn user_gets_nothing_republished_without_a_pending_preparation() {
+        let mut visible = visible_surface_state();
+
+        assert!(republish_pending_preparation(&mut visible).is_none());
+    }
+
+    #[test]
+    fn user_gets_a_rebuilt_host_when_the_refresh_finds_a_changed_frame() {
+        let (mut state, _preparation) = preparing_surface_state();
+        let resized = PreparedSearchHost {
+            changed: true,
+            frame: host_frame(1918),
+            target_frame: host_frame(1918),
+            scale_factor: 1.25,
+        };
+
+        assert!(matches!(
+            host_refresh_answer(&mut state, resized),
+            HostRefreshAnswer::Publish { .. }
+        ));
+    }
+
+    #[test]
+    fn user_gets_nothing_when_the_surface_holds_no_preparation_to_republish() {
+        let (mut hidden, _) = preparing_surface_state();
+        hidden.protocol.hide();
+        hidden.pending_preparation = None;
+        assert_eq!(
+            host_refresh_answer(
+                &mut hidden,
+                PreparedSearchHost {
+                    changed: false,
+                    frame: host_frame(1920),
+                    target_frame: host_frame(1920),
+                    scale_factor: 1.25,
+                }
+            ),
+            HostRefreshAnswer::Nothing
+        );
     }
 
     #[test]

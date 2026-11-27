@@ -107,6 +107,255 @@ const DEFAULT_E2E_WEBVIEW_ADDITIONAL_BROWSER_ARGS: &str = concat!(
     "--disable-dev-shm-usage"
 );
 
+/// Browser arguments for every WebView2 window outside E2E mode.
+///
+/// Chromium throttles timers, renderers and occlusion for windows that are not
+/// focused or are covered. A launcher is covered most of its life, so those
+/// defaults make the first frame after a shortcut slow. Raycast keeps Chromium
+/// from throttling its WebView for the same reason; these are the equivalent
+/// WebView2 switches.
+///
+/// The first window creates the shared WebView2 environment, so every window
+/// creation path must pass an identical value. Providing arguments replaces
+/// wry's defaults, hence `msWebOOUI`, `msPdfOOUI` and `msSmartScreenProtection`
+/// are repeated here.
+#[cfg(target_os = "windows")]
+const DEFAULT_PRODUCTION_WEBVIEW_ADDITIONAL_BROWSER_ARGS: &str = concat!(
+    "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion ",
+    "--disable-background-timer-throttling ",
+    "--disable-backgrounding-occluded-windows ",
+    "--disable-renderer-backgrounding"
+);
+
+/// The arguments this build asks for when nobody else configured any. Leaf of
+/// the precedence chain: it reads nothing, so callers cannot recurse through it.
+fn default_webview_browser_arguments() -> Option<String> {
+    #[cfg(target_os = "windows")]
+    {
+        if is_e2e_test_mode() {
+            return e2e_webview_additional_browser_args();
+        }
+        Some(DEFAULT_PRODUCTION_WEBVIEW_ADDITIONAL_BROWSER_ARGS.to_string())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        None
+    }
+}
+
+/// Browser arguments applied to the shared WebView2 environment.
+/// `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` still wins, matching wry's behavior.
+pub fn webview_additional_browser_args() -> Option<String> {
+    #[cfg(target_os = "windows")]
+    {
+        if is_e2e_test_mode() {
+            return e2e_webview_additional_browser_args();
+        }
+        if let Ok(configured) = std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS") {
+            let trimmed = configured.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
+            }
+        }
+    }
+    browser_arguments_to_apply(None, webview2_policy_arguments().as_deref())
+}
+
+/// Additional browser arguments an administrator configured through the WebView2
+/// `AdditionalBrowserArguments` policy.
+///
+/// The policy is a subkey under `Edge\\WebView2` whose value names are the
+/// executable file name, an app id, or `*`, so the arguments have to be looked up
+/// by name rather than read as a single value.
+///
+/// WebView2 checks the environment variable before the registry, so exporting
+/// our defaults would shadow a policy that exists to be obeyed. The policy stays
+/// authoritative for every window: it is machine configuration, not ours.
+#[cfg(target_os = "windows")]
+fn webview2_policy_arguments() -> Option<String> {
+    use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
+    use winreg::RegKey;
+
+    const POLICY_KEY: &str =
+        "Software\\Policies\\Microsoft\\Edge\\WebView2\\AdditionalBrowserArguments";
+
+    // WebView2 resolves an entry by the process's app user model id first, then
+    // by the executable file name, then `*`. Read the ids it can see: a system
+    // assigned one from the package identity, and an explicit one, which this
+    // process has not set yet at this point.
+    let candidates: Vec<String> = [
+        package_app_user_model_id(),
+        process_app_user_model_id(),
+        executable_file_name(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+
+    // WebView2 reads machine policy before the user's.
+    let hives = [HKEY_LOCAL_MACHINE, HKEY_CURRENT_USER].map(|hive| {
+        RegKey::predef(hive)
+            .open_subkey(POLICY_KEY)
+            .ok()
+            .map(|key| {
+                key.enum_values()
+                    .filter_map(Result::ok)
+                    .filter_map(|(name, _)| {
+                        key.get_value::<String, _>(&name)
+                            .ok()
+                            .map(|value| (name, value))
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+    });
+    policy_arguments_from(&hives, &candidates)
+}
+
+/// The app user model id this process gets from its package identity.
+#[cfg(target_os = "windows")]
+fn package_app_user_model_id() -> Option<String> {
+    use windows::core::PWSTR;
+    use windows::Win32::Foundation::WIN32_ERROR;
+    use windows::Win32::Storage::Packaging::Appx::GetCurrentApplicationUserModelId;
+
+    let mut length = 0u32;
+    unsafe {
+        // The size probe reports a short buffer, not success. It fails with
+        // APPMODEL_ERROR_NO_PACKAGE for an unpackaged install.
+        if !probe_grants_retry(GetCurrentApplicationUserModelId(&mut length, None).0) || length == 0
+        {
+            return None;
+        }
+        let mut buffer = vec![0u16; length as usize];
+        if GetCurrentApplicationUserModelId(&mut length, Some(PWSTR(buffer.as_mut_ptr())))
+            != WIN32_ERROR(0)
+        {
+            return None;
+        }
+        let end = buffer
+            .iter()
+            .position(|unit| *unit == 0)
+            .unwrap_or(buffer.len());
+        Some(String::from_utf16_lossy(&buffer[..end])).filter(|value| !value.trim().is_empty())
+    }
+}
+
+/// Whether a size probe reported a buffer to fill in.
+///
+/// `ERROR_INSUFFICIENT_BUFFER` is how the documented pattern reports the size it
+/// needs; any other result means there is no identity to read.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn probe_grants_retry(code: u32) -> bool {
+    code == ERROR_INSUFFICIENT_BUFFER_CODE
+}
+
+/// `ERROR_INSUFFICIENT_BUFFER`.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+const ERROR_INSUFFICIENT_BUFFER_CODE: u32 = 122;
+
+/// The process's explicit app user model id, if one is already set.
+#[cfg(target_os = "windows")]
+fn process_app_user_model_id() -> Option<String> {
+    use windows::Win32::System::Com::CoTaskMemFree;
+    use windows::Win32::UI::Shell::GetCurrentProcessExplicitAppUserModelID;
+
+    unsafe {
+        let id = GetCurrentProcessExplicitAppUserModelID().ok()?;
+        if id.0.is_null() {
+            return None;
+        }
+        let value = id.to_string().ok();
+        CoTaskMemFree(Some(id.0 as *const core::ffi::c_void));
+        value.filter(|value| !value.trim().is_empty())
+    }
+}
+
+/// The file name WebView2 uses to resolve a policy entry.
+#[cfg(target_os = "windows")]
+fn executable_file_name() -> Option<String> {
+    std::env::current_exe().ok().and_then(|path| {
+        path.file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+    })
+}
+
+/// Arguments of the first policy entry that applies to this process.
+///
+/// Hives are searched in the order WebView2 reads them, and a blank value is not
+/// an argument string, so it must not stop the search: a blank machine entry
+/// cannot hide a user entry.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn policy_arguments_from(hives: &[Vec<(String, String)>], candidates: &[String]) -> Option<String> {
+    hives.iter().find_map(|entries| {
+        let name = policy_entry_for(entries, candidates)?;
+        entries
+            .iter()
+            .find(|(entry, _)| *entry == name)
+            .map(|(_, value)| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    })
+}
+
+/// Which policy entry applies to this process.
+///
+/// The policy names its entries by app user model id, executable file name, or
+/// `*`. Registry value names are case-insensitive, so candidates are matched that
+/// way, in order, and an entry naming anything else does not apply.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn policy_entry_for(entries: &[(String, String)], candidates: &[String]) -> Option<String> {
+    for candidate in candidates {
+        if let Some((name, _)) = entries
+            .iter()
+            .find(|(entry, _)| entry.eq_ignore_ascii_case(candidate))
+        {
+            return Some(name.clone());
+        }
+    }
+    entries
+        .iter()
+        .find(|(entry, _)| entry == "*")
+        .map(|(name, _)| name.clone())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn webview2_policy_arguments() -> Option<String> {
+    None
+}
+
+/// The search window is declared in `tauri.conf.json`, so it is created before
+/// any code can hand it browser arguments. WebView2 reads this variable when it
+/// builds the shared environment, and the first window builds that environment,
+/// so setting it before the app starts is what actually keeps the launcher's
+/// renderer from being backgrounded. An existing value still wins, which is how
+/// E2E and manual overrides keep working.
+pub fn apply_webview_browser_arguments_env() {
+    let Some(arguments) = browser_arguments_to_apply(
+        std::env::var_os("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").as_deref(),
+        webview2_policy_arguments().as_deref(),
+    ) else {
+        return;
+    };
+    std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", arguments);
+}
+
+/// Browser arguments to export for the shared WebView2 environment.
+///
+/// `None` means "leave WebView2 alone": the environment already defines its own
+/// arguments, or an administrator policy does, and either outranks our defaults.
+fn browser_arguments_to_apply(
+    existing: Option<&std::ffi::OsStr>,
+    policy: Option<&str>,
+) -> Option<String> {
+    if existing.is_some_and(|value| !value.is_empty()) {
+        return None;
+    }
+    if policy.is_some_and(|value| !value.trim().is_empty()) {
+        return None;
+    }
+    default_webview_browser_arguments().filter(|arguments| !arguments.trim().is_empty())
+}
+
 pub fn should_enable_single_instance() -> bool {
     !is_e2e_test_mode()
         && !matches!(
@@ -128,12 +377,17 @@ pub fn resolve_app_root_override() -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_os = "windows")]
+    use super::webview_additional_browser_args;
     use super::{
-        can_show_startup_failure_dialog, e2e_webview_additional_browser_args, has_linux_display,
-        is_e2e_test_mode, is_ui_preview_mode, should_enable_single_instance,
-        DEFAULT_E2E_WEBVIEW_ADDITIONAL_BROWSER_ARGS, TOUCHAI_E2E_DISABLE_SINGLE_INSTANCE_ENV,
-        TOUCHAI_E2E_ENV, TOUCHAI_UI_PREVIEW_ENV,
+        browser_arguments_to_apply, can_show_startup_failure_dialog,
+        e2e_webview_additional_browser_args, has_linux_display, is_e2e_test_mode,
+        is_ui_preview_mode, policy_arguments_from, probe_grants_retry,
+        should_enable_single_instance, DEFAULT_E2E_WEBVIEW_ADDITIONAL_BROWSER_ARGS,
+        ERROR_INSUFFICIENT_BUFFER_CODE, TOUCHAI_E2E_DISABLE_SINGLE_INSTANCE_ENV, TOUCHAI_E2E_ENV,
+        TOUCHAI_UI_PREVIEW_ENV,
     };
+    use std::ffi::OsStr;
     use std::sync::Mutex;
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
@@ -171,6 +425,185 @@ mod tests {
         assert!(has_linux_display(None, Some("wayland-0".into())));
         assert!(has_linux_display(Some("".into()), Some("wayland-0".into())));
         assert!(has_linux_display(Some(":99".into()), Some("".into())));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn user_keeps_wry_defaults_and_anti_throttling_in_production_mode() {
+        let _guard = ENV_LOCK.lock().expect("env lock");
+        std::env::remove_var(TOUCHAI_E2E_ENV);
+        std::env::remove_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS");
+
+        let args = webview_additional_browser_args().expect("production args");
+        assert!(args.contains("msWebOOUI"));
+        assert!(args.contains("msPdfOOUI"));
+        assert!(args.contains("msSmartScreenProtection"));
+        assert!(args.contains("CalculateNativeWinOcclusion"));
+        assert!(args.contains("--disable-background-timer-throttling"));
+        assert!(args.contains("--disable-backgrounding-occluded-windows"));
+        assert!(args.contains("--disable-renderer-backgrounding"));
+    }
+
+    #[test]
+    fn user_keeps_webview_arguments_the_environment_already_defines() {
+        assert_eq!(
+            browser_arguments_to_apply(Some(OsStr::new("--remote-debugging-port=9333")), None),
+            None
+        );
+    }
+
+    fn policy_hive(values: &[(&str, &str)]) -> Vec<(String, String)> {
+        values
+            .iter()
+            .map(|(name, value)| (name.to_string(), value.to_string()))
+            .collect()
+    }
+
+    fn candidates(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| value.to_string()).collect()
+    }
+
+    #[test]
+    fn user_gets_the_policy_entry_that_names_this_executable_in_any_case() {
+        let hives = vec![policy_hive(&[("TOUCHAI.EXE", "--from-machine")])];
+
+        assert_eq!(
+            policy_arguments_from(&hives, &candidates(&["TouchAI.exe"])).as_deref(),
+            Some("--from-machine")
+        );
+    }
+
+    #[test]
+    fn user_gets_the_policy_entry_for_the_process_identity_before_the_executable() {
+        let hives = vec![policy_hive(&[
+            ("TouchAI.Desktop", "--from-identity"),
+            ("TouchAI.exe", "--from-executable"),
+        ])];
+
+        assert_eq!(
+            policy_arguments_from(&hives, &candidates(&["touchai.desktop", "TouchAI.exe"]))
+                .as_deref(),
+            Some("--from-identity")
+        );
+    }
+
+    #[test]
+    fn user_reads_the_package_identity_when_the_size_probe_reports_a_short_buffer() {
+        assert!(probe_grants_retry(ERROR_INSUFFICIENT_BUFFER_CODE));
+        // ERROR_SUCCESS means the probe wrote nothing to read.
+        assert!(!probe_grants_retry(0));
+        // APPMODEL_ERROR_NO_PACKAGE.
+        assert!(!probe_grants_retry(15700));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn user_keeps_the_probe_contract_tied_to_the_system_error() {
+        assert_eq!(
+            ERROR_INSUFFICIENT_BUFFER_CODE,
+            windows::Win32::Foundation::ERROR_INSUFFICIENT_BUFFER.0
+        );
+    }
+
+    #[test]
+    fn user_gets_the_policy_entry_for_the_package_identity_before_the_explicit_one() {
+        let hives = vec![policy_hive(&[
+            ("TouchAI.Desktop", "--from-explicit"),
+            (
+                "TouchAI.TouchAI_8wekyb3d8bbwe!App",
+                "--from-package-identity",
+            ),
+        ])];
+
+        assert_eq!(
+            policy_arguments_from(
+                &hives,
+                &candidates(&["TouchAI.TouchAI_8wekyb3d8bbwe!App", "TouchAI.Desktop"])
+            )
+            .as_deref(),
+            Some("--from-package-identity")
+        );
+    }
+
+    #[test]
+    fn user_gets_the_machine_policy_before_the_user_policy() {
+        let hives = vec![
+            policy_hive(&[("TouchAI.exe", "--from-machine")]),
+            policy_hive(&[("TouchAI.exe", "--from-user")]),
+        ];
+
+        assert_eq!(
+            policy_arguments_from(&hives, &candidates(&["TouchAI.exe"])).as_deref(),
+            Some("--from-machine")
+        );
+    }
+
+    #[test]
+    fn user_gets_the_user_policy_when_the_machine_entry_is_blank() {
+        let hives = vec![
+            policy_hive(&[("TouchAI.exe", "   ")]),
+            policy_hive(&[("TouchAI.exe", "--from-user")]),
+        ];
+
+        assert_eq!(
+            policy_arguments_from(&hives, &candidates(&["TouchAI.exe"])).as_deref(),
+            Some("--from-user")
+        );
+    }
+
+    #[test]
+    fn user_gets_the_wildcard_policy_when_no_entry_names_the_executable() {
+        let hives = vec![policy_hive(&[
+            ("other.exe", "--elsewhere"),
+            ("*", "--anywhere"),
+        ])];
+
+        assert_eq!(
+            policy_arguments_from(&hives, &candidates(&["TouchAI.exe"])).as_deref(),
+            Some("--anywhere")
+        );
+        assert_eq!(
+            policy_arguments_from(
+                &[policy_hive(&[("other.exe", "--elsewhere")])],
+                &candidates(&["TouchAI.exe"])
+            ),
+            None
+        );
+        assert_eq!(
+            policy_arguments_from(&[], &candidates(&["TouchAI.exe"])),
+            None
+        );
+    }
+
+    #[test]
+    fn user_keeps_webview_arguments_an_administrator_policy_defines() {
+        assert_eq!(
+            browser_arguments_to_apply(None, Some("--remote-debugging-port=9333")),
+            None
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn user_gets_anti_throttling_arguments_exported_when_the_environment_defines_none() {
+        let _guard = ENV_LOCK.lock().expect("env lock");
+        std::env::remove_var(TOUCHAI_E2E_ENV);
+        std::env::remove_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS");
+
+        let args = browser_arguments_to_apply(None, None).expect("arguments to export");
+        assert!(args.contains("--disable-renderer-backgrounding"));
+        assert!(args.contains("CalculateNativeWinOcclusion"));
+        assert_eq!(
+            browser_arguments_to_apply(Some(OsStr::new("")), None).as_deref(),
+            Some(&args[..])
+        );
+        // The per-window path must also terminate on the no-override startup
+        // path: it used to call `browser_arguments_to_apply`, which called it
+        // back without a base case.
+        assert_eq!(
+            webview_additional_browser_args().as_deref(),
+            Some(&args[..])
+        );
     }
 
     #[test]

@@ -481,6 +481,15 @@ pub fn reset_search_window_to_defaults<R: Runtime>(
                     .rollback_failed_resize(previous, snapshot);
                 return Err(error);
             }
+            // A hidden resize invalidates the viewport the renderer is about to
+            // measure, so the preparation it holds can no longer match.
+            if let Err(error) =
+                crate::core::window::search::surface::republish_preparation_after_host_resize(
+                    window,
+                )
+            {
+                log::warn!("Failed to republish the search surface preparation: {error}");
+            }
         }
         return Ok(());
     }

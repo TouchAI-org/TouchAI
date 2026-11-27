@@ -140,25 +140,70 @@ export function createSearchWindowRegionSignature(regions: SearchWindowRegion[])
     return JSON.stringify(regions);
 }
 
+/**
+ * 一次 region 提交被更晚的一次 show 抢先完成时的结果。
+ *
+ * 调用方把它当作“本次未提交”，按最新的 preparation 重试；把这种竞争当成协议
+ * 损坏会隐藏一个本来健康的窗口。
+ */
+export interface SearchSurfacePreparationSuperseded {
+    status: 'superseded';
+    requestedGeneration: number;
+    committedGeneration: number;
+}
+
+export type SearchSurfacePreparationUpdate =
+    | SearchWindowRegionUpdate
+    | SearchSurfacePreparationSuperseded;
+
+/**
+ * Outcome of a flush, for callers that must tell "committed" apart from "the
+ * host already replaced this preparation". Retrying a superseded commit can
+ * never succeed, so it must not be treated as a failure either.
+ */
+export type SearchSurfaceCommitOutcome = 'committed' | 'superseded' | 'failed';
+
+function comparePreparationEpochs(
+    a: { rendererEpoch: number; showEpoch: number; hostEpoch: number },
+    b: { rendererEpoch: number; showEpoch: number; hostEpoch: number }
+): number {
+    return (
+        a.rendererEpoch - b.rendererEpoch || a.showEpoch - b.showEpoch || a.hostEpoch - b.hostEpoch
+    );
+}
+
 export function validateSearchSurfacePreparationUpdate(
     update: SearchWindowRegionUpdate,
     preparation: SearchSurfacePreparation | undefined,
     generation: number
-): SearchWindowRegionUpdate {
+): SearchSurfacePreparationUpdate {
     if (!preparation || update.status !== 'applied') return update;
 
     const shown = update.showStatus;
     if (
-        !shown ||
-        shown.status !== 'shown' ||
-        shown.rendererEpoch !== preparation.rendererEpoch ||
-        shown.showEpoch !== preparation.showEpoch ||
-        shown.hostEpoch !== preparation.hostEpoch ||
-        shown.generation !== generation
+        shown &&
+        shown.status === 'shown' &&
+        shown.rendererEpoch === preparation.rendererEpoch &&
+        shown.showEpoch === preparation.showEpoch &&
+        shown.hostEpoch === preparation.hostEpoch &&
+        shown.generation === generation
     ) {
-        throw new Error('Search surface preparation acknowledgement is invalid');
+        return update;
     }
-    return update;
+    // 提交在飞行途中可能被一次更新的 show（renderer/show/host epoch 更大）抢先
+    // 提交，原生侧返回的 ack 属于那次更新的 preparation。这是正常的竞争，不是
+    // 协议损坏：报告为 superseded，让上层按最新 preparation 重试。
+    if (
+        shown?.status === 'obsolete' ||
+        (shown?.status === 'shown' && comparePreparationEpochs(shown, preparation) > 0)
+    ) {
+        return {
+            status: 'superseded',
+            requestedGeneration: generation,
+            committedGeneration: shown?.generation ?? 0,
+        };
+    }
+    throw new Error('Search surface preparation acknowledgement is invalid');
 }
 
 export interface SearchWindowRegionReport<TContext = unknown> {
@@ -167,12 +212,13 @@ export interface SearchWindowRegionReport<TContext = unknown> {
     report: (
         generation: number,
         context: TContext | undefined
-    ) => Promise<SearchWindowRegionUpdate> | SearchWindowRegionUpdate;
+    ) => Promise<SearchSurfacePreparationUpdate> | SearchSurfacePreparationUpdate;
 }
 
 export interface SearchWindowRegionReporter<TContext = unknown> {
     schedule: (reason: string, force?: boolean, immediate?: boolean) => void;
     flush: (reason: string, force?: boolean, context?: TContext) => Promise<boolean>;
+    flushPrepared: (reason: string, context?: TContext) => Promise<SearchSurfaceCommitOutcome>;
     dispose: () => void;
 }
 
@@ -194,8 +240,8 @@ export function createSearchWindowRegionReporter<TContext = unknown>(
     let latestRequestId = 0;
     let pendingDispatch: {
         requestId: number;
-        promise: Promise<boolean>;
-        resolve: (value: boolean) => void;
+        promise: Promise<SearchSurfaceCommitOutcome>;
+        resolve: (value: SearchSurfaceCommitOutcome) => void;
         reject: (reason: unknown) => void;
         context: TContext | undefined;
     } | null = null;
@@ -204,14 +250,14 @@ export function createSearchWindowRegionReporter<TContext = unknown>(
     async function dispatchReport(
         requestId: number,
         dispatchContext: TContext | undefined
-    ): Promise<boolean> {
-        if (disposed || requestId !== latestRequestId) return false;
+    ): Promise<SearchSurfaceCommitOutcome> {
+        if (disposed || requestId !== latestRequestId) return 'failed';
 
         const nextReport = resolveReport(dispatchContext);
         const shouldForce = forceNextReport;
         forceNextReport = false;
         if (!nextReport || (!shouldForce && nextReport.signature === lastReport?.signature)) {
-            return false;
+            return 'failed';
         }
 
         let generation = allocateSearchWindowRegionGeneration();
@@ -235,19 +281,25 @@ export function createSearchWindowRegionReporter<TContext = unknown>(
                               }
                           })()
                         : (reportResult as SearchWindowRegionUpdate);
-                if (disposed) return false;
+                if (disposed) return 'failed';
 
                 // A newer request was queued while this native call was in
                 // flight.  Its write is still allowed to complete, but this
                 // acknowledgement must not affect the newer report.
                 const isLatestRequest = requestId === latestRequestId;
+                if (update.status === 'superseded') {
+                    // 更晚的一次 show 已经提交了它自己的 preparation，这次 flush
+                    // 没有可提交的内容。让上层等新的 preparation，而不是把它判成
+                    // 不安全状态去隐藏窗口。
+                    return 'superseded';
+                }
                 if (update.status === 'applied') {
                     if (update.generation !== generation) {
                         throw new Error(
                             'Search window region acknowledgement generation mismatched'
                         );
                     }
-                    return lastReport?.generation === generation;
+                    return lastReport?.generation === generation ? 'committed' : 'failed';
                 }
 
                 if (update.status !== 'stale') {
@@ -263,7 +315,7 @@ export function createSearchWindowRegionReporter<TContext = unknown>(
                 }
                 observeSearchWindowRegionGeneration(update.activeGeneration);
 
-                if (!isLatestRequest) return false;
+                if (!isLatestRequest) return 'failed';
                 if (staleRetriesRemaining <= 0) {
                     throw new Error('Search window region remained stale after rebasing');
                 }
@@ -277,12 +329,12 @@ export function createSearchWindowRegionReporter<TContext = unknown>(
             if (isLatestRequest && lastReport?.generation === generation) {
                 lastReport = null;
             }
-            if (!isLatestRequest) return false;
+            if (!isLatestRequest) return 'failed';
             throw error;
         }
     }
 
-    function enqueueDispatch(context: TContext | undefined): Promise<boolean> {
+    function enqueueDispatch(context: TContext | undefined): Promise<SearchSurfaceCommitOutcome> {
         if (dispatchInFlight) {
             // There is at most one pending dispatch.  Coalescing subsequent
             // signals here keeps a forced report from being superseded by an
@@ -293,9 +345,9 @@ export function createSearchWindowRegionReporter<TContext = unknown>(
             }
 
             const requestId = ++latestRequestId;
-            let resolvePending!: (value: boolean) => void;
+            let resolvePending!: (value: SearchSurfaceCommitOutcome) => void;
             let rejectPending!: (reason: unknown) => void;
-            const promise = new Promise<boolean>((resolve, reject) => {
+            const promise = new Promise<SearchSurfaceCommitOutcome>((resolve, reject) => {
                 resolvePending = resolve;
                 rejectPending = reject;
             });
@@ -372,13 +424,25 @@ export function createSearchWindowRegionReporter<TContext = unknown>(
         }, settleDelay);
     }
 
+    async function flushPrepared(
+        _reason: string,
+        context?: TContext
+    ): Promise<SearchSurfaceCommitOutcome> {
+        if (disposed) return 'failed';
+
+        forceNextReport = true;
+        if (timeoutId !== null) clearTimeout(timeoutId);
+        timeoutId = null;
+        return enqueueDispatch(context);
+    }
+
     async function flush(_reason: string, force = false, context?: TContext): Promise<boolean> {
         if (disposed) return false;
 
         forceNextReport ||= force;
         if (timeoutId !== null) clearTimeout(timeoutId);
         timeoutId = null;
-        return enqueueDispatch(context);
+        return (await enqueueDispatch(context)) === 'committed';
     }
 
     function dispose() {
@@ -388,5 +452,5 @@ export function createSearchWindowRegionReporter<TContext = unknown>(
         timeoutId = null;
     }
 
-    return { schedule, flush, dispose };
+    return { schedule, flush, flushPrepared, dispose };
 }

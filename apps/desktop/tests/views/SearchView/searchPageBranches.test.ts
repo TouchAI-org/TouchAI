@@ -52,6 +52,7 @@ const {
                 setSearchSurfaceShortcuts: vi.fn(),
             },
             window: {
+                isSearchSurfaceVisible: vi.fn(),
                 hideSearchWindow: vi.fn(),
                 setSearchSurfaceHideOnAppBlur: vi.fn(),
                 setTrayStatusIndicator: vi.fn(),
@@ -167,7 +168,7 @@ beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     eventHandlers.clear();
-    currentWindowMock.isVisible.mockResolvedValue(true);
+    nativeMock.window.isSearchSurfaceVisible.mockResolvedValue(true);
     currentWindowMock.isAlwaysOnTop.mockResolvedValue(false);
     currentWindowMock.setAlwaysOnTop.mockResolvedValue(undefined);
 
@@ -350,7 +351,7 @@ describe('when the view becomes ready after the page mounted', () => {
 describe('when the surface is hidden while the window was never visible', () => {
     it('user gets no reminder surface hook for an already hidden window', async () => {
         const interactionContext = createSearchInteractionContext();
-        currentWindowMock.isVisible.mockResolvedValue(false);
+        nativeMock.window.isSearchSurfaceVisible.mockResolvedValue(false);
 
         const { mounted } = await mountLifecycle({ interactionContext });
         await flushLifecycle();
@@ -893,6 +894,7 @@ describe('when the e2e runtime is active', () => {
 
 beforeEach(() => {
     mockTauriCommand('get_runtime_info', () => nativeMock.runtime.getRuntimeInfo());
+    mockTauriCommand('is_search_surface_visible', () => nativeMock.window.isSearchSurfaceVisible());
     mockTauriCommand('register_global_shortcut', (payload) =>
         nativeMock.shortcut.registerGlobalShortcut((payload as { shortcut: string }).shortcut)
     );

@@ -264,8 +264,7 @@ fn ensure_window<R: Runtime>(app: &AppHandle<R>) -> Result<WebviewWindow<R>, Str
             .focused(false)
             .focusable(false);
 
-    if let Some(browser_args) = crate::core::system::runtime::e2e_webview_additional_browser_args()
-    {
+    if let Some(browser_args) = crate::core::system::runtime::webview_additional_browser_args() {
         builder = builder.additional_browser_args(&browser_args);
     }
 
