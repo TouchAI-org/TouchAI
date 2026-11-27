@@ -15,6 +15,7 @@ async function prepared(chain: { providerId: number; modelId: string }[]) {
         models: {
             resolve: fixture.bindings.resolveTarget,
             isAvailable: fixture.bindings.isAvailable,
+            complete: fixture.bindings.complete,
         },
     })[0]!;
     const tool = await descriptor.prepareForTurn(config, {

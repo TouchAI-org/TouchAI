@@ -53,6 +53,55 @@ export { createReadTools } from './builtin/read/create.io';
 export { createFileSearchTools } from './builtin/read/file-search/create.io';
 export { createFileSearchOperations } from './builtin/read/file-search/operations';
 export { createReadOperations } from './builtin/read/operations.io';
+export {
+    DEFAULT_READ_CONVERSATION_TOOL_CONFIG,
+    parseReadConversationToolConfig,
+    type ReadConversationToolConfig,
+    serializeReadConversationToolConfig,
+} from './builtin/read-conversation/configuration';
+export {
+    READ_CONVERSATION_DEFAULT_LIMIT,
+    READ_CONVERSATION_DEFAULT_MAX_CHARS,
+    READ_CONVERSATION_MAX_BYTES,
+    READ_CONVERSATION_MAX_LIMIT,
+    READ_CONVERSATION_MAX_MAX_CHARS,
+    READ_CONVERSATION_MIN_MAX_CHARS,
+    READ_CONVERSATION_TOOL_DESCRIPTION,
+    READ_CONVERSATION_TOOL_INPUT_SCHEMA,
+    READ_CONVERSATION_TOOL_NAME,
+} from './builtin/read-conversation/constants';
+export {
+    type ReadConversationHistory,
+    type ReadConversationMessage,
+    type ReadConversationSession,
+} from './builtin/read-conversation/create';
+export { createReadConversationTools } from './builtin/read-conversation/create.io';
+export {
+    DEFAULT_SEARCH_CONVERSATION_TOOL_CONFIG,
+    parseSearchConversationToolConfig,
+    type SearchConversationToolConfig,
+    serializeSearchConversationToolConfig,
+} from './builtin/search-conversation/configuration';
+export {
+    CONVERSATION_SEARCH_CANDIDATE_LIMIT,
+    CONVERSATION_SEARCH_DEFAULT_LIMIT,
+    CONVERSATION_SEARCH_MAX_BATCH_BYTES,
+    CONVERSATION_SEARCH_MAX_LIMIT,
+    CONVERSATION_SEARCH_MAX_RANKING_OUTPUT_TOKENS,
+    CONVERSATION_SEARCH_MAX_SNIPPETS,
+    CONVERSATION_SEARCH_MAX_TRANSCRIPT_CODE_POINTS,
+    CONVERSATION_SEARCH_MESSAGES_PER_EDGE,
+    CONVERSATION_SEARCH_RANKING_DEADLINE_MS,
+    CONVERSATION_SEARCH_SNIPPET_CONTEXT_CODE_POINTS,
+    SEARCH_CONVERSATION_TOOL_DESCRIPTION,
+    SEARCH_CONVERSATION_TOOL_INPUT_SCHEMA,
+    SEARCH_CONVERSATION_TOOL_NAME,
+} from './builtin/search-conversation/constants';
+export {
+    type SearchConversationCandidate,
+    type SearchConversationHistory,
+} from './builtin/search-conversation/create';
+export { createSearchConversationTools } from './builtin/search-conversation/create.io';
 export { createSettingTools } from './builtin/settings/create';
 export type { ToolSettingsCapabilities } from './builtin/settings/host';
 export {

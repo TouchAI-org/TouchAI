@@ -1,6 +1,6 @@
 ﻿// Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { and, count, desc, eq, inArray, or, sql } from 'drizzle-orm';
+import { and, count, desc, eq, gte, inArray, lt, lte, or, sql } from 'drizzle-orm';
 import { aliasedTable } from 'drizzle-orm/alias';
 
 import { type DatabaseExecutor, db } from '../index';
@@ -12,10 +12,19 @@ import { buildSessionSearchTrigramExpression } from './sessionSearchTrigrams';
 export interface ListSessionsOptions {
     query?: string;
     limit?: number;
+    fromDate?: string;
+    toDate?: string;
+    model?: string;
+    roles?: readonly SessionSearchRole[];
+    /** Excludes tool output parts while preserving the shared session-search default. */
+    textContentOnly?: boolean;
 }
+
+type SessionSearchRole = 'user' | 'assistant' | 'tool_call';
 
 const DEFAULT_SESSION_LIMIT = 40;
 const MAX_SESSION_LIMIT = 1000;
+const DEFAULT_SEARCH_ROLES: readonly SessionSearchRole[] = ['user', 'assistant', 'tool_call'];
 
 function normalizeSessionLimit(limit?: number): number {
     if (typeof limit !== 'number' || !Number.isFinite(limit)) {
@@ -27,6 +36,59 @@ function normalizeSessionLimit(limit?: number): number {
 
 function escapeLikePattern(value: string): string {
     return value.replace(/[\\%_]/g, '\\$&');
+}
+
+interface DateBound {
+    value: string;
+    exclusive: boolean;
+}
+
+function formatSqliteUtc(date: Date): string {
+    return date.toISOString().slice(0, 19).replace('T', ' ');
+}
+
+function parseDateBound(raw: string | undefined, label: 'from_date' | 'to_date'): DateBound | null {
+    const value = raw?.trim();
+    if (!value) {
+        return null;
+    }
+
+    const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+    if (dateOnly) {
+        const year = Number(dateOnly[1]);
+        const month = Number(dateOnly[2]);
+        const day = Number(dateOnly[3]);
+        const date = new Date(0);
+        date.setHours(0, 0, 0, 0);
+        date.setFullYear(year, month - 1, day);
+        if (
+            date.getFullYear() !== year ||
+            date.getMonth() !== month - 1 ||
+            date.getDate() !== day
+        ) {
+            throw new Error(`${label} must be a valid local date`);
+        }
+
+        if (label === 'to_date') {
+            date.setDate(date.getDate() + 1);
+            return { value: formatSqliteUtc(date), exclusive: true };
+        }
+
+        const sqliteValue = formatSqliteUtc(date);
+        return { value: sqliteValue, exclusive: false };
+    }
+
+    if (!/(?:Z|[+-]\d{2}:\d{2})$/i.test(value)) {
+        throw new Error(`${label} must be an ISO-8601 timestamp with a timezone`);
+    }
+
+    const timestamp = new Date(value);
+    if (Number.isNaN(timestamp.getTime())) {
+        throw new Error(`${label} must be a valid ISO-8601 timestamp`);
+    }
+
+    const sqliteValue = formatSqliteUtc(timestamp);
+    return { value: sqliteValue, exclusive: false };
 }
 
 function isTerminalTurnStatus(
@@ -105,6 +167,16 @@ export const findSessionById = async (sessionId: number): Promise<SessionEntity 
         .where(eq(sessions.id, sessionId))
         .get();
 
+/** Public conversation ids are UUID strings; tools receive this value, not the row id. */
+export const findSessionByPublicId = async (
+    sessionId: string
+): Promise<SessionEntity | undefined> =>
+    await db
+        .select(createSessionListSelection(db))
+        .from(sessions)
+        .where(eq(sessions.session_id, sessionId))
+        .get();
+
 /** Titles for the privacy protection summaries; labels only, no message content. */
 export const findSessionTitlesByIds = async (
     ids: number[]
@@ -123,9 +195,40 @@ export const findSessionTitlesByIds = async (
 export const listSessions = async (options: ListSessionsOptions = {}): Promise<SessionEntity[]> => {
     const query = options.query?.trim().toLocaleLowerCase() ?? '';
     const limit = normalizeSessionLimit(options.limit);
+    const fromDate = parseDateBound(options.fromDate, 'from_date');
+    const toDate = parseDateBound(options.toDate, 'to_date');
+    const emptyRange =
+        fromDate &&
+        toDate &&
+        (toDate.exclusive ? fromDate.value >= toDate.value : fromDate.value > toDate.value);
+    if (emptyRange) {
+        throw new Error('from_date must not be later than to_date');
+    }
+    const model = options.model?.trim() ?? '';
+    const roles =
+        options.roles === undefined || options.roles.length === 0
+            ? DEFAULT_SEARCH_ROLES
+            : [...new Set(options.roles)];
     const drizzle = db;
     const searchableMessages = aliasedTable(messages, 'searchable_messages');
     const sessionSelection = createSessionListSelection(drizzle);
+    const filters = [
+        ...(model ? [sql`lower(${sessions.model}) = lower(${model})`] : []),
+        ...(fromDate
+            ? [
+                  fromDate.exclusive
+                      ? sql`${sessions.created_at} > ${fromDate.value}`
+                      : gte(sessions.created_at, fromDate.value),
+              ]
+            : []),
+        ...(toDate
+            ? [
+                  toDate.exclusive
+                      ? lt(sessions.created_at, toDate.value)
+                      : lte(sessions.created_at, toDate.value),
+              ]
+            : []),
+    ];
 
     if (query) {
         const pattern = `%${escapeLikePattern(query)}%`;
@@ -148,17 +251,15 @@ export const listSessions = async (options: ListSessionsOptions = {}): Promise<S
                 .from(searchableMessages)
                 .where(
                     and(
-                        or(
-                            eq(searchableMessages.role, 'user'),
-                            eq(searchableMessages.role, 'assistant'),
-                            eq(searchableMessages.role, 'tool_call')
-                        ),
+                        inArray(searchableMessages.role, roles),
                         indexedCandidates,
-                        sql`lower(${messageText(searchableMessages.id)}) LIKE ${pattern} ESCAPE '\\'`
+                        sql`lower(${messageText(searchableMessages.id, {
+                            includeToolOutput: !options.textContentOnly,
+                        })}) LIKE ${pattern} ESCAPE '\\'`
                     )
                 )
         );
-        const searchWhereClause = or(titleMatches, contentMatches)!;
+        const searchWhereClause = and(or(titleMatches, contentMatches), ...filters);
 
         return drizzle
             .select(sessionSelection)
@@ -169,6 +270,19 @@ export const listSessions = async (options: ListSessionsOptions = {}): Promise<S
             )
             .limit(limit)
             .where(searchWhereClause)
+            .all();
+    }
+
+    if (filters.length > 0) {
+        return drizzle
+            .select(sessionSelection)
+            .from(sessions)
+            .orderBy(
+                desc(sql`coalesce(${sessions.last_message_at}, ${sessions.updated_at})`),
+                desc(sessions.id)
+            )
+            .limit(limit)
+            .where(and(...filters))
             .all();
     }
 

@@ -95,12 +95,14 @@ describe('given built-in settings use the current owners and active locale', () 
         expect(getBuiltInToolSummary('ask_user_question')).toBe(
             'Ask the user structured questions'
         );
+        expect(getBuiltInToolSummary('search_conversation')).toBe('Search saved conversations');
         expect(getBuiltInToolSummary('unknown_tool', null)).toBe('No description');
     });
 
     it('user configures the ask-user tool without an unnecessary configuration form', () => {
         expect(isBuiltInToolVisibleInSettings('ask_user_question')).toBe(true);
         expect(usesBuiltInToolEmptyConfig('ask_user_question')).toBe(true);
+        expect(usesBuiltInToolEmptyConfig('search_conversation')).toBe(false);
     });
 
     it('user given a computer control entry when changing locale then keeps its stable name and localized summary', async () => {

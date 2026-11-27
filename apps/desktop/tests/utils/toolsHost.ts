@@ -39,7 +39,11 @@ export async function createToolsHostFixture() {
     const bindings = createTaskModelBindings({ selection: createModelSelection(), connections });
     const preferences = assembleSettingsWindow('main');
     const host = assembleMainTools({
-        models: { resolve: bindings.resolveTarget, isAvailable: bindings.isAvailable },
+        models: {
+            resolve: bindings.resolveTarget,
+            isAvailable: bindings.isAvailable,
+            complete: bindings.complete,
+        },
         settings: {
             read: async (key) => {
                 await preferences.api.initialize();

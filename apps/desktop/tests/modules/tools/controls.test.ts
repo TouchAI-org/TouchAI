@@ -56,6 +56,7 @@ describe('given instance-composed question and model-control builtins', () => {
                     resolve: async (_taskId, reference) =>
                         reference.modelId === 'first' ? current : resolved,
                     isAvailable: async () => true,
+                    complete: async () => ({ content: '{"relevant_indices":[0]}' }),
                 },
             })
         );
@@ -105,6 +106,7 @@ describe('given instance-composed question and model-control builtins', () => {
                 models: {
                     resolve: async () => target,
                     isAvailable: async () => available,
+                    complete: async () => ({ content: '{"relevant_indices":[0]}' }),
                 },
             })
         );

@@ -17,6 +17,8 @@ const RISK_LEVELS: Record<BuiltInToolId, 'low' | 'medium' | 'high'> = {
     activate_skill: 'medium',
     bash: 'high',
     file_search: 'low',
+    search_conversation: 'low',
+    read_conversation: 'low',
     read: 'medium',
     setting: 'medium',
     web_search: 'low',

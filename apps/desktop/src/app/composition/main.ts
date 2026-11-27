@@ -120,7 +120,11 @@ export function assembleDesktopMainAgent(input: {
         mutate: input.settings.mutate.bind(input.settings),
     });
     const tools = assembleMainTools({
-        models: { resolve: bindings.resolveTarget, isAvailable: bindings.isAvailable },
+        models: {
+            resolve: bindings.resolveTarget,
+            isAvailable: bindings.isAvailable,
+            complete: bindings.complete,
+        },
         settings: {
             async read(key) {
                 await settings.initialize();

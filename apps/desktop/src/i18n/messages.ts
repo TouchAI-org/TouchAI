@@ -791,6 +791,8 @@ const zhCNMessages = {
     'settings.builtInTools.configComingSoon': '该工具的配置表单将在后续批次接入。',
     'settings.builtInTools.summary.bash': '执行终端命令',
     'settings.builtInTools.summary.fileSearch': '搜索本机文件',
+    'settings.builtInTools.summary.searchConversation': '搜索已保存的会话',
+    'settings.builtInTools.summary.readConversation': '读取已保存的会话内容',
     'settings.builtInTools.summary.read': '读取本地文件或目录，支持图片与 PDF',
     'settings.builtInTools.summary.setting': '读取和修改应用设置',
     'settings.builtInTools.summary.webSearch': '搜索网页候选来源',
@@ -876,6 +878,12 @@ const zhCNMessages = {
     'settings.builtInTools.upgradeModel.selectedProviderUnavailable': '当前已选服务商不可用',
     'settings.builtInTools.upgradeModel.selectedModelProviderDisabled':
         '当前已选模型所属服务商未启用',
+    'settings.builtInTools.searchConversation.title': '会话搜索',
+    'settings.builtInTools.searchConversation.description':
+        '只对关键词阶段找到的标题与用户/助手消息候选进行重排；关闭后工具会返回明确的禁用错误。',
+    'settings.builtInTools.readConversation.title': '会话读取',
+    'settings.builtInTools.readConversation.description':
+        '按会话 id 与消息锚点分页读取用户/助手正文，单次最多 50 KiB；关闭后工具会返回明确的禁用错误。',
     'settings.builtInTools.bash.executionAndApproval': '执行与审批',
     'settings.builtInTools.bash.approvalMode.auto': '自动',
     'settings.builtInTools.bash.approvalMode.askEachTime': '每次询问',
@@ -1279,6 +1287,12 @@ const zhCNMessages = {
     'builtInTools.webFetch.imageAltFallback': '[图片：{altText}]',
     'builtInTools.setting.error.invalidValue': '设置工具收到无效值：{key}',
     'builtInTools.setting.error.invalidValueDetail': '设置值格式无效。',
+    'builtInTools.searchConversation.disabled': '会话搜索已在设置中关闭。',
+    'builtInTools.searchConversation.error': '会话搜索失败：{message}',
+    'builtInTools.readConversation.disabled': '会话读取已在设置中关闭。',
+    'builtInTools.readConversation.notFound': '找不到会话：{sessionId}',
+    'builtInTools.readConversation.invalidAnchor': '消息不属于该会话或不存在：{messageId}',
+    'builtInTools.readConversation.error': '会话读取失败：{message}',
     'database.backup.exportCancelled': '已取消导出',
     'database.backup.importCancelled': '已取消导入',
     'database.backup.dialog.filterName': '数据库备份文件',
@@ -2331,6 +2345,8 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
         'This tool configuration form will be connected in a later batch.',
     'settings.builtInTools.summary.bash': 'Execute terminal commands',
     'settings.builtInTools.summary.fileSearch': 'Search local files',
+    'settings.builtInTools.summary.searchConversation': 'Search saved conversations',
+    'settings.builtInTools.summary.readConversation': 'Read saved conversation content',
     'settings.builtInTools.summary.read': 'Read local files or folders, including images and PDFs',
     'settings.builtInTools.summary.setting': 'Read and modify application settings',
     'settings.builtInTools.summary.webSearch': 'Search candidate web sources',
@@ -2418,6 +2434,12 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
         'Selected provider is unavailable',
     'settings.builtInTools.upgradeModel.selectedModelProviderDisabled':
         "Selected model's provider is disabled",
+    'settings.builtInTools.searchConversation.title': 'Conversation search',
+    'settings.builtInTools.searchConversation.description':
+        'Only keyword-matched titles and user/assistant messages can be reranked. When disabled, the tool returns an explicit disabled error.',
+    'settings.builtInTools.readConversation.title': 'Conversation read',
+    'settings.builtInTools.readConversation.description':
+        'Reads one saved conversation by session id and message anchor, capped at 50 KiB per call. When disabled, the tool returns an explicit disabled error.',
     'settings.builtInTools.bash.executionAndApproval': 'Execution and approval',
     'settings.builtInTools.bash.approvalMode.auto': 'Automatic',
     'settings.builtInTools.bash.approvalMode.askEachTime': 'Ask every time',
@@ -2845,6 +2867,13 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'builtInTools.setting.error.invalidValue':
         'Setting tool received an invalid value for "{key}".',
     'builtInTools.setting.error.invalidValueDetail': 'Setting value format is invalid.',
+    'builtInTools.searchConversation.disabled': 'Conversation search is disabled in Settings.',
+    'builtInTools.searchConversation.error': 'Conversation search failed: {message}',
+    'builtInTools.readConversation.disabled': 'Conversation read is disabled in Settings.',
+    'builtInTools.readConversation.notFound': 'Conversation not found: {sessionId}',
+    'builtInTools.readConversation.invalidAnchor':
+        'Message does not belong to this conversation: {messageId}',
+    'builtInTools.readConversation.error': 'Conversation read failed: {message}',
     'database.backup.exportCancelled': 'Export cancelled',
     'database.backup.importCancelled': 'Import cancelled',
     'database.backup.dialog.filterName': 'Database backup file',

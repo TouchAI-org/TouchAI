@@ -52,6 +52,16 @@ export interface ToolModelCapabilities {
         reference: { providerId: number; modelId: string }
     ): Promise<ToolModelReference | null>;
     isAvailable(taskId: string, reference: ToolModelReference): Promise<boolean>;
+    complete(
+        taskId: string,
+        reference: ToolModelReference,
+        input: {
+            systemPrompt: string;
+            userContent: string;
+            maxOutputTokens: number;
+            signal?: AbortSignal;
+        }
+    ): Promise<{ content: string }>;
 }
 
 export interface ToolSkillMetadata {

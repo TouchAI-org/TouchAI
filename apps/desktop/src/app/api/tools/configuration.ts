@@ -9,6 +9,8 @@ export type {
     BashToolConfig,
     BrowserAutomationMode,
     BrowserAutomationToolConfig,
+    ReadConversationToolConfig,
+    SearchConversationToolConfig,
     UpgradeModelChainEntry,
     UpgradeModelToolConfig,
 } from '@/modules/tools/public';
@@ -18,7 +20,11 @@ export {
     getBrowserAutomationStartupUrlError,
     parseBashToolConfig,
     parseBrowserAutomationToolConfig,
+    parseReadConversationToolConfig,
+    parseSearchConversationToolConfig,
     serializeBrowserAutomationToolConfig,
+    serializeReadConversationToolConfig,
+    serializeSearchConversationToolConfig,
 } from '@/modules/tools/public';
 
 export function parseUpgradeModelToolConfig(configJson: string | null): UpgradeModelToolConfig {

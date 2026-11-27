@@ -1,3 +1,5 @@
+import { AiError, AiErrorCode } from '@touchai/models/contracts';
+
 import type {
     ConfiguredModel,
     ConfiguredModelConnection,
@@ -16,6 +18,14 @@ interface ModelScope {
 export interface TaskModelBindingOptions {
     selection: Pick<ModelSelection, 'get' | 'isCurrent' | 'touch'>;
     connections: Pick<ModelsModule, 'acquireConnection'>;
+}
+
+function throwIfCompletionCancelled(signal?: AbortSignal): void {
+    if (signal?.aborted) {
+        throw new AiError(AiErrorCode.REQUEST_CANCELLED, undefined, undefined, {
+            cause: signal.reason,
+        });
+    }
 }
 
 /** Resource handles are task-scoped; configuration authority remains in Desktop models. */
@@ -44,6 +54,26 @@ export function createTaskModelBindings(options: TaskModelBindingOptions) {
         const key = crypto.randomUUID();
         scope.models.set(key, structuredClone(model));
         return reference(key, model);
+    };
+    const boundModel = async (
+        taskId: string,
+        selected: ToolModelReference
+    ): Promise<ConfiguredModel> => {
+        const scope = requireScope(taskId);
+        const model = scope.models.get(selected.key);
+        if (
+            !model ||
+            model.summary.modelDbId !== selected.id ||
+            model.summary.providerId !== selected.provider_id ||
+            model.summary.modelId !== selected.model_id
+        ) {
+            throw new Error('MODEL_BINDING_NOT_FOUND');
+        }
+        if (!(await isCurrent(model))) {
+            throw new ModelConfigurationError('PROVIDER_BINDING_REVOKED');
+        }
+        if (requireScope(taskId) !== scope) throw new Error('MODEL_BINDING_NOT_FOUND');
+        return model;
     };
     function disposeTask(taskId: string): void {
         const scope = scopes.get(taskId);
@@ -109,6 +139,39 @@ export function createTaskModelBindings(options: TaskModelBindingOptions) {
                 return false;
             const available = await isCurrent(model);
             return available && !disposed && scopes.get(taskId) === scope;
+        },
+        async complete(
+            taskId: string,
+            selected: ToolModelReference,
+            input: {
+                systemPrompt: string;
+                userContent: string;
+                maxOutputTokens: number;
+                signal?: AbortSignal;
+            }
+        ): Promise<{ content: string }> {
+            const model = await boundModel(taskId, selected);
+            const scope = requireScope(taskId);
+            const connection = acquire(model.connection);
+            scope.leases.add(connection);
+            try {
+                const response = await connection.provider.request({
+                    model: model.summary.modelId,
+                    messages: [
+                        { role: 'system', content: input.systemPrompt },
+                        { role: 'user', content: input.userContent },
+                    ],
+                    maxOutputTokens: input.maxOutputTokens,
+                    toolChoice: 'none',
+                    supportsReasoning: false,
+                    signal: input.signal,
+                });
+                throwIfCompletionCancelled(input.signal);
+                return { content: response.content };
+            } finally {
+                scope.leases.delete(connection);
+                connection.dispose();
+            }
         },
         describe(taskId: string, key: string): ModelSummary | null {
             const model = disposed ? undefined : scopes.get(taskId)?.models.get(key);
