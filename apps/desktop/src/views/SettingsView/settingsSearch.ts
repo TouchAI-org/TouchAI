@@ -3,6 +3,7 @@ import type { AppIconName } from '@components/appIconMap';
 import { SEARCH_KEYBINDING_DEFINITIONS } from '@/config/searchKeybindings';
 import { type MessageKey, t } from '@/i18n';
 import { messages } from '@/i18n/messages';
+import { detectDesktopPlatform } from '@/utils/platform';
 
 import { flattenSettingsNavigation, type NavigationSection } from './settingsNavigation';
 
@@ -92,6 +93,7 @@ const settingDefinitions: Partial<Record<NavigationSection, SearchItemDefinition
         { labelKey: 'settings.search.section.routing', targetId: 'search-routing' },
         { labelKey: 'settings.search.priority', targetId: 'search-priority' },
         { labelKey: 'settings.search.parallelProviders', targetId: 'search-parallelProviders' },
+        { labelKey: 'settings.search.everything.label', targetId: 'search-everything' },
     ],
     'privacy-filter': [
         { labelKey: 'settings.privacyFilter.enabled', targetId: 'privacy-filter-enabled' },
@@ -224,20 +226,26 @@ export function searchSettings(query: string, useLocalPrivacyModel = true): Sett
         );
         return [
             sectionResult,
-            ...definitions.map((definition) => ({
-                ...common,
-                id: `${section.id}:${definition.labelKey}`,
-                targetId: definition.targetId,
-                label: t(definition.labelKey),
-                description: definition.descriptionKey ? t(definition.descriptionKey) : '',
-                // Every translation joins the searchable text, so a query typed in another
-                // language still finds the row that is displayed in the active one.
-                haystack: [
-                    ...translationsOf(definition.labelKey),
-                    ...translationsOf(definition.descriptionKey),
-                    section.label,
-                ].join(' '),
-            })),
+            ...definitions
+                .filter(
+                    (definition) =>
+                        definition.targetId !== 'search-everything' ||
+                        detectDesktopPlatform() === 'windows'
+                )
+                .map((definition) => ({
+                    ...common,
+                    id: `${section.id}:${definition.labelKey}`,
+                    targetId: definition.targetId,
+                    label: t(definition.labelKey),
+                    description: definition.descriptionKey ? t(definition.descriptionKey) : '',
+                    // Every translation joins the searchable text, so a query typed in another
+                    // language still finds the row that is displayed in the active one.
+                    haystack: [
+                        ...translationsOf(definition.labelKey),
+                        ...translationsOf(definition.descriptionKey),
+                        section.label,
+                    ].join(' '),
+                })),
         ];
     });
 

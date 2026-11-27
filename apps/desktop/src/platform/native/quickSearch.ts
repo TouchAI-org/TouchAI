@@ -6,6 +6,8 @@ import type {
     QuickShortcutItem,
 } from './types';
 
+export type { QuickSearchStatus } from './types';
+
 const DEFAULT_PAGE_SIZE = 60;
 const DEFAULT_ICON_SIZE = 48;
 const DEFAULT_REFERENCE_SUGGESTION_LIMIT = 12;
@@ -72,5 +74,9 @@ export const quickSearch = {
 
     getStatus(): Promise<QuickSearchStatus> {
         return invoke('quick_search_get_status');
+    },
+
+    installEverything(): Promise<void> {
+        return invoke('quick_search_install_everything');
     },
 } as const;
