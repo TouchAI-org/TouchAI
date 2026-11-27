@@ -377,6 +377,8 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     let pendingDefaultSizeApplyAfterRestore = false;
     let commitQueue: Promise<void> = Promise.resolve();
     let commitGeneration = 0;
+    let collapseToIdlePromise: Promise<boolean> | null = null;
+    let resetBoundsPromise: Promise<boolean> | null = null;
     let resizeObserver: ResizeObserver | null = null;
     let inputResizeObserver: ResizeObserver | null = null;
     let mutationObserver: MutationObserver | null = null;
@@ -397,6 +399,10 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
 
     function reportError(action: string, error: unknown) {
         log.error(`[SearchView] Failed to ${action}:`, error);
+    }
+
+    function measurementPaused() {
+        return measurementHold.value || collapseToIdlePromise !== null;
     }
 
     function notifyHostViewportChange() {
@@ -639,8 +645,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     function scheduleMeasurement(el = options.target.value) {
         if (!el) return;
         pendingMeasureTarget = el;
-        if (isLogicalPanelResizing.value || isSurfaceAnimating.value || measurementHold.value)
-            return;
+        if (isLogicalPanelResizing.value || isSurfaceAnimating.value || measurementPaused()) return;
         if (measureTimer !== null) return;
 
         measureTimer = setTimeout(() => {
@@ -650,7 +655,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
             // The hold can start after this timer was queued -- a submit freezes the height loop
             // while the surface is still empty -- so the check has to happen when it fires, not only
             // when the measurement is scheduled.
-            if (measurementHold.value || isSurfaceAnimating.value) return;
+            if (measurementPaused() || isSurfaceAnimating.value) return;
             if (!target || windowListenersDisposed || !autoHeightEnabled.value) {
                 return;
             }
@@ -663,6 +668,14 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
                 reportError('apply measured content height', error);
             });
         }, MEASURE_COALESCE_MS);
+    }
+
+    function cancelScheduledMeasurement() {
+        if (measureTimer !== null) {
+            clearTimeout(measureTimer);
+            measureTimer = null;
+        }
+        pendingMeasureTarget = null;
     }
 
     function observeTargetHeight(el: HTMLElement) {
@@ -701,11 +714,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     }
 
     function disposeObservers() {
-        if (measureTimer !== null) {
-            clearTimeout(measureTimer);
-            measureTimer = null;
-        }
-        pendingMeasureTarget = null;
+        cancelScheduledMeasurement();
         resizeObserver?.disconnect();
         resizeObserver = null;
         mutationObserver?.disconnect();
@@ -787,14 +796,36 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         searchWindowResizeConstraintsReady.value = true;
     }
 
-    async function resetSearchWindowBounds() {
-        logicalPanelResizeStart = null;
-        isLogicalPanelResizing.value = false;
-        const committed = await commitPanelHeight(options.defaultSize.value.height, {
-            placement: 'idle',
-            reset: true,
+    function resetSearchWindowBounds(): Promise<boolean> {
+        if (resetBoundsPromise) return resetBoundsPromise;
+
+        const reset = (async () => {
+            logicalPanelResizeStart = null;
+            isLogicalPanelResizing.value = false;
+            cancelScheduledMeasurement();
+
+            const commitIdleBounds = async () => {
+                const committed = await commitPanelHeight(options.defaultSize.value.height, {
+                    placement: 'idle',
+                    reset: true,
+                });
+                return committed && (await finishCompactTransition());
+            };
+
+            if (await commitIdleBounds()) return true;
+
+            // A geometry completion can supersede the reset while the native host is still
+            // settling. Retry once after Vue flushes that completion so a transient fold
+            // cannot leave the conversation mounted and make "new session" a silent no-op.
+            await nextTick();
+            cancelScheduledMeasurement();
+            return commitIdleBounds();
+        })();
+        const tracked = reset.finally(() => {
+            if (resetBoundsPromise === tracked) resetBoundsPromise = null;
         });
-        return committed && (await finishCompactTransition());
+        resetBoundsPromise = tracked;
+        return tracked;
     }
 
     /** Measure the live content after Vue has applied the layout. */
@@ -803,7 +834,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         if (!target) return;
 
         await nextTick();
-        if (measurementHold.value) return;
+        if (measurementPaused()) return;
         if (isSurfaceAnimating.value) {
             scheduleMeasurement(target);
             return;
@@ -834,25 +865,43 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         await commitPanelHeight(target, { respectManualOverride: false });
     }
 
-    async function collapseSessionToIdle() {
-        const compactHeight = options.defaultSize.value.height;
-        const fromHeight = currentHeight.value || compactHeight;
-        if (fromHeight <= compactHeight + 1) {
-            return finishCompactTransition();
-        }
+    function collapseSessionToIdle(): Promise<boolean> {
+        if (collapseToIdlePromise) return collapseToIdlePromise;
 
-        const committed = await commitPanelHeight(compactHeight);
-        if (!committed) return false;
-        return finishCompactTransition();
+        const collapse = (async () => {
+            cancelScheduledMeasurement();
+            const compactHeight = options.defaultSize.value.height;
+            const logicalHeight = currentHeight.value || compactHeight;
+            const renderedHeight = currentCardHeight();
+            const needsCommit =
+                logicalHeight > compactHeight + 1 || renderedHeight > compactHeight + 1;
+
+            if (needsCommit) {
+                const committed = await commitPanelHeight(compactHeight, {
+                    placement: 'idle',
+                });
+                if (!committed) return false;
+            }
+            return finishCompactTransition();
+        })();
+        const tracked = collapse.finally(() => {
+            if (collapseToIdlePromise === tracked) collapseToIdlePromise = null;
+        });
+        collapseToIdlePromise = tracked;
+        return tracked;
     }
 
     async function finishCompactTransition() {
         const generation = commitGeneration;
         // Callers clear the conversation after this resolves; retain it throughout the fold.
         await cardAnimation.value?.finished.catch(() => undefined);
+        await nextTick();
+        const compactHeight = options.defaultSize.value.height;
+        const renderedHeight = options.card?.value ? currentCardHeight() : compactHeight;
         return (
             isCurrentGeometry(generation) &&
-            Math.abs(currentHeight.value - options.defaultSize.value.height) <= 1
+            Math.abs(currentHeight.value - compactHeight) <= 1 &&
+            Math.abs(renderedHeight - compactHeight) <= 1
         );
     }
 
@@ -1224,7 +1273,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     });
 
     watch([availablePanelHeight, nativeDragLayout], () => {
-        if (nativeDragLayout.value) return;
+        if (nativeDragLayout.value || collapseToIdlePromise) return;
         // A smaller monitor can reduce host capacity; position-only movement cannot.
         if (monitorHost.value && currentHeight.value > availablePanelHeight.value) {
             void commitPanelHeight(currentHeight.value);

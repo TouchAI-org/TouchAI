@@ -287,17 +287,17 @@
     }));
     const markdownRenderKey = computed(() => `${markdownParseInput.value.locale}:${props.variant}`);
 
-    // 外层滚动 owner 由会话面板 provide；只有存在时才启用 markstream 的虚拟适配，
-    // 避免渲染器把溢出的 pre 误判为自己的滚动根；独立使用（设置页等）保持原样。
+    // Virtual height probes defer the first streamed text; only finished content
+    // with an outer conversation viewport can safely use this adapter.
     const scrollRootResolver = inject<MarkdownScrollRootResolver | null>(
         MARKDOWN_SCROLL_ROOT_KEY,
         null
     );
     const virtualScrollOptions = computed(() =>
-        scrollRootResolver
+        scrollRootResolver && props.final
             ? {
                   enabled: true,
-                  sessionKey: `touchai:${props.variant}:${props.final ? 'final' : 'stream'}`,
+                  sessionKey: `touchai:${props.variant}:final`,
                   scrollRoot: scrollRootResolver,
                   settleMode: 'auto' as const,
               }

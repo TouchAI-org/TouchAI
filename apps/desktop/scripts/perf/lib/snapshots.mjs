@@ -1,0 +1,244 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+import { resolveComparison } from './comparison.mjs';
+import {
+    artifactsRoot,
+    baselineSnapshot,
+    currentSnapshot,
+    evidenceRoot,
+    logsRoot,
+    MANIFEST_VERSION,
+    manifestsRoot,
+    repoRoot,
+    snapshotsRoot,
+} from './config.mjs';
+import {
+    ensureDirectory,
+    nowIso,
+    readJsonFile,
+    removeManagedDirectory,
+    sha256File,
+    sha256Text,
+    writeJson,
+} from './io.mjs';
+import { runSync } from './process.mjs';
+
+function listSnapshotEntries(root, excludedDirectories = new Set()) {
+    const entries = [];
+    const walk = (directory) => {
+        for (const entry of fs
+            .readdirSync(directory, { withFileTypes: true })
+            .sort((a, b) => a.name.localeCompare(b.name))) {
+            const absolute = path.join(directory, entry.name);
+            const relative = path.relative(root, absolute);
+            if (entry.isDirectory() && excludedDirectories.has(relative)) continue;
+            if (entry.isSymbolicLink()) {
+                const target = fs.readlinkSync(absolute);
+                entries.push({
+                    path: relative,
+                    type: 'symlink',
+                    target,
+                    sha256: sha256Text(target),
+                });
+            } else if (entry.isDirectory()) {
+                walk(absolute);
+            } else if (entry.isFile()) {
+                entries.push({
+                    path: relative,
+                    type: 'file',
+                    size: fs.statSync(absolute).size,
+                    sha256: sha256File(absolute),
+                });
+            }
+        }
+    };
+    walk(root);
+    return entries;
+}
+
+export function verifyPreparedSnapshot(arm, snapshot, preparedRoot = evidenceRoot) {
+    const prepared = readJsonFile(path.join(preparedRoot, 'source-manifest.json'));
+    const reference = prepared?.[arm];
+    if (
+        prepared?.version !== MANIFEST_VERSION ||
+        !reference ||
+        typeof reference.path !== 'string' ||
+        typeof reference.sha256 !== 'string' ||
+        !fs.existsSync(path.resolve(preparedRoot, reference.path))
+    ) {
+        throw new Error(`Prepared ${arm} snapshot manifest is missing or invalid.`);
+    }
+    const manifestPath = path.resolve(preparedRoot, reference.path);
+    if (sha256File(manifestPath) !== reference.sha256) {
+        throw new Error(`Prepared ${arm} snapshot manifest changed after prepare.`);
+    }
+    const manifest = readJsonFile(manifestPath);
+    if (
+        manifest?.version !== MANIFEST_VERSION ||
+        manifest.arm !== arm ||
+        path.resolve(manifest.snapshot) !== path.resolve(snapshot) ||
+        JSON.stringify(manifest.comparison) !== JSON.stringify(prepared.comparison) ||
+        !Array.isArray(manifest.entries)
+    ) {
+        throw new Error(`Prepared ${arm} snapshot manifest does not describe this comparison.`);
+    }
+    for (const entry of manifest.entries) {
+        const file = path.join(snapshot, entry.path);
+        let stat;
+        try {
+            stat = fs.lstatSync(file);
+        } catch {
+            throw new Error(`Prepared ${arm} snapshot is missing ${entry.path}; prepare again.`);
+        }
+        const matches =
+            entry.type === 'symlink'
+                ? stat.isSymbolicLink() && fs.readlinkSync(file) === entry.target
+                : entry.type === 'file' && stat.isFile() && sha256File(file) === entry.sha256;
+        if (!matches) {
+            throw new Error(
+                `Prepared ${arm} snapshot changed ${entry.path} after prepare; prepare again.`
+            );
+        }
+    }
+    const generatedDirectories = new Set([
+        'node_modules',
+        'apps/desktop/node_modules',
+        ...manifest.entries
+            .filter((entry) => /^packages\/[^/]+\/package\.json$/.test(entry.path))
+            .map((entry) => `${path.dirname(entry.path)}/node_modules`),
+    ]);
+    const registered = new Set(manifest.entries.map((entry) => entry.path));
+    for (const entry of listSnapshotEntries(snapshot, generatedDirectories)) {
+        if (!registered.has(entry.path)) {
+            throw new Error(
+                `Prepared ${arm} snapshot added ${entry.path} after prepare; prepare again.`
+            );
+        }
+    }
+}
+
+function writeSourceManifest(arm, snapshot, comparison) {
+    const entries = listSnapshotEntries(snapshot);
+    const manifest = {
+        version: MANIFEST_VERSION,
+        arm,
+        comparison,
+        generatedAt: nowIso(),
+        snapshot,
+        entries,
+    };
+    const manifestPath = path.join(manifestsRoot, `${arm}-source-manifest.json`);
+    writeJson(manifestPath, manifest);
+    return {
+        path: path.relative(evidenceRoot, manifestPath),
+        sha256: sha256File(manifestPath),
+    };
+}
+export function linkSnapshotDependencies(snapshot, checkout = repoRoot) {
+    const packages = fs
+        .readdirSync(path.join(snapshot, 'packages'))
+        .filter((name) => fs.existsSync(path.join(snapshot, 'packages', name, 'package.json')));
+    const owners = ['', 'apps/desktop', ...packages.map((name) => `packages/${name}`)];
+    for (const owner of owners) {
+        const source = path.join(checkout, owner, 'node_modules');
+        const target = path.join(snapshot, owner, 'node_modules');
+        if (!fs.existsSync(source)) throw new Error(`Required node_modules is missing: ${source}`);
+        fs.mkdirSync(target, { recursive: true });
+        for (const entry of fs.readdirSync(source)) {
+            if (entry === '@touchai') continue;
+            fs.symlinkSync(
+                fs.realpathSync(path.join(source, entry)),
+                path.join(target, entry),
+                'dir'
+            );
+        }
+        // Whole-directory links would resolve @touchai imports back into the live checkout.
+        fs.mkdirSync(path.join(target, '@touchai'), { recursive: true });
+        for (const name of packages) {
+            fs.symlinkSync(
+                path.join(snapshot, 'packages', name),
+                path.join(target, '@touchai', name),
+                'dir'
+            );
+        }
+    }
+}
+
+function prepareSnapshot(snapshot, commit) {
+    removeManagedDirectory(snapshot, snapshotsRoot);
+    ensureDirectory(snapshot);
+    const archive = path.join(artifactsRoot, `${path.basename(snapshot)}.tar`);
+    runSync('git', ['archive', '--format=tar', `--output=${archive}`, commit], {
+        log: path.join(logsRoot, 'prepare.log'),
+    });
+    runSync('tar', ['-xf', archive, '-C', snapshot], { log: path.join(logsRoot, 'prepare.log') });
+    fs.rmSync(archive, { force: true });
+}
+
+export function prepareSnapshots(args) {
+    const comparison = resolveComparison(repoRoot, args.baseline, args.candidate ?? 'HEAD');
+    ensureDirectory(logsRoot);
+    ensureDirectory(manifestsRoot);
+    // Preparation is atomic from the caller's perspective: never let a failed
+    // rebuild leave the previous comparison readable.
+    fs.rmSync(path.join(evidenceRoot, 'source-manifest.json'), { force: true });
+    prepareSnapshot(baselineSnapshot, comparison.baselineCommit);
+    prepareSnapshot(currentSnapshot, comparison.candidateCommit);
+    for (const file of [
+        'pnpm-lock.yaml',
+        'package.json',
+        'apps/desktop/package.json',
+        ...fs
+            .readdirSync(path.join(currentSnapshot, 'packages'))
+            .map((name) => `packages/${name}/package.json`),
+    ]) {
+        if (
+            sha256File(path.join(currentSnapshot, file)) !== sha256File(path.join(repoRoot, file))
+        ) {
+            throw new Error(`Installed dependency checkout differs from candidate: ${file}`);
+        }
+    }
+    const baseline = writeSourceManifest('baseline', baselineSnapshot, comparison);
+    const current = writeSourceManifest('current', currentSnapshot, comparison);
+    linkSnapshotDependencies(baselineSnapshot);
+    linkSnapshotDependencies(currentSnapshot);
+    const manifest = {
+        version: MANIFEST_VERSION,
+        generatedAt: nowIso(),
+        repoRoot,
+        evidenceRoot,
+        artifactsRoot,
+        comparison,
+        baseline,
+        current,
+        environment: {
+            node: process.version,
+            pnpm: runSync('pnpm', ['--version']).stdout.trim(),
+            rustc: runSync('rustc', ['--version']).stdout.trim(),
+            cargo: runSync('cargo', ['--version']).stdout.trim(),
+            webkit: runSync('bash', [
+                '-lc',
+                "dpkg-query -W -f='${Version}' libwebkit2gtk-4.1-0 2>/dev/null || true",
+            ]).stdout.trim(),
+            kernel: os.release(),
+            platform: `${process.platform}-${process.arch}`,
+            cpuCount: os.cpus().length,
+            totalMemoryBytes: os.totalmem(),
+            ci: {
+                provider: process.env.GITHUB_ACTIONS === 'true' ? 'github-actions' : 'local',
+                workflow: process.env.GITHUB_WORKFLOW ?? null,
+                runId: process.env.GITHUB_RUN_ID ?? null,
+                runAttempt: process.env.GITHUB_RUN_ATTEMPT ?? null,
+                runnerName: process.env.RUNNER_NAME ?? null,
+                runnerOs: process.env.RUNNER_OS ?? null,
+                imageOs: process.env.ImageOS ?? null,
+                imageVersion: process.env.ImageVersion ?? null,
+            },
+        },
+    };
+    const manifestPath = path.join(evidenceRoot, 'source-manifest.json');
+    writeJson(manifestPath, manifest);
+    return manifest;
+}

@@ -1,0 +1,254 @@
+name: Performance Nightly
+
+# The 5% gate needs more independent cold launches than a PR job can afford.
+# GitHub Actions is the canonical desktop performance environment. The workflow
+# is not a required branch-protection check yet, but it still fails the job when
+# the harness produces invalid samples or an enabled performance gate fails.
+on:
+    schedule:
+        - cron: '17 18 * * *'
+    pull_request:
+        types: [labeled, synchronize, reopened]
+    workflow_dispatch:
+        inputs:
+            baseline:
+                description: Baseline commit (default selected candidate's first parent; PR runs use the PR base SHA)
+                required: false
+            candidate:
+                description: Candidate commit (default selected workflow ref; PR runs use the pull request merge commit)
+                required: false
+            latency-blocks:
+                description: Latency blocks (4 app launches per block)
+                required: false
+                default: '60'
+            long-blocks:
+                description: Long-session blocks per history level (4 app launches per block)
+                required: false
+                default: '6'
+            startup-settle-ms:
+                description: Symmetric startup settle before the cold prompt
+                required: false
+                default: '12000'
+            baseline-rail:
+                description: Expected baseline rail (all before sampling, sampled after sampling lands)
+                type: choice
+                default: all
+                options: [all, sampled]
+            candidate-rail:
+                description: Expected candidate rail
+                type: choice
+                default: sampled
+                options: [all, sampled]
+            performance-scope:
+                description: Which desktop performance flows to measure
+                required: true
+                default: cold-latency
+                type: choice
+                options:
+                    - cold-latency
+                    - steady-state-memory
+                    - progress-smoke
+                    - full
+
+permissions:
+    contents: read
+
+concurrency:
+    group: perf-nightly-${{ github.event.pull_request.number || github.ref }}
+    cancel-in-progress: false
+
+jobs:
+    performance:
+        name: Desktop performance (GitHub-hosted)
+        if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'performance')
+        runs-on: ubuntu-24.04
+        timeout-minutes: 360
+        env:
+            CARGO_BUILD_JOBS: 4
+            TOUCHAI_PERF_CARGO_JOBS: 4
+            TOUCHAI_PERF_DISABLE_CGROUP: '1'
+            TOUCHAI_PERF_STARTUP_SETTLE_MS: ${{ inputs['startup-settle-ms'] || '12000' }}
+            TOUCHAI_PERF_EVIDENCE: /tmp/touchai-perf-evidence
+            TOUCHAI_PERF_ARTIFACTS: /tmp/touchai-perf-artifacts
+            GDK_BACKEND: x11
+            LIBGL_ALWAYS_SOFTWARE: '1'
+            NO_AT_BRIDGE: '1'
+            LATENCY_BLOCKS: ${{ inputs['latency-blocks'] || '60' }}
+            PROGRESS_BLOCKS: ${{ inputs['performance-scope'] == 'progress-smoke' && '1' || '3' }}
+            PROGRESS_WARMUPS: ${{ inputs['performance-scope'] == 'progress-smoke' && '1' || '4' }}
+            PROGRESS_TASKS: ${{ inputs['performance-scope'] == 'progress-smoke' && '9' || '8' }}
+            PERF_ADVISORY: ${{ inputs['performance-scope'] == 'progress-smoke' && 'true' || 'false' }}
+            LONG_BLOCKS: ${{ inputs['long-blocks'] || '6' }}
+            HISTORY_LEVELS: '100,500,1000'
+            PERF_SCOPE: ${{ inputs['performance-scope'] || (github.event_name == 'schedule' && 'full') || 'cold-latency' }}
+            PERF_BASELINE_REQUEST: ${{ github.event.pull_request.base.sha || inputs.baseline }}
+            PERF_CANDIDATE_REQUEST: ${{ inputs.candidate || github.sha }}
+            BASELINE_RAIL: ${{ inputs['baseline-rail'] || (github.event_name == 'schedule' && 'sampled') || 'all' }}
+            CANDIDATE_RAIL: ${{ inputs['candidate-rail'] || 'sampled' }}
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  fetch-depth: 0
+                  persist-credentials: false
+
+            # This measures the selected change, not the old pre-refactor RFC acceptance.
+            # Both arms must have identical dependency and database artifacts.
+            - name: Resolve comparable commits
+              run: |
+                  candidate="$(git rev-parse --verify "$PERF_CANDIDATE_REQUEST^{commit}")"
+                  baseline_ref="${PERF_BASELINE_REQUEST:-$candidate^}"
+                  baseline="$(git rev-parse --verify "$baseline_ref^{commit}")"
+                  echo "PERF_BASELINE=$baseline" >> "$GITHUB_ENV"
+                  echo "PERF_CANDIDATE=$candidate" >> "$GITHUB_ENV"
+
+            # Fail before installing toolchains or downloading dependencies when
+            # the requested run cannot finish.
+            - name: Validate inputs
+              run: |
+                  case "$TOUCHAI_PERF_STARTUP_SETTLE_MS" in
+                    ''|*[!0-9]*)
+                      echo "startup-settle-ms must be a positive integer" >&2
+                      exit 1
+                      ;;
+                  esac
+                  if [ "$TOUCHAI_PERF_STARTUP_SETTLE_MS" -lt 1 ]; then
+                    echo "startup-settle-ms must be a positive integer" >&2
+                    exit 1
+                  fi
+                  case "$LATENCY_BLOCKS" in
+                    ''|*[!0-9]*)
+                      echo "latency-blocks must be a positive integer" >&2
+                      exit 1
+                      ;;
+                  esac
+                  if [ "$LATENCY_BLOCKS" -lt 3 ]; then
+                    echo "latency-blocks must be at least 3" >&2
+                    exit 1
+                  fi
+                  case "$PERF_SCOPE" in
+                    cold-latency|steady-state-memory|progress-smoke|full) ;;
+                    *)
+                      echo "performance-scope must be cold-latency, steady-state-memory, progress-smoke or full" >&2
+                      exit 1
+                      ;;
+                  esac
+                  case "$BASELINE_RAIL:$CANDIDATE_RAIL" in
+                    all:all|all:sampled|sampled:all|sampled:sampled) ;;
+                    *) echo "rail policies must be all or sampled" >&2; exit 1 ;;
+                  esac
+                  case "$LONG_BLOCKS" in
+                    ''|*[!0-9]*)
+                      echo "long-blocks must be a positive integer" >&2
+                      exit 1
+                      ;;
+                  esac
+                  if [ "$PERF_SCOPE" != "cold-latency" ] && [ "$PERF_SCOPE" != "progress-smoke" ] && [ "$LONG_BLOCKS" -lt 6 ]; then
+                    echo "long-blocks must be at least 6 for memory and full scopes" >&2
+                    exit 1
+                  fi
+                  latency_launches=0
+                  if [ "$PERF_SCOPE" = "cold-latency" ] || [ "$PERF_SCOPE" = "full" ]; then
+                    latency_launches=$((LATENCY_BLOCKS * 4))
+                  fi
+                  settle_budget_ms=$((latency_launches * TOUCHAI_PERF_STARTUP_SETTLE_MS))
+                  if [ "$settle_budget_ms" -gt $((180 * 60 * 1000)) ]; then
+                    echo "Selected latency launches would spend more than 180 minutes settling alone; reduce latency blocks or settle time." >&2
+                    exit 1
+                  fi
+
+            - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6
+
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+              with:
+                  node-version: 22
+                  cache: pnpm
+
+            - name: Install Linux GUI and build dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y \
+                    build-essential \
+                    curl \
+                    dbus-x11 \
+                    dunst \
+                    file \
+                    libayatana-appindicator3-dev \
+                    libglib2.0-dev \
+                    librsvg2-dev \
+                    libssl-dev \
+                    libwebkit2gtk-4.1-dev \
+                    libxdo-dev \
+                    pkg-config \
+                    openbox \
+                    sqlite3 \
+                    wget \
+                    webkit2gtk-driver \
+                    wmctrl \
+                    xvfb
+
+            - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+
+            - uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+              with:
+                  workspaces: apps/desktop/src-tauri -> target
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Install tauri-driver
+              run: cargo install tauri-driver --version 2.1.0 --locked
+
+            - name: Run desktop performance protocol
+              run: |
+                  case "$PERF_SCOPE" in
+                    cold-latency) flows=latency ;;
+                    steady-state-memory) flows=progress,long-session ;;
+                    progress-smoke) flows=progress ;;
+                    full) flows=latency,progress,long-session ;;
+                  esac
+                  node apps/desktop/scripts/perf/run.mjs all \
+                    --baseline "$PERF_BASELINE" \
+                    --candidate "$PERF_CANDIDATE" \
+                    --flows "$flows" \
+                    --latency-blocks "$LATENCY_BLOCKS" \
+                    --progress-blocks "$PROGRESS_BLOCKS" \
+                    --progress-warmups "$PROGRESS_WARMUPS" \
+                    --progress-tasks "$PROGRESS_TASKS" \
+                    --long-blocks "$LONG_BLOCKS" \
+                    --history-levels "$HISTORY_LEVELS" \
+                    --baseline-rail "$BASELINE_RAIL" \
+                    --candidate-rail "$CANDIDATE_RAIL" \
+                    --warm-samples 0 \
+                    --advisory "$PERF_ADVISORY"
+
+            - name: Enforce desktop performance gate
+              if: always() && env.PERF_SCOPE != 'progress-smoke'
+              run: node apps/desktop/scripts/perf/run.mjs gate
+
+            - name: Summarize gate
+              if: always()
+              run: |
+                  stats="$TOUCHAI_PERF_EVIDENCE/stats.json"
+                  {
+                    echo "## Desktop performance"
+                    echo ""
+                    echo "Scope: **$PERF_SCOPE**"
+                    echo "Baseline: $PERF_BASELINE; candidate: $PERF_CANDIDATE"
+                    echo ""
+                    if [ ! -f "$stats" ]; then
+                      echo "No stats.json was produced. See the evidence artifact."
+                    else
+                      jq -r '"Enabled flows: **\(.enabledFlows | join(", "))**; valid runs: \(.rawCounts.validRuns)/\(.rawCounts.runs); invalid runs: \(.rawCounts.invalidRuns)"' "$stats"
+                      echo ""
+                      cat "$TOUCHAI_PERF_EVIDENCE/summary.md"
+                    fi
+                  } >> "$GITHUB_STEP_SUMMARY"
+
+            - name: Upload performance evidence
+              if: always()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: desktop-performance-${{ github.run_id }}
+                  path: ${{ env.TOUCHAI_PERF_EVIDENCE }}
+                  if-no-files-found: warn
+                  retention-days: 30

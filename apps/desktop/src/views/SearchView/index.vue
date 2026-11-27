@@ -2344,37 +2344,50 @@
 
     async function clearSessionToIdle(options: { animate?: boolean; revalidate?: boolean } = {}) {
         cancelSessionExpansion();
+        // The collapse itself resizes the content and would normally schedule a
+        // measurement that can re-expand the surface before the conversation is
+        // cleared. Keep automatic measurement paused until the idle state is committed.
+        surfaceMeasurementHold.value = true;
         suppressQuickSearchAutoOpenOnce.value = true;
-        // A conversation owns the full-bleed surface while it is maximized. Exiting it
-        // leaves that mode too, so the compact bar keeps its elevation and radius
-        // instead of leaving an empty sheet behind.
-        if (options.animate === false) {
-            // Nobody can see this clear, so the conversation is dropped first: the card
-            // is already compact and the bounds commit below has nothing to animate.
-            clearSession();
-            await nextTick();
-            if (effectiveWindowMaximized.value) {
-                await resetBoundsToIdle();
+        try {
+            // A conversation owns the full-bleed surface while it is maximized. Exiting it
+            // leaves that mode too, so the compact bar keeps its elevation and radius
+            // instead of leaving an empty sheet behind.
+            if (options.animate === false) {
+                // Nobody can see this clear, so the conversation is dropped first: the card
+                // is already compact and the bounds commit below has nothing to animate.
+                clearSession();
+                await nextTick();
+                const returnedToIdle = effectiveWindowMaximized.value
+                    ? await resetBoundsToIdle()
+                    : await collapseBeforeClearing();
+                if (!returnedToIdle) {
+                    log.error('[SearchView] Failed to finish the hidden idle reset.');
+                }
             } else {
-                await collapseBeforeClearing();
+                const clearIsCurrent = options.revalidate
+                    ? idleClearStillAppropriate(currentSessionId.value)
+                    : null;
+                const returnedToIdle = effectiveWindowMaximized.value
+                    ? await resetBoundsToIdle()
+                    : await collapseBeforeClearing();
+                if (!returnedToIdle) {
+                    log.error(
+                        '[SearchView] Failed to return the search surface to idle; keeping the conversation mounted.'
+                    );
+                    return;
+                }
+                // The reveal no longer waits for the whole collapse, so the bounded
+                // idle clear can finish with the window already shown. Clearing then
+                // would drop what the user typed or started in the meantime.
+                if (clearIsCurrent && !clearIsCurrent()) return;
+                clearSession();
             }
-        } else {
-            const clearIsCurrent = options.revalidate
-                ? idleClearStillAppropriate(currentSessionId.value)
-                : null;
-            if (effectiveWindowMaximized.value) {
-                if (!(await resetBoundsToIdle())) return;
-            } else if (!(await collapseBeforeClearing())) {
-                return;
-            }
-            // The reveal no longer waits for the whole collapse, so the bounded
-            // idle clear can finish with the window already shown. Clearing then
-            // would drop what the user typed or started in the meantime.
-            if (clearIsCurrent && !clearIsCurrent()) return;
-            clearSession();
+            await nextTick();
+            await controller.focusSearchInput();
+        } finally {
+            surfaceMeasurementHold.value = false;
         }
-        await nextTick();
-        await controller.focusSearchInput();
     }
 
     async function handleStartNewSession() {
@@ -2385,11 +2398,21 @@
 
         controller.closeQuickSearch();
         await hideAllOverlays();
-        if (!(await collapseBeforeClearing())) return;
-        startNewSession();
-        resetSessionInputHistoryTracking();
-        await nextTick();
-        await controller.focusSearchInput();
+        surfaceMeasurementHold.value = true;
+        try {
+            if (!(await collapseBeforeClearing())) {
+                log.error(
+                    '[SearchView] Failed to return the search surface to idle; keeping the conversation mounted.'
+                );
+                return;
+            }
+            startNewSession();
+            resetSessionInputHistoryTracking();
+            await nextTick();
+            await controller.focusSearchInput();
+        } finally {
+            surfaceMeasurementHold.value = false;
+        }
     }
 
     async function handleReopenLastClosedSession() {
@@ -2793,6 +2816,11 @@
             },
             async clearSessionToIdle() {
                 await clearSessionToIdle();
+                if (sessionHistory.value.length > 0) {
+                    throw new Error(
+                        `The search surface did not return to idle (messages=${sessionHistory.value.length}, height=${cardPixelHeight.value}, maximized=${effectiveWindowMaximized.value}, hiding=${surfaceHiding.value}).`
+                    );
+                }
             },
             getSessionExpandDebug() {
                 return (
