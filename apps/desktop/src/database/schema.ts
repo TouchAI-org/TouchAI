@@ -405,6 +405,81 @@ export const models = sqliteTable('models', {
         .default(sql`(datetime('now'))`),
 });
 
+export const scheduledTasks = sqliteTable(
+    'scheduled_tasks',
+    {
+        id: text('id').primaryKey(),
+        title: text('title').notNull(),
+        prompt: text('prompt').notNull(),
+        model_id: text('model_id'),
+        provider_id: integer('provider_id'),
+        trigger_type: text('trigger_type', {
+            enum: ['cron', 'once', 'interval'],
+        }).notNull(),
+        trigger_config: text('trigger_config').notNull(),
+        timezone: text('timezone').notNull(),
+        enabled: integer('enabled').notNull().default(1),
+        next_run_at: integer('next_run_at'),
+        last_run_at: integer('last_run_at'),
+        version: integer('version').notNull().default(1),
+        deleted_at: integer('deleted_at'),
+        created_at: integer('created_at').notNull(),
+        updated_at: integer('updated_at').notNull(),
+    },
+    (table) => [
+        index('scheduled_tasks_enabled_next_run_idx').on(
+            table.deleted_at,
+            table.enabled,
+            table.next_run_at
+        ),
+        check(
+            'scheduled_tasks_trigger_config_check',
+            sql`json_valid(${table.trigger_config}) AND json_type(${table.trigger_config}) = 'object'`
+        ),
+        check('scheduled_tasks_version_check', sql`${table.version} > 0`),
+    ]
+);
+
+export const scheduledTaskRuns = sqliteTable(
+    'scheduled_task_runs',
+    {
+        id: text('id').primaryKey(),
+        schedule_id: text('schedule_id')
+            .notNull()
+            .references(() => scheduledTasks.id, { onDelete: 'restrict' }),
+        schedule_version: integer('schedule_version').notNull(),
+        scheduled_for: integer('scheduled_for').notNull(),
+        started_at: integer('started_at'),
+        finished_at: integer('finished_at'),
+        outcome: text('outcome', {
+            enum: ['completed', 'failed', 'cancelled', 'skipped_overlap', 'missed', 'skipped_dst'],
+        }),
+        reason: text('reason'),
+        background_task_id: text('background_task_id'),
+        session_id: integer('session_id').references(() => sessions.id, {
+            onDelete: 'set null',
+        }),
+        turn_id: integer('turn_id').references(() => sessionTurns.id, {
+            onDelete: 'set null',
+        }),
+        created_at: integer('created_at').notNull(),
+    },
+    (table) => [
+        uniqueIndex('scheduled_task_runs_occurrence_unique').on(
+            table.schedule_id,
+            table.schedule_version,
+            table.scheduled_for
+        ),
+        index('scheduled_task_runs_schedule_time_idx').on(table.schedule_id, table.scheduled_for),
+        index('scheduled_task_runs_active_idx').on(table.schedule_id, table.outcome),
+        check(
+            'scheduled_task_runs_outcome_check',
+            sql`${table.outcome} IS NULL OR ${table.outcome} IN ('completed', 'failed', 'cancelled', 'skipped_overlap', 'missed', 'skipped_dst')`
+        ),
+        check('scheduled_task_runs_schedule_version_check', sql`${table.schedule_version} > 0`),
+    ]
+);
+
 /**
  * 会话轮次表
  */
@@ -771,6 +846,14 @@ export type ProviderUpdate = Partial<NewProvider>;
 export type Model = typeof models.$inferSelect;
 export type NewModel = typeof models.$inferInsert;
 export type ModelUpdate = Partial<NewModel>;
+
+export type ScheduledTask = typeof scheduledTasks.$inferSelect;
+export type NewScheduledTask = typeof scheduledTasks.$inferInsert;
+export type ScheduledTaskUpdate = Partial<NewScheduledTask>;
+
+export type ScheduledTaskRun = typeof scheduledTaskRuns.$inferSelect;
+export type NewScheduledTaskRun = typeof scheduledTaskRuns.$inferInsert;
+export type ScheduledTaskRunUpdate = Partial<NewScheduledTaskRun>;
 
 export type SessionTurn = typeof sessionTurns.$inferSelect;
 export type NewSessionTurn = typeof sessionTurns.$inferInsert;

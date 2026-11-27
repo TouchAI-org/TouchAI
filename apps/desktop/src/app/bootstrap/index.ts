@@ -13,6 +13,7 @@ import { modelAdministrationApiKey } from '@/app/api/models/administration';
 import { modelDiscoveryApiKey } from '@/app/api/models/discovery';
 import { type ModelMetadataApi, modelMetadataApiKey } from '@/app/api/models/metadata';
 import { privacyApiKey } from '@/app/api/privacy';
+import { scheduledTasksApiKey } from '@/app/api/scheduler/administration';
 import { searchApiKey } from '@/app/api/search/queries';
 import { startupNoticesApiKey } from '@/app/api/search/startup';
 import { dataManagementApiKey } from '@/app/api/settings/dataManagement';
@@ -252,6 +253,7 @@ export async function initializeApp() {
         app.provide(dataManagementApiKey, agentWindow.dataManagement!);
         app.provide(toolSettingsApiKey, agentWindow.toolSettings);
         app.provide(toolsAdministrationApiKey, agentWindow.tools);
+        app.provide(scheduledTasksApiKey, agentWindow.scheduledTasks!);
         app.provide(computerAdministrationApiKey, agentWindow.computer);
         app.provide(mcpAdministrationApiKey, agentWindow.mcpAdministration!);
     }

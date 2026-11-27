@@ -19,6 +19,7 @@ import { createMcpWindow } from './mcp';
 import { createModelAdministrationWindow } from './modelAdministration';
 import { createModelDiscoveryWindow } from './modelDiscovery';
 import { createModelMetadataWindow } from './modelMetadata';
+import { createScheduledTasksWindow } from './scheduledTasks';
 import { createToolsAdministrationWindow } from './toolAdministration';
 import { createUpdatesWindow } from './updates';
 
@@ -178,6 +179,17 @@ export function initializeAgentWindow(input: { capabilities?: StartupCapabilitie
             : undefined,
         warn: (code) => log.warn('[Bootstrap] Tool administration unavailable', { code }),
     });
+    const scheduledTasks = createScheduledTasksWindow({
+        label,
+        signal: lifetime.signal,
+        owner: main
+            ? async (signal) => {
+                  await awaitAbortable(() => ready, signal);
+                  return requireOwner().scheduler;
+              }
+            : undefined,
+        warn: (code) => log.warn('[Bootstrap] Scheduled tasks unavailable', { code }),
+    });
     const computer = createComputerAdministrationWindow({
         label,
         signal: lifetime.signal,
@@ -290,6 +302,7 @@ export function initializeAgentWindow(input: { capabilities?: StartupCapabilitie
         mcp: mcp.api,
         mcpAdministration: label === 'settings' ? tools.mcpApi : undefined,
         tools: tools.api,
+        scheduledTasks: label === 'settings' ? scheduledTasks.api : undefined,
         computer: computer.api,
         settings: preferences.api,
         toolSettings: preferences.toolSettings,
@@ -319,6 +332,7 @@ export function initializeAgentWindow(input: { capabilities?: StartupCapabilitie
             metadata.dispose();
             mcp.dispose();
             tools.dispose();
+            scheduledTasks.dispose();
             computer.dispose();
             startupNotices?.dispose();
             privacy.dispose();

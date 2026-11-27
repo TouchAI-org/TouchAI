@@ -80,6 +80,10 @@
         'mcp-tools',
         () => import('./components/McpTools/index.vue')
     );
+    const ScheduledTasksView = defineSectionView(
+        'scheduled-tasks',
+        () => import('./components/ScheduledTasks/index.vue')
+    );
     const SkillsView = defineSectionView('skills', () => import('./components/Skills/index.vue'));
     const DataManagementView = defineSectionView(
         'data-management',
@@ -134,6 +138,9 @@
         'mcp-tools': {
             component: McpToolsView,
         },
+        'scheduled-tasks': {
+            component: ScheduledTasksView,
+        },
         skills: {
             component: SkillsView,
         },
@@ -163,6 +170,7 @@
         'SettingsPrivacyFilterSection',
         'SettingsBrowserSection',
         'SettingsMcpToolsSection',
+        'SettingsScheduledTasksSection',
         'SettingsSkillsSection',
         'SettingsDataManagementSection',
     ];

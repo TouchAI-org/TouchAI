@@ -36,18 +36,18 @@ describe('user schedules a task for a fixed time', () => {
         await releaseBackgroundTasks();
     });
 
-    it('user sees a task whose time already passed run immediately instead of never', async () => {
+    it('user gets a past one-time date rejected instead of creating a stale task', async () => {
         const scheduler = createScheduler();
-        await scheduler.addTask({
-            name: 'Overdue',
-            prompt: 'Summarize',
-            trigger: { type: 'once', timestamp: Date.now() - 5_000 },
-        });
+        await expect(
+            scheduler.addTask({
+                name: 'Overdue',
+                prompt: 'Summarize',
+                trigger: { type: 'once', timestamp: Date.now() - 5_000 },
+            })
+        ).rejects.toMatchObject({ code: 'SCHEDULE_INVALID_INPUT' });
 
-        await vi.advanceTimersByTimeAsync(0);
-        await vi.waitFor(() => expect(schedulerNetwork.requests).toHaveLength(1));
-
-        await releaseBackgroundTasks();
+        expect(scheduler.getAllTasks()).toEqual([]);
+        expect(schedulerNetwork.requests).toHaveLength(0);
     });
 
     it('user gets the impossible fixed time reported rather than a task that never fires', async () => {
