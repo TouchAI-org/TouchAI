@@ -13,6 +13,7 @@ export type NavigationSection =
     | 'browser'
     | 'privacy-filter'
     | 'mcp-tools'
+    | 'external-agents'
     | 'skills'
     | 'data-management';
 
@@ -108,6 +109,12 @@ const settingsNavigationDefinitions: SettingsNavigationGroupDefinition[] = [
                 icon: 'mcp',
                 labelKey: 'settings.nav.mcpTools.label',
                 descriptionKey: 'settings.nav.mcpTools.description',
+            },
+            {
+                id: 'external-agents',
+                icon: 'llm',
+                labelKey: 'settings.nav.externalAgents.label',
+                descriptionKey: 'settings.nav.externalAgents.description',
             },
         ],
     },

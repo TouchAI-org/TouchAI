@@ -5,7 +5,7 @@ import {
 } from '@tests/database/sqliteHarness';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import type { BuiltInTool } from '@/modules/tools';
+import type { AdditionalBuiltInRegistration, BuiltInTool, ToolRegistration } from '@/modules/tools';
 import { createBuiltinRegistrations, createTools } from '@/modules/tools';
 
 afterEach(closeTestDatabases);
@@ -50,6 +50,42 @@ function descriptor(): BuiltInTool<{ label: string }> {
             isError: false,
             status: 'success',
         }),
+    };
+}
+
+function additionalRegistration(): ToolRegistration {
+    return {
+        name: 'builtin__fixture_extra',
+        source: 'builtin',
+        async prepare() {
+            return {
+                declaration: {
+                    name: 'builtin__fixture_extra',
+                    description: 'Fixture extra tool.',
+                    input_schema: { type: 'object', properties: {} },
+                },
+                authorize: async () => true,
+                execute: async () => ({
+                    result: 'extra result',
+                    isError: false,
+                    status: 'success',
+                }),
+            };
+        },
+    };
+}
+
+function additional(
+    overrides: Partial<AdditionalBuiltInRegistration> = {}
+): AdditionalBuiltInRegistration {
+    return {
+        id: 'fixture_extra',
+        displayName: 'Fixture extra',
+        description: 'Fixture extra tool.',
+        riskLevel: 'medium',
+        defaultConfig: { mode: 'read' },
+        registration: additionalRegistration(),
+        ...overrides,
     };
 }
 
@@ -123,5 +159,129 @@ describe('given instance-created builtin descriptors and the shipped configurati
         expect(() => createBuiltinRegistrations([descriptor(), descriptor()])).toThrow(
             'Duplicate tool name: builtin__bash'
         );
+    });
+
+    it('user sees an additional builtin registered, persisted, and invoked while enabled', async () => {
+        const database = openMigratedDatabase();
+        routeQueriesTo(database);
+        const catalog = createBuiltinRegistrations([], [additional()]);
+        await catalog.synchronize();
+        const tools = createTools({
+            registrations: catalog.registrations,
+            formatError: (code) => code,
+        });
+        try {
+            const snapshot = await tools.snapshot();
+            expect(snapshot.declarations).toContainEqual(
+                expect.objectContaining({
+                    name: 'builtin__fixture_extra',
+                    description: 'Fixture extra tool.',
+                })
+            );
+
+            const result = await snapshot.execute(
+                {
+                    id: 'extra-call',
+                    name: 'builtin__fixture_extra',
+                    arguments: '{}',
+                },
+                { iteration: 1 }
+            );
+            expect(result).toMatchObject({
+                result: 'extra result',
+                isError: false,
+                sideEffect: 'completed',
+            });
+            expect(
+                database
+                    .prepare(
+                        "SELECT risk_level, config_json, last_used_at FROM built_in_tools WHERE tool_id = 'fixture_extra'"
+                    )
+                    .get()
+            ).toMatchObject({
+                risk_level: 'medium',
+                config_json: '{"mode":"read"}',
+                last_used_at: expect.any(String),
+            });
+
+            database.exec("UPDATE built_in_tools SET enabled = 0 WHERE tool_id = 'fixture_extra'");
+            expect((await tools.snapshot()).declarations).toEqual([]);
+            expect(
+                await snapshot.execute(
+                    {
+                        id: 'disabled-extra-call',
+                        name: 'builtin__fixture_extra',
+                        arguments: '{}',
+                    },
+                    { iteration: 1 }
+                )
+            ).toMatchObject({
+                isError: true,
+                failureCode: 'tool_unavailable',
+                sideEffect: 'none',
+            });
+        } finally {
+            tools.dispose();
+        }
+    });
+
+    it('user sees an additional builtin declaration omitted when its own preparation declines', async () => {
+        const database = openMigratedDatabase();
+        routeQueriesTo(database);
+        const catalog = createBuiltinRegistrations(
+            [],
+            [
+                additional({
+                    registration: {
+                        ...additionalRegistration(),
+                        prepare: async () => null,
+                    },
+                }),
+            ]
+        );
+        await catalog.synchronize();
+        const tools = createTools({
+            registrations: catalog.registrations,
+            formatError: (code) => code,
+        });
+        try {
+            expect((await tools.snapshot()).declarations).toEqual([]);
+        } finally {
+            tools.dispose();
+        }
+    });
+
+    it('user gets a namespacing error before an additional builtin can use another tool name', () => {
+        expect(() =>
+            createBuiltinRegistrations(
+                [],
+                [
+                    additional({
+                        id: 'fixture_extra',
+                        registration: {
+                            ...additionalRegistration(),
+                            name: 'fixture_extra',
+                        },
+                    }),
+                ]
+            )
+        ).toThrow('Builtin registration name must be builtin__fixture_extra');
+    });
+
+    it('user gets a duplicate-name error before an additional builtin can overwrite a shipped tool', () => {
+        expect(() =>
+            createBuiltinRegistrations(
+                [descriptor()],
+                [
+                    additional({
+                        id: 'bash',
+                        registration: {
+                            ...additionalRegistration(),
+                            name: 'builtin__bash',
+                        },
+                    }),
+                ]
+            )
+        ).toThrow('Duplicate tool name: builtin__bash');
     });
 });

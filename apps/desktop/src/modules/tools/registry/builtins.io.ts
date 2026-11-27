@@ -7,6 +7,7 @@ import {
 
 import type { ToolInvocationScope, ToolRegistration } from '../contracts';
 import type {
+    AdditionalBuiltInRegistration,
     BaseBuiltInToolExecutionContext,
     BuiltInTool,
     BuiltInToolGroup,
@@ -52,14 +53,47 @@ function executionContext(scope: ToolInvocationScope): BaseBuiltInToolExecutionC
     };
 }
 
+function createAdditionalRegistration(entry: AdditionalBuiltInRegistration): ToolRegistration {
+    return {
+        name: entry.registration.name,
+        source: 'builtin',
+        async prepare(preparation) {
+            if ((await findBuiltInToolByToolId(entry.id))?.enabled !== 1) return null;
+            const prepared = await entry.registration.prepare(preparation);
+            if (!prepared) return null;
+            return {
+                ...prepared,
+                authorize: async (scope, args) =>
+                    (await findBuiltInToolByToolId(entry.id))?.enabled === 1 &&
+                    (await prepared.authorize(scope, args)),
+                execute: async (args, scope) => {
+                    const result = await prepared.execute(args, scope);
+                    await touchBuiltInToolLastUsed(entry.id);
+                    return result;
+                },
+            };
+        },
+    };
+}
+
 /** Descriptors and their configuration live in this single Desktop registry. */
-export function createBuiltinRegistrations(input: BuiltInToolGroup) {
+export function createBuiltinRegistrations(
+    input: BuiltInToolGroup,
+    additional: readonly AdditionalBuiltInRegistration[] = []
+) {
     const descriptors = [...input];
-    const ids = new Set<string>();
+    const names = new Set<string>();
     for (const descriptor of descriptors) {
-        if (ids.has(descriptor.id))
-            throw new Error(`Duplicate tool name: builtin__${descriptor.id}`);
-        ids.add(descriptor.id);
+        const name = `builtin__${descriptor.id}`;
+        if (names.has(name)) throw new Error(`Duplicate tool name: ${name}`);
+        names.add(name);
+    }
+    for (const entry of additional) {
+        const expectedName = `builtin__${entry.id}`;
+        if (entry.registration.name !== expectedName)
+            throw new Error(`Builtin registration name must be ${expectedName}`);
+        if (names.has(expectedName)) throw new Error(`Duplicate tool name: ${expectedName}`);
+        names.add(expectedName);
     }
     const registrations: ToolRegistration[] = descriptors.map((descriptor: BuiltInTool) => ({
         name: `builtin__${descriptor.id}`,
@@ -108,6 +142,7 @@ export function createBuiltinRegistrations(input: BuiltInToolGroup) {
             };
         },
     }));
+    registrations.push(...additional.map(createAdditionalRegistration));
     return Object.freeze({
         registrations,
         async synchronize() {
@@ -121,6 +156,20 @@ export function createBuiltinRegistrations(input: BuiltInToolGroup) {
                         enabled: 1,
                         risk_level: RISK_LEVELS[tool.id],
                         config_json: JSON.stringify(tool.defaultConfig),
+                    });
+                }
+            for (const tool of additional)
+                if (!stored.has(tool.id)) {
+                    await createBuiltInTool({
+                        tool_id: tool.id,
+                        display_name: tool.displayName,
+                        description: tool.description,
+                        enabled: 1,
+                        risk_level: tool.riskLevel,
+                        config_json:
+                            tool.defaultConfig === undefined || tool.defaultConfig === null
+                                ? null
+                                : JSON.stringify(tool.defaultConfig),
                     });
                 }
         },

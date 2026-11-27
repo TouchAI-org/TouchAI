@@ -14,6 +14,7 @@ import {
     createBuiltinRegistrations,
     createComputerControl,
     createComputerUseTools,
+    createExternalAgents,
     createFileSearchTools,
     createMcpConnections,
     createMcpFormatting,
@@ -49,6 +50,7 @@ export function assembleMainTools(input: {
         warn: log.warn,
     });
     const mcp = createMcpConnections({ messages, resources, diagnostics: log });
+    const externalAgents = createExternalAgents({ messages });
     const descriptors = [
         ...createActivateSkillTools({
             messages,
@@ -99,7 +101,7 @@ export function assembleMainTools(input: {
             },
         }),
     ];
-    const builtins = createBuiltinRegistrations(descriptors);
+    const builtins = createBuiltinRegistrations(descriptors, externalAgents.builtinRegistrations);
     const tools = createTools({
         registrations: builtins.registrations,
         mcp,
@@ -124,10 +126,12 @@ export function assembleMainTools(input: {
         administration: createBuiltinAdministration(),
         mcpAdministration: createMcpAdministration(),
         mcpCatalog: createMcpCatalog(),
+        externalAgentsAdministration: externalAgents.administration,
         synchronize: builtins.synchronize,
         prewarmBash: bash.prewarmBashToolRuntime,
         async dispose() {
             tools.dispose();
+            externalAgents.dispose();
             unsubscribe();
             const results = await Promise.allSettled([mcp.dispose(), computer.dispose()]);
             const failures = results.flatMap((result) =>

@@ -56,6 +56,9 @@ describe('user navigates the settings sections', () => {
         expect(wrapper.get('[data-testid="settings-nav-mcp-tools"]').attributes('title')).toBe(
             'MCP tools'
         );
+        expect(
+            wrapper.get('[data-testid="settings-nav-external-agents"]').attributes('title')
+        ).toBe('External agents');
         expect(wrapper.get('[data-testid="settings-nav-privacy-filter"]').attributes('title')).toBe(
             'Privacy protection'
         );
@@ -80,6 +83,7 @@ describe('user navigates the settings sections', () => {
             'Computer control',
             'Skills',
             'MCP tools',
+            'External agents',
             'Privacy protection',
             'Data & privacy',
         ]);
@@ -89,6 +93,9 @@ describe('user navigates the settings sections', () => {
         expect(getSettingsNavigationItem('data-management')?.description).toBe(
             'Local data, backup, diagnostics, and analytics'
         );
+        expect(getSettingsNavigationItem('external-agents')?.description).toBe(
+            'Discover and call standard A2A agents'
+        );
 
         setLocale('zh-CN');
 
@@ -96,6 +103,10 @@ describe('user navigates the settings sections', () => {
         expect(getSettingsNavigationItem('computer-use')?.label).toBe('电脑控制');
         expect(getSettingsNavigationItem('mcp-tools')?.description).toBe(
             '外部 MCP 服务器与工具调用日志'
+        );
+        expect(getSettingsNavigationItem('external-agents')?.label).toBe('外部 Agent');
+        expect(getSettingsNavigationItem('external-agents')?.description).toBe(
+            '发现并调用标准 A2A Agent'
         );
     });
 });

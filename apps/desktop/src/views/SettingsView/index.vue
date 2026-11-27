@@ -80,6 +80,10 @@
         'mcp-tools',
         () => import('./components/McpTools/index.vue')
     );
+    const ExternalAgentsView = defineSectionView(
+        'external-agents',
+        () => import('./components/ExternalAgents/index.vue')
+    );
     const SkillsView = defineSectionView('skills', () => import('./components/Skills/index.vue'));
     const DataManagementView = defineSectionView(
         'data-management',
@@ -134,6 +138,10 @@
         'mcp-tools': {
             component: McpToolsView,
         },
+        'external-agents': {
+            component: ExternalAgentsView,
+            scrollable: true,
+        },
         skills: {
             component: SkillsView,
         },
@@ -163,6 +171,7 @@
         'SettingsPrivacyFilterSection',
         'SettingsBrowserSection',
         'SettingsMcpToolsSection',
+        'SettingsExternalAgentsSection',
         'SettingsSkillsSection',
         'SettingsDataManagementSection',
     ];

@@ -32,12 +32,19 @@ describe('given builtins use the production instance registry and existing SQLit
 
     it('user disables tools and later declarations and effects both honor the saved choices', async () => {
         const input = await fixture();
+        const enabled = await input.snapshot();
         input.database.exec('UPDATE built_in_tools SET enabled = 0');
         const turn = await input.snapshot();
         expect(turn.declarations).toEqual([]);
         expect(
             await turn.execute(
                 { id: 'disabled', name: 'builtin__bash', arguments: '{}' },
+                { iteration: 1 }
+            )
+        ).toMatchObject({ isError: true, sideEffect: 'none', failureCode: 'tool_unavailable' });
+        expect(
+            await enabled.execute(
+                { id: 'disabled-external', name: 'builtin__list_external_agents', arguments: '{}' },
                 { iteration: 1 }
             )
         ).toMatchObject({ isError: true, sideEffect: 'none', failureCode: 'tool_unavailable' });

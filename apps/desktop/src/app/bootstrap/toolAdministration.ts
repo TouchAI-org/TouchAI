@@ -1,8 +1,14 @@
 import { z } from 'zod';
 
 import { type ToolsAdministrationApi, ToolsCommandError } from '@/app/api/tools/administration';
+import {
+    ExternalAgentCommandError,
+    type ExternalAgentEntity,
+    type ExternalAgentsAdministrationApi,
+} from '@/app/api/tools/externalAgents';
 import { McpCommandError } from '@/app/api/tools/mcp';
 import type { McpAdministration } from '@/app/api/tools/mcpAdministration';
+import type { ExternalAgentAdministration } from '@/modules/tools/public';
 import { mcpServerDraftSchema } from '@/modules/tools/public';
 import { emitWindowEvent, listenWindowEvent } from '@/platform/windows/events';
 import { awaitAbortable, combineAbortSignals } from '@/utils/abort';
@@ -45,6 +51,19 @@ const commands = z.discriminatedUnion('operation', [
     }),
     z.strictObject({ operation: z.literal('mcp-summaries'), id, options }),
     z.strictObject({ operation: z.literal('mcp-log'), id }),
+    z.strictObject({ operation: z.literal('external-agents-list') }),
+    z.strictObject({
+        operation: z.literal('external-agent-add'),
+        url: z.string().trim().min(1).max(2048),
+        allowLoopback: z.boolean(),
+    }),
+    z.strictObject({ operation: z.literal('external-agent-rediscover'), id }),
+    z.strictObject({
+        operation: z.literal('external-agent-update'),
+        id,
+        enabled: z.boolean(),
+    }),
+    z.strictObject({ operation: z.literal('external-agent-delete'), id }),
 ]);
 type Command = z.infer<typeof commands>;
 const requestSchema = z.strictObject({
@@ -130,6 +149,17 @@ const mcpLogSchema = logSchema
         status: z.enum(['pending', 'success', 'error', 'timeout']),
     });
 const mcpSummarySchema = summarySchema.extend({ server_id: id.nullable(), status: z.string() });
+const externalAgentSchema = z.object({
+    id,
+    name: z.string(),
+    url: z.string().url(),
+    protocol: z.literal('a2a'),
+    enabled: z.union([z.literal(0), z.literal(1)]),
+    last_discovered_at: z.string().nullable(),
+    last_error: z.string().nullable(),
+    created_at: z.string(),
+    updated_at: z.string(),
+});
 const resultSchema = z.union([
     z.array(toolSchema),
     toolSchema,
@@ -144,6 +174,8 @@ const resultSchema = z.union([
     mcpToolSchema,
     z.array(mcpLogSchema),
     mcpLogSchema,
+    z.array(externalAgentSchema),
+    externalAgentSchema,
     z.null(),
 ]);
 const replySchema = z.discriminatedUnion('ok', [
@@ -167,6 +199,7 @@ export function createToolsAdministrationWindow(input: {
     signal: AbortSignal;
     queries?(signal: AbortSignal): Promise<ToolsAdministrationApi>;
     mcpQueries?(signal: AbortSignal): Promise<McpAdministration>;
+    externalAgents?(signal: AbortSignal): Promise<ExternalAgentAdministration>;
     warn(code: string): void;
 }) {
     const supported = input.label === 'main' || input.label === 'settings';
@@ -191,6 +224,27 @@ export function createToolsAdministrationWindow(input: {
         code: error.code,
         outcome: error.outcome,
     });
+    const externalAgentSummary = (row: {
+        id: number;
+        name: string;
+        url: string;
+        protocol: 'a2a';
+        enabled: number;
+        last_discovered_at: string | null;
+        last_error: string | null;
+        created_at: string;
+        updated_at: string;
+    }): ExternalAgentEntity => ({
+        id: row.id,
+        name: row.name,
+        url: row.url,
+        protocol: row.protocol,
+        enabled: row.enabled,
+        last_discovered_at: row.last_discovered_at,
+        last_error: row.last_error,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+    });
 
     async function run(command: Command) {
         if (disposed || !input.queries || running >= LIMIT)
@@ -205,9 +259,18 @@ export function createToolsAdministrationWindow(input: {
         try {
             return await awaitAbortable(async () => {
                 const mcpCommand = command.operation.startsWith('mcp-');
-                const queries = mcpCommand ? undefined : await input.queries!(combined.signal);
+                const externalAgentCommand = command.operation.startsWith('external-agent');
+                const queries =
+                    mcpCommand || externalAgentCommand
+                        ? undefined
+                        : await input.queries!(combined.signal);
                 const mcp = mcpCommand ? await input.mcpQueries?.(combined.signal) : undefined;
+                const externalAgents = externalAgentCommand
+                    ? await input.externalAgents?.(combined.signal)
+                    : undefined;
                 if (mcpCommand && !mcp)
+                    throw new ToolsCommandError('TOOLS_COMMAND_UNAVAILABLE', 'none');
+                if (externalAgentCommand && !externalAgents)
                     throw new ToolsCommandError('TOOLS_COMMAND_UNAVAILABLE', 'none');
                 combined.signal.throwIfAborted();
                 let result;
@@ -263,6 +326,32 @@ export function createToolsAdministrationWindow(input: {
                         break;
                     case 'mcp-log':
                         result = await mcp!.findMcpToolLogById(command.id);
+                        break;
+                    case 'external-agents-list':
+                        result = (await externalAgents!.findAll()).map(externalAgentSummary);
+                        break;
+                    case 'external-agent-add':
+                        result = externalAgentSummary(
+                            await externalAgents!.add({
+                                url: command.url,
+                                allowLoopback: command.allowLoopback,
+                            })
+                        );
+                        break;
+                    case 'external-agent-rediscover':
+                        result = externalAgentSummary(await externalAgents!.rediscover(command.id));
+                        break;
+                    case 'external-agent-update': {
+                        const updated = await externalAgents!.updateEnabled(
+                            command.id,
+                            command.enabled
+                        );
+                        result = updated ? externalAgentSummary(updated) : null;
+                        break;
+                    }
+                    case 'external-agent-delete':
+                        await externalAgents!.delete(command.id);
+                        result = null;
                         break;
                 }
                 return resultSchema.parse(result ?? null);
@@ -451,6 +540,51 @@ export function createToolsAdministrationWindow(input: {
             mcpLogSchema.nullable().parse(await requestMcp({ operation: 'mcp-log', id })) ??
             undefined,
     });
+    async function requestExternalAgent(command: Command) {
+        try {
+            return await request(command);
+        } catch (error) {
+            if (error instanceof ToolsCommandError)
+                throw new ExternalAgentCommandError(
+                    error.code === 'TOOLS_COMMAND_UNAVAILABLE'
+                        ? 'EXTERNAL_AGENT_COMMAND_UNAVAILABLE'
+                        : error.code === 'TOOLS_COMMAND_UNCONFIRMED'
+                          ? 'EXTERNAL_AGENT_COMMAND_UNCONFIRMED'
+                          : 'EXTERNAL_AGENT_COMMAND_FAILED',
+                    error.outcome
+                );
+            throw new ExternalAgentCommandError('EXTERNAL_AGENT_COMMAND_FAILED', 'unknown');
+        }
+    }
+    const externalAgentsApi = Object.freeze<ExternalAgentsAdministrationApi>({
+        findAll: async () =>
+            z
+                .array(externalAgentSchema)
+                .parse(await requestExternalAgent({ operation: 'external-agents-list' })),
+        add: async (input: { url: string; allowLoopback: boolean }) =>
+            externalAgentSchema.parse(
+                await requestExternalAgent({
+                    operation: 'external-agent-add',
+                    url: input.url,
+                    allowLoopback: input.allowLoopback,
+                })
+            ),
+        rediscover: async (id: number) =>
+            externalAgentSchema.parse(
+                await requestExternalAgent({ operation: 'external-agent-rediscover', id })
+            ),
+        updateEnabled: async (id: number, enabled: boolean) =>
+            externalAgentSchema.nullable().parse(
+                await requestExternalAgent({
+                    operation: 'external-agent-update',
+                    id,
+                    enabled,
+                })
+            ) ?? undefined,
+        delete: async (id: number) => {
+            await requestExternalAgent({ operation: 'external-agent-delete', id });
+        },
+    });
     function dispose() {
         if (disposed) return;
         disposed = true;
@@ -464,5 +598,5 @@ export function createToolsAdministrationWindow(input: {
         input.signal.removeEventListener('abort', dispose);
     }
     input.signal.addEventListener('abort', dispose, { once: true });
-    return Object.freeze({ api, mcpApi, ready, dispose });
+    return Object.freeze({ api, mcpApi, externalAgentsApi, ready, dispose });
 }

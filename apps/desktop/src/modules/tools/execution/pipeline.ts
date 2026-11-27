@@ -137,7 +137,7 @@ function executePipeline(
                 context.invalidArguments = 'schema';
                 return await finish(error('invalid_arguments', binding.validationDetails()));
             }
-            if (!(await binding.authorize(scope)) || signal.aborted) {
+            if (!(await binding.authorize(scope, sanitized.args)) || signal.aborted) {
                 return await finish(
                     error(signal.aborted ? 'request_cancelled' : 'tool_unavailable')
                 );
@@ -167,7 +167,7 @@ function executePipeline(
                 }
                 scope.approvalGranted = true;
             }
-            if (!(await binding.authorize(scope)) || signal.aborted) {
+            if (!(await binding.authorize(scope, sanitized.args)) || signal.aborted) {
                 return await finish(
                     error(signal.aborted ? 'request_cancelled' : 'tool_unavailable')
                 );

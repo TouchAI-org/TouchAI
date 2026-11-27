@@ -20,6 +20,7 @@ import { settingsApiKey } from '@/app/api/settings/preferences';
 import { toolSettingsApiKey } from '@/app/api/settings/tools';
 import { toolsAdministrationApiKey } from '@/app/api/tools/administration';
 import { computerAdministrationApiKey } from '@/app/api/tools/computer';
+import { externalAgentsAdministrationApiKey } from '@/app/api/tools/externalAgents';
 import { mcpApiKey } from '@/app/api/tools/mcp';
 import { mcpAdministrationApiKey } from '@/app/api/tools/mcpAdministration';
 import { mainToolsStartupApiKey } from '@/app/api/tools/startup';
@@ -253,6 +254,7 @@ export async function initializeApp() {
         app.provide(toolSettingsApiKey, agentWindow.toolSettings);
         app.provide(toolsAdministrationApiKey, agentWindow.tools);
         app.provide(computerAdministrationApiKey, agentWindow.computer);
+        app.provide(externalAgentsAdministrationApiKey, agentWindow.externalAgentsAdministration!);
         app.provide(mcpAdministrationApiKey, agentWindow.mcpAdministration!);
     }
     if (getCurrentWindowLabel() === 'main') {

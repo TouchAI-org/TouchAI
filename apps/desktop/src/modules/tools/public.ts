@@ -110,3 +110,39 @@ export type {
 } from './contracts/events';
 export type * from './contracts/mcpAdministration';
 export { mcpServerDraftSchema } from './contracts/mcpAdministration';
+export {
+    EXTERNAL_AGENT_CARD_CACHE_LIMIT,
+    EXTERNAL_AGENT_CARD_CACHE_TTL_MS,
+    ExternalAgentCardCache,
+} from './external-agents/cardCache';
+export {
+    EXTERNAL_AGENT_CARD_MAX_BYTES,
+    EXTERNAL_AGENT_DISCOVERY_TIMEOUT_MS,
+    EXTERNAL_AGENT_FINAL_TEXT_MAX_BYTES,
+    EXTERNAL_AGENT_INVOCATION_TIMEOUT_MS,
+} from './external-agents/constants';
+export type {
+    ExternalAgentAdministration,
+    ExternalAgentRecord,
+    ExternalAgentRegistry,
+} from './external-agents/contracts';
+export type {
+    ExternalAgentCard,
+    ExternalAgentErrorCode,
+    ExternalAgentInvocationMode,
+    ExternalAgentInvocationResult,
+    ExternalAgentPollingOptions,
+} from './external-agents/contracts';
+export type { CreateExternalAgentsOptions } from './external-agents/create.io';
+export { createExternalAgents } from './external-agents/create.io';
+export type {
+    ExternalAgentAdapterDiscoveryInput,
+    ExternalAgentAdapterInvocationInput,
+    ExternalAgentProtocolAdapter,
+    ExternalAgentWireProtocol,
+} from './external-agents/protocolAdapter';
+export {
+    createGuardedFetch,
+    isLoopbackExternalAgentUrl,
+    parseExternalAgentUrl,
+} from './external-agents/urlPolicy';

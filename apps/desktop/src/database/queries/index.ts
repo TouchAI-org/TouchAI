@@ -4,6 +4,7 @@ export * from './attachmentRemoteRefs';
 export * from './attachments';
 export * from './builtInToolLogs';
 export * from './builtInTools';
+export * from './externalAgents';
 export * from './llmMetadata';
 export * from './mcpServers';
 export * from './mcpToolLogs';
