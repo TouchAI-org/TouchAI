@@ -1,6 +1,7 @@
 import { mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import AppIcon from '@/components/AppIcon.vue';
 import type { WebSearchSource } from '@/modules/tools/builtin/web-search/sources';
 import WebSearchSourcesCard from '@/views/SearchView/components/ConversationPanel/components/WebSearchSourcesCard.vue';
 
@@ -119,6 +120,25 @@ describe('user sees the sources under an answer', () => {
         expect(wrapper.findAll('[data-slot="web-search-skeleton"]')).toHaveLength(4);
         expect(wrapper.findAll('[data-slot="web-search-source"]')).toHaveLength(0);
         expect(wrapper.find('.web-search-sources__skeleton-shine').exists()).toBe(true);
+    });
+
+    it('user sees the search activity icon and a text shimmer while the search runs', () => {
+        const wrapper = mount(WebSearchSourcesCard, {
+            props: { ...BASE_PROPS, sources: [], searching: true },
+        });
+
+        expect(wrapper.findComponent(AppIcon).props('name')).toBe('search');
+        expect(wrapper.get('.tool-call-log-verb').classes()).toContain('t-text-shimmer');
+        expect(wrapper.get('.tool-call-log-content').classes()).toContain('t-text-shimmer');
+    });
+
+    it('user stops seeing the search text shimmer once results arrive', () => {
+        const wrapper = mount(WebSearchSourcesCard, {
+            props: { ...BASE_PROPS, sources: makeSources(2), searching: false },
+        });
+
+        expect(wrapper.get('.tool-call-log-verb').classes()).not.toContain('t-text-shimmer');
+        expect(wrapper.get('.tool-call-log-content').classes()).not.toContain('t-text-shimmer');
     });
 
     it('user drops the skeletons once the results arrive', async () => {

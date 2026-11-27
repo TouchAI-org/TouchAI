@@ -7,6 +7,7 @@ import IconArrowRight from '~icons/lucide/arrow-right';
 import IconBlocks from '~icons/lucide/blocks';
 import IconSkill from '~icons/lucide/box';
 import IconBoxes from '~icons/lucide/boxes';
+import IconBrain from '~icons/lucide/brain';
 import IconBriefcase from '~icons/lucide/briefcase';
 import IconBug from '~icons/lucide/bug';
 import IconChartColumn from '~icons/lucide/chart-column';
@@ -61,6 +62,7 @@ export const appIconMap = {
     'arrow-big-up': IconArrowBigUp,
     'arrow-left': IconArrowLeft,
     'arrow-right': IconArrowRight,
+    brain: IconBrain,
     'check-circle': IconCheckCircle,
     chart: IconChartColumn,
     'chevron-down': IconChevronDown,

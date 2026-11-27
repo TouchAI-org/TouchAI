@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { nextTick } from 'vue';
 
 import type { ToolCallInfo } from '@/app/api/agent/history';
+import AppIcon from '@/components/AppIcon.vue';
 import BuiltInBashToolCallItem from '@/views/SearchView/components/ConversationPanel/components/BuiltInBashToolCallItem.vue';
 
 function createBashResult(output: string, duration = '500ms') {
@@ -35,6 +36,42 @@ function createToolCall(overrides: Partial<ToolCallInfo> = {}): ToolCallInfo {
 describe('user reviews a bash command in the conversation', () => {
     afterEach(() => {
         vi.useRealTimers();
+    });
+
+    it('user sees the terminal icon and a text shimmer while the command runs', async () => {
+        const wrapper = mount(BuiltInBashToolCallItem, {
+            props: {
+                toolCall: createToolCall({ status: 'executing' }),
+                verbText: '正在执行',
+                summaryText: 'Write-Output "stream-1"',
+                durationText: null,
+            },
+        });
+
+        await nextTick();
+
+        expect(wrapper.findComponent(AppIcon).props('name')).toBe('terminal');
+        expect(wrapper.get('.tool-call-log-verb').classes()).toContain('t-text-shimmer');
+        expect(wrapper.get('.tool-call-log-content').classes()).toContain('t-text-shimmer');
+    });
+
+    it('user stops seeing the text shimmer when the command finishes', async () => {
+        const wrapper = mount(BuiltInBashToolCallItem, {
+            props: {
+                toolCall: createToolCall({ status: 'executing' }),
+                verbText: '正在执行',
+                summaryText: 'Write-Output "stream-1"',
+                durationText: null,
+            },
+        });
+
+        await wrapper.setProps({
+            toolCall: createToolCall({ status: 'completed' }),
+            verbText: '已执行',
+        });
+
+        expect(wrapper.get('.tool-call-log-verb').classes()).not.toContain('t-text-shimmer');
+        expect(wrapper.get('.tool-call-log-content').classes()).not.toContain('t-text-shimmer');
     });
 
     it('user auto-expands and shows live output while the bash tool is executing', async () => {

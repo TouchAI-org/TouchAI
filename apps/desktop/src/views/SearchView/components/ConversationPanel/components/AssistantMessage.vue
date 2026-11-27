@@ -22,12 +22,21 @@
                                 :started-at="part.startedAt"
                                 :ended-at="part.endedAt"
                             />
-                            <MarkdownContent
-                                v-else-if="part.type === 'text'"
-                                :content="part.content"
-                                :privacy-annotations="part.privacyAnnotations"
-                                :final="!message.isStreaming"
-                            />
+                            <div v-else-if="part.type === 'text'" class="min-w-0">
+                                <div
+                                    v-if="message.isStreaming"
+                                    class="mb-1.5 flex items-center text-text-tertiary"
+                                    data-activity="text"
+                                    aria-hidden="true"
+                                >
+                                    <AppIcon name="document-text" class="h-3.5 w-3.5 shrink-0" />
+                                </div>
+                                <MarkdownContent
+                                    :content="part.content"
+                                    :privacy-annotations="part.privacyAnnotations"
+                                    :final="!message.isStreaming"
+                                />
+                            </div>
                             <ToolCallItem
                                 v-else-if="part.type === 'tool_call'"
                                 :tool-call="part.toolCall"
@@ -102,6 +111,7 @@
 
 <script setup lang="ts">
     import ActionButton from '@components/ActionButton.vue';
+    import AppIcon from '@components/AppIcon.vue';
     import MarkdownContent from '@components/MarkdownContent.vue';
     import StatusDivider from '@components/ui/status-divider/StatusDivider.vue';
     import { useMotion } from '@composables/useMotion';

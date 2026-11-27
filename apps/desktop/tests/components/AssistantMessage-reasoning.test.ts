@@ -135,8 +135,8 @@ describe('user reads the reasoning behind an answer', () => {
         expect(sections[0]!.find('.reasoning-shimmer').exists()).toBe(false);
         expect(sections[1]!.find('.reasoning-shimmer').exists()).toBe(true);
         expect(wrapper.find('.reasoning-sparkle').exists()).toBe(false);
-        expect(sections[0]!.find('.reasoning-heading svg').exists()).toBe(false);
-        expect(sections[1]!.find('.reasoning-heading svg').exists()).toBe(false);
+        expect(sections[0]!.find('[data-icon="brain"]').exists()).toBe(true);
+        expect(sections[1]!.find('[data-icon="brain"]').exists()).toBe(true);
         expect(sections[0]!.find('button').attributes('aria-expanded')).toBe('false');
         expect(sections[0]!.find('.reasoning-label-content').text()).toBe('已思考');
         expect(sections[1]!.find('button').attributes('aria-expanded')).toBe('true');
@@ -149,15 +149,38 @@ describe('user reads the reasoning behind an answer', () => {
             'First answer',
             'Second thought',
         ]);
-        expect(sections[0]!.find('svg').exists()).toBe(false);
+        expect(sections[0]!.find('[data-icon="brain"]').exists()).toBe(true);
         expect(sections[1]!.find('button').attributes('aria-expanded')).toBe('true');
         expect(sections[1]!.find('.reasoning-label-content').text()).toBe('思考中');
         expect(sections[1]!.find('.reasoning-duration').text()).toBe('(1s)');
         await wrapper.setProps({ message: { ...wrapper.props('message'), isStreaming: false } });
         expect(wrapper.find('.reasoning-shimmer').exists()).toBe(false);
         expect(sections[1]!.find('button').attributes('aria-expanded')).toBe('false');
-        expect(sections[1]!.find('svg').exists()).toBe(false);
+        expect(sections[1]!.find('[data-icon="brain"]').exists()).toBe(true);
         expect(sections[1]!.find('.markdown').exists()).toBe(false);
+    });
+
+    it('user sees text activity while the answer streams and keeps the finished answer as the main response', async () => {
+        const wrapper = render({
+            isStreaming: true,
+            parts: [{ id: 't1', type: 'text', content: 'Writing the answer' }],
+        });
+
+        expect(wrapper.find('[data-activity="text"] [data-icon="document-text"]').exists()).toBe(
+            true
+        );
+        expect(wrapper.get('.markdown').text()).toBe('Writing the answer');
+
+        await wrapper.setProps({
+            message: {
+                ...wrapper.props('message'),
+                isStreaming: false,
+            },
+        });
+
+        expect(wrapper.find('[data-activity="text"]').exists()).toBe(false);
+        expect(wrapper.get('.markdown').text()).toBe('Writing the answer');
+        expect(wrapper.find('.markdown').element.closest('[aria-expanded]')).toBeNull();
     });
 
     it('does not schedule loading-tip rotation while the document is hidden', async () => {

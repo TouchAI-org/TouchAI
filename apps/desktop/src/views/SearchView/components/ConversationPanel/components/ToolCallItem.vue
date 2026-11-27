@@ -22,19 +22,17 @@
     <div v-else :class="rootClass" @mousedown="handleMouseDown">
         <template v-if="isBuiltinTool">
             <div class="tool-call-log-line">
-                <span
-                    v-if="isBrowserBuiltinTool || isComputerUseBuiltinTool"
-                    class="tool-call-log-icon"
-                >
-                    <AppIcon
-                        :name="isComputerUseBuiltinTool ? 'cursor' : 'globe'"
-                        class="h-3.5 w-3.5"
-                    />
+                <span class="tool-call-log-icon">
+                    <AppIcon :name="builtinToolIconName" class="h-3.5 w-3.5" aria-hidden="true" />
                 </span>
                 <span v-if="isComputerUseBuiltinTool" class="tool-call-log-content">
                     {{ ` ${builtinVerbText}` }}
                 </span>
-                <span v-else-if="!isBrowserBuiltinTool" class="tool-call-log-verb">
+                <span
+                    v-else-if="!isBrowserBuiltinTool"
+                    class="tool-call-log-verb"
+                    :class="{ 't-text-shimmer': statusType === 'running' }"
+                >
                     {{ builtinVerbText }}
                 </span>
                 <span
@@ -54,6 +52,7 @@
                 <span
                     v-else-if="builtinSummaryText"
                     class="tool-call-log-content"
+                    :class="{ 't-text-shimmer': statusType === 'running' }"
                     :data-no-i18n="isBuiltinSummaryPayload ? 'true' : undefined"
                     :translate="isBuiltinSummaryPayload ? 'no' : undefined"
                 >
@@ -83,6 +82,7 @@
                         <div class="tool-call-title-row">
                             <span
                                 class="tool-call-label"
+                                :class="{ 't-text-shimmer': statusType === 'running' }"
                                 :data-no-i18n="isToolDisplayNamePayload ? 'true' : undefined"
                                 :translate="isToolDisplayNamePayload ? 'no' : undefined"
                                 v-text="toolDisplayName"
@@ -251,6 +251,17 @@
     });
     const isBrowserBuiltinTool = computed(() => builtinToolToken.value.startsWith('browser'));
     const isComputerUseBuiltinTool = computed(() => builtinToolToken.value === 'computeruse');
+    const builtinToolIconName = computed<'cursor' | 'globe' | 'wrench'>(() => {
+        if (isComputerUseBuiltinTool.value) {
+            return 'cursor';
+        }
+
+        if (isBrowserBuiltinTool.value) {
+            return 'globe';
+        }
+
+        return 'wrench';
+    });
     const computerUsePresentation = computed(() =>
         isComputerUseBuiltinTool.value
             ? buildComputerUsePresentation(props.toolCall.arguments ?? {}, props.toolCall.status)
